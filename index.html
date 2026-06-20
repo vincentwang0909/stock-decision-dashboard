@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stock Decision Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css?v=20260619b" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <button class="icon-btn" aria-label="Open menu">
+            <span></span><span></span><span></span>
+          </button>
+          <div>
+            <h1 id="appTitle">Stock Decision Dashboard</h1>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <div class="lang-switch" role="tablist" aria-label="Language">
+            <button class="lang-btn active" type="button" data-lang="en">English</button>
+            <button class="lang-btn" type="button" data-lang="zh">中文</button>
+          </div>
+          <div class="chip refresh-chip">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7a5 5 0 1 1-4.9 6H5.02A7 7 0 1 0 17.65 6.35Z"/></svg>
+            <span>Auto refresh every 30m</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="content">
+        <section class="grid-card rail-card stock-picker-card">
+          <div class="rail-head">
+            <h2 id="stocksTitle">Stocks</h2>
+            <form id="watchlistForm" class="watchlist-form stock-picker-form">
+              <label class="watchlist-input">
+                <span id="tickerInputLabel">Ticker</span>
+                <input id="tickerInput" type="text" placeholder="e.g. SHOP / 300657" maxlength="12" autocomplete="off" />
+              </label>
+              <button id="addStockButton" type="submit" class="watchlist-submit">Add Stock</button>
+            </form>
+            <div class="sort-rail" role="tablist" aria-label="Sort stocks">
+              <button class="sort-btn" type="button" data-sort-key="score" aria-label="Sort by signal mix">
+                <span id="sortMixLabel">AI Score</span><span class="sort-indicator">↕</span>
+              </button>
+              <button class="sort-btn" type="button" data-sort-key="action" aria-label="Sort by current action">
+                <span id="sortActionLabel">Current Action</span><span class="sort-indicator">↕</span>
+              </button>
+              <button class="sort-btn" type="button" data-sort-key="type" aria-label="Sort by stock type">
+                <span id="sortTypeLabel">Stock Type</span><span class="sort-indicator">↕</span>
+              </button>
+              <button class="sort-btn" type="button" data-sort-key="change" aria-label="Sort by day move">
+                <span id="sortChangeLabel">Day Move</span><span class="sort-indicator">↕</span>
+              </button>
+            </div>
+            <div class="filter-rail" role="tablist" aria-label="Filter stocks by market">
+              <button class="filter-btn active" type="button" data-market-filter="all">All</button>
+              <button class="filter-btn" type="button" data-market-filter="us">US</button>
+              <button class="filter-btn" type="button" data-market-filter="cn">A-shares</button>
+              <button class="filter-btn" type="button" data-market-filter="megaCap">Mega Cap</button>
+              <button class="filter-btn" type="button" data-market-filter="growth">Growth</button>
+              <button class="filter-btn" type="button" data-market-filter="speculative">Speculative</button>
+              <button class="filter-btn" type="button" data-market-filter="dividend">Dividend</button>
+              <button class="filter-btn" type="button" data-market-filter="value">Value</button>
+            </div>
+          </div>
+          <div id="stockList" class="stock-list stock-list-top" aria-label="Stocks in dashboard"></div>
+        </section>
+
+        <section class="grid-card hero-card" hidden>
+          <div class="hero-main">
+            <div class="hero-symbol" id="detailInitial">M</div>
+            <div class="hero-copy">
+              <h2 id="detailTicker">META</h2>
+              <p id="detailCompany" class="hero-company">Meta Platforms</p>
+              <p id="heroGuide" class="hero-guide">
+                <strong>Action</strong> = mid / long-term accumulation view.
+                <strong>Tactical</strong> = short-term support / resistance timing.
+                <strong>Signal Mix</strong> = indicator blend, not a direct buy rating.
+              </p>
+            </div>
+          </div>
+
+          <div class="hero-metrics">
+            <div class="mini-metric">
+              <span id="detailPriceLabel">Price</span>
+              <strong id="detailPrice">$566.98</strong>
+            </div>
+            <div class="mini-metric">
+              <span id="detailActionLabel">Action</span>
+              <strong id="detailAction">Hold</strong>
+            </div>
+            <div class="mini-metric">
+              <span id="detailMixLabel">Signal Mix</span>
+              <strong id="detailScore">47</strong>
+            </div>
+          </div>
+
+          <div class="hero-levels">
+            <div class="level-card">
+              <span>Support level</span>
+              <div id="detailSupport" class="level-list"></div>
+            </div>
+            <div class="level-card">
+              <span>Resistance level</span>
+              <div id="detailResistance" class="level-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="grid-card analysis-card" hidden>
+          <div class="analysis-head">
+            <div>
+              <h2 id="analysisTitle">Support / Resistance Analysis</h2>
+              <p id="analysisDesc">Tactical read only. Weighted by historical pivots, volume profile, moving averages, Fibonacci, and Bollinger bands.</p>
+            </div>
+            <div id="detailLevelJudgment" class="analysis-pill">Hold</div>
+          </div>
+
+          <div class="analysis-grid">
+            <div class="analysis-panel">
+              <div class="analysis-label">Current Price</div>
+              <strong id="detailLevelPrice">$0.00</strong>
+              <div class="analysis-row"><span>Support Strength</span><strong id="detailSupportStrength">—</strong></div>
+              <div class="analysis-row"><span>Resistance Strength</span><strong id="detailResistanceStrength">—</strong></div>
+              <div class="analysis-row"><span>Price to Support</span><strong id="detailSupportDistance">—</strong></div>
+              <div class="analysis-row"><span>Price to Resistance</span><strong id="detailResistanceDistance">—</strong></div>
+              <div class="analysis-row"><span>Risk / Reward</span><strong id="detailRiskReward">—</strong></div>
+            </div>
+
+            <div class="analysis-panel">
+              <div class="analysis-label">Reading</div>
+              <div class="analysis-stack">
+                <div class="analysis-row"><span>Best Support</span><strong id="detailBestSupport">—</strong></div>
+                <div class="analysis-row"><span>Best Resistance</span><strong id="detailBestResistance">—</strong></div>
+                <div class="analysis-row"><span>Support Gap</span><strong id="detailSupportGap">—</strong></div>
+                <div class="analysis-row"><span>Resistance Gap</span><strong id="detailResistanceGap">—</strong></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div id="signalGroups" class="signal-groups" hidden></div>
+
+        <section class="grid-card summary-card full-width" hidden>
+          <h2 id="howTitle">How the Signals Work</h2>
+          <p id="howBody"><strong>Action</strong> is the patient mid / long-term stance. <strong>Tactical Buy / Hold / Sell</strong> is the short-term level read. <strong>Signal Mix</strong> is just the blended indicator balance and can stay high even when the stock is not yet in a good ambush entry zone.</p>
+          <p id="howSmall" class="small">Examples: a stock can show high Signal Mix because the trend is healthy, while Action still stays Hold if price is too extended from support.</p>
+        </section>
+      </main>
+    </div>
+
+    <div id="detailModal" class="detail-modal" hidden>
+      <div class="detail-backdrop" data-close-modal="true"></div>
+      <section class="detail-sheet" role="dialog" aria-modal="true" aria-labelledby="modalTicker">
+        <button id="detailModalClose" class="detail-close" type="button" aria-label="Close detail">×</button>
+        <div class="detail-sheet-header">
+          <div>
+            <h2 id="modalTicker">META</h2>
+            <p id="modalCompany" class="detail-sheet-company">Meta</p>
+            <p id="modalExchange" class="detail-sheet-exchange">NASDAQ</p>
+          </div>
+          <div class="detail-sheet-stamp" id="modalUpdatedAt">Updated just now</div>
+        </div>
+
+        <div id="modalStrategyRow" class="detail-sheet-strategies"></div>
+
+        <div class="detail-stat-grid" id="detailStatGrid"></div>
+
+        <div class="detail-sections" id="detailSections"></div>
+      </section>
+    </div>
+
+    <script src="./main.js?v=20260619b"></script>
+  </body>
+</html>
