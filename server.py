@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError, as_completed
 from email.utils import parsedate_to_datetime
 from html import unescape
 from datetime import datetime, timedelta, timezone
@@ -72,6 +73,11 @@ PORT = int(os.environ.get("PORT", "4173"))
 HOST = os.environ.get("HOST", "127.0.0.1")
 CACHE_SECONDS = 60 * 60
 QUOTE_FETCH_TIMEOUT_SECONDS = 12
+MARKET_CACHE_TTL_SECONDS = int(os.environ.get("MARKET_CACHE_TTL_SECONDS", str(60 * 60)))
+MARKET_DATA_MAX_TICKERS = int(os.environ.get("MARKET_DATA_MAX_TICKERS", "25"))
+MARKET_DATA_MAX_WORKERS = int(os.environ.get("MARKET_DATA_MAX_WORKERS", "3"))
+MARKET_DATA_ROUTE_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_ROUTE_TIMEOUT_SECONDS", "25"))
+MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS", "8"))
 A_SHARE_METADATA_TIMEOUT_SECONDS = 2.5
 A_SHARE_PRIMARY_PRICE_TIMEOUT_SECONDS = 4.0
 A_SHARE_SECONDARY_PRICE_TIMEOUT_SECONDS = 4.5
@@ -84,6 +90,7 @@ COMPANY_NEWS_CACHE = {}
 MARKET_CONTEXT_CACHE = {"value": None, "expiresAt": 0}
 FEAR_GREED_CACHE = {"value": None, "expiresAt": 0}
 WATCHLIST_DB_PATH = os.environ.get("WATCHLIST_DB_PATH", "data/watchlist.db")
+MARKET_CACHE_DIR = os.environ.get("MARKET_CACHE_DIR", os.path.join("data", "cache"))
 MARKET_EVENTS_FILE = os.environ.get("MARKET_EVENTS_FILE", os.path.join(ROOT, "market_events.json"))
 WATCHLIST_LOCK = threading.Lock()
 QUOTE_FETCH_LOCK = threading.Lock()
@@ -3388,184 +3395,410 @@ def get_cached_quote(ticker):
             return build_unavailable_quote(ticker, str(exc))
 
 
-def build_market_data_payload(tickers):
-    quotes = {}
-    for ticker in tickers:
-        try:
-            quotes[ticker] = get_cached_quote(ticker)
-        except Exception as exc:
-            quotes[ticker] = {
-                "price": None,
-                "previousClose": None,
-                "change": None,
-                "changePercent": None,
-                "updatedAt": None,
-                "symbol": resolve_market_symbol(ticker),
-                "shortName": None,
-                "longName": None,
-                "exchangeName": None,
-                "trailingPE": None,
-                "forwardPE": None,
-                "marketCap": None,
-                "metadata": {
-                    "sector": None,
-                    "industry": None,
-                    "beta": None,
-                    "dividendYield": None,
-                    "payoutRatio": None,
-                    "enterpriseToEbitda": None,
-                    "priceToSalesTrailing12Months": None,
-                    "enterpriseToRevenue": None,
-                    "operatingMargins": None,
-                    "grossMargins": None,
-                    "returnOnEquity": None,
-                    "debtToEquity": None,
-                    "currentRatio": None,
-                    "quickRatio": None,
-                    "freeCashflow": None,
-                    "totalCash": None,
-                    "totalDebt": None,
-                    "capex": None,
-                    "businessSummary": None,
-                    "ipoDate": None,
-                    "floatShares": None,
-                    "sharesOutstanding": None,
-                },
-                "optionsMarket": build_unavailable_options_payload(str(exc), market="cn" if is_a_share_ticker(ticker) else "us"),
-                "history": {"timestamps": [], "closes": [], "highs": [], "lows": [], "volumes": []},
-                "error": str(exc),
-            }
+def ensure_market_cache_dir():
+    if MARKET_CACHE_DIR:
+        os.makedirs(MARKET_CACHE_DIR, exist_ok=True)
 
-    for ticker, quote in quotes.items():
-        try:
-            quote["companyNews"] = get_cached_company_news(ticker, quote)
-        except Exception as exc:
-            quote["companyNews"] = {
-                "sentiment": None,
-                "score": 50,
-                "summary": f"Company-news feed unavailable: {exc}",
-                "key_points": [],
-                "latest_news": [],
-                "bullish_news": [],
-                "bearish_news": [],
-                "key_catalysts": [],
-                "risk_events": [],
-                "source_info": build_source_info(
-                    "Data unavailable",
-                    missing_source="Google News RSS / Yahoo Finance",
-                    suggested_source="Google News RSS / Yahoo Finance / FMP / Polygon",
-                    source_name="Company News Feed",
-                ),
-            }
 
+def market_cache_path(ticker):
+    safe_ticker = re.sub(r"[^A-Z0-9._-]", "_", normalize_ticker_input(ticker))
+    return os.path.join(MARKET_CACHE_DIR, f"{safe_ticker}.json")
+
+
+def parse_iso_datetime(value):
+    if not value:
+        return None
     try:
-        market_context = get_cached_market_context()
-    except Exception as exc:
-        market_context = {
-            "macro": {
-                "vix": None,
-                "fear_greed": None,
-                "treasury_yield": None,
-                "fed_funds_rate": None,
-                "fomc_rate_path": None,
-                "score": 50,
-                "summary": f"Macro feed unavailable: {exc}",
-                "source_info": {
-                    "vix": build_source_info("Data unavailable", "Cboe / FRED / Yahoo Finance", "Cboe / FRED VIXCLS / Yahoo Finance", "Macro Feed"),
-                    "fear_greed": build_source_info("Data unavailable", "CNN Fear & Greed", "CNN Fear & Greed direct endpoint / CNN scraper / RapidAPI / custom in-house sentiment composite.", "Fear & Greed Feed"),
-                    "treasury_yield": build_source_info("Data unavailable", "FRED / Yahoo Finance ^TNX", "FRED / Yahoo Finance ^TNX / Alpha Vantage", "Macro Feed"),
-                    "fed_funds_rate": build_source_info("Data unavailable", "FRED DFF / FEDFUNDS", "FRED DFF / FEDFUNDS", "FRED"),
-                    "fomc_rate_path": build_source_info("Data unavailable", "Federal Reserve / FRED", "Federal Reserve FOMC / FRED DFF", "Federal Reserve / FRED"),
-                    "market_events": build_source_info("Live", "Economic calendar / market_events.json", "FMP Economic Calendar / Alpha Vantage / market_events.json", "market_events.json"),
-                    "equity_trend": build_source_info("Data unavailable", "Yahoo Finance SPY / QQQ", "Yahoo Finance SPY / QQQ", "Yahoo Finance"),
-                },
-            },
-            "market_context": {
-                "score": 50,
-                "regime": "neutral",
-                "confidence": 45,
-                "vix": {"value": None, "change_5d": None, "change_20d": None, "trend": "neutral", "impact": "Data unavailable"},
-                "fear_greed": {"value": None, "label": None, "trend": None, "impact": "Data unavailable"},
-                "ten_year_yield": {"value": None, "change_5d_bps": None, "change_20d_bps": None, "trend": "neutral", "impact": "Data unavailable"},
-                "fed_event": {
-                    "active": False,
-                    "type": None,
-                    "title": None,
-                    "impact": None,
-                    "severity": None,
-                    "summary": f"Fed / rate event feed unavailable: {exc}",
-                    "date": None,
-                    "source": "market_events.json",
-                },
-                "equity_trend": {
-                    "spy": {"symbol": "SPY", "label": "SPY", "value": None, "change_5d_pct": None, "change_20d_pct": None, "trend": "neutral", "impact": "Data unavailable"},
-                    "qqq": {"symbol": "QQQ", "label": "QQQ", "value": None, "change_5d_pct": None, "change_20d_pct": None, "trend": "neutral", "impact": "Data unavailable"},
-                    "summary": f"Equity trend feed unavailable: {exc}",
-                    "impact": "neutral",
-                },
-                "summary": f"Market context feed unavailable: {exc}",
-                "breakdown": {
-                    "base": 50,
-                    "vix": 0,
-                    "vix_momentum": 0,
-                    "fear_greed_short": 0,
-                    "fear_greed_long": 0,
-                    "ten_year_yield": 0,
-                    "fed_event_short": 0,
-                    "fed_event_mid": 0,
-                    "fed_event_long": 0,
-                    "equity_trend": 0,
-                    "macro_news": 0,
-                    "final_score": 50,
-                },
-                "strategy_impact": {
-                    "buy_stock": "Data unavailable",
-                    "sell_put": "Data unavailable",
-                    "covered_call": "Data unavailable",
-                    "wait_no_action": "Data unavailable",
-                },
-                "source_info": {
-                    "vix": build_source_info("Data unavailable", "Cboe / FRED / Yahoo Finance", "FRED VIXCLS / Yahoo Finance ^VIX / Cboe", "Macro Feed"),
-                    "fear_greed": build_source_info("Data unavailable", "CNN Fear & Greed", "CNN Fear & Greed direct endpoint / CNN scraper / RapidAPI / custom in-house sentiment composite.", "Fear & Greed Feed"),
-                    "ten_year_yield": build_source_info("Data unavailable", "FRED DGS10 / Yahoo Finance ^TNX", "FRED DGS10 / Yahoo Finance ^TNX / Alpha Vantage", "Macro Feed"),
-                    "fed_event": build_source_info("Live", "Economic calendar / market_events.json", "FMP Economic Calendar / Alpha Vantage / market_events.json", "market_events.json"),
-                    "equity_trend": build_source_info("Data unavailable", "Yahoo Finance SPY / QQQ", "Yahoo Finance SPY / QQQ", "Yahoo Finance"),
-                },
-            },
-            "broad_macro_news": {
-                "score": 50,
-                "sentiment": None,
-                "major_events": [],
-                "summary": f"Broad macro-news feed unavailable: {exc}",
-                "source_info": build_source_info("Data unavailable", "Broad market news feed", "Google News RSS / Reuters / FMP Market News", "Broad Market News Feed"),
-            },
-        }
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
 
-    payload = {
-        "source": "yfinance-akshare",
-        "quotes": quotes,
-        "marketContext": market_context,
+
+def read_market_cache(ticker):
+    try:
+        path = market_cache_path(ticker)
+        if not os.path.exists(path):
+            return None
+        with open(path, "r", encoding="utf-8") as handle:
+            cached = json.load(handle)
+        updated_at = cached.get("updated_at") or cached.get("updatedAt")
+        updated_dt = parse_iso_datetime(updated_at)
+        cached["cache_age_seconds"] = (
+            max(0, (datetime.now(timezone.utc) - updated_dt).total_seconds())
+            if updated_dt else None
+        )
+        return cached
+    except Exception:
+        traceback.print_exc()
+        return None
+
+
+def is_market_cache_fresh(cached):
+    if not cached:
+        return False
+    age_seconds = cached.get("cache_age_seconds")
+    return age_seconds is not None and age_seconds <= MARKET_CACHE_TTL_SECONDS
+
+
+def normalize_cached_market_quote(ticker, cached, stale=False):
+    quote = cached.get("quote") if isinstance(cached, dict) else None
+    if not isinstance(quote, dict):
+        quote = cached if isinstance(cached, dict) else {}
+    normalized = quote.copy()
+    normalized["ticker"] = normalize_ticker_input(ticker)
+    normalized["market_type"] = infer_market_type(normalized["ticker"])
+    normalized["quote_status"] = "stale" if stale else normalized.get("quote_status") or "available"
+    normalized["quote_source"] = normalized.get("quote_source") or "cache"
+    normalized["stale"] = bool(stale)
+    normalized["dataStaleness"] = "stale" if stale else normalized.get("dataStaleness") or "fresh"
+    normalized["marketStatus"] = normalized.get("marketStatus") or ("closed" if stale else "open")
+    normalized["cache_age_seconds"] = cached.get("cache_age_seconds") if isinstance(cached, dict) else None
+    normalized["cache_updated_at"] = cached.get("updated_at") if isinstance(cached, dict) else None
+    normalized["last_quote_time"] = normalized.get("updatedAt") or normalized.get("last_successful_update")
+    return normalized
+
+
+def write_market_cache(ticker, quote):
+    try:
+        ensure_market_cache_dir()
+        updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with open(market_cache_path(ticker), "w", encoding="utf-8") as handle:
+            json.dump({
+                "ticker": normalize_ticker_input(ticker),
+                "market_type": infer_market_type(ticker),
+                "quote": quote,
+                "updated_at": updated_at,
+            }, handle, ensure_ascii=False)
+    except Exception:
+        traceback.print_exc()
+
+
+def unavailable_company_news(reason="Company-news feed skipped for fast market-data response"):
+    return {
+        "sentiment": None,
+        "score": 50,
+        "summary": reason,
+        "key_points": [],
+        "latest_news": [],
+        "bullish_news": [],
+        "bearish_news": [],
+        "key_catalysts": [],
+        "risk_events": [],
+        "source_info": build_source_info(
+            "Data unavailable",
+            missing_source="Google News RSS / Yahoo Finance",
+            suggested_source="Google News RSS / Yahoo Finance / FMP / Polygon",
+            source_name="Company News Feed",
+        ),
     }
-    payload["fetchedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def build_unavailable_market_context(reason="Market context skipped for fast market-data response"):
+    source_info = {
+        "vix": build_source_info("Data unavailable", "Cboe / FRED / Yahoo Finance", "FRED VIXCLS / Yahoo Finance ^VIX / Cboe", "Macro Feed"),
+        "fear_greed": build_source_info("Data unavailable", "CNN Fear & Greed", "CNN Fear & Greed direct endpoint / CNN scraper / RapidAPI / custom in-house sentiment composite.", "Fear & Greed Feed"),
+        "ten_year_yield": build_source_info("Data unavailable", "FRED DGS10 / Yahoo Finance ^TNX", "FRED DGS10 / Yahoo Finance ^TNX / Alpha Vantage", "Macro Feed"),
+        "fed_event": build_source_info("Data unavailable", "Economic calendar / market_events.json", "FMP Economic Calendar / Alpha Vantage / market_events.json", "market_events.json"),
+        "equity_trend": build_source_info("Data unavailable", "Yahoo Finance SPY / QQQ", "Yahoo Finance SPY / QQQ", "Yahoo Finance"),
+    }
+    return {
+        "macro": {
+            "vix": None,
+            "fear_greed": None,
+            "treasury_yield": None,
+            "score": 50,
+            "summary": reason,
+            "source_info": source_info,
+        },
+        "market_context": {
+            "score": 50,
+            "regime": "neutral",
+            "confidence": 35,
+            "vix": {"value": None, "change_5d": None, "change_20d": None, "trend": "neutral", "impact": "Data unavailable"},
+            "fear_greed": {"value": None, "label": None, "trend": None, "impact": "Data unavailable"},
+            "ten_year_yield": {"value": None, "change_5d_bps": None, "change_20d_bps": None, "trend": "neutral", "impact": "Data unavailable"},
+            "equity_trend": {
+                "spy": {"symbol": "SPY", "label": "SPY", "value": None, "change_5d_pct": None, "change_20d_pct": None, "trend": "neutral", "impact": "Data unavailable"},
+                "qqq": {"symbol": "QQQ", "label": "QQQ", "value": None, "change_5d_pct": None, "change_20d_pct": None, "trend": "neutral", "impact": "Data unavailable"},
+                "summary": reason,
+                "impact": "neutral",
+            },
+            "summary": reason,
+            "breakdown": {"base": 50, "final_score": 50},
+            "strategy_impact": {},
+            "source_info": source_info,
+        },
+        "broad_macro_news": {
+            "score": 50,
+            "sentiment": None,
+            "major_events": [],
+            "summary": reason,
+            "source_info": build_source_info("Data unavailable", "Broad market news feed", "Google News RSS / Reuters / FMP Market News", "Broad Market News Feed"),
+        },
+    }
+
+
+def get_lightweight_market_context():
+    cached = MARKET_CONTEXT_CACHE.get("value")
+    if cached:
+        return cached
+    return build_unavailable_market_context()
+
+
+def build_unavailable_or_cached_quote(ticker, error_message, cached=None):
+    if cached:
+        quote = normalize_cached_market_quote(ticker, cached, stale=True)
+        quote["error"] = error_message
+        quote["quoteWarning"] = error_message
+        return quote, {"ticker": normalize_ticker_input(ticker), "error": error_message, "used_cache": True}
+    quote = build_unavailable_quote(ticker, error_message)
+    quote["ticker"] = normalize_ticker_input(ticker)
+    quote["market_type"] = infer_market_type(ticker)
+    quote["quote_status"] = "unavailable"
+    quote["quote_source"] = None
+    quote["last_quote_time"] = None
+    quote["companyNews"] = unavailable_company_news()
+    return quote, {"ticker": normalize_ticker_input(ticker), "error": error_message, "used_cache": False}
+
+
+def fetch_market_quote_for_ticker(ticker, force=False):
+    ticker = normalize_ticker_input(ticker)
+    attempts = []
+    cached = read_market_cache(ticker)
+    if cached:
+        attempts.append({
+            "source": "cache",
+            "success": True,
+            "price": ((cached.get("quote") or {}).get("price") if isinstance(cached.get("quote"), dict) else cached.get("price")),
+            "age_minutes": round((cached.get("cache_age_seconds") or 0) / 60, 2) if cached.get("cache_age_seconds") is not None else None,
+            "fresh": is_market_cache_fresh(cached),
+        })
+        if not force and is_market_cache_fresh(cached):
+            quote = normalize_cached_market_quote(ticker, cached, stale=False)
+            quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
+            return quote, None, True, attempts
+
+    source_name = "akshare" if is_a_share_ticker(ticker) else "yfinance"
+    try:
+        quote = fetch_quote_with_timeout(
+            ticker,
+            timeout_seconds=MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS,
+            include_options=True,
+        )
+        if quote.get("price") is None:
+            raise ValueError("Live quote returned no price")
+        quote["ticker"] = ticker
+        quote["market_type"] = infer_market_type(ticker)
+        quote["quote_status"] = "available"
+        quote["quote_source"] = source_name
+        quote["stale"] = False
+        quote["dataStaleness"] = quote.get("dataStaleness") or "fresh"
+        quote["last_quote_time"] = quote.get("updatedAt") or quote.get("last_successful_update")
+        quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
+        CACHE[ticker] = {"value": quote, "expiresAt": time.time() + CACHE_SECONDS}
+        write_market_cache(ticker, quote)
+        attempts.append({"source": source_name, "success": True, "price": quote.get("price"), "error": None})
+        return quote, None, False, attempts
+    except Exception as exc:
+        error_message = str(exc)
+        attempts.append({"source": source_name, "success": False, "price": None, "error": error_message})
+        if not is_a_share_ticker(ticker):
+            try:
+                quote = fetch_quote_with_timeout(
+                    ticker,
+                    timeout_seconds=max(1, min(5, MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS)),
+                    include_options=False,
+                )
+                if quote.get("price") is None:
+                    raise ValueError("Live quote without options returned no price")
+                quote["optionsMarket"] = quote.get("optionsMarket") or build_unavailable_options_payload(
+                    "Quote loaded but options snapshot is unavailable",
+                    market="us",
+                )
+                quote["ticker"] = ticker
+                quote["market_type"] = infer_market_type(ticker)
+                quote["quote_status"] = "available"
+                quote["quote_source"] = f"{source_name}:quote_only"
+                quote["stale"] = False
+                quote["dataStaleness"] = quote.get("dataStaleness") or "fresh"
+                quote["last_quote_time"] = quote.get("updatedAt") or quote.get("last_successful_update")
+                quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
+                quote["quoteWarning"] = error_message
+                CACHE[ticker] = {"value": quote, "expiresAt": time.time() + CACHE_SECONDS}
+                write_market_cache(ticker, quote)
+                attempts.append({"source": f"{source_name}:quote_only", "success": True, "price": quote.get("price"), "error": None})
+                return quote, None, False, attempts
+            except Exception as fallback_exc:
+                error_message = f"{error_message}; quote-only fallback failed: {fallback_exc}"
+                attempts.append({"source": f"{source_name}:quote_only", "success": False, "price": None, "error": str(fallback_exc)})
+        quote, failure = build_unavailable_or_cached_quote(ticker, error_message, cached=cached)
+        quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
+        return quote, failure, bool(cached), attempts
+
+
+def quote_to_market_item(ticker, quote):
+    last_quote_time = None
+    if isinstance(quote, dict):
+        last_quote_time = quote.get("last_quote_time") or quote.get("updatedAt")
+    return {
+        "ticker": normalize_ticker_input(ticker),
+        "market_type": infer_market_type(ticker),
+        "price": quote.get("price") if isinstance(quote, dict) else None,
+        "quote_status": quote.get("quote_status") if isinstance(quote, dict) else "unavailable",
+        "quote_source": quote.get("quote_source") if isinstance(quote, dict) else None,
+        "last_quote_time": last_quote_time,
+        "analysis": quote if isinstance(quote, dict) else {},
+        "error": quote.get("error") if isinstance(quote, dict) else "Quote unavailable",
+    }
+
+
+def build_market_data_payload(tickers, force=False):
+    normalized_tickers = []
+    seen = set()
+    for raw_ticker in tickers:
+        ticker = normalize_ticker_input(raw_ticker)
+        if ticker and ticker not in seen:
+            normalized_tickers.append(ticker)
+            seen.add(ticker)
+    requested_count = len(normalized_tickers)
+    if len(normalized_tickers) > MARKET_DATA_MAX_TICKERS:
+        normalized_tickers = normalized_tickers[:MARKET_DATA_MAX_TICKERS]
+
+    quotes = {}
+    failed = []
+    used_cache_count = 0
+    live_tickers = []
+    allow_a_share_live = bool(force) and len(normalized_tickers) <= 3
+
+    for ticker in normalized_tickers:
+        cached = read_market_cache(ticker)
+        if cached and not force and is_market_cache_fresh(cached):
+            quote = normalize_cached_market_quote(ticker, cached, stale=False)
+            quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
+            quotes[ticker] = quote
+            used_cache_count += 1
+        elif is_a_share_ticker(ticker) and not allow_a_share_live:
+            quote, failure = build_unavailable_or_cached_quote(
+                ticker,
+                "A-share live quote skipped during bulk market-data refresh; use cache or debug single ticker",
+                cached=cached,
+            )
+            quotes[ticker] = quote
+            if cached:
+                used_cache_count += 1
+            if failure:
+                failed.append(failure)
+        else:
+            live_tickers.append(ticker)
+
+    executor = None
+    futures = {}
+    completed = set()
+    if live_tickers:
+        executor = ThreadPoolExecutor(max_workers=max(1, MARKET_DATA_MAX_WORKERS))
+        futures = {
+            executor.submit(fetch_market_quote_for_ticker, ticker, force): ticker
+            for ticker in live_tickers
+        }
+        try:
+            for future in as_completed(futures, timeout=MARKET_DATA_ROUTE_TIMEOUT_SECONDS):
+                ticker = futures[future]
+                completed.add(ticker)
+                try:
+                    quote, failure, used_cache, _attempts = future.result(timeout=1)
+                except Exception as exc:
+                    traceback.print_exc()
+                    cached = read_market_cache(ticker)
+                    quote, failure = build_unavailable_or_cached_quote(ticker, str(exc), cached=cached)
+                    used_cache = bool(cached)
+                quotes[ticker] = quote
+                if used_cache:
+                    used_cache_count += 1
+                if failure:
+                    failed.append(failure)
+        except FuturesTimeoutError:
+            pass
+        finally:
+            for future, ticker in futures.items():
+                if ticker in completed:
+                    continue
+                future.cancel()
+                cached = read_market_cache(ticker)
+                quote, failure = build_unavailable_or_cached_quote(
+                    ticker,
+                    f"Market-data route timed out before {ticker} completed",
+                    cached=cached,
+                )
+                quotes[ticker] = quote
+                if cached:
+                    used_cache_count += 1
+                if failure:
+                    failed.append(failure)
+            if executor:
+                executor.shutdown(wait=False, cancel_futures=True)
+
+    for ticker in normalized_tickers:
+        if ticker not in quotes:
+            quote, failure = build_unavailable_or_cached_quote(ticker, "Quote unavailable")
+            quotes[ticker] = quote
+            failed.append(failure)
+
+    market_context = get_lightweight_market_context()
+    fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     quote_times = [
         quote.get("updatedAt")
         for quote in quotes.values()
         if isinstance(quote, dict) and quote.get("updatedAt")
     ]
-    payload["updatedAt"] = max(quote_times) if quote_times else datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    updated_at = max(quote_times) if quote_times else fetched_at
     stale_quote_count = sum(
         1 for quote in quotes.values()
-        if isinstance(quote, dict) and (quote.get("stale") or quote.get("dataStaleness") == "stale")
+        if isinstance(quote, dict) and (
+            quote.get("stale")
+            or quote.get("dataStaleness") == "stale"
+            or quote.get("quote_status") == "stale"
+        )
     )
-    next_refresh_dt = datetime.fromisoformat(payload["fetchedAt"].replace("Z", "+00:00")) + timedelta(minutes=60)
-    payload["refresh_status"] = {
-        "refresh_interval_minutes": 60,
-        "last_dashboard_refresh": payload["fetchedAt"],
-        "next_dashboard_refresh": next_refresh_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "has_stale_quotes": stale_quote_count > 0,
-        "stale_quote_count": stale_quote_count,
+    unavailable_count = sum(
+        1 for quote in quotes.values()
+        if isinstance(quote, dict) and quote.get("quote_status") == "unavailable"
+    )
+    next_refresh_dt = datetime.fromisoformat(fetched_at.replace("Z", "+00:00")) + timedelta(minutes=60)
+    items = [quote_to_market_item(ticker, quotes[ticker]) for ticker in normalized_tickers]
+    success_count = sum(
+        1 for quote in quotes.values()
+        if isinstance(quote, dict) and quote.get("price") is not None
+    )
+
+    warning = None
+    if requested_count > len(normalized_tickers):
+        warning = f"Ticker list truncated to {MARKET_DATA_MAX_TICKERS} symbols"
+
+    return {
+        "success": success_count > 0,
+        "source": "cache-first-yfinance-akshare",
+        "quotes": quotes,
+        "items": items,
+        "data": quotes,
+        "failed": failed,
+        "warning": warning,
+        "marketContext": market_context,
+        "fetchedAt": fetched_at,
+        "updatedAt": updated_at,
+        "refresh_status": {
+            "refresh_interval_minutes": 60,
+            "last_dashboard_refresh": fetched_at,
+            "next_dashboard_refresh": next_refresh_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "total_tickers": len(normalized_tickers),
+            "success_count": success_count,
+            "failed_count": len(failed),
+            "has_stale_quotes": stale_quote_count > 0 or unavailable_count > 0,
+            "stale_quote_count": stale_quote_count,
+            "unavailable_quote_count": unavailable_count,
+            "used_cache_count": used_cache_count,
+            "force_refresh": bool(force),
+        },
     }
-    return payload
 
 
 def watchlist_response_payload(items):
@@ -3900,12 +4133,68 @@ def add_no_store_headers(response):
 
 @app.route("/api/market-data")
 def api_market_data():
-    tickers = [
-        normalize_ticker_input(ticker)
-        for ticker in request.args.get("tickers", "").split(",")
-        if normalize_ticker_input(ticker)
-    ]
-    return jsonify(build_market_data_payload(tickers))
+    try:
+        tickers = [
+            normalize_ticker_input(ticker)
+            for ticker in request.args.get("tickers", "").split(",")
+            if normalize_ticker_input(ticker)
+        ]
+        force = str(request.args.get("force", "")).strip().lower() in {"1", "true", "yes", "y"}
+        payload = build_market_data_payload(tickers, force=force)
+        status_code = 200 if payload.get("success") or payload.get("items") else 503
+        return jsonify(payload), status_code
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "error": str(exc),
+            "items": [],
+            "data": {},
+            "quotes": {},
+            "failed": [],
+            "refresh_status": {
+                "refresh_interval_minutes": 60,
+                "total_tickers": 0,
+                "success_count": 0,
+                "failed_count": 0,
+                "has_stale_quotes": False,
+                "stale_quote_count": 0,
+                "used_cache_count": 0,
+            },
+        }), 500
+
+
+@app.route("/api/debug/quote/<path:ticker>")
+def api_debug_quote(ticker):
+    normalized = normalize_ticker_input(ticker)
+    if not normalized:
+        return jsonify({"success": False, "error": "Ticker is required"}), 400
+    try:
+        cached = read_market_cache(normalized)
+        quote, failure, _used_cache, attempts = fetch_market_quote_for_ticker(normalized, force=True)
+        return jsonify({
+            "success": quote.get("price") is not None,
+            "ticker": normalized,
+            "market_type": infer_market_type(normalized),
+            "quote_source_attempts": attempts,
+            "cache_path": market_cache_path(normalized),
+            "cache_exists": bool(cached),
+            "final_price": quote.get("price"),
+            "quote_status": quote.get("quote_status"),
+            "quote_source": quote.get("quote_source"),
+            "error": failure.get("error") if failure else quote.get("error"),
+        })
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "ticker": normalized,
+            "market_type": infer_market_type(normalized),
+            "quote_source_attempts": [],
+            "final_price": None,
+            "quote_status": "unavailable",
+            "error": str(exc),
+        }), 500
 
 
 @app.route("/api/symbol-search")
@@ -3934,6 +4223,8 @@ def api_health():
         "watchlist_db_exists": os.path.exists(WATCHLIST_DB_PATH),
         "watchlist_db_dir": db_dir,
         "watchlist_db_dir_exists": os.path.isdir(db_dir) if db_dir else True,
+        "market_cache_dir": MARKET_CACHE_DIR,
+        "market_cache_dir_exists": os.path.isdir(MARKET_CACHE_DIR) if MARKET_CACHE_DIR else False,
         "cwd": os.getcwd(),
         "python_version": sys.version,
         "render_service": bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID") or os.environ.get("RENDER_EXTERNAL_URL")),

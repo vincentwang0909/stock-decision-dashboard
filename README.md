@@ -15,10 +15,11 @@ Open:
 http://localhost:4173
 ```
 
-Local watchlist database:
+Local watchlist database and market-data cache:
 
 ```text
 data/watchlist.db
+data/cache/
 ```
 
 ## Render Deployment
@@ -36,22 +37,33 @@ pip install -r requirements.txt
 6. Start Command:
 
 ```bash
-gunicorn server:app
+gunicorn --timeout 120 --workers 1 server:app
 ```
 
 7. Environment Variables:
 
 ```text
 WATCHLIST_DB_PATH=/var/data/watchlist.db
+MARKET_CACHE_DIR=/var/data/cache
 ```
 
-8. To persist the shared watchlist across redeploys/restarts, add a Render Disk:
+8. To persist the shared watchlist and market-data cache across redeploys/restarts, add a Render Disk:
 
 ```text
 Mount Path: /var/data
 ```
 
-If you do not attach a persistent disk, the default SQLite database can still work, but the watchlist may be lost after redeploys or restarts.
+If you do not attach a persistent disk, the default SQLite database and market-data cache can still work, but they may be lost after redeploys or restarts.
+
+## Market Data API
+
+```text
+GET /api/market-data?tickers=NVDA,MSFT
+GET /api/market-data?tickers=NVDA,MSFT&force=true
+GET /api/debug/quote/NVDA
+```
+
+`/api/market-data` is cache-first. The `_refresh` query string is only used to bypass browser cache; it does not force a live quote refresh. Use `force=true` only for a manual refresh.
 
 ## Shared Watchlist API
 

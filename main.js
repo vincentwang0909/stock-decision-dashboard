@@ -9289,7 +9289,11 @@ function applySnapshot(snapshot, shouldPersist = true) {
   if (shouldPersist) persistSnapshot(snapshot);
   render();
 
-  setRefreshChip(refreshChipText(snapshot));
+  const failedCount = Array.isArray(snapshot.failed) ? snapshot.failed.length : 0;
+  const partialWarning = failedCount
+    ? (currentLanguage === "zh" ? "部分行情暂不可用，已显示缓存数据" : "Some quotes unavailable; cached data shown")
+    : "";
+  setRefreshChip(partialWarning ? `${refreshChipText(snapshot)} • ${partialWarning}` : refreshChipText(snapshot));
 }
 
 async function refreshSnapshot({ force = false } = {}) {
@@ -9303,7 +9307,8 @@ async function refreshSnapshot({ force = false } = {}) {
   }
 
   const symbols = tickerRows.map((row) => row.ticker).join(",");
-  const url = `${API_URL}?tickers=${encodeURIComponent(symbols)}&_refresh=${Date.now()}`;
+  const forceParam = force ? "&force=true" : "";
+  const url = `${API_URL}?tickers=${encodeURIComponent(symbols)}&_refresh=${Date.now()}${forceParam}`;
   refreshRequestInFlight = true;
   setRefreshChipForAttempt({ stale: Boolean(currentSnapshot), message: t("refreshing") });
   updateManualRefreshButton();
