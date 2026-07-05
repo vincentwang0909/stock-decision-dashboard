@@ -1,3 +1,8 @@
+Flask
+gunicorn
+flask-cors
+requests
+numpy
 yfinance
 akshare
 pandas

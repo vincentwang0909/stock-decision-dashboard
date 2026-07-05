@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css?v=20260619b" />
+    <link rel="stylesheet" href="./styles.css?v=20260702c" />
   </head>
   <body>
     <div class="shell">
@@ -26,9 +26,12 @@
             <button class="lang-btn active" type="button" data-lang="en">English</button>
             <button class="lang-btn" type="button" data-lang="zh">中文</button>
           </div>
-          <div class="chip refresh-chip">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7a5 5 0 1 1-4.9 6H5.02A7 7 0 1 0 17.65 6.35Z"/></svg>
-            <span>Auto refresh every 30m</span>
+          <div class="refresh-controls">
+            <div class="chip refresh-chip">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7a5 5 0 1 1-4.9 6H5.02A7 7 0 1 0 17.65 6.35Z"/></svg>
+              <span>Auto refresh every 1 hour</span>
+            </div>
+            <button id="manualRefreshButton" class="manual-refresh-btn" type="button">Refresh Now</button>
           </div>
         </div>
       </header>
@@ -37,19 +40,32 @@
         <section class="grid-card rail-card stock-picker-card">
           <div class="rail-head">
             <h2 id="stocksTitle">Stocks</h2>
+            <p id="sharedWatchlistHint" class="shared-watchlist-hint">Shared Watchlist: everyone viewing this Dashboard sees the same stock list.</p>
+            <p id="watchlistSyncWarning" class="watchlist-sync-warning" hidden>Shared list sync failed. Showing cached data.</p>
             <form id="watchlistForm" class="watchlist-form stock-picker-form">
               <label class="watchlist-input">
-                <span id="tickerInputLabel">Ticker</span>
-                <input id="tickerInput" type="text" placeholder="e.g. SHOP / 300657" maxlength="12" autocomplete="off" />
+                <span id="tickerInputLabel">Search</span>
+                <input id="tickerInput" type="text" placeholder="e.g. SHOP / 300657" maxlength="48" autocomplete="off" />
+                <div id="symbolSearchMenu" class="symbol-search-menu" hidden></div>
+                <div id="symbolSearchHint" class="symbol-search-hint"></div>
               </label>
-              <button id="addStockButton" type="submit" class="watchlist-submit">Add Stock</button>
+              <button id="addStockButton" type="submit" class="watchlist-submit" disabled>Add Selected</button>
             </form>
             <div class="sort-rail" role="tablist" aria-label="Sort stocks">
               <button class="sort-btn" type="button" data-sort-key="score" aria-label="Sort by signal mix">
-                <span id="sortMixLabel">AI Score</span><span class="sort-indicator">↕</span>
+                <span id="sortMixLabel">Overall AI Score</span><span class="sort-indicator">↕</span>
               </button>
-              <button class="sort-btn" type="button" data-sort-key="action" aria-label="Sort by current action">
-                <span id="sortActionLabel">Current Action</span><span class="sort-indicator">↕</span>
+              <button class="sort-btn" type="button" data-sort-key="shortScore" aria-label="Sort by short-term score">
+                <span id="sortShortLabel">Short-Term Score</span><span class="sort-indicator">↕</span>
+              </button>
+              <button class="sort-btn" type="button" data-sort-key="midScore" aria-label="Sort by mid-term score">
+                <span id="sortMidLabel">Mid-Term Score</span><span class="sort-indicator">↕</span>
+              </button>
+              <button class="sort-btn" type="button" data-sort-key="longScore" aria-label="Sort by long-term score">
+                <span id="sortLongLabel">Long-Term Score</span><span class="sort-indicator">↕</span>
+              </button>
+              <button class="sort-btn" type="button" data-sort-key="ticker" aria-label="Sort by ticker">
+                <span id="sortTickerLabel">Ticker</span><span class="sort-indicator">↕</span>
               </button>
               <button class="sort-btn" type="button" data-sort-key="type" aria-label="Sort by stock type">
                 <span id="sortTypeLabel">Stock Type</span><span class="sort-indicator">↕</span>
@@ -176,6 +192,6 @@
       </section>
     </div>
 
-    <script src="./main.js?v=20260619b"></script>
+    <script src="./main.js?v=20260705d"></script>
   </body>
 </html>

@@ -4,16 +4,12 @@ services:
     runtime: python
     region: oregon
     buildCommand: "pip install -r requirements.txt"
-    startCommand: python3 server.py
+    startCommand: gunicorn server:app
     healthCheckPath: /
     disk:
       name: watchlist-data
       mountPath: /var/data
-      sizeGB: 10
+      sizeGB: 1
     envVars:
-      - key: HOST
-        value: 0.0.0.0
-      - key: PORT
-        value: 10000
-      - key: WATCHLIST_FILE
-        value: /var/data/watchlist.shared.json
+      - key: WATCHLIST_DB_PATH
+        value: /var/data/watchlist.db
