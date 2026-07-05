@@ -120,6 +120,7 @@ const I18N = {
     staleRefresh: "Using last successful refresh",
     noMarketDataAdd: "has no available market data and could not be added.",
     noMarketData: "No market data",
+    priceUnavailable: "Price unavailable",
     searchHintIdle: "Search by ticker, company name, or A-share code, then pick one result.",
     searchHintLoading: "Searching candidates...",
     searchHintEmpty: "No matching stocks found yet.",
@@ -509,6 +510,7 @@ const I18N = {
     staleRefresh: "当前使用上一次成功刷新结果",
     noMarketDataAdd: "没有可用的市场数据，无法添加。",
     noMarketData: "暂无行情数据",
+    priceUnavailable: "价格暂不可用",
     searchHintIdle: "输入代码、缩写或公司名称，先从候选里点选，再添加。",
     searchHintLoading: "正在搜索候选股票...",
     searchHintEmpty: "暂时没有匹配到股票。",
@@ -1622,6 +1624,11 @@ function formatCurrency(value, currencyCode = "USD") {
   if (value == null || !Number.isFinite(Number(value))) return "—";
   const symbol = currencyCode === "CNY" ? "¥" : "$";
   return `${symbol}${Number(value).toFixed(2)}`;
+}
+
+function formatCurrentPrice(value, currencyCode = "USD") {
+  if (value == null || !Number.isFinite(Number(value))) return t("priceUnavailable");
+  return formatCurrency(value, currencyCode);
 }
 
 function formatOptionStrike(value, currencyCode = "USD") {
@@ -8419,7 +8426,7 @@ function renderDetailModal(row) {
           </div>
           <div>
             <div class="detail-overview-label">${t("currentPrice")}</div>
-            <div class="detail-overview-value">${formatCurrency(decision.current_price, currencyCode)}</div>
+            <div class="detail-overview-value">${formatCurrentPrice(decision.current_price, currencyCode)}</div>
             <p class="detail-overview-reason">${t("dayMove")}: <span class="${changeTone}">${formatChangePercent(decision.today_change_pct)}</span></p>
           </div>
           <div>
@@ -8826,7 +8833,7 @@ function renderDetailModal(row) {
         <div class="decision-code">${row.ticker}</div>
         <div class="decision-company">${companyName}</div>
         <div class="detail-consensus-mini">
-          <span>${t("currentPrice")} ${formatCurrency(row.price, currencyCode)}</span>
+          <span>${t("currentPrice")} ${formatCurrentPrice(row.price, currencyCode)}</span>
           <span class="${changeTone}">${t("dayMove")} ${formatChangePercent(row.changePercent)}</span>
           <span>${profile.category}</span>
           <span>${t("overallAiScore")} ${ai.overall_score}/100</span>
@@ -8861,7 +8868,7 @@ function renderSelectedOverview(row) {
   document.querySelector("#detailTicker").textContent = row.ticker;
   const detailCompany = document.querySelector("#detailCompany");
   if (detailCompany) detailCompany.textContent = companyName;
-  document.querySelector("#detailPrice").textContent = formatCurrency(row.price, currencyCode);
+  document.querySelector("#detailPrice").textContent = formatCurrentPrice(row.price, currencyCode);
   document.querySelector("#detailAction").textContent = localizedActionLabel(row.action);
   document.querySelector("#detailAction").className = `action ${actionClass(row.action)}`;
   document.querySelector("#detailScore").textContent = row.score ?? "—";
@@ -8969,7 +8976,7 @@ function renderStockList() {
           </div>
           <div class="stock-company">${companyName}</div>
           <div class="stock-price-row">
-            <strong>${row.noData ? t("noMarketData") : `${formatCurrency(row.price, currencyCode)}`}</strong>
+            <strong>${row.noData ? t("priceUnavailable") : `${formatCurrentPrice(row.price, currencyCode)}`}</strong>
             <span class="stock-day-move ${dayTone}">${t("dayMove")} ${formatChangePercent(row.changePercent)}</span>
           </div>
         </div>
@@ -9092,7 +9099,7 @@ function buildRow(row) {
   tr.appendChild(action);
 
   const price = document.createElement("td");
-  price.innerHTML = `<span class="price-cell">${formatCurrency(row.price, row.currencyCode || inferCurrencyCode(row))}</span>`;
+  price.innerHTML = `<span class="price-cell">${formatCurrentPrice(row.price, row.currencyCode || inferCurrencyCode(row))}</span>`;
   tr.appendChild(price);
 
   const score = document.createElement("td");

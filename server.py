@@ -5,8 +5,10 @@ import os
 import queue
 import re
 import sqlite3
+import sys
 import threading
 import time
+import traceback
 from email.utils import parsedate_to_datetime
 from html import unescape
 from datetime import datetime, timedelta, timezone
@@ -15,18 +17,39 @@ from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
 
-try:
-    import akshare as ak
-except Exception:
-    ak = None
-import pandas as pd
-import yfinance as yf
 from flask import Flask, jsonify, request, send_from_directory
 
 try:
     from flask_cors import CORS
 except Exception:
     CORS = None
+
+
+class LazyModule:
+    def __init__(self, module_name):
+        self.module_name = module_name
+        self.module = None
+
+    def _load(self):
+        if self.module is None:
+            import importlib
+            self.module = importlib.import_module(self.module_name)
+        return self.module
+
+    def __getattr__(self, item):
+        return getattr(self._load(), item)
+
+
+pd = LazyModule("pandas")
+yf = LazyModule("yfinance")
+
+
+def get_ak():
+    try:
+        import importlib
+        return importlib.import_module("akshare")
+    except Exception:
+        return None
 
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -60,7 +83,7 @@ NEWS_CACHE_SECONDS = 60 * 60
 COMPANY_NEWS_CACHE = {}
 MARKET_CONTEXT_CACHE = {"value": None, "expiresAt": 0}
 FEAR_GREED_CACHE = {"value": None, "expiresAt": 0}
-WATCHLIST_DB_PATH = os.environ.get("WATCHLIST_DB_PATH", os.path.join(ROOT, "data", "watchlist.db"))
+WATCHLIST_DB_PATH = os.environ.get("WATCHLIST_DB_PATH", "data/watchlist.db")
 MARKET_EVENTS_FILE = os.environ.get("MARKET_EVENTS_FILE", os.path.join(ROOT, "market_events.json"))
 WATCHLIST_LOCK = threading.Lock()
 QUOTE_FETCH_LOCK = threading.Lock()
@@ -206,11 +229,18 @@ def sqlite_timestamp_to_iso(value):
     return f"{text.replace(' ', 'T')}Z"
 
 
+def get_watchlist_conn():
+    init_watchlist_db()
+    conn = sqlite3.connect(WATCHLIST_DB_PATH, timeout=10)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def get_watchlist_connection():
     db_dir = os.path.dirname(WATCHLIST_DB_PATH)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
-    conn = sqlite3.connect(WATCHLIST_DB_PATH)
+    conn = sqlite3.connect(WATCHLIST_DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -248,6 +278,10 @@ def row_to_watchlist_item(row):
     }
 
 
+def watchlist_rows_to_items(rows):
+    return [row_to_watchlist_item(row) for row in rows]
+
+
 def load_shared_watchlist():
     return watchlist_items_to_tickers(load_shared_watchlist_items())
 
@@ -263,7 +297,7 @@ def load_shared_watchlist_items():
                 ORDER BY datetime(created_at) ASC, id ASC
                 """
             ).fetchall()
-            return [row_to_watchlist_item(row) for row in rows]
+            return watchlist_rows_to_items(rows)
 
 
 def add_shared_ticker(ticker, market_type=None):
@@ -2761,6 +2795,7 @@ def fetch_us_options_market(instrument, ticker, spot_price, updated_at, history_
 
 
 def fetch_a_share_profile(ticker):
+    ak = get_ak()
     if ak is None:
         return {}
     try:
@@ -2782,6 +2817,7 @@ def fetch_a_share_valuation(ticker):
         "forwardPE": None,
         "marketCap": None,
     }
+    ak = get_ak()
     if ak is None:
         return result
 
@@ -3065,6 +3101,7 @@ def fetch_a_share_with_akshare(ticker):
     start_date = (datetime.now() - timedelta(days=390)).strftime("%Y%m%d")
     end_date = datetime.now().strftime("%Y%m%d")
     exchange_name = "SZ" if ticker.startswith(("0", "3")) else "SH"
+    ak = get_ak()
     if ak is None:
         return fetch_a_share_with_yfinance_fallback(ticker, profile_info={}, valuation_info={}, primary_error="AkShare unavailable")
 
@@ -3887,12 +3924,38 @@ def api_symbol_search():
     })
 
 
+@app.route("/api/health")
+def api_health():
+    db_dir = os.path.dirname(WATCHLIST_DB_PATH)
+    return jsonify({
+        "success": True,
+        "status": "ok",
+        "watchlist_db_path": WATCHLIST_DB_PATH,
+        "watchlist_db_exists": os.path.exists(WATCHLIST_DB_PATH),
+        "watchlist_db_dir": db_dir,
+        "watchlist_db_dir_exists": os.path.isdir(db_dir) if db_dir else True,
+        "cwd": os.getcwd(),
+        "python_version": sys.version,
+        "render_service": bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID") or os.environ.get("RENDER_EXTERNAL_URL")),
+    })
+
+
 @app.route("/api/watchlist", methods=["GET"])
 def api_watchlist_get():
     try:
-        return jsonify(watchlist_response_payload(load_shared_watchlist_items()))
+        with get_watchlist_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, ticker, market_type, created_at
+                FROM watchlist
+                ORDER BY datetime(created_at) ASC, id ASC
+                """
+            ).fetchall()
+        items = watchlist_rows_to_items(rows)
+        return jsonify(watchlist_response_payload(items))
     except Exception as exc:
-        return jsonify({"success": False, "error": str(exc)}), 500
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(exc), "items": [], "watchlist": []}), 500
 
 
 @app.route("/api/watchlist", methods=["POST"])
@@ -3901,11 +3964,25 @@ def api_watchlist_post():
         payload = request.get_json(silent=True) or {}
         ticker = normalize_ticker_input(payload.get("ticker"))
         if not ticker:
-            return jsonify({"success": False, "error": "Ticker is required"}), 400
+            return jsonify({"success": False, "error": "Ticker is required", "items": [], "watchlist": []}), 400
         market_type = infer_market_type(ticker, payload.get("market_type"))
-        return jsonify(watchlist_response_payload(add_shared_ticker(ticker, market_type)))
+        with get_watchlist_conn() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO watchlist (ticker, market_type) VALUES (?, ?)",
+                (ticker, market_type),
+            )
+            conn.commit()
+            rows = conn.execute(
+                """
+                SELECT id, ticker, market_type, created_at
+                FROM watchlist
+                ORDER BY datetime(created_at) ASC, id ASC
+                """
+            ).fetchall()
+        return jsonify(watchlist_response_payload(watchlist_rows_to_items(rows)))
     except Exception as exc:
-        return jsonify({"success": False, "error": str(exc)}), 500
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(exc), "items": [], "watchlist": []}), 500
 
 
 @app.route("/api/watchlist", methods=["DELETE"])
@@ -3914,11 +3991,28 @@ def api_watchlist_delete(ticker=None):
     try:
         normalized = normalize_ticker_input(ticker or request.args.get("ticker", ""))
         if not normalized:
-            return jsonify({"success": False, "error": "Ticker is required"}), 400
-        items = remove_shared_ticker(normalized, request.args.get("market_type"))
-        return jsonify(watchlist_response_payload(items))
+            return jsonify({"success": False, "error": "Ticker is required", "items": [], "watchlist": []}), 400
+        market_type = request.args.get("market_type")
+        with get_watchlist_conn() as conn:
+            if market_type:
+                conn.execute(
+                    "DELETE FROM watchlist WHERE ticker = ? AND market_type = ?",
+                    (normalized, infer_market_type(normalized, market_type)),
+                )
+            else:
+                conn.execute("DELETE FROM watchlist WHERE ticker = ?", (normalized,))
+            conn.commit()
+            rows = conn.execute(
+                """
+                SELECT id, ticker, market_type, created_at
+                FROM watchlist
+                ORDER BY datetime(created_at) ASC, id ASC
+                """
+            ).fetchall()
+        return jsonify(watchlist_response_payload(watchlist_rows_to_items(rows)))
     except Exception as exc:
-        return jsonify({"success": False, "error": str(exc)}), 500
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(exc), "items": [], "watchlist": []}), 500
 
 
 @app.route("/")
