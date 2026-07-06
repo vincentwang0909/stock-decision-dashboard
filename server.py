@@ -1800,7 +1800,11 @@ def build_unavailable_quote(ticker, reason, stale_value=None):
             "enterpriseToEbitda": metadata.get("enterpriseToEbitda"),
             "priceToSalesTrailing12Months": metadata.get("priceToSalesTrailing12Months"),
             "enterpriseToRevenue": metadata.get("enterpriseToRevenue"),
+            "pegRatio": metadata.get("pegRatio"),
+            "priceToFreeCashflow": metadata.get("priceToFreeCashflow"),
             "operatingMargins": metadata.get("operatingMargins"),
+            "profitMargins": metadata.get("profitMargins"),
+            "revenueGrowth": metadata.get("revenueGrowth"),
             "grossMargins": metadata.get("grossMargins"),
             "returnOnEquity": metadata.get("returnOnEquity"),
             "debtToEquity": metadata.get("debtToEquity"),
@@ -2898,6 +2902,14 @@ def fetch_a_share_with_yfinance_fallback(ticker, profile_info=None, valuation_in
     forward_eps_mean = valuation_info.get("forwardEpsMean")
     if forward_pe is None and price is not None and forward_eps_mean:
         forward_pe = price / forward_eps_mean
+    free_cashflow = _safe_float(info.get("freeCashflow"))
+    market_cap = valuation_info.get("marketCap") or _safe_int(info.get("marketCap")) or _safe_int(fast_info.get("market_cap"))
+    price_to_fcf = None
+    if _safe_float(market_cap) not in (None, 0) and free_cashflow not in (None, 0):
+        try:
+            price_to_fcf = abs(_safe_float(market_cap) / free_cashflow)
+        except Exception:
+            price_to_fcf = None
 
     catalog_match = next((item for item in A_SHARE_SYMBOL_CATALOG if item.get("ticker") == ticker), {})
     exchange_name = "SZ" if ticker.startswith(("0", "3")) else "SH"
@@ -2916,7 +2928,7 @@ def fetch_a_share_with_yfinance_fallback(ticker, profile_info=None, valuation_in
         "exchangeName": exchange_name,
         "trailingPE": valuation_info.get("trailingPE") or _safe_float(info.get("trailingPE")),
         "forwardPE": forward_pe or _safe_float(info.get("forwardPE")),
-        "marketCap": valuation_info.get("marketCap") or _safe_int(info.get("marketCap")) or _safe_int(fast_info.get("market_cap")),
+        "marketCap": market_cap,
         "metadata": {
             "sector": info.get("sector"),
             "industry": info.get("industry"),
@@ -2926,13 +2938,17 @@ def fetch_a_share_with_yfinance_fallback(ticker, profile_info=None, valuation_in
             "enterpriseToEbitda": _safe_float(info.get("enterpriseToEbitda")),
             "priceToSalesTrailing12Months": _safe_float(info.get("priceToSalesTrailing12Months")),
             "enterpriseToRevenue": _safe_float(info.get("enterpriseToRevenue")),
+            "pegRatio": _safe_float(info.get("pegRatio")),
+            "priceToFreeCashflow": price_to_fcf,
             "operatingMargins": _safe_float(info.get("operatingMargins")),
+            "profitMargins": _safe_float(info.get("profitMargins")),
+            "revenueGrowth": _safe_float(info.get("revenueGrowth")),
             "grossMargins": _safe_float(info.get("grossMargins")),
             "returnOnEquity": _safe_float(info.get("returnOnEquity")),
             "debtToEquity": _safe_float(info.get("debtToEquity")),
             "currentRatio": _safe_float(info.get("currentRatio")),
             "quickRatio": _safe_float(info.get("quickRatio")),
-            "freeCashflow": _safe_float(info.get("freeCashflow")),
+            "freeCashflow": free_cashflow,
             "totalCash": _safe_float(info.get("totalCash")),
             "totalDebt": _safe_float(info.get("totalDebt")),
             "capex": _safe_float(info.get("capitalExpenditure")),
@@ -3047,6 +3063,14 @@ def fetch_us_quote_with_yfinance(ticker, include_options=True):
         if include_options
         else build_unavailable_options_payload("Quote loaded without options snapshot", market="us")
     )
+    free_cashflow = _safe_float(info.get("freeCashflow"))
+    market_cap = _safe_int(info.get("marketCap")) or _safe_int(fast_info.get("market_cap"))
+    price_to_fcf = None
+    if _safe_float(market_cap) not in (None, 0) and free_cashflow not in (None, 0):
+        try:
+            price_to_fcf = abs(_safe_float(market_cap) / free_cashflow)
+        except Exception:
+            price_to_fcf = None
 
     return {
         "price": price,
@@ -3063,7 +3087,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=True):
         "exchangeName": info.get("exchange") or info.get("fullExchangeName"),
         "trailingPE": _safe_float(info.get("trailingPE")),
         "forwardPE": _safe_float(info.get("forwardPE")),
-        "marketCap": _safe_int(info.get("marketCap")) or _safe_int(fast_info.get("market_cap")),
+        "marketCap": market_cap,
         "metadata": {
             "sector": info.get("sector"),
             "industry": info.get("industry"),
@@ -3073,13 +3097,17 @@ def fetch_us_quote_with_yfinance(ticker, include_options=True):
             "enterpriseToEbitda": _safe_float(info.get("enterpriseToEbitda")),
             "priceToSalesTrailing12Months": _safe_float(info.get("priceToSalesTrailing12Months")),
             "enterpriseToRevenue": _safe_float(info.get("enterpriseToRevenue")),
+            "pegRatio": _safe_float(info.get("pegRatio")),
+            "priceToFreeCashflow": price_to_fcf,
             "operatingMargins": _safe_float(info.get("operatingMargins")),
+            "profitMargins": _safe_float(info.get("profitMargins")),
+            "revenueGrowth": _safe_float(info.get("revenueGrowth")),
             "grossMargins": _safe_float(info.get("grossMargins")),
             "returnOnEquity": _safe_float(info.get("returnOnEquity")),
             "debtToEquity": _safe_float(info.get("debtToEquity")),
             "currentRatio": _safe_float(info.get("currentRatio")),
             "quickRatio": _safe_float(info.get("quickRatio")),
-            "freeCashflow": _safe_float(info.get("freeCashflow")),
+            "freeCashflow": free_cashflow,
             "totalCash": _safe_float(info.get("totalCash")),
             "totalDebt": _safe_float(info.get("totalDebt")),
             "capex": _safe_float(info.get("capitalExpenditure")),
@@ -3180,7 +3208,11 @@ def fetch_a_share_with_akshare(ticker):
                 "enterpriseToEbitda": None,
                 "priceToSalesTrailing12Months": None,
                 "enterpriseToRevenue": None,
+                "pegRatio": None,
+                "priceToFreeCashflow": None,
                 "operatingMargins": None,
+                "profitMargins": None,
+                "revenueGrowth": None,
                 "grossMargins": None,
                 "returnOnEquity": None,
                 "debtToEquity": None,
@@ -3298,7 +3330,11 @@ def fetch_a_share_with_akshare(ticker):
             "enterpriseToEbitda": None,
             "priceToSalesTrailing12Months": None,
             "enterpriseToRevenue": None,
+            "pegRatio": None,
+            "priceToFreeCashflow": None,
             "operatingMargins": None,
+            "profitMargins": None,
+            "revenueGrowth": None,
             "grossMargins": None,
             "returnOnEquity": None,
             "debtToEquity": None,
@@ -3400,9 +3436,64 @@ def ensure_market_cache_dir():
         os.makedirs(MARKET_CACHE_DIR, exist_ok=True)
 
 
-def market_cache_path(ticker):
+def market_cache_module_dir(module_name):
+    ensure_market_cache_dir()
+    path = os.path.join(MARKET_CACHE_DIR, module_name)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def market_cache_path(ticker, module_name="quotes"):
     safe_ticker = re.sub(r"[^A-Z0-9._-]", "_", normalize_ticker_input(ticker))
-    return os.path.join(MARKET_CACHE_DIR, f"{safe_ticker}.json")
+    return os.path.join(market_cache_module_dir(module_name), f"{safe_ticker}.json")
+
+
+def market_cache_key_path(cache_key, module_name):
+    safe_key = re.sub(r"[^A-Z0-9._-]", "_", _safe_text(cache_key) or "snapshot").upper()
+    return os.path.join(market_cache_module_dir(module_name), f"{safe_key}.json")
+
+
+def read_json_cache_file(path):
+    try:
+        if not path or not os.path.exists(path):
+            return None
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except Exception:
+        traceback.print_exc()
+        return None
+
+
+def write_json_cache_file(path, payload):
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False)
+        return True
+    except Exception:
+        traceback.print_exc()
+        return False
+
+
+def read_module_cache(module_name, cache_key, legacy_path=None):
+    payload = read_json_cache_file(market_cache_key_path(cache_key, module_name))
+    if payload is not None:
+        return payload
+    if legacy_path:
+        return read_json_cache_file(legacy_path)
+    return None
+
+
+def write_module_cache(module_name, cache_key, payload):
+    return write_json_cache_file(market_cache_key_path(cache_key, module_name), payload)
+
+
+def count_cache_files(module_name):
+    try:
+        directory = market_cache_module_dir(module_name)
+        return len([name for name in os.listdir(directory) if name.endswith(".json")])
+    except Exception:
+        return 0
 
 
 def parse_iso_datetime(value):
@@ -3416,11 +3507,10 @@ def parse_iso_datetime(value):
 
 def read_market_cache(ticker):
     try:
-        path = market_cache_path(ticker)
-        if not os.path.exists(path):
+        legacy_path = os.path.join(MARKET_CACHE_DIR, f"{re.sub(r'[^A-Z0-9._-]', '_', normalize_ticker_input(ticker))}.json")
+        cached = read_module_cache("quotes", ticker, legacy_path=legacy_path)
+        if cached is None:
             return None
-        with open(path, "r", encoding="utf-8") as handle:
-            cached = json.load(handle)
         updated_at = cached.get("updated_at") or cached.get("updatedAt")
         updated_dt = parse_iso_datetime(updated_at)
         cached["cache_age_seconds"] = (
@@ -3458,17 +3548,73 @@ def normalize_cached_market_quote(ticker, cached, stale=False):
     return normalized
 
 
+def extract_fundamental_fields_from_quote(quote):
+    metadata = quote.get("metadata") if isinstance(quote, dict) else {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    market_cap = quote.get("marketCap") if isinstance(quote, dict) else None
+    free_cashflow = metadata.get("freeCashflow")
+    price_fcf = None
+    if _safe_float(market_cap) not in (None, 0) and _safe_float(free_cashflow) not in (None, 0):
+        try:
+            price_fcf = abs(_safe_float(market_cap) / _safe_float(free_cashflow))
+        except Exception:
+            price_fcf = None
+    return {
+        "pe": quote.get("trailingPE") if isinstance(quote, dict) else None,
+        "forward_pe": quote.get("forwardPE") if isinstance(quote, dict) else None,
+        "peg": metadata.get("pegRatio"),
+        "ev_ebitda": metadata.get("enterpriseToEbitda"),
+        "price_fcf": metadata.get("priceToFreeCashflow") if metadata.get("priceToFreeCashflow") is not None else price_fcf,
+        "market_cap": market_cap,
+        "revenue_growth": metadata.get("revenueGrowth"),
+        "profit_margins": metadata.get("profitMargins"),
+        "free_cashflow": free_cashflow,
+    }
+
+
+def extract_options_fields_from_quote(quote):
+    options_market = quote.get("optionsMarket") if isinstance(quote, dict) else {}
+    if not isinstance(options_market, dict):
+        options_market = {}
+    return {
+        "status": "available" if options_market.get("available") else "unavailable",
+        "reason": options_market.get("reason"),
+        "call_wall": options_market.get("callWall"),
+        "put_wall": options_market.get("putWall"),
+        "gamma_flip": options_market.get("gammaFlip"),
+        "expiries_count": len(options_market.get("expiries") or []),
+        "coverage": options_market.get("coverage"),
+    }
+
+
 def write_market_cache(ticker, quote):
     try:
-        ensure_market_cache_dir()
         updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        with open(market_cache_path(ticker), "w", encoding="utf-8") as handle:
-            json.dump({
-                "ticker": normalize_ticker_input(ticker),
-                "market_type": infer_market_type(ticker),
-                "quote": quote,
-                "updated_at": updated_at,
-            }, handle, ensure_ascii=False)
+        normalized = normalize_ticker_input(ticker)
+        quote_payload = {
+            "ticker": normalized,
+            "market_type": infer_market_type(ticker),
+            "quote": quote,
+            "updated_at": updated_at,
+        }
+        write_json_cache_file(market_cache_path(normalized, "quotes"), quote_payload)
+        write_module_cache("fundamentals", normalized, {
+            "ticker": normalized,
+            "market_type": infer_market_type(ticker),
+            "updated_at": updated_at,
+            "fields": extract_fundamental_fields_from_quote(quote),
+            "quote_status": quote.get("quote_status"),
+            "quote_source": quote.get("quote_source"),
+        })
+        write_module_cache("options", normalized, {
+            "ticker": normalized,
+            "market_type": infer_market_type(ticker),
+            "updated_at": updated_at,
+            "options": extract_options_fields_from_quote(quote),
+            "quote_status": quote.get("quote_status"),
+            "quote_source": quote.get("quote_source"),
+        })
     except Exception:
         traceback.print_exc()
 
@@ -3538,11 +3684,114 @@ def build_unavailable_market_context(reason="Market context skipped for fast mar
     }
 
 
-def get_lightweight_market_context():
-    cached = MARKET_CONTEXT_CACHE.get("value")
-    if cached:
-        return cached
-    return build_unavailable_market_context()
+def read_market_context_cache():
+    cached = read_module_cache("market_context", "snapshot")
+    if not isinstance(cached, dict):
+        return None
+    updated_at = cached.get("updated_at") or cached.get("updatedAt")
+    updated_dt = parse_iso_datetime(updated_at)
+    cached["cache_age_seconds"] = (
+        max(0, (datetime.now(timezone.utc) - updated_dt).total_seconds())
+        if updated_dt else None
+    )
+    return cached
+
+
+def write_market_context_cache(payload):
+    wrapped = {
+        "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "payload": payload,
+    }
+    write_module_cache("market_context", "snapshot", wrapped)
+
+
+def get_market_context_cached_snapshot(force=False, allow_live=True):
+    attempts = []
+    now = time.time()
+    cached_memory = MARKET_CONTEXT_CACHE.get("value")
+    if cached_memory and not force and MARKET_CONTEXT_CACHE.get("expiresAt", 0) > now:
+        attempts.append({"source": "memory_cache", "success": True, "fresh": True})
+        return cached_memory, {
+            "cache_used": True,
+            "cache_layer": "memory",
+            "source_attempts": attempts,
+            "status": "available",
+            "missing_fields": [],
+        }
+
+    cached_disk = read_market_context_cache()
+    cached_disk_payload = cached_disk.get("payload") if isinstance(cached_disk, dict) else None
+    cache_is_fresh = (
+        cached_disk is not None
+        and cached_disk.get("cache_age_seconds") is not None
+        and cached_disk.get("cache_age_seconds") <= MARKET_CACHE_TTL_SECONDS
+    )
+    if cached_disk:
+        attempts.append({
+            "source": "disk_cache",
+            "success": True,
+            "fresh": cache_is_fresh,
+            "age_minutes": round((cached_disk.get("cache_age_seconds") or 0) / 60, 2) if cached_disk.get("cache_age_seconds") is not None else None,
+        })
+        if cached_disk_payload and not force and cache_is_fresh:
+            MARKET_CONTEXT_CACHE["value"] = cached_disk_payload
+            MARKET_CONTEXT_CACHE["expiresAt"] = now + NEWS_CACHE_SECONDS
+            return cached_disk_payload, {
+                "cache_used": True,
+                "cache_layer": "disk",
+                "source_attempts": attempts,
+                "status": "available",
+                "missing_fields": [],
+            }
+
+    if allow_live:
+        live_payload = _run_with_timeout(fetch_market_context_payload, 8, fallback=None)
+        if live_payload:
+            MARKET_CONTEXT_CACHE["value"] = live_payload
+            MARKET_CONTEXT_CACHE["expiresAt"] = now + NEWS_CACHE_SECONDS
+            write_market_context_cache(live_payload)
+            attempts.append({"source": "live_market_context", "success": True, "fresh": True})
+            return live_payload, {
+                "cache_used": False,
+                "cache_layer": None,
+                "source_attempts": attempts,
+                "status": "available",
+                "missing_fields": [],
+            }
+        attempts.append({"source": "live_market_context", "success": False, "error": "Live market-context fetch failed or timed out"})
+
+    if cached_disk_payload:
+        return cached_disk_payload, {
+            "cache_used": True,
+            "cache_layer": "disk",
+            "source_attempts": attempts,
+            "status": "stale",
+            "missing_fields": [],
+        }
+
+    if cached_memory:
+        return cached_memory, {
+            "cache_used": True,
+            "cache_layer": "memory",
+            "source_attempts": attempts,
+            "status": "stale",
+            "missing_fields": [],
+        }
+
+    unavailable = build_unavailable_market_context()
+    missing_fields = ["vix", "fear_greed", "ten_year_yield", "spy_trend", "qqq_trend"]
+    return unavailable, {
+        "cache_used": False,
+        "cache_layer": None,
+        "source_attempts": attempts,
+        "status": "unavailable",
+        "missing_fields": missing_fields,
+    }
+
+
+def get_lightweight_market_context(force=False, allow_live=True):
+    payload, _meta = get_market_context_cached_snapshot(force=force, allow_live=allow_live)
+    return payload
 
 
 def build_unavailable_or_cached_quote(ticker, error_message, cached=None):
@@ -3667,8 +3916,8 @@ def build_market_data_payload(tickers, force=False):
     quotes = {}
     failed = []
     used_cache_count = 0
-    live_tickers = []
-    allow_a_share_live = bool(force) and len(normalized_tickers) <= 3
+    us_live_tickers = []
+    a_share_live_tickers = []
 
     for ticker in normalized_tickers:
         cached = read_market_cache(ticker)
@@ -3677,28 +3926,20 @@ def build_market_data_payload(tickers, force=False):
             quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
             quotes[ticker] = quote
             used_cache_count += 1
-        elif is_a_share_ticker(ticker) and not allow_a_share_live:
-            quote, failure = build_unavailable_or_cached_quote(
-                ticker,
-                "A-share live quote skipped during bulk market-data refresh; use cache or debug single ticker",
-                cached=cached,
-            )
-            quotes[ticker] = quote
-            if cached:
-                used_cache_count += 1
-            if failure:
-                failed.append(failure)
         else:
-            live_tickers.append(ticker)
+            if is_a_share_ticker(ticker):
+                a_share_live_tickers.append(ticker)
+            else:
+                us_live_tickers.append(ticker)
 
     executor = None
     futures = {}
     completed = set()
-    if live_tickers:
+    if us_live_tickers:
         executor = ThreadPoolExecutor(max_workers=max(1, MARKET_DATA_MAX_WORKERS))
         futures = {
             executor.submit(fetch_market_quote_for_ticker, ticker, force): ticker
-            for ticker in live_tickers
+            for ticker in us_live_tickers
         }
         try:
             for future in as_completed(futures, timeout=MARKET_DATA_ROUTE_TIMEOUT_SECONDS):
@@ -3737,13 +3978,27 @@ def build_market_data_payload(tickers, force=False):
             if executor:
                 executor.shutdown(wait=False, cancel_futures=True)
 
+    for ticker in a_share_live_tickers:
+        try:
+            quote, failure, used_cache, _attempts = fetch_market_quote_for_ticker(ticker, force=force)
+        except Exception as exc:
+            traceback.print_exc()
+            cached = read_market_cache(ticker)
+            quote, failure = build_unavailable_or_cached_quote(ticker, str(exc), cached=cached)
+            used_cache = bool(cached)
+        quotes[ticker] = quote
+        if used_cache:
+            used_cache_count += 1
+        if failure:
+            failed.append(failure)
+
     for ticker in normalized_tickers:
         if ticker not in quotes:
             quote, failure = build_unavailable_or_cached_quote(ticker, "Quote unavailable")
             quotes[ticker] = quote
             failed.append(failure)
 
-    market_context = get_lightweight_market_context()
+    market_context, market_context_meta = get_market_context_cached_snapshot(force=force, allow_live=True)
     fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     quote_times = [
         quote.get("updatedAt")
@@ -3769,6 +4024,30 @@ def build_market_data_payload(tickers, force=False):
         1 for quote in quotes.values()
         if isinstance(quote, dict) and quote.get("price") is not None
     )
+    for ticker, quote in quotes.items():
+        if isinstance(quote, dict):
+            quote["data_quality"] = {
+                "quote_status": quote.get("quote_status") or ("stale" if quote.get("stale") else "available"),
+                "quote_source": quote.get("quote_source"),
+                "fundamental_status": "stale" if quote.get("stale") else "available" if (
+                    quote.get("trailingPE") is not None
+                    or quote.get("forwardPE") is not None
+                    or ((quote.get("metadata") or {}).get("freeCashflow") is not None)
+                ) else "unavailable",
+                "options_status": "stale" if quote.get("stale") and (quote.get("optionsMarket") or {}).get("available") else "available" if (quote.get("optionsMarket") or {}).get("available") else "unavailable",
+                "market_context_status": market_context_meta.get("status"),
+                "cache_used": bool(quote.get("quote_source") == "cache" or quote.get("stale")),
+                "stale_fields": ["price"] if quote.get("stale") else [],
+                "unavailable_fields": [
+                    field for field, value in {
+                        "price": quote.get("price"),
+                        "trailingPE": quote.get("trailingPE"),
+                        "forwardPE": quote.get("forwardPE"),
+                    }.items()
+                    if value is None
+                ],
+                "warnings": [quote.get("error")] if quote.get("error") else [],
+            }
 
     warning = None
     if requested_count > len(normalized_tickers):
@@ -3792,13 +4071,42 @@ def build_market_data_payload(tickers, force=False):
             "total_tickers": len(normalized_tickers),
             "success_count": success_count,
             "failed_count": len(failed),
+            "unavailable_count": unavailable_count,
             "has_stale_quotes": stale_quote_count > 0 or unavailable_count > 0,
             "stale_quote_count": stale_quote_count,
             "unavailable_quote_count": unavailable_count,
             "used_cache_count": used_cache_count,
+            "is_partial": success_count > 0 and success_count < len(normalized_tickers),
+            "is_loading_live_data": success_count > 0 and success_count < len(normalized_tickers) and len(failed) == 0,
             "force_refresh": bool(force),
         },
     }
+
+
+def get_quote_for_debug_modules(ticker, force=False, include_options=True):
+    normalized = normalize_ticker_input(ticker)
+    cached = read_market_cache(normalized)
+    if cached and not force and is_market_cache_fresh(cached):
+        quote = normalize_cached_market_quote(normalized, cached, stale=False)
+        return quote, True, None
+    try:
+        quote = fetch_quote_with_timeout(
+            normalized,
+            timeout_seconds=MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS,
+            include_options=include_options,
+        )
+        quote["ticker"] = normalized
+        quote["market_type"] = infer_market_type(normalized)
+        quote["quote_status"] = "available"
+        quote["quote_source"] = "akshare" if is_a_share_ticker(normalized) else "yfinance"
+        write_market_cache(normalized, quote)
+        return quote, False, None
+    except Exception as exc:
+        if cached:
+            quote = normalize_cached_market_quote(normalized, cached, stale=True)
+            quote["error"] = str(exc)
+            return quote, True, str(exc)
+        return build_unavailable_quote(normalized, str(exc)), False, str(exc)
 
 
 def watchlist_response_payload(items):
@@ -4157,9 +4465,12 @@ def api_market_data():
                 "total_tickers": 0,
                 "success_count": 0,
                 "failed_count": 0,
+                "used_cache_count": 0,
+                "unavailable_count": 0,
+                "is_partial": False,
+                "is_loading_live_data": False,
                 "has_stale_quotes": False,
                 "stale_quote_count": 0,
-                "used_cache_count": 0,
             },
         }), 500
 
@@ -4172,13 +4483,18 @@ def api_debug_quote(ticker):
     try:
         cached = read_market_cache(normalized)
         quote, failure, _used_cache, attempts = fetch_market_quote_for_ticker(normalized, force=True)
+        ak = get_ak() if is_a_share_ticker(normalized) else None
         return jsonify({
             "success": quote.get("price") is not None,
             "ticker": normalized,
             "market_type": infer_market_type(normalized),
+            "resolved_symbol": resolve_market_symbol(normalized),
+            "is_a_share": is_a_share_ticker(normalized),
+            "akshare_import_success": ak is not None if is_a_share_ticker(normalized) else None,
             "quote_source_attempts": attempts,
-            "cache_path": market_cache_path(normalized),
+            "cache_path": market_cache_path(normalized, "quotes"),
             "cache_exists": bool(cached),
+            "cache_age_seconds": cached.get("cache_age_seconds") if isinstance(cached, dict) else None,
             "final_price": quote.get("price"),
             "quote_status": quote.get("quote_status"),
             "quote_source": quote.get("quote_source"),
@@ -4193,6 +4509,150 @@ def api_debug_quote(ticker):
             "quote_source_attempts": [],
             "final_price": None,
             "quote_status": "unavailable",
+            "error": str(exc),
+        }), 500
+
+
+@app.route("/api/debug/fundamentals/<path:ticker>")
+def api_debug_fundamentals(ticker):
+    normalized = normalize_ticker_input(ticker)
+    if not normalized:
+        return jsonify({"success": False, "error": "Ticker is required"}), 400
+    try:
+        cached = read_module_cache("fundamentals", normalized)
+        quote, cache_used, error = get_quote_for_debug_modules(normalized, force=False, include_options=False)
+        fields = extract_fundamental_fields_from_quote(quote)
+        missing_fields = [key for key, value in fields.items() if value is None]
+        attempts = []
+        if cached:
+            attempts.append({
+                "source": "fundamentals_cache",
+                "success": True,
+                "updated_at": cached.get("updated_at"),
+            })
+        attempts.append({
+            "source": quote.get("quote_source") or ("cache" if cache_used else "live"),
+            "success": error is None,
+            "error": error,
+        })
+        return jsonify({
+            "success": any(value is not None for value in fields.values()),
+            "ticker": normalized,
+            "source_attempts": attempts,
+            "fields": fields,
+            "missing_fields": missing_fields,
+            "cache_used": bool(cache_used or cached),
+            "error": error,
+        })
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "ticker": normalized,
+            "source_attempts": [],
+            "fields": {},
+            "missing_fields": [],
+            "cache_used": False,
+            "error": str(exc),
+        }), 500
+
+
+@app.route("/api/debug/options/<path:ticker>")
+def api_debug_options(ticker):
+    normalized = normalize_ticker_input(ticker)
+    if not normalized:
+        return jsonify({"success": False, "error": "Ticker is required"}), 400
+    try:
+        cached = read_module_cache("options", normalized)
+        quote, cache_used, error = get_quote_for_debug_modules(normalized, force=False, include_options=True)
+        options_payload = extract_options_fields_from_quote(quote)
+        options_market = quote.get("optionsMarket") if isinstance(quote, dict) else {}
+        attempts = []
+        if cached:
+            attempts.append({
+                "source": "options_cache",
+                "success": True,
+                "updated_at": cached.get("updated_at"),
+            })
+        attempts.append({
+            "source": quote.get("quote_source") or ("cache" if cache_used else "live"),
+            "success": error is None and bool(options_market),
+            "error": error or options_payload.get("reason"),
+        })
+        return jsonify({
+            "success": bool(options_market.get("available")) if isinstance(options_market, dict) else False,
+            "ticker": normalized,
+            "has_option_chain": bool(options_market.get("available")) if isinstance(options_market, dict) else False,
+            "expirations_count": len(options_market.get("expiries") or []) if isinstance(options_market, dict) else 0,
+            "put_wall": options_payload.get("put_wall"),
+            "call_wall": options_payload.get("call_wall"),
+            "gamma_flip": options_payload.get("gamma_flip"),
+            "source": quote.get("quote_source"),
+            "cache_used": bool(cache_used or cached),
+            "source_attempts": attempts,
+            "error": error or options_payload.get("reason"),
+        })
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "ticker": normalized,
+            "has_option_chain": False,
+            "expirations_count": 0,
+            "put_wall": None,
+            "call_wall": None,
+            "gamma_flip": None,
+            "source": None,
+            "cache_used": False,
+            "source_attempts": [],
+            "error": str(exc),
+        }), 500
+
+
+@app.route("/api/debug/market-context")
+def api_debug_market_context():
+    try:
+        cached = read_market_context_cache()
+        payload, meta = get_market_context_cached_snapshot(force=False, allow_live=True)
+        market_context = (payload or {}).get("market_context") or {}
+        equity_trend = market_context.get("equity_trend") or {}
+        missing_fields = []
+        if (market_context.get("vix") or {}).get("value") is None:
+            missing_fields.append("vix")
+        if (market_context.get("fear_greed") or {}).get("value") is None:
+            missing_fields.append("fear_greed")
+        if (market_context.get("ten_year_yield") or {}).get("value") is None:
+            missing_fields.append("ten_year_yield")
+        if (equity_trend.get("spy") or {}).get("value") is None:
+            missing_fields.append("spy_trend")
+        if (equity_trend.get("qqq") or {}).get("value") is None:
+            missing_fields.append("qqq_trend")
+        return jsonify({
+            "success": bool((market_context.get("vix") or {}).get("value") is not None or (equity_trend.get("spy") or {}).get("value") is not None),
+            "vix": market_context.get("vix"),
+            "fear_greed": market_context.get("fear_greed"),
+            "ten_year_yield": market_context.get("ten_year_yield"),
+            "spy_trend": equity_trend.get("spy"),
+            "qqq_trend": equity_trend.get("qqq"),
+            "source_attempts": meta.get("source_attempts"),
+            "cache_used": meta.get("cache_used"),
+            "cache_layer": meta.get("cache_layer"),
+            "cache_exists": bool(cached),
+            "missing_fields": missing_fields,
+            "error": None if meta.get("status") != "unavailable" else "Market context unavailable",
+        })
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "vix": None,
+            "fear_greed": None,
+            "ten_year_yield": None,
+            "spy_trend": None,
+            "qqq_trend": None,
+            "source_attempts": [],
+            "cache_used": False,
+            "missing_fields": [],
             "error": str(exc),
         }), 500
 
@@ -4216,6 +4676,7 @@ def api_symbol_search():
 @app.route("/api/health")
 def api_health():
     db_dir = os.path.dirname(WATCHLIST_DB_PATH)
+    market_context_cache_exists = read_module_cache("market_context", "snapshot") is not None
     return jsonify({
         "success": True,
         "status": "ok",
@@ -4225,6 +4686,10 @@ def api_health():
         "watchlist_db_dir_exists": os.path.isdir(db_dir) if db_dir else True,
         "market_cache_dir": MARKET_CACHE_DIR,
         "market_cache_dir_exists": os.path.isdir(MARKET_CACHE_DIR) if MARKET_CACHE_DIR else False,
+        "quotes_cache_count": count_cache_files("quotes"),
+        "fundamentals_cache_count": count_cache_files("fundamentals"),
+        "options_cache_count": count_cache_files("options"),
+        "market_context_cache_exists": market_context_cache_exists,
         "cwd": os.getcwd(),
         "python_version": sys.version,
         "render_service": bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID") or os.environ.get("RENDER_EXTERNAL_URL")),

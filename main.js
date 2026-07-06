@@ -2953,6 +2953,17 @@ function normalizedRefreshStatus(snapshot) {
   const lastRefresh = status.last_dashboard_refresh || snapshot.fetchedAt || snapshot.updatedAt || null;
   const nextRefresh = status.next_dashboard_refresh
     || (lastRefresh ? new Date(new Date(lastRefresh).getTime() + PRICE_REFRESH_MS).toISOString() : null);
+  const totalTickers = Number.isFinite(status.total_tickers) ? status.total_tickers : Object.keys(snapshot.quotes || {}).length;
+  const successCount = Number.isFinite(status.success_count)
+    ? status.success_count
+    : Object.values(snapshot.quotes || {}).filter((quote) => quote?.price != null).length;
+  const failedCount = Number.isFinite(status.failed_count)
+    ? status.failed_count
+    : Array.isArray(snapshot.failed) ? snapshot.failed.length : 0;
+  const usedCacheCount = Number.isFinite(status.used_cache_count) ? status.used_cache_count : 0;
+  const unavailableCount = Number.isFinite(status.unavailable_count)
+    ? status.unavailable_count
+    : Object.values(snapshot.quotes || {}).filter((quote) => quote?.quote_status === "unavailable").length;
   const staleQuoteCount = Number.isFinite(status.stale_quote_count)
     ? status.stale_quote_count
     : Object.values(snapshot.quotes || {}).filter((quote) => quote?.stale || quote?.dataStaleness === "stale").length;
@@ -2960,8 +2971,15 @@ function normalizedRefreshStatus(snapshot) {
     refresh_interval_minutes: Number.isFinite(status.refresh_interval_minutes) ? status.refresh_interval_minutes : 60,
     last_dashboard_refresh: lastRefresh,
     next_dashboard_refresh: nextRefresh,
+    total_tickers: totalTickers,
+    success_count: successCount,
+    failed_count: failedCount,
+    used_cache_count: usedCacheCount,
+    unavailable_count: unavailableCount,
     has_stale_quotes: typeof status.has_stale_quotes === "boolean" ? status.has_stale_quotes : staleQuoteCount > 0,
     stale_quote_count: staleQuoteCount,
+    is_partial: typeof status.is_partial === "boolean" ? status.is_partial : (successCount > 0 && successCount < totalTickers),
+    is_loading_live_data: typeof status.is_loading_live_data === "boolean" ? status.is_loading_live_data : (successCount > 0 && successCount < totalTickers && failedCount === 0),
   };
 }
 
@@ -2972,8 +2990,16 @@ function refreshChipText(snapshot, fallbackText = t("refresh")) {
   const lastRefresh = formatRefreshDateTime(status.last_dashboard_refresh);
   const nextRefresh = formatRefreshDateTime(status.next_dashboard_refresh);
   const parts = [fallbackText];
+  if (status.success_count === 0 && status.total_tickers > 0) {
+    parts.push(currentLanguage === "zh" ? "刷新失败，当前显示缓存或暂无价格" : "Refresh failed, showing cache or no prices");
+  } else if (status.is_loading_live_data) {
+    parts.push(currentLanguage === "zh" ? "部分股票数据正在更新，已先显示可用数据" : "Some stock data is still updating; available data is shown first");
+  } else if (status.is_partial) {
+    parts.push(currentLanguage === "zh" ? "部分刷新成功，部分行情暂不可用" : "Partial refresh succeeded; some quotes are unavailable");
+  }
   if (lastRefresh) parts.push(`${t("lastRefresh")} ${lastRefresh}`);
   if (status.has_stale_quotes) parts.push(t("partialCachedQuotes"));
+  if (status.failed_count > 0) parts.push(currentLanguage === "zh" ? "部分行情暂不可用" : "Some quotes are unavailable");
   if (nextRefresh) parts.push(`${t("nextRefresh")} ${nextRefresh}`);
   return parts.join(" • ");
 }
@@ -3405,12 +3431,16 @@ function buildResearchMetrics(row) {
   const guidance = clamp(0.02 + profile.growth * 0.16 + profile.quality * 0.06, -0.08, 0.32);
   const pe = Number.isFinite(row.trailingPE) ? row.trailingPE : null;
   const forwardPe = Number.isFinite(row.forwardPE) ? row.forwardPE : null;
-  const peg = forwardPe != null && (epsGrowth ?? 0) > 0 ? forwardPe / Math.max((epsGrowth ?? 0) * 100, 1) : null;
-  const evEbitda = pe != null ? clamp(pe * (0.65 + profile.quality * 0.18), 4, 60) : null;
+  const peg = Number.isFinite(row.metadata?.pegRatio)
+    ? row.metadata.pegRatio
+    : (forwardPe != null && (epsGrowth ?? 0) > 0 ? forwardPe / Math.max((epsGrowth ?? 0) * 100, 1) : null);
+  const evEbitda = Number.isFinite(row.metadata?.enterpriseToEbitda)
+    ? row.metadata.enterpriseToEbitda
+    : (pe != null ? clamp(pe * (0.65 + profile.quality * 0.18), 4, 60) : null);
   const psRatio = clamp(1.2 + profile.growth * 7.5 + profile.quality * 1.4 + profile.sentiment * 0.8, 0.8, 18);
 
   return {
-    revenueGrowth,
+    revenueGrowth: Number.isFinite(row.metadata?.revenueGrowth) ? row.metadata.revenueGrowth : revenueGrowth,
     epsGrowth,
     grossMargin,
     freeCashFlow,
@@ -9289,11 +9319,7 @@ function applySnapshot(snapshot, shouldPersist = true) {
   if (shouldPersist) persistSnapshot(snapshot);
   render();
 
-  const failedCount = Array.isArray(snapshot.failed) ? snapshot.failed.length : 0;
-  const partialWarning = failedCount
-    ? (currentLanguage === "zh" ? "部分行情暂不可用，已显示缓存数据" : "Some quotes unavailable; cached data shown")
-    : "";
-  setRefreshChip(partialWarning ? `${refreshChipText(snapshot)} • ${partialWarning}` : refreshChipText(snapshot));
+  setRefreshChip(refreshChipText(snapshot));
 }
 
 async function refreshSnapshot({ force = false } = {}) {
