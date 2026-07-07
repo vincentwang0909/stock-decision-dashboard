@@ -2950,8 +2950,13 @@ function formatRefreshDateTime(updatedAt) {
 function normalizedRefreshStatus(snapshot) {
   if (!snapshot) return null;
   const status = snapshot.refresh_status || {};
-  const lastRefresh = status.last_dashboard_refresh || snapshot.fetchedAt || snapshot.updatedAt || null;
-  const nextRefresh = status.next_dashboard_refresh
+  const lastRefresh = status.last_successful_live_refresh_at
+    || status.last_successful_cache_update_at
+    || status.last_any_successful_ticker_refresh_at
+    || status.last_dashboard_refresh
+    || null;
+  const nextRefresh = status.next_auto_refresh_at
+    || status.next_dashboard_refresh
     || (lastRefresh ? new Date(new Date(lastRefresh).getTime() + PRICE_REFRESH_MS).toISOString() : null);
   const totalTickers = Number.isFinite(status.total_tickers) ? status.total_tickers : Object.keys(snapshot.quotes || {}).length;
   const successCount = Number.isFinite(status.success_count)
@@ -2967,11 +2972,15 @@ function normalizedRefreshStatus(snapshot) {
   const staleQuoteCount = Number.isFinite(status.stale_quote_count)
     ? status.stale_quote_count
     : Object.values(snapshot.quotes || {}).filter((quote) => quote?.stale || quote?.dataStaleness === "stale").length;
+  const staleCacheCount = Number.isFinite(status.stale_cache_count) ? status.stale_cache_count : 0;
   return {
     refresh_interval_minutes: Number.isFinite(status.refresh_interval_minutes) ? status.refresh_interval_minutes : 60,
     last_dashboard_refresh: lastRefresh,
     next_dashboard_refresh: nextRefresh,
+    is_refreshing: typeof status.is_refreshing === "boolean" ? status.is_refreshing : false,
     is_cache_only: typeof status.is_cache_only === "boolean" ? status.is_cache_only : false,
+    is_force_refresh: typeof status.is_force_refresh === "boolean" ? status.is_force_refresh : false,
+    is_auto_refresh: typeof status.is_auto_refresh === "boolean" ? status.is_auto_refresh : false,
     total_tickers: totalTickers,
     success_count: successCount,
     failed_count: failedCount,
@@ -2979,6 +2988,7 @@ function normalizedRefreshStatus(snapshot) {
     unavailable_count: unavailableCount,
     has_stale_quotes: typeof status.has_stale_quotes === "boolean" ? status.has_stale_quotes : staleQuoteCount > 0,
     stale_quote_count: staleQuoteCount,
+    stale_cache_count: staleCacheCount,
     is_partial: typeof status.is_partial === "boolean" ? status.is_partial : (successCount > 0 && successCount < totalTickers),
     is_loading_live_data: typeof status.is_loading_live_data === "boolean" ? status.is_loading_live_data : (successCount > 0 && successCount < totalTickers && failedCount === 0),
   };
@@ -2990,61 +3000,78 @@ function refreshChipText(snapshot, fallbackText = t("refresh")) {
   if (!status) return fallbackText;
   const lastRefresh = formatRefreshDateTime(status.last_dashboard_refresh);
   const nextRefresh = formatRefreshDateTime(status.next_dashboard_refresh);
-  const parts = [currentLanguage === "zh" ? "每 1 小时自动刷新" : "Refreshes every 1 hour"];
-  if (status.success_count === 0 && status.total_tickers > 0) {
-    parts.push(currentLanguage === "zh" ? "刷新失败，当前显示缓存或暂无价格" : "Refresh failed, showing cache or no prices");
+  const seen = new Set();
+  const parts = [];
+  const addPart = (value) => {
+    const text = String(value || "").trim();
+    if (!text || seen.has(text)) return;
+    seen.add(text);
+    parts.push(text);
+  };
+  addPart(currentLanguage === "zh" ? "每 1 小时自动刷新" : "Refreshes every 1 hour");
+  if (status.is_refreshing) {
+    addPart(currentLanguage === "zh" ? "正在刷新行情..." : "Refreshing quotes...");
+  } else if (status.success_count === 0 && status.total_tickers > 0) {
+    addPart(currentLanguage === "zh" ? "刷新失败，当前显示缓存或暂无价格" : "Refresh failed, showing cache or no prices");
   } else if (status.is_loading_live_data) {
-    parts.push(currentLanguage === "zh" ? "部分股票数据正在更新，已先显示可用数据" : "Some stock data is still updating; available data is shown first");
+    addPart(currentLanguage === "zh" ? "部分股票数据正在更新，已先显示可用数据" : "Some stock data is still updating; available data is shown first");
   } else if (status.is_partial) {
-    parts.push(currentLanguage === "zh" ? "部分刷新成功，部分行情暂不可用" : "Partial refresh succeeded; some quotes are unavailable");
+    addPart(currentLanguage === "zh" ? "部分刷新成功" : "Partial refresh succeeded");
   } else if (status.is_cache_only && status.success_count > 0 && !status.has_stale_quotes) {
-    parts.push(currentLanguage === "zh" ? "已显示缓存数据" : "Showing cached data");
+    addPart(currentLanguage === "zh" ? "已显示缓存数据" : "Showing cached data");
+  } else if (status.success_count > 0 && status.is_force_refresh) {
+    addPart(currentLanguage === "zh" ? "刷新成功" : "Refresh succeeded");
   }
-  if (lastRefresh) parts.push(`${t("lastRefresh")} ${lastRefresh}`);
-  if (status.has_stale_quotes) parts.push(t("partialCachedQuotes"));
-  if (status.failed_count > 0) parts.push(currentLanguage === "zh" ? "部分行情暂不可用" : "Some quotes are unavailable");
-  if (nextRefresh) parts.push(`${t("nextRefresh")} ${nextRefresh}`);
+  if (lastRefresh) addPart(`${t("lastRefresh")} ${lastRefresh}`);
+  if (status.stale_quote_count > 0 || status.stale_cache_count > 0) addPart(t("partialCachedQuotes"));
+  if (status.failed_count > 0 || status.unavailable_count > 0) addPart(currentLanguage === "zh" ? "部分行情暂不可用" : "Some quotes are unavailable");
+  if (nextRefresh) addPart(`${t("nextRefresh")} ${nextRefresh}`);
   return parts.join(" • ");
 }
 
-function refreshStatusForTimestamp(timestamp, { hasStaleQuotes = false, staleQuoteCount = 0 } = {}) {
-  const base = new Date(timestamp || Date.now());
-  const safeBase = Number.isNaN(base.getTime()) ? new Date() : base;
+function refreshStatusForTimestamp(timestamp, { hasStaleQuotes = false, staleQuoteCount = 0, isRefreshing = false } = {}) {
+  const base = timestamp ? new Date(timestamp) : null;
+  const safeBase = base && !Number.isNaN(base.getTime()) ? base : null;
   return {
     refresh_interval_minutes: 60,
-    last_dashboard_refresh: safeBase.toISOString(),
-    next_dashboard_refresh: new Date(safeBase.getTime() + PRICE_REFRESH_MS).toISOString(),
+    last_dashboard_refresh: safeBase ? safeBase.toISOString() : null,
+    next_dashboard_refresh: safeBase ? new Date(safeBase.getTime() + PRICE_REFRESH_MS).toISOString() : null,
+    is_refreshing: isRefreshing,
     has_stale_quotes: hasStaleQuotes,
     stale_quote_count: staleQuoteCount,
   };
 }
 
 function setRefreshChipForAttempt({ stale = false, message = "" } = {}) {
-  const now = new Date().toISOString();
+  const currentStatus = normalizedRefreshStatus(currentSnapshot);
+  const priorRefreshTime = currentStatus?.last_dashboard_refresh || null;
   const snapshotForChip = {
-    fetchedAt: now,
-    updatedAt: now,
     quotes: currentSnapshot?.quotes || {},
-    refresh_status: refreshStatusForTimestamp(now, {
-      hasStaleQuotes: stale,
-      staleQuoteCount: stale ? Math.max(1, tickerRows.length) : 0,
-    }),
+    refresh_status: {
+      ...(currentSnapshot?.refresh_status || {}),
+      ...refreshStatusForTimestamp(priorRefreshTime, {
+        hasStaleQuotes: stale,
+        staleQuoteCount: stale ? Math.max(1, tickerRows.length) : 0,
+        isRefreshing: true,
+      }),
+    },
   };
-  const text = refreshChipText(snapshotForChip);
-  setRefreshChip(message ? `${text} • ${message}` : text);
+  setRefreshChip(refreshChipText(snapshotForChip));
 }
 
 function markCurrentSnapshotRefreshAttemptFailed() {
-  const now = new Date().toISOString();
   const staleQuoteCount = Math.max(1, Object.keys(currentSnapshot?.quotes || {}).length || tickerRows.length);
   if (currentSnapshot) {
     currentSnapshot = {
       ...currentSnapshot,
-      fetchedAt: now,
-      refresh_status: refreshStatusForTimestamp(now, {
+      refresh_status: {
+        ...(currentSnapshot.refresh_status || {}),
         hasStaleQuotes: true,
-        staleQuoteCount,
-      }),
+        has_stale_quotes: true,
+        stale_quote_count: staleQuoteCount,
+        failed_count: Math.max(currentSnapshot.refresh_status?.failed_count || 0, 1),
+        is_refreshing: false,
+      },
     };
     persistSnapshot(currentSnapshot);
   }
@@ -9284,7 +9311,7 @@ function applySnapshot(snapshot, shouldPersist = true) {
     row.marketCap = metrics.marketCap;
     row.updatedAt = metrics.updatedAt;
     row.companyNews = snapshot?.quotes?.[row.ticker]?.companyNews || null;
-    row.globalMarketContext = snapshot?.marketContext || null;
+    row.globalMarketContext = snapshot?.marketContext || snapshot?.market_context || null;
     row.score = metrics.score;
     row.action = metrics.action;
     row.summary = metrics.summary;
@@ -9326,6 +9353,7 @@ function applySnapshot(snapshot, shouldPersist = true) {
 }
 
 async function refreshSnapshot({ force = false, autoRefresh = false, mode = null } = {}) {
+  syncTickerRows();
   if (!tickerRows.length) return;
   const effectiveMode = mode || (force ? "force" : autoRefresh ? "auto" : "cache");
   const shouldForce = effectiveMode === "force" || force;
@@ -9339,6 +9367,9 @@ async function refreshSnapshot({ force = false, autoRefresh = false, mode = null
   }
 
   const symbols = tickerRows.map((row) => row.ticker).join(",");
+  if (shouldForce) {
+    console.info("Dashboard force refresh requested tickers:", tickerRows.map((row) => row.ticker));
+  }
   const refreshParams = [];
   if (shouldForce) refreshParams.push("force=true");
   else if (shouldAutoRefresh) refreshParams.push("auto_refresh=true");
@@ -9355,6 +9386,14 @@ async function refreshSnapshot({ force = false, autoRefresh = false, mode = null
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const snapshot = await response.json();
     if (!snapshot?.quotes) throw new Error("Missing quote payload");
+    if (shouldForce) {
+      console.info("Dashboard force refresh response:", {
+        requested_tickers: snapshot.requested_tickers,
+        processed_tickers: snapshot.processed_tickers,
+        missing_from_request: snapshot.missing_from_request,
+        refresh_status: snapshot.refresh_status,
+      });
+    }
     applySnapshot(snapshot, true);
   } catch (error) {
     if (!currentSnapshot) {
@@ -9388,6 +9427,7 @@ async function runDashboardRefresh({ manual = false, auto = false, mode = null }
   if (manual) setRefreshChipForAttempt({ stale: Boolean(currentSnapshot), message: t("refreshing") });
   try {
     await syncWatchlistFromServer({ rerender: true, refreshPrices: false });
+    syncTickerRows();
   } catch {
     // syncWatchlistFromServer handles its own warning state.
   }

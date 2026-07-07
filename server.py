@@ -3844,6 +3844,44 @@ def market_context_payload_valid(payload):
     return market_context_payload_status(payload) in {"available", "partial"}
 
 
+def flatten_market_context_payload(payload, meta=None):
+    market_context = (payload or {}).get("market_context") or {}
+    equity_trend = market_context.get("equity_trend") or {}
+    return {
+        "status": (meta or {}).get("status") or market_context_payload_status(payload),
+        "updated_at": (meta or {}).get("cache_updated_at"),
+        "vix": market_context.get("vix") or {},
+        "ten_year_yield": market_context.get("ten_year_yield") or {},
+        "spy_trend": equity_trend.get("spy") or {},
+        "qqq_trend": equity_trend.get("qqq") or {},
+        "fear_greed": market_context.get("fear_greed") or {},
+        "score": market_context.get("score"),
+        "regime": market_context.get("regime"),
+        "confidence": market_context.get("confidence"),
+        "summary": market_context.get("summary"),
+        "cache_used": (meta or {}).get("cache_used"),
+        "source_attempts": (meta or {}).get("source_attempts") or [],
+    }
+
+
+def cache_updated_at_and_age(payload):
+    if not isinstance(payload, dict):
+        return None, None
+    updated_at = payload.get("updated_at") or payload.get("updatedAt")
+    updated_dt = parse_iso_datetime(updated_at)
+    age_seconds = (
+        max(0, (datetime.now(timezone.utc) - updated_dt).total_seconds())
+        if updated_dt else None
+    )
+    return updated_at, age_seconds
+
+
+def fields_available_from_mapping(mapping):
+    if not isinstance(mapping, dict):
+        return []
+    return [key for key, value in mapping.items() if value is not None]
+
+
 def merge_quote_with_cached_modules(ticker, quote, cached):
     if not isinstance(quote, dict) or not cached:
         return quote
@@ -4037,7 +4075,7 @@ def get_market_context_cached_snapshot(force=False, allow_live=True):
 
     if allow_live:
         live_payload = _run_with_timeout(fetch_market_context_payload, 8, fallback=None)
-        if live_payload:
+        if live_payload and market_context_payload_valid(live_payload):
             MARKET_CONTEXT_CACHE["value"] = live_payload
             MARKET_CONTEXT_CACHE["expiresAt"] = now + NEWS_CACHE_SECONDS
             cache_updated_at = write_market_context_cache(live_payload)
@@ -4050,7 +4088,7 @@ def get_market_context_cached_snapshot(force=False, allow_live=True):
                 "missing_fields": [],
                 "cache_updated_at": cache_updated_at,
             }
-        attempts.append({"source": "live_market_context", "success": False, "error": "Live market-context fetch failed or timed out"})
+        attempts.append({"source": "live_market_context", "success": False, "error": "Live market-context fetch failed, timed out, or returned no usable VIX/10Y/SPY/QQQ/Fear-Greed fields"})
 
     if cached_disk_payload:
         return cached_disk_payload, {
@@ -4207,8 +4245,11 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
             normalized_tickers.append(ticker)
             seen.add(ticker)
     requested_count = len(normalized_tickers)
+    requested_tickers = list(normalized_tickers)
     if len(normalized_tickers) > MARKET_DATA_MAX_TICKERS:
         normalized_tickers = normalized_tickers[:MARKET_DATA_MAX_TICKERS]
+    processed_tickers = list(normalized_tickers)
+    missing_from_request = [ticker for ticker in requested_tickers if ticker not in processed_tickers]
 
     quotes = {}
     failed = []
@@ -4216,6 +4257,11 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
     stale_cache_count = 0
     us_live_tickers = []
     a_share_live_tickers = []
+    live_attempted_tickers = []
+    live_success_tickers = []
+    live_failed_tickers = []
+    cache_only_tickers = []
+    source_attempts_by_ticker = {}
     live_refresh_started = False
     live_refresh_completed = False
     cache_age_samples = []
@@ -4225,11 +4271,12 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
         if cached:
             if cached.get("cache_age_seconds") is not None:
                 cache_age_samples.append(cached.get("cache_age_seconds"))
-            if is_market_cache_fresh(cached):
+            if is_market_cache_fresh(cached) and not force:
                 quote = normalize_cached_market_quote(ticker, cached, stale=False)
                 quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
                 quotes[ticker] = quote
                 used_cache_count += 1
+                cache_only_tickers.append(ticker)
                 continue
             if cache_only and not force and not auto_refresh:
                 quote = normalize_cached_market_quote(ticker, cached, stale=True)
@@ -4237,6 +4284,7 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
                 quotes[ticker] = quote
                 used_cache_count += 1
                 stale_cache_count += 1
+                cache_only_tickers.append(ticker)
                 continue
         if cache_only and not force and not auto_refresh:
             quote, failure = build_unavailable_or_cached_quote(
@@ -4248,6 +4296,7 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
             if cached:
                 used_cache_count += 1
                 stale_cache_count += 1
+            cache_only_tickers.append(ticker)
             if failure:
                 failed.append(failure)
             continue
@@ -4256,6 +4305,7 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
             quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
             quotes[ticker] = quote
             used_cache_count += 1
+            cache_only_tickers.append(ticker)
             continue
         if is_a_share_ticker(ticker):
             a_share_live_tickers.append(ticker)
@@ -4267,6 +4317,7 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
     completed = set()
     if us_live_tickers:
         live_refresh_started = True
+        live_attempted_tickers.extend(us_live_tickers)
         executor = ThreadPoolExecutor(max_workers=max(1, MARKET_DATA_MAX_WORKERS))
         futures = {
             executor.submit(fetch_market_quote_for_ticker, ticker, force): ticker
@@ -4277,13 +4328,19 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
                 ticker = futures[future]
                 completed.add(ticker)
                 try:
-                    quote, failure, used_cache, _attempts = future.result(timeout=1)
+                    quote, failure, used_cache, attempts = future.result(timeout=1)
                 except Exception as exc:
                     traceback.print_exc()
                     cached = read_market_cache(ticker)
                     quote, failure = build_unavailable_or_cached_quote(ticker, str(exc), cached=cached)
                     used_cache = bool(cached)
+                    attempts = [{"source": "worker", "success": False, "error": str(exc)}]
                 quotes[ticker] = quote
+                source_attempts_by_ticker[ticker] = attempts
+                if quote.get("price") is not None and not used_cache:
+                    live_success_tickers.append(ticker)
+                elif failure:
+                    live_failed_tickers.append(ticker)
                 if used_cache:
                     used_cache_count += 1
                     stale_cache_count += 1 if quote.get("stale") or quote.get("quote_status") == "stale" else 0
@@ -4303,6 +4360,8 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
                     cached=cached,
                 )
                 quotes[ticker] = quote
+                source_attempts_by_ticker[ticker] = [{"source": "route_timeout", "success": False, "error": f"Market-data route timed out before {ticker} completed"}]
+                live_failed_tickers.append(ticker)
                 if cached:
                     used_cache_count += 1
                     stale_cache_count += 1 if quote.get("stale") or quote.get("quote_status") == "stale" else 0
@@ -4314,14 +4373,21 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
 
     for ticker in a_share_live_tickers:
         live_refresh_started = True
+        live_attempted_tickers.append(ticker)
         try:
-            quote, failure, used_cache, _attempts = fetch_market_quote_for_ticker(ticker, force=force)
+            quote, failure, used_cache, attempts = fetch_market_quote_for_ticker(ticker, force=force)
         except Exception as exc:
             traceback.print_exc()
             cached = read_market_cache(ticker)
             quote, failure = build_unavailable_or_cached_quote(ticker, str(exc), cached=cached)
             used_cache = bool(cached)
+            attempts = [{"source": "a_share_worker", "success": False, "error": str(exc)}]
         quotes[ticker] = quote
+        source_attempts_by_ticker[ticker] = attempts
+        if quote.get("price") is not None and not used_cache:
+            live_success_tickers.append(ticker)
+        elif failure:
+            live_failed_tickers.append(ticker)
         if used_cache:
             used_cache_count += 1
             stale_cache_count += 1 if quote.get("stale") or quote.get("quote_status") == "stale" else 0
@@ -4335,12 +4401,15 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
             quote, failure = build_unavailable_or_cached_quote(ticker, "Quote unavailable")
             quotes[ticker] = quote
             failed.append(failure)
+            live_failed_tickers.append(ticker)
 
+    request_started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     market_context, market_context_meta = get_market_context_cached_snapshot(
         force=force,
         allow_live=bool(force or auto_refresh),
     )
     fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    request_completed_at = fetched_at
     quote_times = [
         quote.get("updatedAt")
         for quote in quotes.values()
@@ -4363,6 +4432,16 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
         ) or (not market_context_meta.get("cache_used") and market_context_payload_valid(market_context)):
             refresh_reference_candidates.append(fetched_at)
     last_dashboard_refresh = max(refresh_reference_candidates) if refresh_reference_candidates else None
+    live_refresh_successful = bool(live_success_tickers) or (
+        not market_context_meta.get("cache_used") and market_context_payload_valid(market_context)
+    )
+    last_successful_live_refresh_at = fetched_at if live_refresh_successful else None
+    last_successful_cache_update_at = last_dashboard_refresh
+    last_any_successful_ticker_refresh_at = max([
+        quote.get("cache_updated_at") or quote.get("updatedAt")
+        for quote in quotes.values()
+        if isinstance(quote, dict) and quote.get("price") is not None and (quote.get("cache_updated_at") or quote.get("updatedAt"))
+    ] or [None])
     stale_quote_count = sum(
         1 for quote in quotes.values()
         if isinstance(quote, dict) and (
@@ -4407,6 +4486,17 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
                 ],
                 "warnings": [quote.get("error")] if quote.get("error") else [],
             }
+            quote["source_attempts"] = source_attempts_by_ticker.get(ticker, [])
+            quote["fundamentals"] = {
+                "fields": extract_fundamental_fields_from_quote(quote),
+                "status": quote["data_quality"]["fundamental_status"],
+                "source_attempts": source_attempts_by_ticker.get(ticker, []),
+            }
+            quote["options_debug"] = {
+                "fields": extract_options_fields_from_quote(quote),
+                "status": quote["data_quality"]["options_status"],
+                "source_attempts": source_attempts_by_ticker.get(ticker, []),
+            }
 
     warning = None
     if requested_count > len(normalized_tickers):
@@ -4421,18 +4511,36 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
         "failed": failed,
         "warning": warning,
         "marketContext": market_context,
+        "market_context": flatten_market_context_payload(market_context, market_context_meta),
         "fetchedAt": fetched_at,
         "updatedAt": updated_at,
+        "requested_tickers": requested_tickers,
+        "processed_tickers": processed_tickers,
+        "missing_from_request": missing_from_request,
         "refresh_status": {
             "refresh_interval_minutes": 60,
+            "request_started_at": request_started_at,
+            "request_completed_at": request_completed_at,
+            "last_successful_live_refresh_at": last_successful_live_refresh_at,
+            "last_successful_cache_update_at": last_successful_cache_update_at,
+            "last_any_successful_ticker_refresh_at": last_any_successful_ticker_refresh_at,
             "last_dashboard_refresh": last_dashboard_refresh,
             "next_dashboard_refresh": next_refresh_dt.strftime("%Y-%m-%dT%H:%M:%SZ") if next_refresh_dt else None,
+            "next_auto_refresh_at": next_refresh_dt.strftime("%Y-%m-%dT%H:%M:%SZ") if next_refresh_dt else None,
             "cache_age_minutes": cache_age_minutes,
             "is_cache_only": bool(cache_only and not force and not auto_refresh),
             "is_force_refresh": bool(force),
             "is_auto_refresh": bool(auto_refresh),
             "live_refresh_started": live_refresh_started,
             "live_refresh_completed": live_refresh_completed if live_refresh_started else False,
+            "force_requested_tickers": requested_tickers if force else [],
+            "live_attempted_tickers": sorted(set(live_attempted_tickers)),
+            "live_success_tickers": sorted(set(live_success_tickers)),
+            "live_failed_tickers": sorted(set(live_failed_tickers)),
+            "cache_only_tickers": sorted(set(cache_only_tickers)),
+            "requested_tickers": requested_tickers,
+            "processed_tickers": processed_tickers,
+            "missing_from_request": missing_from_request,
             "total_tickers": len(normalized_tickers),
             "success_count": success_count,
             "failed_count": len(failed),
@@ -4891,6 +4999,101 @@ def api_debug_quote(ticker):
         }), 500
 
 
+@app.route("/api/debug/bulk-status")
+def api_debug_bulk_status():
+    try:
+        tickers = [
+            normalize_ticker_input(ticker)
+            for ticker in request.args.get("tickers", "").split(",")
+            if normalize_ticker_input(ticker)
+        ][:MARKET_DATA_MAX_TICKERS]
+        items = []
+        for ticker in tickers:
+            quote_cache = read_market_cache(ticker)
+            quote_payload = (quote_cache.get("quote") if isinstance(quote_cache, dict) else None) or {}
+            quote_updated_at, quote_age = cache_updated_at_and_age(quote_cache)
+
+            fundamentals_cache = read_module_cache("fundamentals", ticker)
+            fundamentals_fields = (fundamentals_cache or {}).get("fields") or {}
+            fundamentals_updated_at, fundamentals_age = cache_updated_at_and_age(fundamentals_cache)
+
+            options_cache = read_module_cache("options", ticker)
+            options_fields = (options_cache or {}).get("options") or {}
+            options_updated_at, options_age = cache_updated_at_and_age(options_cache)
+
+            items.append({
+                "ticker": ticker,
+                "market_type": infer_market_type(ticker),
+                "quote": {
+                    "cache_exists": bool(quote_cache),
+                    "cache_valid": bool(quote_cache and quote_payload.get("price") is not None and is_market_cache_fresh(quote_cache)),
+                    "price": quote_payload.get("price"),
+                    "status": quote_payload.get("quote_status") or ("available" if quote_payload.get("price") is not None else "unavailable"),
+                    "source": quote_payload.get("quote_source"),
+                    "updated_at": quote_updated_at,
+                    "age_minutes": round(quote_age / 60, 2) if quote_age is not None else None,
+                    "last_successful_refresh": quote_payload.get("last_successful_update") or quote_payload.get("updatedAt") or quote_updated_at,
+                },
+                "fundamentals": {
+                    "cache_exists": bool(fundamentals_cache),
+                    "cache_valid": fundamentals_cache_valid(fundamentals_cache),
+                    "fields_available": fields_available_from_mapping(fundamentals_fields),
+                    "status": "available" if fundamentals_cache_valid(fundamentals_cache) else "unavailable",
+                    "updated_at": fundamentals_updated_at,
+                    "age_minutes": round(fundamentals_age / 60, 2) if fundamentals_age is not None else None,
+                },
+                "options": {
+                    "cache_exists": bool(options_cache),
+                    "cache_valid": options_cache_valid(options_cache),
+                    "put_wall": options_fields.get("put_wall"),
+                    "call_wall": options_fields.get("call_wall"),
+                    "gamma_flip": options_fields.get("gamma_flip"),
+                    "status": options_fields.get("status") or ("available" if options_cache_valid(options_cache) else "unavailable"),
+                    "updated_at": options_updated_at,
+                    "age_minutes": round(options_age / 60, 2) if options_age is not None else None,
+                },
+            })
+
+        market_cached = read_market_context_cache()
+        market_payload = (market_cached or {}).get("payload")
+        flat_market = flatten_market_context_payload(market_payload, {
+            "status": market_context_payload_status(market_payload),
+            "cache_used": bool(market_cached),
+            "cache_updated_at": (market_cached or {}).get("updated_at"),
+        })
+        market_fields_available = [
+            field for field, value in {
+                "vix": (flat_market.get("vix") or {}).get("value"),
+                "ten_year_yield": (flat_market.get("ten_year_yield") or {}).get("value"),
+                "spy_trend": (flat_market.get("spy_trend") or {}).get("value"),
+                "qqq_trend": (flat_market.get("qqq_trend") or {}).get("value"),
+                "fear_greed": (flat_market.get("fear_greed") or {}).get("value"),
+            }.items()
+            if value is not None
+        ]
+        return jsonify({
+            "success": True,
+            "tickers": tickers,
+            "items": items,
+            "market_context": {
+                "cache_exists": bool(market_cached),
+                "cache_valid": market_context_payload_valid(market_payload),
+                "status": market_context_payload_status(market_payload),
+                "fields_available": market_fields_available,
+                "updated_at": (market_cached or {}).get("updated_at"),
+            },
+        })
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "error": str(exc),
+            "tickers": [],
+            "items": [],
+            "market_context": {},
+        }), 500
+
+
 @app.route("/api/debug/fundamentals/<path:ticker>")
 def api_debug_fundamentals(ticker):
     normalized = normalize_ticker_input(ticker)
@@ -5030,8 +5233,9 @@ def api_debug_market_context():
             "valid": bool(cached and market_context_payload_valid((cached or {}).get("payload"))),
             "updated_at": cached.get("updated_at") if isinstance(cached, dict) else None,
         }
+        context_has_any_field = market_context_payload_valid(payload)
         return jsonify({
-            "success": bool((market_context.get("vix") or {}).get("value") is not None or (equity_trend.get("spy") or {}).get("value") is not None),
+            "success": context_has_any_field,
             "vix": market_context.get("vix"),
             "fear_greed": market_context.get("fear_greed"),
             "ten_year_yield": market_context.get("ten_year_yield"),
