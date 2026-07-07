@@ -74,9 +74,10 @@ HOST = os.environ.get("HOST", "127.0.0.1")
 CACHE_SECONDS = 60 * 60
 QUOTE_FETCH_TIMEOUT_SECONDS = 12
 MARKET_CACHE_TTL_SECONDS = int(os.environ.get("MARKET_CACHE_TTL_SECONDS", str(60 * 60)))
-MARKET_DATA_MAX_TICKERS = int(os.environ.get("MARKET_DATA_MAX_TICKERS", "25"))
-MARKET_DATA_MAX_WORKERS = int(os.environ.get("MARKET_DATA_MAX_WORKERS", "3"))
-MARKET_DATA_ROUTE_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_ROUTE_TIMEOUT_SECONDS", "25"))
+MARKET_DATA_MAX_TICKERS = int(os.environ.get("MARKET_DATA_MAX_TICKERS", "60"))
+MARKET_DATA_MAX_WORKERS = int(os.environ.get("MARKET_DATA_MAX_WORKERS", "2"))
+MARKET_DATA_MAX_LIVE_TICKERS = int(os.environ.get("MARKET_DATA_MAX_LIVE_TICKERS", "5"))
+MARKET_DATA_ROUTE_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_ROUTE_TIMEOUT_SECONDS", "18"))
 MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS", "8"))
 OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECONDS", "6"))
 A_SHARE_METADATA_TIMEOUT_SECONDS = 2.5
@@ -4635,6 +4636,7 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
     live_success_tickers = []
     live_failed_tickers = []
     cache_only_tickers = []
+    deferred_live_tickers = []
     source_attempts_by_ticker = {}
     live_refresh_started = False
     live_refresh_completed = False
@@ -4685,6 +4687,34 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
             a_share_live_tickers.append(ticker)
         else:
             us_live_tickers.append(ticker)
+
+    live_candidates = us_live_tickers + a_share_live_tickers
+    if (force or auto_refresh) and len(live_candidates) > MARKET_DATA_MAX_LIVE_TICKERS:
+        allowed_live = set(live_candidates[:MARKET_DATA_MAX_LIVE_TICKERS])
+        deferred_live_tickers = [ticker for ticker in live_candidates if ticker not in allowed_live]
+        us_live_tickers = [ticker for ticker in us_live_tickers if ticker in allowed_live]
+        a_share_live_tickers = [ticker for ticker in a_share_live_tickers if ticker in allowed_live]
+        for ticker in deferred_live_tickers:
+            cached = read_market_cache(ticker)
+            quote, failure = build_unavailable_or_cached_quote(
+                ticker,
+                f"Live refresh deferred: request exceeded per-request live limit ({MARKET_DATA_MAX_LIVE_TICKERS})",
+                cached=cached,
+            )
+            quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
+            quotes[ticker] = quote
+            source_attempts_by_ticker[ticker] = [{
+                "source": "live_refresh_limit",
+                "success": False,
+                "deferred": True,
+                "error": f"Per-request live refresh limit is {MARKET_DATA_MAX_LIVE_TICKERS}",
+            }]
+            cache_only_tickers.append(ticker)
+            if cached:
+                used_cache_count += 1
+                stale_cache_count += 1 if quote.get("stale") or quote.get("quote_status") == "stale" else 0
+            if failure:
+                failed.append(failure)
 
     executor = None
     futures = {}
@@ -4779,7 +4809,7 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
 
     request_started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     market_context, market_context_meta = get_market_context_cached_snapshot(
-        force=force,
+        force=False,
         allow_live=bool(force or auto_refresh),
     )
     fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -4908,9 +4938,11 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
             "live_refresh_started": live_refresh_started,
             "live_refresh_completed": live_refresh_completed if live_refresh_started else False,
             "force_requested_tickers": requested_tickers if force else [],
+            "live_limit_per_request": MARKET_DATA_MAX_LIVE_TICKERS,
             "live_attempted_tickers": sorted(set(live_attempted_tickers)),
             "live_success_tickers": sorted(set(live_success_tickers)),
             "live_failed_tickers": sorted(set(live_failed_tickers)),
+            "deferred_live_tickers": sorted(set(deferred_live_tickers)),
             "cache_only_tickers": sorted(set(cache_only_tickers)),
             "requested_tickers": requested_tickers,
             "processed_tickers": processed_tickers,

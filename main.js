@@ -9,6 +9,8 @@ const WATCHLIST_MIGRATION_KEY = "stock-dashboard-watchlist-migration-v2";
 const LANGUAGE_CACHE_KEY = "stock-dashboard-language-v1";
 const PRICE_REFRESH_MS = 60 * 60 * 1000;
 const WATCHLIST_SYNC_MS = 60 * 1000;
+const MARKET_DATA_BATCH_SIZE = 25;
+const LIVE_REFRESH_BATCH_SIZE = 5;
 const REQUIRED_DEFAULT_TICKERS = ["300657", "002463", "603005", "600522"];
 const CALIBRATION_CONFIG = {
   rating_thresholds: {
@@ -3076,6 +3078,79 @@ function markCurrentSnapshotRefreshAttemptFailed() {
     persistSnapshot(currentSnapshot);
   }
   setRefreshChipForAttempt({ stale: true, message: t("staleRefresh") });
+}
+
+function chunkArray(items, size) {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function uniqueList(values) {
+  return [...new Set((values || []).filter(Boolean))];
+}
+
+function mergeMarketSnapshots(baseSnapshot, patchSnapshot, requestedTickers = []) {
+  if (!patchSnapshot) return baseSnapshot;
+  const safeBaseSnapshot = baseSnapshot || { quotes: {}, failed: [], refresh_status: {} };
+  const quotes = {
+    ...(safeBaseSnapshot.quotes || {}),
+    ...(patchSnapshot.quotes || {}),
+  };
+  const orderedTickers = requestedTickers.length ? requestedTickers : Object.keys(quotes);
+  const failedByTicker = new Map();
+  [...(safeBaseSnapshot.failed || []), ...(patchSnapshot.failed || [])].forEach((failure) => {
+    if (!failure) return;
+    failedByTicker.set(failure.ticker || failure.symbol || JSON.stringify(failure), failure);
+  });
+  const baseStatus = safeBaseSnapshot.refresh_status || {};
+  const patchStatus = patchSnapshot.refresh_status || {};
+  const quoteValues = Object.values(quotes || {});
+  const successCount = quoteValues.filter((quote) => quote?.price != null).length;
+  const unavailableCount = quoteValues.filter((quote) => quote?.quote_status === "unavailable").length;
+  const staleQuoteCount = quoteValues.filter((quote) => quote?.stale || quote?.dataStaleness === "stale" || quote?.quote_status === "stale").length;
+  const status = {
+    ...baseStatus,
+    ...patchStatus,
+    total_tickers: orderedTickers.length,
+    success_count: successCount,
+    failed_count: failedByTicker.size,
+    unavailable_count: unavailableCount,
+    unavailable_quote_count: unavailableCount,
+    stale_quote_count: staleQuoteCount,
+    has_stale_quotes: staleQuoteCount > 0 || unavailableCount > 0,
+    is_partial: successCount > 0 && successCount < orderedTickers.length,
+    live_attempted_tickers: uniqueList([...(baseStatus.live_attempted_tickers || []), ...(patchStatus.live_attempted_tickers || [])]),
+    live_success_tickers: uniqueList([...(baseStatus.live_success_tickers || []), ...(patchStatus.live_success_tickers || [])]),
+    live_failed_tickers: uniqueList([...(baseStatus.live_failed_tickers || []), ...(patchStatus.live_failed_tickers || [])]),
+    deferred_live_tickers: uniqueList([...(baseStatus.deferred_live_tickers || []), ...(patchStatus.deferred_live_tickers || [])]),
+    cache_only_tickers: uniqueList([...(baseStatus.cache_only_tickers || []), ...(patchStatus.cache_only_tickers || [])]),
+    requested_tickers: orderedTickers,
+    processed_tickers: orderedTickers.filter((ticker) => quotes[ticker]),
+    missing_from_request: orderedTickers.filter((ticker) => !quotes[ticker]),
+  };
+  return {
+    ...safeBaseSnapshot,
+    ...patchSnapshot,
+    quotes,
+    data: quotes,
+    items: orderedTickers.filter((ticker) => quotes[ticker]).map((ticker) => ({
+      ticker,
+      market_type: schemaMarketTypeForTicker(ticker),
+      price: quotes[ticker]?.price ?? null,
+      quote_status: quotes[ticker]?.quote_status || "unavailable",
+      quote_source: quotes[ticker]?.quote_source || null,
+      analysis: quotes[ticker],
+      error: quotes[ticker]?.error || null,
+    })),
+    failed: [...failedByTicker.values()],
+    requested_tickers: orderedTickers,
+    processed_tickers: status.processed_tickers,
+    missing_from_request: status.missing_from_request,
+    refresh_status: status,
+  };
 }
 
 function applyLanguage() {
@@ -9366,35 +9441,64 @@ async function refreshSnapshot({ force = false, autoRefresh = false, mode = null
     return;
   }
 
-  const symbols = tickerRows.map((row) => row.ticker).join(",");
+  const requestedTickers = tickerRows.map((row) => row.ticker);
   if (shouldForce) {
-    console.info("Dashboard force refresh requested tickers:", tickerRows.map((row) => row.ticker));
+    console.info("Dashboard force refresh requested tickers:", requestedTickers);
   }
   const refreshParams = [];
   if (shouldForce) refreshParams.push("force=true");
   else if (shouldAutoRefresh) refreshParams.push("auto_refresh=true");
   const querySuffix = refreshParams.length ? `&${refreshParams.join("&")}` : "";
-  const url = `${API_URL}?tickers=${encodeURIComponent(symbols)}&_refresh=${Date.now()}${querySuffix}`;
+  const batchSize = (shouldForce || shouldAutoRefresh) ? LIVE_REFRESH_BATCH_SIZE : MARKET_DATA_BATCH_SIZE;
+  const batches = requestedTickers.length > batchSize
+    ? chunkArray(requestedTickers, batchSize)
+    : [requestedTickers];
   refreshRequestInFlight = true;
   if (shouldForce || shouldAutoRefresh) {
     setRefreshChipForAttempt({ stale: Boolean(currentSnapshot), message: shouldForce ? t("refreshing") : (currentLanguage === "zh" ? "正在刷新行情…" : "Refreshing quotes...") });
   }
   updateManualRefreshButton();
 
+  let mergedSnapshot = currentSnapshot;
+  const batchErrors = [];
   try {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const snapshot = await response.json();
-    if (!snapshot?.quotes) throw new Error("Missing quote payload");
-    if (shouldForce) {
-      console.info("Dashboard force refresh response:", {
-        requested_tickers: snapshot.requested_tickers,
-        processed_tickers: snapshot.processed_tickers,
-        missing_from_request: snapshot.missing_from_request,
-        refresh_status: snapshot.refresh_status,
-      });
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+      const batch = batches[batchIndex];
+      if (!batch.length) continue;
+      if (batches.length > 1 && (shouldForce || shouldAutoRefresh)) {
+        setRefreshChipForAttempt({
+          stale: Boolean(currentSnapshot),
+          message: currentLanguage === "zh"
+            ? `正在刷新行情 ${batchIndex + 1}/${batches.length}`
+            : `Refreshing quotes ${batchIndex + 1}/${batches.length}`,
+        });
+      }
+      const symbols = batch.join(",");
+      const url = `${API_URL}?tickers=${encodeURIComponent(symbols)}&_refresh=${Date.now()}${querySuffix}`;
+      try {
+        const response = await fetch(url, { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const snapshot = await response.json();
+        if (!snapshot?.quotes) throw new Error("Missing quote payload");
+        if (shouldForce) {
+          console.info("Dashboard force refresh batch response:", {
+            batch,
+            requested_tickers: snapshot.requested_tickers,
+            processed_tickers: snapshot.processed_tickers,
+            missing_from_request: snapshot.missing_from_request,
+            refresh_status: snapshot.refresh_status,
+          });
+        }
+        mergedSnapshot = mergeMarketSnapshots(mergedSnapshot, snapshot, requestedTickers);
+        applySnapshot(mergedSnapshot, true);
+      } catch (batchError) {
+        batchErrors.push(batchError);
+        console.warn("Price refresh batch failed:", batch, batchError);
+      }
     }
-    applySnapshot(snapshot, true);
+    if (!mergedSnapshot?.quotes || (!Object.keys(mergedSnapshot.quotes).length && batchErrors.length)) {
+      throw batchErrors[0] || new Error("Missing quote payload");
+    }
   } catch (error) {
     if (!currentSnapshot) {
       const fallbackSnapshot = { source: "unavailable", updatedAt: new Date().toISOString(), quotes: {} };
@@ -9413,6 +9517,9 @@ async function refreshSnapshot({ force = false, autoRefresh = false, mode = null
     }
     console.warn("Price refresh failed:", error);
   } finally {
+    if (batchErrors.length && mergedSnapshot?.quotes && Object.keys(mergedSnapshot.quotes).length) {
+      markCurrentSnapshotRefreshAttemptFailed();
+    }
     refreshRequestInFlight = false;
     updateManualRefreshButton();
     if (refreshQueued) {

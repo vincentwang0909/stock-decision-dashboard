@@ -15,3 +15,11 @@ services:
         value: /var/data/watchlist.db
       - key: MARKET_CACHE_DIR
         value: /var/data/cache
+      - key: MARKET_DATA_MAX_TICKERS
+        value: "60"
+      - key: MARKET_DATA_MAX_LIVE_TICKERS
+        value: "5"
+      - key: MARKET_DATA_MAX_WORKERS
+        value: "2"
+      - key: MARKET_DATA_ROUTE_TIMEOUT_SECONDS
+        value: "18"
