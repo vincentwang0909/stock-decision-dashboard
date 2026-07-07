@@ -2609,7 +2609,7 @@ function setWatchlistSyncWarning(visible) {
   warning.textContent = t("watchlistSyncFailed");
 }
 
-function applySharedWatchlist(nextWatchlist, { rerender = true, refreshPrices = true } = {}) {
+function applySharedWatchlist(nextWatchlist, { rerender = true, refreshPrices = false, refreshMode = "cache" } = {}) {
   const normalizedItems = normalizeWatchlistItems(nextWatchlist);
   const normalized = normalizeWatchlist(normalizedItems.map((item) => item.ticker));
   const changed = JSON.stringify(normalized) !== JSON.stringify(watchlistTickers);
@@ -2619,7 +2619,7 @@ function applySharedWatchlist(nextWatchlist, { rerender = true, refreshPrices = 
   syncTickerRows();
   setWatchlistSyncWarning(false);
   if (rerender) render();
-  if (refreshPrices) refreshSnapshot();
+  if (refreshPrices) refreshSnapshot({ mode: refreshMode });
   return changed;
 }
 
@@ -2633,7 +2633,7 @@ async function fetchSharedWatchlist() {
 async function syncWatchlistFromServer({ rerender = true, refreshPrices = false } = {}) {
   try {
     const serverWatchlist = await fetchSharedWatchlist();
-    return applySharedWatchlist(serverWatchlist, { rerender, refreshPrices });
+    return applySharedWatchlist(serverWatchlist, { rerender, refreshPrices, refreshMode: "cache" });
   } catch (error) {
     console.warn("Shared watchlist sync failed:", error);
     setWatchlistSyncWarning(true);
@@ -2971,6 +2971,7 @@ function normalizedRefreshStatus(snapshot) {
     refresh_interval_minutes: Number.isFinite(status.refresh_interval_minutes) ? status.refresh_interval_minutes : 60,
     last_dashboard_refresh: lastRefresh,
     next_dashboard_refresh: nextRefresh,
+    is_cache_only: typeof status.is_cache_only === "boolean" ? status.is_cache_only : false,
     total_tickers: totalTickers,
     success_count: successCount,
     failed_count: failedCount,
@@ -2989,13 +2990,15 @@ function refreshChipText(snapshot, fallbackText = t("refresh")) {
   if (!status) return fallbackText;
   const lastRefresh = formatRefreshDateTime(status.last_dashboard_refresh);
   const nextRefresh = formatRefreshDateTime(status.next_dashboard_refresh);
-  const parts = [fallbackText];
+  const parts = [currentLanguage === "zh" ? "每 1 小时自动刷新" : "Refreshes every 1 hour"];
   if (status.success_count === 0 && status.total_tickers > 0) {
     parts.push(currentLanguage === "zh" ? "刷新失败，当前显示缓存或暂无价格" : "Refresh failed, showing cache or no prices");
   } else if (status.is_loading_live_data) {
     parts.push(currentLanguage === "zh" ? "部分股票数据正在更新，已先显示可用数据" : "Some stock data is still updating; available data is shown first");
   } else if (status.is_partial) {
     parts.push(currentLanguage === "zh" ? "部分刷新成功，部分行情暂不可用" : "Partial refresh succeeded; some quotes are unavailable");
+  } else if (status.is_cache_only && status.success_count > 0 && !status.has_stale_quotes) {
+    parts.push(currentLanguage === "zh" ? "已显示缓存数据" : "Showing cached data");
   }
   if (lastRefresh) parts.push(`${t("lastRefresh")} ${lastRefresh}`);
   if (status.has_stale_quotes) parts.push(t("partialCachedQuotes"));
@@ -9322,10 +9325,13 @@ function applySnapshot(snapshot, shouldPersist = true) {
   setRefreshChip(refreshChipText(snapshot));
 }
 
-async function refreshSnapshot({ force = false } = {}) {
+async function refreshSnapshot({ force = false, autoRefresh = false, mode = null } = {}) {
   if (!tickerRows.length) return;
+  const effectiveMode = mode || (force ? "force" : autoRefresh ? "auto" : "cache");
+  const shouldForce = effectiveMode === "force" || force;
+  const shouldAutoRefresh = effectiveMode === "auto" || autoRefresh;
   if (refreshRequestInFlight) {
-    if (force) {
+    if (shouldForce) {
       refreshQueued = true;
       setRefreshChipForAttempt({ stale: true, message: currentLanguage === "zh" ? "刷新已排队" : "Refresh queued" });
     }
@@ -9333,10 +9339,15 @@ async function refreshSnapshot({ force = false } = {}) {
   }
 
   const symbols = tickerRows.map((row) => row.ticker).join(",");
-  const forceParam = force ? "&force=true" : "";
-  const url = `${API_URL}?tickers=${encodeURIComponent(symbols)}&_refresh=${Date.now()}${forceParam}`;
+  const refreshParams = [];
+  if (shouldForce) refreshParams.push("force=true");
+  else if (shouldAutoRefresh) refreshParams.push("auto_refresh=true");
+  const querySuffix = refreshParams.length ? `&${refreshParams.join("&")}` : "";
+  const url = `${API_URL}?tickers=${encodeURIComponent(symbols)}&_refresh=${Date.now()}${querySuffix}`;
   refreshRequestInFlight = true;
-  setRefreshChipForAttempt({ stale: Boolean(currentSnapshot), message: t("refreshing") });
+  if (shouldForce || shouldAutoRefresh) {
+    setRefreshChipForAttempt({ stale: Boolean(currentSnapshot), message: shouldForce ? t("refreshing") : (currentLanguage === "zh" ? "正在刷新行情…" : "Refreshing quotes...") });
+  }
   updateManualRefreshButton();
 
   try {
@@ -9367,19 +9378,24 @@ async function refreshSnapshot({ force = false } = {}) {
     updateManualRefreshButton();
     if (refreshQueued) {
       refreshQueued = false;
-      window.setTimeout(() => refreshSnapshot({ force: true }), 0);
+      window.setTimeout(() => refreshSnapshot({ force: true, mode: "force" }), 0);
     }
   }
 }
 
-async function runDashboardRefresh({ manual = false } = {}) {
+async function runDashboardRefresh({ manual = false, auto = false, mode = null } = {}) {
+  const effectiveMode = mode || (manual ? "force" : auto ? "auto" : "cache");
   if (manual) setRefreshChipForAttempt({ stale: Boolean(currentSnapshot), message: t("refreshing") });
   try {
     await syncWatchlistFromServer({ rerender: true, refreshPrices: false });
   } catch {
     // syncWatchlistFromServer handles its own warning state.
   }
-  return refreshSnapshot({ force: manual });
+  return refreshSnapshot({
+    force: effectiveMode === "force",
+    autoRefresh: effectiveMode === "auto",
+    mode: effectiveMode,
+  });
 }
 
 async function addTicker(rawTicker) {
@@ -9393,16 +9409,6 @@ async function addTicker(rawTicker) {
   }
 
   try {
-    const response = await fetch(`${API_URL}?tickers=${encodeURIComponent(ticker)}`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const snapshot = await response.json();
-    const quote = snapshot?.quotes?.[ticker];
-    const hasValidPrice = Number.isFinite(quote?.price);
-
-    if (!hasValidPrice) {
-      throw new Error("No market data");
-    }
-
     const saveResponse = await fetch(WATCHLIST_API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -9410,11 +9416,11 @@ async function addTicker(rawTicker) {
     });
     if (!saveResponse.ok) throw new Error(`Watchlist save failed: HTTP ${saveResponse.status}`);
     const savePayload = await saveResponse.json();
-    applySharedWatchlist(savePayload.items || savePayload.watchlist || [], { rerender: true, refreshPrices: true });
+    applySharedWatchlist(savePayload.items || savePayload.watchlist || [], { rerender: true, refreshPrices: true, refreshMode: "cache" });
     return true;
   } catch (error) {
     console.warn(`Rejected ticker ${ticker}:`, error);
-    alert(`${ticker} ${t("noMarketDataAdd")}`);
+    alert(`${ticker} ${currentLanguage === "zh" ? "添加失败，请稍后再试。" : "could not be added right now. Please try again."}`);
     return false;
   }
 }
@@ -9429,7 +9435,7 @@ function removeTicker(ticker) {
     .then(async (response) => {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json();
-      applySharedWatchlist(payload.items || payload.watchlist || [], { rerender: true, refreshPrices: true });
+      applySharedWatchlist(payload.items || payload.watchlist || [], { rerender: true, refreshPrices: true, refreshMode: "cache" });
     })
     .catch((error) => {
       console.warn(`Failed to remove shared ticker ${ticker}:`, error);
@@ -9553,17 +9559,20 @@ document.addEventListener("keydown", (event) => {
 loadCachedSnapshot();
 syncTickerRows();
 render();
-runDashboardRefresh({ manual: false });
+runDashboardRefresh({ mode: "cache" });
 setInterval(() => {
-  runDashboardRefresh({ manual: false });
+  runDashboardRefresh({ auto: true, mode: "auto" });
 }, PRICE_REFRESH_MS);
 setInterval(() => {
-  syncWatchlistFromServer({ rerender: true, refreshPrices: false });
+  syncWatchlistFromServer({ rerender: true, refreshPrices: false }).then((changed) => {
+    if (changed) refreshSnapshot({ mode: "cache" });
+  });
 }, WATCHLIST_SYNC_MS);
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
-    syncWatchlistFromServer({ rerender: true, refreshPrices: false });
-    runDashboardRefresh({ manual: false });
+    syncWatchlistFromServer({ rerender: true, refreshPrices: false }).then((changed) => {
+      if (changed) refreshSnapshot({ mode: "cache" });
+    });
   }
 });
