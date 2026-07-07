@@ -760,6 +760,77 @@ def fetch_yahoo_quote_snapshot(symbol):
     return {}
 
 
+def stooq_symbol_candidates(symbol):
+    normalized = _safe_text(symbol).lower().replace("-", ".")
+    candidates = []
+    if normalized in {"^vix", "vix"}:
+        candidates.extend(["^vix", "vix"])
+    if normalized in {"^tnx", "tnx"}:
+        candidates.extend(["10yus.b", "us10y", "10yus", "^tnx", "tnx"])
+    if normalized.startswith("^"):
+        candidates.extend([normalized, normalized[1:]])
+    elif "." not in normalized:
+        candidates.append(f"{normalized}.us")
+    candidates.append(normalized)
+    if normalized in {"spy", "qqq"}:
+        candidates.append(f"{normalized}.us")
+    seen = []
+    for candidate in candidates:
+        if candidate and candidate not in seen:
+            seen.append(candidate)
+    return seen
+
+
+def fetch_stooq_history_rows(symbol, limit=260):
+    for candidate in stooq_symbol_candidates(symbol):
+        try:
+            url = f"https://stooq.com/q/d/l/?s={quote_plus(candidate)}&i=d"
+            csv_text = http_get_text(url, timeout=8)
+            rows = []
+            for raw_line in csv_text.splitlines()[1:]:
+                parts = [part.strip() for part in raw_line.split(",")]
+                if len(parts) < 6 or parts[0].lower() == "no data":
+                    continue
+                try:
+                    stamp = datetime.strptime(parts[0], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                except Exception:
+                    continue
+                close = _safe_float(parts[4])
+                if close is None:
+                    continue
+                rows.append({
+                    "date": stamp.date().isoformat(),
+                    "datetime": stamp,
+                    "open": _safe_float(parts[1]),
+                    "high": _safe_float(parts[2]),
+                    "low": _safe_float(parts[3]),
+                    "close": close,
+                    "volume": _safe_int(parts[5]),
+                    "source_symbol": candidate,
+                })
+            if rows:
+                return rows[-limit:]
+        except Exception:
+            continue
+    return []
+
+
+def fetch_stooq_chart_frame(symbol, limit=260):
+    rows = fetch_stooq_history_rows(symbol, limit=limit)
+    if not rows:
+        return pd.DataFrame()
+    try:
+        return pd.DataFrame({
+            "Open": [row.get("open") if row.get("open") is not None else row.get("close") for row in rows],
+            "High": [row.get("high") if row.get("high") is not None else row.get("close") for row in rows],
+            "Low": [row.get("low") if row.get("low") is not None else row.get("close") for row in rows],
+            "Close": [row.get("close") for row in rows],
+            "Volume": [row.get("volume") or 0 for row in rows],
+        }, index=pd.DatetimeIndex([row["datetime"] for row in rows]))
+    except Exception:
+        return pd.DataFrame()
+
+
 def fetch_yahoo_quote_summary_snapshot(symbol):
     modules = "price,summaryDetail,defaultKeyStatistics,financialData,summaryProfile"
     for host in ("query1.finance.yahoo.com", "query2.finance.yahoo.com"):
@@ -1361,7 +1432,15 @@ def fetch_symbol_history_points(symbol, period="3mo", interval="1d", limit=60, v
             return rows[-limit:]
     except Exception:
         pass
-    return fetch_yahoo_chart_points(symbol, range_value=period, interval=interval, limit=limit, value_scale=value_scale)
+    yahoo_points = fetch_yahoo_chart_points(symbol, range_value=period, interval=interval, limit=limit, value_scale=value_scale)
+    if yahoo_points:
+        return yahoo_points
+    stooq_rows = fetch_stooq_history_rows(symbol, limit=limit)
+    return [
+        {"date": row["date"], "value": row["close"] * value_scale}
+        for row in stooq_rows
+        if row.get("close") is not None
+    ][-limit:]
 
 
 def scale_series_points(series_points, scale):
@@ -3067,6 +3146,168 @@ def fetch_a_share_spot_snapshot(ak, ticker):
     return None
 
 
+def eastmoney_secid(ticker):
+    return f"1.{ticker}" if str(ticker).startswith(("6", "9")) else f"0.{ticker}"
+
+
+def fetch_a_share_eastmoney_quote(ticker):
+    fields = "f43,f44,f45,f46,f47,f57,f58,f60,f116,f170"
+    url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={eastmoney_secid(ticker)}&fields={fields}"
+    try:
+        payload = http_get_json_browser(url, timeout=8, referer="https://quote.eastmoney.com/")
+        data = (payload or {}).get("data") or {}
+        price = _safe_float(data.get("f43"))
+        previous_close = _safe_float(data.get("f60"))
+        high = _safe_float(data.get("f44"))
+        low = _safe_float(data.get("f45"))
+        open_price = _safe_float(data.get("f46"))
+        pct = _safe_float(data.get("f170"))
+        for key, value in {"price": price, "previous_close": previous_close, "high": high, "low": low, "open": open_price, "pct": pct}.items():
+            if value is not None and abs(value) > 1000:
+                if key == "pct":
+                    value = value / 100
+                else:
+                    value = value / 100
+            if key == "price":
+                price = value
+            elif key == "previous_close":
+                previous_close = value
+            elif key == "high":
+                high = value
+            elif key == "low":
+                low = value
+            elif key == "open":
+                open_price = value
+            elif key == "pct":
+                pct = value
+        if price is None:
+            return None
+        return {
+            "source": "eastmoney_quote",
+            "price": price,
+            "previous_close": previous_close,
+            "high": high,
+            "low": low,
+            "open": open_price,
+            "volume": _safe_int(data.get("f47")),
+            "market_cap": _safe_int(data.get("f116")),
+            "change_percent": pct,
+            "name": _safe_text(data.get("f58")),
+        }
+    except Exception:
+        return None
+
+
+def fetch_a_share_eastmoney_history(ticker, limit=260):
+    fields1 = "f1,f2,f3,f4,f5,f6"
+    fields2 = "f51,f52,f53,f54,f55,f56,f57"
+    url = (
+        f"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={eastmoney_secid(ticker)}"
+        f"&klt=101&fqt=0&end=20500101&lmt={int(limit)}&fields1={fields1}&fields2={fields2}"
+    )
+    try:
+        payload = http_get_json_browser(url, timeout=8, referer="https://quote.eastmoney.com/")
+        klines = (((payload or {}).get("data") or {}).get("klines")) or []
+        rows = []
+        for line in klines:
+            parts = str(line).split(",")
+            if len(parts) < 6:
+                continue
+            stamp = datetime.strptime(parts[0], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            close = _safe_float(parts[2])
+            if close is None:
+                continue
+            rows.append({
+                "date": stamp.date().isoformat(),
+                "datetime": stamp,
+                "open": _safe_float(parts[1]),
+                "close": close,
+                "high": _safe_float(parts[3]),
+                "low": _safe_float(parts[4]),
+                "volume": _safe_int(parts[5]),
+            })
+        return rows[-limit:]
+    except Exception:
+        return []
+
+
+def fetch_a_share_with_eastmoney(ticker, profile_info=None, valuation_info=None, primary_error=None):
+    profile_info = profile_info or {}
+    valuation_info = valuation_info or {}
+    quote_snapshot = fetch_a_share_eastmoney_quote(ticker)
+    history_rows = fetch_a_share_eastmoney_history(ticker, limit=252)
+    if not quote_snapshot and not history_rows:
+        raise ValueError(f"A-share Eastmoney fallback failed for {ticker}: {primary_error or 'No quote/history'}")
+
+    latest = history_rows[-1] if history_rows else {}
+    previous = history_rows[-2] if len(history_rows) > 1 else latest
+    price = quote_snapshot.get("price") if quote_snapshot else latest.get("close")
+    previous_close = (quote_snapshot.get("previous_close") if quote_snapshot else None) or previous.get("close")
+    change = price - previous_close if price is not None and previous_close is not None else None
+    change_percent = quote_snapshot.get("change_percent") if quote_snapshot else None
+    if change_percent is None and change is not None and previous_close:
+        change_percent = (change / previous_close) * 100
+    forward_pe = valuation_info.get("forwardPE")
+    forward_eps_mean = valuation_info.get("forwardEpsMean")
+    if forward_pe is None and price is not None and forward_eps_mean:
+        forward_pe = price / forward_eps_mean
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {
+        "price": price,
+        "previousClose": previous_close,
+        "change": change,
+        "changePercent": change_percent,
+        "updatedAt": iso_from_local_close(latest.get("datetime"), 15, 0, 8) if latest else now_iso,
+        "marketStatus": "open",
+        "dataStaleness": "fresh",
+        "last_successful_update": now_iso,
+        "symbol": resolve_market_symbol(ticker),
+        "shortName": profile_info.get("shortName") or (quote_snapshot or {}).get("name"),
+        "longName": profile_info.get("longName") or (quote_snapshot or {}).get("name"),
+        "exchangeName": "SZ" if ticker.startswith(("0", "3")) else "SH",
+        "trailingPE": valuation_info.get("trailingPE"),
+        "forwardPE": forward_pe,
+        "marketCap": valuation_info.get("marketCap") or (quote_snapshot or {}).get("market_cap"),
+        "metadata": {
+            "sector": None,
+            "industry": None,
+            "beta": None,
+            "dividendYield": None,
+            "payoutRatio": None,
+            "enterpriseToEbitda": None,
+            "priceToSalesTrailing12Months": None,
+            "enterpriseToRevenue": None,
+            "pegRatio": None,
+            "priceToFreeCashflow": None,
+            "operatingMargins": None,
+            "profitMargins": None,
+            "revenueGrowth": None,
+            "grossMargins": None,
+            "returnOnEquity": None,
+            "debtToEquity": None,
+            "currentRatio": None,
+            "quickRatio": None,
+            "freeCashflow": None,
+            "totalCash": None,
+            "totalDebt": None,
+            "capex": None,
+            "businessSummary": None,
+            "ipoDate": None,
+            "floatShares": None,
+            "sharesOutstanding": None,
+        },
+        "optionsMarket": build_unavailable_options_payload("A-share options wall data is not supported yet", market="cn"),
+        "history": {
+            "timestamps": [row["date"] for row in history_rows],
+            "closes": [_safe_float(row.get("close")) for row in history_rows],
+            "highs": [_safe_float(row.get("high")) for row in history_rows],
+            "lows": [_safe_float(row.get("low")) for row in history_rows],
+            "volumes": [_safe_int(row.get("volume")) for row in history_rows],
+        },
+        "debug": {"a_share_fallback": "eastmoney"},
+    }
+
+
 def fetch_a_share_with_yfinance_fallback(ticker, profile_info=None, valuation_info=None, primary_error=None):
     profile_info = profile_info or {}
     valuation_info = valuation_info or {}
@@ -3287,6 +3528,10 @@ def load_yfinance_history_frame(instrument, symbol, period="1y", interval="1d"):
     if yahoo_frame is not None and not yahoo_frame.empty:
         return yahoo_frame
 
+    stooq_frame = fetch_stooq_chart_frame(symbol)
+    if stooq_frame is not None and not stooq_frame.empty:
+        return stooq_frame
+
     return pd.DataFrame()
 
 
@@ -3454,7 +3699,10 @@ def fetch_a_share_with_akshare(ticker):
     exchange_name = "SZ" if ticker.startswith(("0", "3")) else "SH"
     ak = get_ak()
     if ak is None:
-        return fetch_a_share_with_yfinance_fallback(ticker, profile_info={}, valuation_info={}, primary_error="AkShare unavailable")
+        try:
+            return fetch_a_share_with_yfinance_fallback(ticker, profile_info={}, valuation_info={}, primary_error="AkShare unavailable")
+        except Exception as yf_error:
+            return fetch_a_share_with_eastmoney(ticker, profile_info={}, valuation_info={}, primary_error=yf_error)
 
     primary_error = None
     try:
@@ -3583,7 +3831,10 @@ def fetch_a_share_with_akshare(ticker):
             try:
                 return fetch_a_share_with_yfinance_fallback(ticker, profile_info=profile_info, valuation_info=valuation_info, primary_error=primary_error)
             except Exception as yf_error:
-                return fetch_a_share_spot_only_quote(ticker, profile_info=profile_info, valuation_info=valuation_info, primary_error=yf_error or primary_error)
+                try:
+                    return fetch_a_share_spot_only_quote(ticker, profile_info=profile_info, valuation_info=valuation_info, primary_error=yf_error or primary_error)
+                except Exception as spot_error:
+                    return fetch_a_share_with_eastmoney(ticker, profile_info=profile_info, valuation_info=valuation_info, primary_error=spot_error or yf_error or primary_error)
     except Exception as tx_error:
         profile_info = _run_with_timeout(
             lambda: fetch_a_share_profile(ticker),
@@ -3603,12 +3854,20 @@ def fetch_a_share_with_akshare(ticker):
                 primary_error=tx_error if tx_error else primary_error,
             )
         except Exception as yf_error:
-            return fetch_a_share_spot_only_quote(
-                ticker,
-                profile_info=profile_info,
-                valuation_info=valuation_info,
-                primary_error=yf_error or tx_error or primary_error,
-            )
+            try:
+                return fetch_a_share_spot_only_quote(
+                    ticker,
+                    profile_info=profile_info,
+                    valuation_info=valuation_info,
+                    primary_error=yf_error or tx_error or primary_error,
+                )
+            except Exception as spot_error:
+                return fetch_a_share_with_eastmoney(
+                    ticker,
+                    profile_info=profile_info,
+                    valuation_info=valuation_info,
+                    primary_error=spot_error or yf_error or tx_error or primary_error,
+                )
 
     latest_row = history_tx.iloc[-1]
     previous_row = history_tx.iloc[-2] if len(history_tx) > 1 else latest_row
@@ -4146,7 +4405,12 @@ def get_market_context_cached_snapshot(force=False, allow_live=True):
     attempts = []
     now = time.time()
     cached_memory = MARKET_CONTEXT_CACHE.get("value")
-    if cached_memory and not force and MARKET_CONTEXT_CACHE.get("expiresAt", 0) > now:
+    if (
+        cached_memory
+        and not force
+        and MARKET_CONTEXT_CACHE.get("expiresAt", 0) > now
+        and (market_context_payload_valid(cached_memory) or not allow_live)
+    ):
         attempts.append({"source": "memory_cache", "success": True, "fresh": True})
         return cached_memory, {
             "cache_used": True,
@@ -4171,7 +4435,7 @@ def get_market_context_cached_snapshot(force=False, allow_live=True):
             "fresh": cache_is_fresh,
             "age_minutes": round((cached_disk.get("cache_age_seconds") or 0) / 60, 2) if cached_disk.get("cache_age_seconds") is not None else None,
         })
-        if cached_disk_payload and not force and cache_is_fresh:
+        if cached_disk_payload and not force and cache_is_fresh and (market_context_payload_valid(cached_disk_payload) or not allow_live):
             MARKET_CONTEXT_CACHE["value"] = cached_disk_payload
             MARKET_CONTEXT_CACHE["expiresAt"] = now + NEWS_CACHE_SECONDS
             return cached_disk_payload, {
