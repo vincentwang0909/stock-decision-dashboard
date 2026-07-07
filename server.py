@@ -78,6 +78,7 @@ MARKET_DATA_MAX_TICKERS = int(os.environ.get("MARKET_DATA_MAX_TICKERS", "25"))
 MARKET_DATA_MAX_WORKERS = int(os.environ.get("MARKET_DATA_MAX_WORKERS", "3"))
 MARKET_DATA_ROUTE_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_ROUTE_TIMEOUT_SECONDS", "25"))
 MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS", "8"))
+OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECONDS", "6"))
 A_SHARE_METADATA_TIMEOUT_SECONDS = 2.5
 A_SHARE_PRIMARY_PRICE_TIMEOUT_SECONDS = 4.0
 A_SHARE_SECONDARY_PRICE_TIMEOUT_SECONDS = 4.5
@@ -659,6 +660,20 @@ def http_get_json_with_accept(url, timeout=8, accept="application/json, text/pla
         return json.loads(response.read().decode(charset, errors="ignore"))
 
 
+def http_get_json_browser(url, timeout=8, referer="https://finance.yahoo.com/"):
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36",
+            "Accept": "application/json, text/plain;q=0.9, */*;q=0.8",
+            "Referer": referer,
+        },
+    )
+    with urlopen(request, timeout=timeout) as response:
+        charset = response.headers.get_content_charset() or "utf-8"
+        return json.loads(response.read().decode(charset, errors="ignore"))
+
+
 def _unwrap_yahoo_value(value):
     if isinstance(value, dict):
         for key in ("raw", "fmt", "longFmt"):
@@ -668,46 +683,115 @@ def _unwrap_yahoo_value(value):
 
 
 def fetch_yahoo_chart_points(symbol, range_value="3mo", interval="1d", limit=60, value_scale=1.0):
+    rows = fetch_yahoo_chart_rows(symbol, range_value=range_value, interval=interval, limit=limit)
+    return [
+        {"date": row["date"], "value": row["close"] * value_scale}
+        for row in rows
+        if row.get("close") is not None
+    ][-limit:]
+
+
+def fetch_yahoo_chart_rows(symbol, range_value="3mo", interval="1d", limit=252):
+    encoded_symbol = quote_plus(symbol)
+    urls = [
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded_symbol}?range={quote_plus(range_value)}&interval={quote_plus(interval)}",
+        f"https://query2.finance.yahoo.com/v8/finance/chart/{encoded_symbol}?range={quote_plus(range_value)}&interval={quote_plus(interval)}",
+    ]
+    for url in urls:
+        try:
+            payload = http_get_json_browser(url, timeout=8)
+            result = (((payload or {}).get("chart") or {}).get("result") or [None])[0] or {}
+            timestamps = result.get("timestamp") or []
+            quote = (((result.get("indicators") or {}).get("quote") or [None])[0]) or {}
+            rows = []
+            for index, ts in enumerate(timestamps):
+                stamp = dt_from_epoch(ts)
+                if stamp is None:
+                    continue
+                close = _safe_float((quote.get("close") or [None])[index] if index < len(quote.get("close") or []) else None)
+                if close is None:
+                    continue
+                rows.append({
+                    "date": stamp.date().isoformat(),
+                    "datetime": stamp,
+                    "open": _safe_float((quote.get("open") or [None])[index] if index < len(quote.get("open") or []) else None),
+                    "high": _safe_float((quote.get("high") or [None])[index] if index < len(quote.get("high") or []) else None),
+                    "low": _safe_float((quote.get("low") or [None])[index] if index < len(quote.get("low") or []) else None),
+                    "close": close,
+                    "volume": _safe_int((quote.get("volume") or [None])[index] if index < len(quote.get("volume") or []) else None),
+                })
+            if rows:
+                return rows[-limit:]
+        except Exception:
+            continue
+    return []
+
+
+def fetch_yahoo_chart_frame(symbol, range_value="1y", interval="1d"):
+    rows = fetch_yahoo_chart_rows(symbol, range_value=range_value, interval=interval, limit=260)
+    if not rows:
+        return pd.DataFrame()
     try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote_plus(symbol)}?range={quote_plus(range_value)}&interval={quote_plus(interval)}"
-        payload = http_get_json_with_accept(url, timeout=8)
-        result = (((payload or {}).get("chart") or {}).get("result") or [None])[0] or {}
-        timestamps = result.get("timestamp") or []
-        quote = (((result.get("indicators") or {}).get("quote") or [None])[0]) or {}
-        closes = quote.get("close") or []
-        rows = []
-        for ts, close in zip(timestamps, closes):
-            value = _safe_float(close)
-            stamp = dt_from_epoch(ts)
-            if value is None or stamp is None:
-                continue
-            rows.append({
-                "date": stamp.date().isoformat(),
-                "value": value * value_scale,
-            })
-        return rows[-limit:]
+        frame = pd.DataFrame({
+            "Open": [row.get("open") if row.get("open") is not None else row.get("close") for row in rows],
+            "High": [row.get("high") if row.get("high") is not None else row.get("close") for row in rows],
+            "Low": [row.get("low") if row.get("low") is not None else row.get("close") for row in rows],
+            "Close": [row.get("close") for row in rows],
+            "Volume": [row.get("volume") or 0 for row in rows],
+        }, index=pd.DatetimeIndex([row["datetime"] for row in rows]))
+        return frame
     except Exception:
-        return []
+        return pd.DataFrame()
+
+
+def fetch_yahoo_quote_snapshot(symbol):
+    urls = [
+        f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={quote_plus(symbol)}",
+        f"https://query2.finance.yahoo.com/v7/finance/quote?symbols={quote_plus(symbol)}",
+    ]
+    for url in urls:
+        try:
+            payload = http_get_json_browser(url, timeout=8)
+            result = (((payload or {}).get("quoteResponse") or {}).get("result") or [None])[0] or {}
+            if result:
+                return {key: _unwrap_yahoo_value(value) for key, value in result.items()}
+        except Exception:
+            continue
+    return {}
 
 
 def fetch_yahoo_quote_summary_snapshot(symbol):
     modules = "price,summaryDetail,defaultKeyStatistics,financialData,summaryProfile"
-    try:
-        url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{quote_plus(symbol)}?modules={modules}"
-        payload = http_get_json_with_accept(url, timeout=8)
-        result = ((((payload or {}).get("quoteSummary") or {}).get("result")) or [None])[0] or {}
-        summary_detail = result.get("summaryDetail") or {}
-        default_key_stats = result.get("defaultKeyStatistics") or {}
-        financial_data = result.get("financialData") or {}
-        price = result.get("price") or {}
-        summary_profile = result.get("summaryProfile") or {}
-        flattened = {}
-        for source in [summary_detail, default_key_stats, financial_data, price, summary_profile]:
-            for key, value in source.items():
-                flattened[key] = _unwrap_yahoo_value(value)
-        return flattened
-    except Exception:
-        return {}
+    for host in ("query1.finance.yahoo.com", "query2.finance.yahoo.com"):
+        try:
+            url = f"https://{host}/v10/finance/quoteSummary/{quote_plus(symbol)}?modules={modules}"
+            payload = http_get_json_browser(url, timeout=8)
+            result = ((((payload or {}).get("quoteSummary") or {}).get("result")) or [None])[0] or {}
+            summary_detail = result.get("summaryDetail") or {}
+            default_key_stats = result.get("defaultKeyStatistics") or {}
+            financial_data = result.get("financialData") or {}
+            price = result.get("price") or {}
+            summary_profile = result.get("summaryProfile") or {}
+            flattened = {}
+            for source in [summary_detail, default_key_stats, financial_data, price, summary_profile]:
+                for key, value in source.items():
+                    flattened[key] = _unwrap_yahoo_value(value)
+            if flattened:
+                return flattened
+        except Exception:
+            continue
+    return {}
+
+
+def merge_yahoo_fallback_info(symbol, info):
+    merged = dict(info or {})
+    quote_snapshot = fetch_yahoo_quote_snapshot(symbol)
+    quote_summary = fetch_yahoo_quote_summary_snapshot(symbol)
+    for source in [quote_snapshot, quote_summary]:
+        for key, value in (source or {}).items():
+            if merged.get(key) is None and value is not None:
+                merged[key] = value
+    return merged, quote_snapshot, quote_summary
 
 
 def fetch_fred_series_points(series_id, limit=120):
@@ -2783,8 +2867,23 @@ def fetch_us_options_market(instrument, ticker, spot_price, updated_at, history_
     if not ranked_expiries:
         return build_unavailable_options_payload("No valid options expiries", market="us")
 
-    wall_expiries = [item for item in ranked_expiries if 0 <= item[1] <= 270] or ranked_expiries[:12]
-    gamma_expiry_keys = {expiry for expiry, dte in ranked_expiries if 0 <= dte <= 180}
+    valid_expiries = [item for item in ranked_expiries if 0 <= item[1] <= 270] or ranked_expiries[:12]
+    selected = []
+    seen_expiries = set()
+    target_dtes = [7, 14, 30, 45, 60, 90, 180]
+    for target_dte in target_dtes:
+        candidates = [item for item in valid_expiries if item[1] >= 0]
+        if not candidates:
+            continue
+        expiry, dte = min(candidates, key=lambda item: (abs(item[1] - target_dte), item[1]))
+        if expiry in seen_expiries:
+            continue
+        seen_expiries.add(expiry)
+        selected.append((expiry, dte))
+        if len(selected) >= 6:
+            break
+    wall_expiries = selected or valid_expiries[:4]
+    gamma_expiry_keys = {expiry for expiry, dte in wall_expiries if 0 <= dte <= 180}
 
     call_bucket = {}
     put_bucket = {}
@@ -3184,6 +3283,10 @@ def load_yfinance_history_frame(instrument, symbol, period="1y", interval="1d"):
     except Exception:
         pass
 
+    yahoo_frame = fetch_yahoo_chart_frame(symbol, range_value=period, interval=interval)
+    if yahoo_frame is not None and not yahoo_frame.empty:
+        return yahoo_frame
+
     return pd.DataFrame()
 
 
@@ -3210,6 +3313,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=True):
     except Exception:
         info = {}
     quote_summary = {}
+    quote_snapshot = {}
     quote_summary_attempted = False
     fallback_fields = [
         "trailingPE",
@@ -3228,11 +3332,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=True):
     ]
     if any(info.get(field) is None for field in fallback_fields):
         quote_summary_attempted = True
-        quote_summary = fetch_yahoo_quote_summary_snapshot(symbol)
-        if quote_summary:
-            merged_info = dict(quote_summary)
-            merged_info.update({key: value for key, value in info.items() if value is not None})
-            info = merged_info
+        info, quote_snapshot, quote_summary = merge_yahoo_fallback_info(symbol, info)
 
     latest_row = history.iloc[-1]
     previous_row = history.iloc[-2] if len(history) > 1 else latest_row
@@ -3257,14 +3357,22 @@ def fetch_us_quote_with_yfinance(ticker, include_options=True):
         updated_at_dt.strftime("%Y-%m-%dT%H:%M:%SZ") if updated_at_dt
         else iso_from_local_close(history.index[-1], 16, 0, -4)
     )
-    options_market = (
-        fetch_us_options_market(instrument, ticker, price, updated_at, history_frame=history)
-        if include_options
-        else build_unavailable_options_payload("Quote loaded without options snapshot", market="us")
-    )
+    if include_options:
+        options_market = _run_with_timeout(
+            lambda: fetch_us_options_market(instrument, ticker, price, updated_at, history_frame=history),
+            OPTIONS_FETCH_TIMEOUT_SECONDS,
+            fallback=build_unavailable_options_payload("Options chain timed out; quote and fundamentals are still available", market="us"),
+        )
+    else:
+        options_market = build_unavailable_options_payload("Quote loaded without options snapshot", market="us")
     free_cashflow = _safe_float(info.get("freeCashflow"))
     market_cap = _safe_int(info.get("marketCap")) or _safe_int(fast_info.get("market_cap"))
     price_to_fcf = None
+    reported_price_to_fcf = _safe_float(
+        info.get("priceToFreeCashflow")
+        or info.get("priceToFreeCashFlow")
+        or info.get("priceToFCF")
+    )
     if _safe_float(market_cap) not in (None, 0) and free_cashflow not in (None, 0):
         try:
             price_to_fcf = abs(_safe_float(market_cap) / free_cashflow)
@@ -3297,7 +3405,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=True):
             "priceToSalesTrailing12Months": _safe_float(info.get("priceToSalesTrailing12Months")),
             "enterpriseToRevenue": _safe_float(info.get("enterpriseToRevenue")),
             "pegRatio": _safe_float(info.get("pegRatio")),
-            "priceToFreeCashflow": price_to_fcf,
+            "priceToFreeCashflow": reported_price_to_fcf if reported_price_to_fcf is not None else price_to_fcf,
             "operatingMargins": _safe_float(info.get("operatingMargins")),
             "profitMargins": _safe_float(info.get("profitMargins")),
             "revenueGrowth": _safe_float(info.get("revenueGrowth")),
@@ -3324,8 +3432,10 @@ def fetch_us_quote_with_yfinance(ticker, include_options=True):
             "yfinance_import_success": True,
             "yfinance_fields_found": [field for field in fallback_fields if info.get(field) is not None],
             "yahoo_quote_summary_attempt": quote_summary_attempted,
+            "yahoo_quote_snapshot_attempt": bool(quote_snapshot),
             "raw_keys_sample": sorted(list(info.keys()))[:20],
             "quote_summary_keys_sample": sorted(list(quote_summary.keys()))[:20] if quote_summary else [],
+            "quote_snapshot_keys_sample": sorted(list(quote_snapshot.keys()))[:20] if quote_snapshot else [],
         },
         "optionsMarket": options_market,
         "history": {
