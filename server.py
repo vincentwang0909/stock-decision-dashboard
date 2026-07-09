@@ -76,7 +76,7 @@ QUOTE_FETCH_TIMEOUT_SECONDS = 12
 MARKET_CACHE_TTL_SECONDS = int(os.environ.get("MARKET_CACHE_TTL_SECONDS", str(60 * 60)))
 MARKET_DATA_MAX_TICKERS = int(os.environ.get("MARKET_DATA_MAX_TICKERS", "60"))
 MARKET_DATA_MAX_WORKERS = int(os.environ.get("MARKET_DATA_MAX_WORKERS", "2"))
-MARKET_DATA_MAX_LIVE_TICKERS = int(os.environ.get("MARKET_DATA_MAX_LIVE_TICKERS", "5"))
+MARKET_DATA_MAX_LIVE_TICKERS = int(os.environ.get("MARKET_DATA_MAX_LIVE_TICKERS", "2"))
 MARKET_DATA_ROUTE_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_ROUTE_TIMEOUT_SECONDS", "18"))
 MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS", "8"))
 OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECONDS", "6"))
@@ -1458,14 +1458,13 @@ def scale_series_points(series_points, scale):
 
 
 def fetch_treasury_history_points(limit=40):
-    fred_points = fetch_fred_series_points("DGS10", limit=limit)
-    if fred_points:
-        return fred_points
     yahoo_points = fetch_symbol_history_points("^TNX", period="3mo", interval="1d", limit=limit, value_scale=1.0)
     latest = latest_series_value(yahoo_points)
     if latest is not None and latest > 20:
         return scale_series_points(yahoo_points, 0.1)
-    return yahoo_points
+    if yahoo_points:
+        return yahoo_points
+    return fetch_fred_series_points("DGS10", limit=limit)
 
 
 def latest_series_value(series_points):
@@ -1656,35 +1655,89 @@ def build_strategy_impact_summary(regime, fed_event, fear_greed_label_value):
     }
 
 
+def fetch_market_context_core_sources():
+    tasks = {
+        "vix_points": lambda: (
+            fetch_symbol_history_points("^VIX", period="3mo", interval="1d", limit=40)
+            or fetch_fred_series_points("VIXCLS", limit=40)
+        ),
+        "treasury_points": lambda: fetch_treasury_history_points(limit=40),
+        "fear_greed_snapshot": fetch_fear_greed_snapshot,
+        "spy_trend": lambda: build_index_trend("SPY", "SPY"),
+        "qqq_trend": lambda: build_index_trend("QQQ", "QQQ"),
+    }
+    defaults = {
+        "vix_points": [],
+        "treasury_points": [],
+        "fear_greed_snapshot": {
+            "value": None,
+            "label": None,
+            "trend": None,
+            "source_name": "CNN Fear & Greed",
+            "source_status": "Data unavailable",
+            "source_reason": "CNN Fear & Greed feed is unavailable.",
+        },
+        "spy_trend": build_unavailable_market_trend("SPY"),
+        "qqq_trend": build_unavailable_market_trend("QQQ"),
+    }
+    results = dict(defaults)
+    executor = ThreadPoolExecutor(max_workers=len(tasks))
+    futures = {executor.submit(task): name for name, task in tasks.items()}
+    try:
+        for future in as_completed(futures, timeout=7):
+            name = futures[future]
+            try:
+                value = future.result(timeout=1)
+                if value:
+                    results[name] = value
+            except Exception:
+                continue
+    except FuturesTimeoutError:
+        pass
+    finally:
+        for future in futures:
+            future.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
+    return results
+
+
+def build_unavailable_market_trend(symbol):
+    return {
+        "symbol": symbol,
+        "label": symbol,
+        "value": None,
+        "change_5d_pct": None,
+        "change_20d_pct": None,
+        "trend": "neutral",
+        "impact": "Data unavailable",
+    }
+
+
 def fetch_market_context_payload():
-    vix_points = fetch_fred_series_points("VIXCLS", limit=40) or fetch_symbol_history_points("^VIX", period="3mo", interval="1d", limit=40)
+    core_sources = fetch_market_context_core_sources()
+    vix_points = core_sources["vix_points"]
     vix = latest_series_value(vix_points)
     vix_5d_change = series_change(vix_points, 5)
     vix_20d_change = series_change(vix_points, 20)
     vix_trend = classify_change_trend(vix_5d_change, vix_20d_change, 1.0, 2.5)
-    treasury_points = fetch_treasury_history_points(limit=40)
+    treasury_points = core_sources["treasury_points"]
     treasury_yield = latest_series_value(treasury_points)
     yield_5d_change = series_change(treasury_points, 5)
     yield_20d_change = series_change(treasury_points, 20)
     yield_5d_change_bps = round(yield_5d_change * 100, 1) if yield_5d_change is not None else None
     yield_20d_change_bps = round(yield_20d_change * 100, 1) if yield_20d_change is not None else None
     yield_trend = classify_change_trend(yield_5d_change_bps, yield_20d_change_bps, 10.0, 25.0)
-    fed_funds_points = fetch_fred_series_points("DFF", limit=180)
-    fed_funds_value = fed_funds_points[-1]["value"] if fed_funds_points else None
-    fomc_rate_path = summarize_fomc_rate_path(fed_funds_points)
-    fear_greed_snapshot = fetch_fear_greed_snapshot()
+    fed_funds_value = None
+    fomc_rate_path = None
+    fear_greed_snapshot = core_sources["fear_greed_snapshot"]
     fear_greed = fear_greed_snapshot.get("value")
     fear_greed_label_value = fear_greed_snapshot.get("label") or fear_greed_label(fear_greed)
     active_event = find_active_market_event(load_market_events(), datetime.now(timezone.utc).date(), lookback_days=3)
-    spy_trend = build_index_trend("SPY", "SPY")
-    qqq_trend = build_index_trend("QQQ", "QQQ")
+    spy_trend = core_sources["spy_trend"]
+    qqq_trend = core_sources["qqq_trend"]
+    # News and Fed event scraping are intentionally excluded from the fast
+    # market-context refresh. The stable core is VIX, 10Y, sentiment and indices.
     macro_articles = []
-    try:
-        macro_articles = parse_google_news_rss("tariff war fed rates inflation fomc sanctions oil geopolitical regulation", market="us", limit=6)
-    except Exception:
-        macro_articles = []
-    if not macro_articles:
-        macro_articles = fetch_yfinance_market_news(["SPY", "QQQ", "^GSPC", "^IXIC"], limit=6)
     filtered_events = classify_macro_events(macro_articles)
     macro_articles = [article for article, event in zip(macro_articles, filtered_events) if event.get("event_type") != "other"] or macro_articles
     macro_news = score_news_articles(
@@ -4588,15 +4641,32 @@ def fetch_market_quote_for_ticker(ticker, force=False):
             quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
             return quote, None, True, attempts
 
-    source_name = "a_share_direct" if is_a_share_ticker(ticker) else "yfinance"
+    is_a_share = is_a_share_ticker(ticker)
+    source_name = "a_share_direct" if is_a_share else "yfinance"
     try:
         quote = fetch_quote_with_timeout(
             ticker,
             timeout_seconds=MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS,
-            include_options=True,
+            include_options=is_a_share,
         )
         if quote.get("price") is None:
             raise ValueError("Live quote returned no price")
+        if not is_a_share:
+            options_market = _run_with_timeout(
+                lambda: fetch_us_options_market(
+                    yf.Ticker(ticker),
+                    ticker,
+                    quote.get("price"),
+                    quote.get("updatedAt") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    history_frame=None,
+                ),
+                OPTIONS_FETCH_TIMEOUT_SECONDS,
+                fallback=build_unavailable_options_payload(
+                    "Options chain timed out; quote and fundamentals are still available",
+                    market="us",
+                ),
+            )
+            quote["optionsMarket"] = options_market
         quote = merge_quote_with_cached_modules(ticker, quote, cached)
         quote["ticker"] = ticker
         quote["market_type"] = infer_market_type(ticker)
@@ -4613,7 +4683,7 @@ def fetch_market_quote_for_ticker(ticker, force=False):
     except Exception as exc:
         error_message = str(exc)
         attempts.append({"source": source_name, "success": False, "price": None, "error": error_message})
-        if not is_a_share_ticker(ticker):
+        if not is_a_share:
             try:
                 quote = fetch_quote_with_timeout(
                     ticker,
@@ -4622,9 +4692,19 @@ def fetch_market_quote_for_ticker(ticker, force=False):
                 )
                 if quote.get("price") is None:
                     raise ValueError("Live quote without options returned no price")
-                quote["optionsMarket"] = quote.get("optionsMarket") or build_unavailable_options_payload(
-                    "Quote loaded but options snapshot is unavailable",
-                    market="us",
+                quote["optionsMarket"] = _run_with_timeout(
+                    lambda: fetch_us_options_market(
+                        yf.Ticker(ticker),
+                        ticker,
+                        quote.get("price"),
+                        quote.get("updatedAt") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        history_frame=None,
+                    ),
+                    OPTIONS_FETCH_TIMEOUT_SECONDS,
+                    fallback=build_unavailable_options_payload(
+                        "Options chain timed out; quote and fundamentals are still available",
+                        market="us",
+                    ),
                 )
                 quote = merge_quote_with_cached_modules(ticker, quote, cached)
                 quote["ticker"] = ticker

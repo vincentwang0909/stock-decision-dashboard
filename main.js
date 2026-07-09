@@ -10,7 +10,7 @@ const LANGUAGE_CACHE_KEY = "stock-dashboard-language-v1";
 const PRICE_REFRESH_MS = 60 * 60 * 1000;
 const WATCHLIST_SYNC_MS = 60 * 1000;
 const MARKET_DATA_BATCH_SIZE = 25;
-const LIVE_REFRESH_BATCH_SIZE = 5;
+const LIVE_REFRESH_BATCH_SIZE = 2;
 const REQUIRED_DEFAULT_TICKERS = ["300657", "002463", "603005", "600522"];
 const CALIBRATION_CONFIG = {
   rating_thresholds: {
