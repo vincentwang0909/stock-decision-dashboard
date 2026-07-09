@@ -3088,6 +3088,27 @@ function chunkArray(items, size) {
   return chunks;
 }
 
+function buildLiveRefreshBatches(tickers) {
+  const batches = [];
+  let usBatch = [];
+  const flushUsBatch = () => {
+    if (usBatch.length) batches.push(usBatch);
+    usBatch = [];
+  };
+
+  tickers.forEach((ticker) => {
+    if (schemaMarketTypeForTicker(ticker) === "CN_A_SHARE") {
+      flushUsBatch();
+      batches.push([ticker]);
+      return;
+    }
+    usBatch.push(ticker);
+    if (usBatch.length >= LIVE_REFRESH_BATCH_SIZE) flushUsBatch();
+  });
+  flushUsBatch();
+  return batches;
+}
+
 function uniqueList(values) {
   return [...new Set((values || []).filter(Boolean))];
 }
@@ -9449,10 +9470,14 @@ async function refreshSnapshot({ force = false, autoRefresh = false, mode = null
   if (shouldForce) refreshParams.push("force=true");
   else if (shouldAutoRefresh) refreshParams.push("auto_refresh=true");
   const querySuffix = refreshParams.length ? `&${refreshParams.join("&")}` : "";
-  const batchSize = (shouldForce || shouldAutoRefresh) ? LIVE_REFRESH_BATCH_SIZE : MARKET_DATA_BATCH_SIZE;
-  const batches = requestedTickers.length > batchSize
-    ? chunkArray(requestedTickers, batchSize)
-    : [requestedTickers];
+  const missingTickers = requestedTickers.filter((ticker) => currentSnapshot?.quotes?.[ticker]?.price == null);
+  const availableTickers = requestedTickers.filter((ticker) => currentSnapshot?.quotes?.[ticker]?.price != null);
+  const refreshOrder = (shouldForce || shouldAutoRefresh)
+    ? [...missingTickers, ...availableTickers]
+    : requestedTickers;
+  const batches = (shouldForce || shouldAutoRefresh)
+    ? buildLiveRefreshBatches(refreshOrder)
+    : chunkArray(refreshOrder, MARKET_DATA_BATCH_SIZE);
   refreshRequestInFlight = true;
   if (shouldForce || shouldAutoRefresh) {
     setRefreshChipForAttempt({ stale: Boolean(currentSnapshot), message: shouldForce ? t("refreshing") : (currentLanguage === "zh" ? "正在刷新行情…" : "Refreshing quotes...") });

@@ -3151,11 +3151,51 @@ def eastmoney_secid(ticker):
     return f"1.{ticker}" if str(ticker).startswith(("6", "9")) else f"0.{ticker}"
 
 
-def fetch_a_share_eastmoney_quote(ticker):
+def fetch_a_share_tencent_quote(ticker, timeout=4):
+    prefix = "sh" if str(ticker).startswith(("6", "9")) else "sz"
+    url = f"https://qt.gtimg.cn/q={prefix}{ticker}"
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Accept": "text/plain, */*",
+            "Referer": "https://gu.qq.com/",
+        },
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            raw = response.read()
+        text = raw.decode("gbk", errors="ignore")
+        match = re.search(r'="([^"]*)"', text)
+        fields = match.group(1).split("~") if match else []
+        if len(fields) < 39:
+            return None
+        price = _safe_float(fields[3])
+        if price is None or price <= 0:
+            return None
+        previous_close = _safe_float(fields[4])
+        return {
+            "source": "tencent_quote",
+            "price": price,
+            "previous_close": previous_close,
+            "open": _safe_float(fields[5]),
+            "volume": _safe_int(fields[6]),
+            "name": _safe_text(fields[1]),
+            "change": _safe_float(fields[31]),
+            "change_percent": _safe_float(fields[32]),
+            "high": _safe_float(fields[33]),
+            "low": _safe_float(fields[34]),
+            "quote_time": _safe_text(fields[30]),
+        }
+    except Exception:
+        return None
+
+
+def fetch_a_share_eastmoney_quote(ticker, timeout=4):
     fields = "f43,f44,f45,f46,f47,f57,f58,f60,f116,f170"
     url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={eastmoney_secid(ticker)}&fields={fields}"
     try:
-        payload = http_get_json_browser(url, timeout=8, referer="https://quote.eastmoney.com/")
+        payload = http_get_json_browser(url, timeout=timeout, referer="https://quote.eastmoney.com/")
         data = (payload or {}).get("data") or {}
         price = _safe_float(data.get("f43"))
         previous_close = _safe_float(data.get("f60"))
@@ -3164,11 +3204,8 @@ def fetch_a_share_eastmoney_quote(ticker):
         open_price = _safe_float(data.get("f46"))
         pct = _safe_float(data.get("f170"))
         for key, value in {"price": price, "previous_close": previous_close, "high": high, "low": low, "open": open_price, "pct": pct}.items():
-            if value is not None and abs(value) > 1000:
-                if key == "pct":
-                    value = value / 100
-                else:
-                    value = value / 100
+            if value is not None and (key == "pct" or abs(value) > 1000):
+                value = value / 100
             if key == "price":
                 price = value
             elif key == "previous_close":
@@ -3199,7 +3236,7 @@ def fetch_a_share_eastmoney_quote(ticker):
         return None
 
 
-def fetch_a_share_eastmoney_history(ticker, limit=260):
+def fetch_a_share_eastmoney_history(ticker, limit=260, timeout=4):
     fields1 = "f1,f2,f3,f4,f5,f6"
     fields2 = "f51,f52,f53,f54,f55,f56,f57"
     url = (
@@ -3207,7 +3244,7 @@ def fetch_a_share_eastmoney_history(ticker, limit=260):
         f"&klt=101&fqt=0&end=20500101&lmt={int(limit)}&fields1={fields1}&fields2={fields2}"
     )
     try:
-        payload = http_get_json_browser(url, timeout=8, referer="https://quote.eastmoney.com/")
+        payload = http_get_json_browser(url, timeout=timeout, referer="https://quote.eastmoney.com/")
         klines = (((payload or {}).get("data") or {}).get("klines")) or []
         rows = []
         for line in klines:
@@ -3235,8 +3272,13 @@ def fetch_a_share_eastmoney_history(ticker, limit=260):
 def fetch_a_share_with_eastmoney(ticker, profile_info=None, valuation_info=None, primary_error=None):
     profile_info = profile_info or {}
     valuation_info = valuation_info or {}
-    quote_snapshot = fetch_a_share_eastmoney_quote(ticker)
-    history_rows = fetch_a_share_eastmoney_history(ticker, limit=252)
+    # The lightweight endpoints are substantially more reliable on Render than
+    # downloading the full AkShare spot table. History also gives us a usable
+    # last close when a real-time endpoint is temporarily unavailable.
+    history_rows = fetch_a_share_eastmoney_history(ticker, limit=252, timeout=4)
+    quote_snapshot = fetch_a_share_tencent_quote(ticker, timeout=3)
+    if not quote_snapshot and not history_rows:
+        quote_snapshot = fetch_a_share_eastmoney_quote(ticker, timeout=3)
     if not quote_snapshot and not history_rows:
         raise ValueError(f"A-share Eastmoney fallback failed for {ticker}: {primary_error or 'No quote/history'}")
 
@@ -3305,7 +3347,10 @@ def fetch_a_share_with_eastmoney(ticker, profile_info=None, valuation_info=None,
             "lows": [_safe_float(row.get("low")) for row in history_rows],
             "volumes": [_safe_int(row.get("volume")) for row in history_rows],
         },
-        "debug": {"a_share_fallback": "eastmoney"},
+        "debug": {
+            "a_share_quote_source": (quote_snapshot or {}).get("source") or "eastmoney_history",
+            "a_share_history_source": "eastmoney" if history_rows else None,
+        },
     }
 
 
@@ -3698,6 +3743,14 @@ def fetch_a_share_with_akshare(ticker):
     start_date = (datetime.now() - timedelta(days=390)).strftime("%Y%m%d")
     end_date = datetime.now().strftime("%Y%m%d")
     exchange_name = "SZ" if ticker.startswith(("0", "3")) else "SH"
+
+    # Prefer small direct payloads. This keeps a single A-share refresh within
+    # the route timeout and avoids loading a market-wide AkShare table.
+    try:
+        return fetch_a_share_with_eastmoney(ticker, profile_info={}, valuation_info={})
+    except Exception:
+        pass
+
     ak = get_ak()
     if ak is None:
         try:
@@ -4535,7 +4588,7 @@ def fetch_market_quote_for_ticker(ticker, force=False):
             quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
             return quote, None, True, attempts
 
-    source_name = "akshare" if is_a_share_ticker(ticker) else "yfinance"
+    source_name = "a_share_direct" if is_a_share_ticker(ticker) else "yfinance"
     try:
         quote = fetch_quote_with_timeout(
             ticker,
