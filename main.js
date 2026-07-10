@@ -48,6 +48,80 @@ const PENALTY_PROFILE_WEIGHTS = {
   Cyclical: { technical: 1.0, valuation: 0.7, fundamental: 1.0, options: 0.7, market_context: 1.4, data_quality: 0.5 },
 };
 const PROFILE_WEIGHT_DEFAULTS = { technical: 1, valuation: 1, fundamental: 1, options: 1, market_context: 1, data_quality: 0.5 };
+const SCORING_PROFILE_WEIGHTS = {
+  software_cloud: { technical: 0.35, fundamental: 0.45, market_context: 0.1, options: 0.1 },
+  memory_cycle: { technical: 0.45, fundamental: 0.3, sector_cycle: 0.15, market_context: 0.1 },
+  ai_infrastructure: { technical: 0.4, fundamental: 0.35, options: 0.15, market_context: 0.1 },
+  platform_ads: { technical: 0.35, fundamental: 0.45, market_context: 0.1, options: 0.1 },
+  reit_dividend: { fundamental: 0.45, market_context: 0.25, technical: 0.2, options: 0.1 },
+  china_a_share: { technical: 0.55, fundamental: 0.25, sector_theme: 0.15, market_context: 0.05 },
+  china_adr: { technical: 0.4, fundamental: 0.35, market_context: 0.15, options: 0.1 },
+  healthcare_defensive: { fundamental: 0.5, technical: 0.25, market_context: 0.15, options: 0.1 },
+  high_growth_cyclical: { technical: 0.45, fundamental: 0.25, options: 0.15, market_context: 0.15 },
+  generic: { technical: 0.4, fundamental: 0.35, options: 0.15, market_context: 0.1 },
+};
+const KNOWN_CLASSIFICATION_PROFILES = {
+  MSFT: {
+    tags: ["MegaCap", "Software", "Cloud", "AI", "CashCow", "ProfitableGrowth"],
+    category: "SoftwareCloud",
+    scoring_profile: "software_cloud",
+  },
+  META: {
+    tags: ["MegaCap", "SocialMedia", "DigitalAds", "AI", "CashCow", "RegulatoryRisk"],
+    category: "SocialMediaAds",
+    scoring_profile: "platform_ads",
+  },
+  MU: {
+    tags: ["LargeCap", "Semiconductor", "MemoryStorage", "DRAMNAND", "Cyclical", "AIInfrastructure"],
+    category: "MemoryStorage",
+    scoring_profile: "memory_cycle",
+  },
+  SNDK: {
+    tags: ["MidCap", "Semiconductor", "MemoryStorage", "NAND", "Cyclical", "HighVolatility"],
+    category: "MemoryStorage",
+    scoring_profile: "memory_cycle",
+  },
+  NVDA: {
+    tags: ["MegaCap", "Semiconductor", "GPU", "AIInfrastructure", "DataCenter", "HighMultiple"],
+    category: "AIInfrastructure",
+    scoring_profile: "ai_infrastructure",
+  },
+  AMD: {
+    tags: ["LargeCap", "Semiconductor", "GPU", "AIInfrastructure", "DataCenter", "HighVolatility"],
+    category: "AIInfrastructure",
+    scoring_profile: "ai_infrastructure",
+  },
+  AMZN: {
+    tags: ["MegaCap", "Ecommerce", "Cloud", "ConsumerPlatform", "CashCow", "AI"],
+    category: "EcommerceCloud",
+    scoring_profile: "software_cloud",
+  },
+  GOOGL: {
+    tags: ["MegaCap", "DigitalAds", "Cloud", "AI", "CashCow", "RegulatoryRisk"],
+    category: "DigitalAdsCloud",
+    scoring_profile: "platform_ads",
+  },
+  BABA: {
+    tags: ["LargeCap", "ChinaADR", "Ecommerce", "Cloud", "ChinaConsumer", "RegulatoryRisk"],
+    category: "ChinaInternet",
+    scoring_profile: "china_adr",
+  },
+  MPT: {
+    tags: ["SmallCap", "REIT", "HealthcareRealEstate", "Dividend", "HighDebtRisk", "InterestRateSensitive"],
+    category: "REITDividend",
+    scoring_profile: "reit_dividend",
+  },
+  UNH: {
+    tags: ["MegaCap", "HealthInsurance", "HealthcareServices", "CashCow", "RegulatoryRisk", "Defensive"],
+    category: "HealthcareInsurance",
+    scoring_profile: "healthcare_defensive",
+  },
+  TSLA: {
+    tags: ["MegaCap", "EV", "AutoManufacturer", "HighGrowth", "HighVolatility", "HighMultiple"],
+    category: "EVAuto",
+    scoring_profile: "high_growth_cyclical",
+  },
+};
 const DEV_MODE = ["localhost", "127.0.0.1"].includes(window.location.hostname) || window.location.protocol === "file:";
 const PROFILE_DEBUG_MODE = new URLSearchParams(window.location.search).get("debugTags") === "1";
 
@@ -913,6 +987,27 @@ const PROFILE_TAG_LABELS = {
   Cloud: { en: "Cloud", zh: "云" },
   Ecommerce: { en: "E-commerce", zh: "电商" },
   Software: { en: "Software", zh: "软件" },
+  SocialMedia: { en: "Social Media", zh: "社交媒体" },
+  DigitalAds: { en: "Digital Ads", zh: "数字广告" },
+  MemoryStorage: { en: "Memory / Storage", zh: "存储 / 内存" },
+  DRAMNAND: { en: "DRAM / NAND", zh: "DRAM / NAND" },
+  NAND: { en: "NAND", zh: "NAND" },
+  GPU: { en: "GPU", zh: "GPU" },
+  DataCenter: { en: "Data Center", zh: "数据中心" },
+  ConsumerPlatform: { en: "Consumer Platform", zh: "消费平台" },
+  ChinaConsumer: { en: "China Consumer", zh: "中国消费" },
+  HealthcareRealEstate: { en: "Healthcare Real Estate", zh: "医疗地产" },
+  HealthInsurance: { en: "Health Insurance", zh: "健康保险" },
+  Defensive: { en: "Defensive", zh: "防御型" },
+  RegulatoryRisk: { en: "Regulatory Risk", zh: "监管风险" },
+  ChinaInternet: { en: "China Internet", zh: "中国互联网" },
+  SoftwareCloud: { en: "Software / Cloud", zh: "软件 / 云" },
+  SocialMediaAds: { en: "Social Media / Ads", zh: "社交媒体 / 广告" },
+  EcommerceCloud: { en: "E-commerce / Cloud", zh: "电商 / 云" },
+  DigitalAdsCloud: { en: "Digital Ads / Cloud", zh: "数字广告 / 云" },
+  REITDividend: { en: "REIT / Dividend", zh: "REIT / 分红" },
+  HealthcareInsurance: { en: "Healthcare / Insurance", zh: "医疗 / 保险" },
+  EVAuto: { en: "EV / Auto", zh: "电动车 / 汽车" },
   Banking: { en: "Banking", zh: "银行" },
   AutoManufacturer: { en: "Auto Manufacturer", zh: "汽车制造" },
   RealEstate: { en: "Real Estate", zh: "房地产" },
@@ -1476,8 +1571,91 @@ function localizedProfileEvidence(tag, evidence) {
     "high realized volatility or large recent move": "实际波动较高或近期涨跌幅较大",
     "weak cash flow / earnings and high uncertainty": "现金流或盈利较弱，业务不确定性较高",
     "debt metrics indicate elevated balance-sheet risk": "债务指标显示资产负债表风险偏高",
+    "known profile mapping": "内置分类映射",
+    "rule-based profile selection": "规则分类选择",
   };
   return exact[text] || text;
+}
+
+function knownClassificationForTicker(ticker) {
+  return KNOWN_CLASSIFICATION_PROFILES[normalizeTickerInput(ticker)] || null;
+}
+
+function scoringProfileLabel(profileKey) {
+  const labels = {
+    software_cloud: { en: "Software / Cloud profile", zh: "软件 / 云评分模型" },
+    memory_cycle: { en: "Memory-cycle profile", zh: "存储周期评分模型" },
+    ai_infrastructure: { en: "AI infrastructure profile", zh: "AI基础设施评分模型" },
+    platform_ads: { en: "Platform / ads profile", zh: "平台广告评分模型" },
+    reit_dividend: { en: "REIT / dividend profile", zh: "REIT / 分红评分模型" },
+    china_a_share: { en: "China A-share profile", zh: "A股评分模型" },
+    china_adr: { en: "China ADR profile", zh: "中概股评分模型" },
+    healthcare_defensive: { en: "Healthcare defensive profile", zh: "医疗防御评分模型" },
+    high_growth_cyclical: { en: "High-growth cyclical profile", zh: "高成长周期评分模型" },
+    generic: { en: "Generic profile", zh: "通用评分模型" },
+  };
+  return labels[profileKey]?.[currentLanguage] || profileKey || "";
+}
+
+function normalizeScoringWeights(weights = {}, horizon = "mid") {
+  const normalized = {};
+  Object.entries(weights).forEach(([key, value]) => {
+    if (!Number.isFinite(value) || value <= 0) return;
+    let mappedKey = key === "sector_cycle" ? "sector_theme" : key;
+    if (horizon === "long" && mappedKey === "technical") mappedKey = "long_term_technical";
+    normalized[mappedKey] = (normalized[mappedKey] || 0) + value;
+  });
+  const total = Object.values(normalized).reduce((sum, value) => sum + value, 0);
+  if (!total) return null;
+  Object.keys(normalized).forEach((key) => {
+    normalized[key] = Number((normalized[key] / total).toFixed(4));
+  });
+  return normalized;
+}
+
+function inferScoringProfile(tags = [], category = "", marketType = "US") {
+  const tagSet = new Set(tags);
+  if (marketType === "CN_A_SHARE" || tagSet.has("AShare")) return "china_a_share";
+  if (tagSet.has("REIT") || tagSet.has("Dividend")) return "reit_dividend";
+  if (tagSet.has("MemoryStorage") || tagSet.has("DRAMNAND") || tagSet.has("NAND")) return "memory_cycle";
+  if (tagSet.has("AIInfrastructure") || tagSet.has("GPU") || tagSet.has("DataCenter")) return "ai_infrastructure";
+  if (tagSet.has("SocialMedia") || tagSet.has("DigitalAds") || ["SocialMediaAds", "DigitalAdsCloud"].includes(category)) return "platform_ads";
+  if (tagSet.has("ChinaADR") || tagSet.has("ChinaInternet")) return "china_adr";
+  if (tagSet.has("HealthInsurance") || tagSet.has("HealthcareServices") || category === "HealthcareInsurance") return "healthcare_defensive";
+  if (tagSet.has("EV") || tagSet.has("AutoManufacturer")) return "high_growth_cyclical";
+  if (tagSet.has("Software") || tagSet.has("Cloud") || ["SoftwareCloud", "EcommerceCloud"].includes(category)) return "software_cloud";
+  return "generic";
+}
+
+function buildClassificationProfile(row, tagAudit, fallbackCategory, missing = []) {
+  const known = knownClassificationForTicker(row.ticker);
+  const marketType = schemaMarketTypeForTicker(row);
+  const source = known ? "manual_mapping" : "rule_based";
+  const tags = (known?.tags || tagAudit.top_tags || []).slice(0, 6);
+  const category = known?.category || fallbackCategory || selectPrimaryCategory(tags);
+  const scoringProfile = known?.scoring_profile || inferScoringProfile(tags, category, marketType);
+  const scoringWeights = { ...(SCORING_PROFILE_WEIGHTS[scoringProfile] || SCORING_PROFILE_WEIGHTS.generic) };
+  const tagEvidence = { ...(tagAudit.tag_evidence || {}) };
+  tags.forEach((tag) => {
+    tagEvidence[tag] ??= {
+      confidence: known ? 95 : 76,
+      evidence: [known ? "known profile mapping" : "rule-based profile selection"],
+      source_types: [known ? "manual_mapping" : "rule_based"],
+    };
+  });
+  const confidence = known
+    ? 96
+    : clamp(Math.round((mean(tags.map((tag) => tagEvidence[tag]?.confidence).filter(Number.isFinite)) ?? 62) - missing.length * 3), 35, 92);
+  return {
+    tags,
+    category,
+    scoring_profile: scoringProfile,
+    scoring_profile_label: scoringProfileLabel(scoringProfile),
+    scoring_weights: scoringWeights,
+    tag_confidence: confidence,
+    tag_source: source,
+    tag_evidence: tagEvidence,
+  };
 }
 
 function localizedDashboardText(value) {
@@ -2979,6 +3157,7 @@ function normalizedRefreshStatus(snapshot) {
     refresh_interval_minutes: Number.isFinite(status.refresh_interval_minutes) ? status.refresh_interval_minutes : 60,
     last_dashboard_refresh: lastRefresh,
     next_dashboard_refresh: nextRefresh,
+    is_refresh_due: Boolean(nextRefresh && new Date(nextRefresh).getTime() <= Date.now()),
     is_refreshing: typeof status.is_refreshing === "boolean" ? status.is_refreshing : false,
     is_cache_only: typeof status.is_cache_only === "boolean" ? status.is_cache_only : false,
     is_force_refresh: typeof status.is_force_refresh === "boolean" ? status.is_force_refresh : false,
@@ -3001,7 +3180,9 @@ function refreshChipText(snapshot, fallbackText = t("refresh")) {
   const status = normalizedRefreshStatus(snapshot);
   if (!status) return fallbackText;
   const lastRefresh = formatRefreshDateTime(status.last_dashboard_refresh);
-  const nextRefresh = formatRefreshDateTime(status.next_dashboard_refresh);
+  const nextRefresh = status.is_refresh_due
+    ? (currentLanguage === "zh" ? "现在" : "now")
+    : formatRefreshDateTime(status.next_dashboard_refresh);
   const seen = new Set();
   const parts = [];
   const addPart = (value) => {
@@ -3015,6 +3196,8 @@ function refreshChipText(snapshot, fallbackText = t("refresh")) {
     addPart(currentLanguage === "zh" ? "正在刷新行情..." : "Refreshing quotes...");
   } else if (status.success_count === 0 && status.total_tickers > 0) {
     addPart(currentLanguage === "zh" ? "刷新失败，当前显示缓存或暂无价格" : "Refresh failed, showing cache or no prices");
+  } else if (status.is_refresh_due && status.is_cache_only) {
+    addPart(currentLanguage === "zh" ? "已到自动刷新时间" : "Auto refresh is due");
   } else if (status.is_loading_live_data) {
     addPart(currentLanguage === "zh" ? "部分股票数据正在更新，已先显示可用数据" : "Some stock data is still updating; available data is shown first");
   } else if (status.is_partial) {
@@ -3042,6 +3225,13 @@ function refreshStatusForTimestamp(timestamp, { hasStaleQuotes = false, staleQuo
     has_stale_quotes: hasStaleQuotes,
     stale_quote_count: staleQuoteCount,
   };
+}
+
+function isDashboardRefreshDue(snapshot = currentSnapshot) {
+  const status = normalizedRefreshStatus(snapshot);
+  if (!status?.next_dashboard_refresh) return false;
+  const nextTime = new Date(status.next_dashboard_refresh).getTime();
+  return Number.isFinite(nextTime) && nextTime <= Date.now();
 }
 
 function setRefreshChipForAttempt({ stale = false, message = "" } = {}) {
@@ -4236,8 +4426,15 @@ function calculateConfidence(values, missingCount = 0) {
     ) / directionalVotes.length
     : 0.5;
   const spread = stdDev(valid) ?? 0;
-  const score = 40 + consensus * 42 + Math.max(0, 18 - spread * 0.35) - missingCount * 6;
-  return clamp(Math.round(score), 25, 95);
+  const extremeDistance = mean(valid.map((value) => Math.abs(value - 50))) ?? 0;
+  const dataCoverage = valid.length / Math.max(values.length || 1, 1);
+  const score = 34
+    + consensus * 28
+    + dataCoverage * 16
+    + Math.min(12, extremeDistance * 0.35)
+    - Math.min(18, spread * 0.28)
+    - missingCount * 7;
+  return clamp(Math.round(score), 25, 92);
 }
 
 function neutralScore(value) {
@@ -4245,6 +4442,11 @@ function neutralScore(value) {
 }
 
 function classificationBucketKey(primaryCategory, tags = []) {
+  if (["SoftwareCloud", "SocialMediaAds", "DigitalAdsCloud", "EcommerceCloud"].includes(primaryCategory)) return "megaCap";
+  if (["AIInfrastructure", "MemoryStorage"].includes(primaryCategory)) return "growth";
+  if (["REITDividend"].includes(primaryCategory)) return "dividend";
+  if (["HealthcareInsurance"].includes(primaryCategory)) return "megaCap";
+  if (["EVAuto"].includes(primaryCategory)) return "growth";
   if (primaryCategory === "MegaCap") return "megaCap";
   if (["Growth", "HighGrowth"].includes(primaryCategory)) return "growth";
   if (["Speculative", "IPO", "NewlyListed"].includes(primaryCategory)) return "speculative";
@@ -4739,11 +4941,12 @@ function buildProfileTagAudit(row, rawTags, context) {
   const fullTags = Object.keys(evidenceMap).filter((tag) => evidenceMap[tag].confidence >= 60);
   const groupOrder = {
     size: ["MegaCap", "LargeCap", "MidCap", "SmallCap", "MicroCap"],
-    core: ["Software", "Cloud", "Semiconductor", "AIInfrastructure", "EV", "AutoManufacturer", "Ecommerce", "Consumer", "REIT", "Banking", "Fintech", "Energy", "Healthcare", "Biotech", "Crypto", "Industrial", "Defense", "RealEstate", "AI"],
-    quality: ["CashCow", "ProfitableGrowth", "HighGrowth", "Growth", "Dividend", "Turnaround", "Speculative"],
-    risk: ["HighMultiple", "ExtremeValuation", "HighVolatility", "HighDebtRisk", "CashBurn", "NewlyListed"],
+    core: ["Software", "Cloud", "Semiconductor", "MemoryStorage", "AIInfrastructure", "SocialMedia", "DigitalAds", "EV", "AutoManufacturer", "Ecommerce", "Consumer", "REIT", "Banking", "Fintech", "Energy", "Healthcare", "HealthInsurance", "HealthcareServices", "Biotech", "Crypto", "Industrial", "Defense", "RealEstate", "AI"],
+    theme: ["GPU", "DataCenter", "DRAMNAND", "NAND", "ConsumerPlatform", "ChinaConsumer", "HealthcareRealEstate"],
+    quality: ["CashCow", "ProfitableGrowth", "HighGrowth", "Growth", "Dividend", "Turnaround", "Speculative", "Defensive"],
+    risk: ["HighMultiple", "ExtremeValuation", "HighVolatility", "HighDebtRisk", "CashBurn", "NewlyListed", "RegulatoryRisk"],
     cycle: ["Cyclical", "InterestRateSensitive"],
-    geography: ["ChinaADR", "AShare"],
+    geography: ["ChinaADR", "AShare", "USListed", "ChinaInternet"],
   };
   const priority = (tag) => {
     const entries = Object.entries(groupOrder);
@@ -4763,11 +4966,12 @@ function buildProfileTagAudit(row, rawTags, context) {
   };
   const topTags = [];
   pickFromGroup(topTags, "size", 1);
-  pickFromGroup(topTags, "geography", 1);
   pickFromGroup(topTags, "core", 3);
+  pickFromGroup(topTags, "theme", 2);
   pickFromGroup(topTags, "quality", 2);
   pickFromGroup(topTags, "risk", 1);
   pickFromGroup(topTags, "cycle", 1);
+  pickFromGroup(topTags, "geography", 1);
   fullTags
     .filter((tag) => (evidenceMap[tag]?.confidence ?? 0) >= 75 && !topTags.includes(tag))
     .sort((a, b) => priority(b) - priority(a) || evidenceMap[b].confidence - evidenceMap[a].confidence)
@@ -4979,14 +5183,27 @@ function buildCompanyProfile(row, research) {
     likelyIPO,
     reitLike,
   });
-  const tags = tagAudit.full_tags.length ? tagAudit.full_tags : rawTags.slice(0, 5);
-  const primaryCategory = selectPrimaryCategory(tagAudit.top_tags.length ? tagAudit.top_tags : tags);
-  const avgTagConfidence = mean((tagAudit.top_tags.length ? tagAudit.top_tags : tags).map((tag) => tagAudit.tag_evidence[tag]?.confidence).filter(Number.isFinite)) ?? 55;
-  const classificationConfidence = clamp(Math.round(avgTagConfidence - (missing.length * 3)), 35, 96);
+  if (isCnAShare(row) && !tagAudit.top_tags.includes("AShare")) {
+    tagAudit.top_tags.unshift("AShare");
+    tagAudit.top_tags = [...new Set(tagAudit.top_tags)].slice(0, 6);
+  }
+  if (isCnAShare(row) && !tagAudit.top_tags.includes("ChinaMarket") && tagAudit.top_tags.length < 6) {
+    tagAudit.top_tags.push("ChinaMarket");
+  }
+  if (isCnAShare(row) && !tagAudit.top_tags.includes("HighVolatility") && tagAudit.top_tags.length < 6) {
+    tagAudit.top_tags.push("HighVolatility");
+  }
+  const fallbackTags = tagAudit.full_tags.length ? tagAudit.full_tags : rawTags.slice(0, 6);
+  const fallbackTopTags = tagAudit.top_tags.length ? tagAudit.top_tags : fallbackTags.slice(0, 6);
+  const fallbackCategory = selectPrimaryCategory(fallbackTopTags.length ? fallbackTopTags : fallbackTags);
+  const classificationProfile = buildClassificationProfile(row, tagAudit, fallbackCategory, missing);
+  const tags = [...new Set([...(classificationProfile.tags || []), ...fallbackTags])];
+  const primaryCategory = classificationProfile.category || fallbackCategory;
+  const classificationConfidence = classificationProfile.tag_confidence;
   const penaltyWeights = buildProfilePenaltyWeights(tags, primaryCategory);
   const scoringImpact = buildScoringImpact(tags, primaryCategory);
-  const classificationReasons = tagAudit.top_tags
-    .flatMap((tag) => (tagAudit.tag_evidence[tag]?.evidence || []).map((item) => `${localizedProfileTag(tag)}: ${localizedProfileEvidence(tag, item)}`))
+  const classificationReasons = classificationProfile.tags
+    .flatMap((tag) => (classificationProfile.tag_evidence[tag]?.evidence || []).map((item) => `${localizedProfileTag(tag)}: ${localizedProfileEvidence(tag, item)}`))
     .slice(0, 5);
 
   return {
@@ -4995,21 +5212,27 @@ function buildCompanyProfile(row, research) {
     category_key: classificationBucketKey(primaryCategory, tags),
     category: localizedProfileTag(primaryCategory),
     tags,
-    tags_label: (tagAudit.top_tags.length ? tagAudit.top_tags : tags).slice(0, 6).map(localizedProfileTag),
-    top_tags: tagAudit.top_tags,
-    top_tags_label: tagAudit.top_tags.map(localizedProfileTag),
+    tags_label: classificationProfile.tags.slice(0, 6).map(localizedProfileTag),
+    top_tags: classificationProfile.tags.slice(0, 6),
+    top_tags_label: classificationProfile.tags.slice(0, 6).map(localizedProfileTag),
     full_tags: tagAudit.full_tags,
     full_tags_label: tagAudit.full_tags.map(localizedProfileTag),
     exposure_tags: tagAudit.exposure_tags,
     exposure_tags_label: tagAudit.exposure_tags.map(localizedProfileTag),
     rejected_tags: tagAudit.rejected_tags,
-    tag_evidence: tagAudit.tag_evidence,
+    tag_evidence: classificationProfile.tag_evidence,
     exposure_evidence: tagAudit.exposure_evidence,
     classification_confidence: classificationConfidence,
     classification_reasons: [...new Set(classificationReasons.length ? classificationReasons : reasons)].slice(0, 5),
     missing_classification_data: missing,
     penalty_profile_weights: penaltyWeights,
     scoring_impact: scoringImpact,
+    classification: classificationProfile,
+    scoring_profile: classificationProfile.scoring_profile,
+    scoring_profile_label: classificationProfile.scoring_profile_label,
+    scoring_weights: classificationProfile.scoring_weights,
+    tag_confidence: classificationProfile.tag_confidence,
+    tag_source: classificationProfile.tag_source,
   };
 }
 
@@ -6974,8 +7197,8 @@ function buildMarketContextModule(row, companyProfile) {
       macro: {},
       broad_macro_news: null,
       sector_theme: {
-        tags: companyProfile.tags_label?.slice(0, 5) || [],
-        summary: companyProfile.tags_label?.length ? companyProfile.tags_label.slice(0, 5).join(" / ") : t("dataUnavailable"),
+        tags: (companyProfile.top_tags_label || companyProfile.tags_label || []).slice(0, 6),
+        summary: (companyProfile.top_tags_label || companyProfile.tags_label || []).length ? (companyProfile.top_tags_label || companyProfile.tags_label).slice(0, 6).join(" / ") : t("dataUnavailable"),
       },
       news_sentiment: null,
       institutional_insider: null,
@@ -6984,7 +7207,7 @@ function buildMarketContextModule(row, companyProfile) {
     };
   }
   const snapshotContext = row.globalMarketContext || {};
-  const sectorTheme = companyProfile.tags_label.slice(0, 5);
+  const sectorTheme = (companyProfile.top_tags_label || companyProfile.tags_label || []).slice(0, 6);
   const risks = [];
   if (companyProfile.tags.includes("InterestRateSensitive")) risks.push(currentLanguage === "zh" ? "对利率预期较敏感" : "Sensitive to rate expectations");
   if (companyProfile.tags.includes("Crypto")) risks.push(currentLanguage === "zh" ? "受监管和加密市场情绪影响" : "Exposed to regulation and crypto sentiment");
@@ -7396,7 +7619,8 @@ function enforceDecisionConsistency(row, aiDecision, idealBuyZone, supportResist
 
 function horizonWeights(companyProfile, horizon, marketType = "US") {
   const isCn = marketType === "CN_A_SHARE";
-  void companyProfile;
+  const profileWeights = normalizeScoringWeights(companyProfile?.scoring_weights, horizon);
+  if (profileWeights) return profileWeights;
   return isCn
     ? (horizon === "short"
       ? { technical: 0.7, fundamental: 0.2, sector_theme: 0.1 }
@@ -8163,6 +8387,7 @@ function buildDecisionModel(row) {
     current_price: row.price ?? null,
     today_change_pct: row.changePercent ?? null,
     company_profile: companyProfile,
+    classification: companyProfile.classification,
     ai_decision: consistency.aiDecision,
     ideal_buy_zone: idealBuyZone,
     buy_zones: {
@@ -8578,7 +8803,7 @@ function renderDetailModal(row) {
           <div>
             <div class="detail-overview-label">${t("companyProfile")}</div>
             <div class="detail-overview-value">${profile.category}</div>
-            <div class="detail-consensus-mini">${renderTags(profile.tags_label)}</div>
+            <div class="detail-consensus-mini">${renderTags(profile.top_tags_label || profile.tags_label)}</div>
           </div>
           <div>
             <div class="detail-overview-label">${t("currentPrice")}</div>
@@ -8675,6 +8900,10 @@ function renderDetailModal(row) {
           <article class="detail-profile-item">
             <div class="detail-profile-label">${currentLanguage === "zh" ? "分类置信度" : "Classification Confidence"}</div>
             <div class="detail-profile-value">${profile.classification_confidence ?? 0}%</div>
+          </article>
+          <article class="detail-profile-item">
+            <div class="detail-profile-label">${currentLanguage === "zh" ? "评分模型" : "Scoring Profile"}</div>
+            <div class="detail-profile-value">${profile.scoring_profile_label || scoringProfileLabel(profile.scoring_profile) || t("dataUnavailable")}</div>
           </article>
           <article class="detail-profile-item detail-profile-item-wide">
             <div class="detail-profile-label">${currentLanguage === "zh" ? "标签" : "Tags"}</div>
@@ -8808,7 +9037,7 @@ function renderDetailModal(row) {
             <div class="decision-list-title">${t("companyProfile")}</div>
             <div class="decision-bullets">
               <div class="decision-bullet">• ${profile.category}</div>
-              <div class="detail-consensus-mini">${renderTags(profile.tags_label)}</div>
+              <div class="detail-consensus-mini">${renderTags(profile.top_tags_label || profile.tags_label)}</div>
             </div>
           </div>
           <div class="decision-list-card">
@@ -9731,7 +9960,11 @@ document.addEventListener("keydown", (event) => {
 loadCachedSnapshot();
 syncTickerRows();
 render();
-runDashboardRefresh({ mode: "cache" });
+runDashboardRefresh({ mode: "cache" }).then(() => {
+  if (isDashboardRefreshDue(currentSnapshot)) {
+    runDashboardRefresh({ auto: true, mode: "auto" });
+  }
+});
 setInterval(() => {
   runDashboardRefresh({ auto: true, mode: "auto" });
 }, PRICE_REFRESH_MS);
@@ -9745,6 +9978,9 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     syncWatchlistFromServer({ rerender: true, refreshPrices: false }).then((changed) => {
       if (changed) refreshSnapshot({ mode: "cache" });
+      if (isDashboardRefreshDue(currentSnapshot)) {
+        runDashboardRefresh({ auto: true, mode: "auto" });
+      }
     });
   }
 });
