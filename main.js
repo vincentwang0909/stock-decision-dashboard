@@ -121,6 +121,41 @@ const KNOWN_CLASSIFICATION_PROFILES = {
     category: "EVAuto",
     scoring_profile: "high_growth_cyclical",
   },
+  "600460": {
+    tags: ["AShare", "Semiconductor", "PowerSemiconductor", "IDM", "ChinaMarket", "Cyclical"],
+    category: "ChinaSemiconductor",
+    scoring_profile: "china_a_share",
+  },
+  "002213": {
+    tags: ["AShare", "Semiconductor", "MemoryStorage", "ChinaMarket", "HighVolatility", "Turnaround"],
+    category: "ChinaSemiconductor",
+    scoring_profile: "china_a_share",
+  },
+  "002463": {
+    tags: ["AShare", "PCB", "AIInfrastructure", "DataCenter", "ChinaMarket", "CyclicalGrowth"],
+    category: "PCBDataCenter",
+    scoring_profile: "china_a_share",
+  },
+  "300657": {
+    tags: ["AShare", "PCB", "ConsumerElectronics", "AIInfrastructure", "ChinaMarket", "HighVolatility"],
+    category: "PCBConsumerElectronics",
+    scoring_profile: "china_a_share",
+  },
+  "603005": {
+    tags: ["AShare", "Semiconductor", "AdvancedPackaging", "ImageSensor", "ChinaMarket", "HighVolatility"],
+    category: "ChinaSemiconductor",
+    scoring_profile: "china_a_share",
+  },
+  "600522": {
+    tags: ["AShare", "OpticalCommunication", "PowerCable", "ChinaMarket", "Industrial", "Cyclical"],
+    category: "OpticalCommunication",
+    scoring_profile: "china_a_share",
+  },
+  "600498": {
+    tags: ["AShare", "OpticalCommunication", "Networking", "ChinaMarket", "Industrial", "Cyclical"],
+    category: "OpticalCommunication",
+    scoring_profile: "china_a_share",
+  },
 };
 const DEV_MODE = ["localhost", "127.0.0.1"].includes(window.location.hostname) || window.location.protocol === "file:";
 const PROFILE_DEBUG_MODE = new URLSearchParams(window.location.search).get("debugTags") === "1";
@@ -993,6 +1028,15 @@ const PROFILE_TAG_LABELS = {
   DRAMNAND: { en: "DRAM / NAND", zh: "DRAM / NAND" },
   NAND: { en: "NAND", zh: "NAND" },
   GPU: { en: "GPU", zh: "GPU" },
+  PCB: { en: "PCB", zh: "PCB" },
+  PowerSemiconductor: { en: "Power Semiconductor", zh: "功率半导体" },
+  IDM: { en: "IDM", zh: "IDM" },
+  AdvancedPackaging: { en: "Advanced Packaging", zh: "先进封装" },
+  ImageSensor: { en: "Image Sensor", zh: "图像传感器" },
+  OpticalCommunication: { en: "Optical Communication", zh: "光通信" },
+  PowerCable: { en: "Power Cable", zh: "电力电缆" },
+  Networking: { en: "Networking", zh: "网络设备" },
+  ConsumerElectronics: { en: "Consumer Electronics", zh: "消费电子" },
   DataCenter: { en: "Data Center", zh: "数据中心" },
   ConsumerPlatform: { en: "Consumer Platform", zh: "消费平台" },
   ChinaConsumer: { en: "China Consumer", zh: "中国消费" },
@@ -1005,6 +1049,9 @@ const PROFILE_TAG_LABELS = {
   SocialMediaAds: { en: "Social Media / Ads", zh: "社交媒体 / 广告" },
   EcommerceCloud: { en: "E-commerce / Cloud", zh: "电商 / 云" },
   DigitalAdsCloud: { en: "Digital Ads / Cloud", zh: "数字广告 / 云" },
+  ChinaSemiconductor: { en: "China Semiconductor", zh: "A股半导体" },
+  PCBDataCenter: { en: "PCB / Data Center", zh: "PCB / 数据中心" },
+  PCBConsumerElectronics: { en: "PCB / Consumer Electronics", zh: "PCB / 消费电子" },
   REITDividend: { en: "REIT / Dividend", zh: "REIT / 分红" },
   HealthcareInsurance: { en: "Healthcare / Insurance", zh: "医疗 / 保险" },
   EVAuto: { en: "EV / Auto", zh: "电动车 / 汽车" },
@@ -4443,7 +4490,7 @@ function neutralScore(value) {
 
 function classificationBucketKey(primaryCategory, tags = []) {
   if (["SoftwareCloud", "SocialMediaAds", "DigitalAdsCloud", "EcommerceCloud"].includes(primaryCategory)) return "megaCap";
-  if (["AIInfrastructure", "MemoryStorage"].includes(primaryCategory)) return "growth";
+  if (["AIInfrastructure", "MemoryStorage", "ChinaSemiconductor", "PCBDataCenter", "PCBConsumerElectronics", "OpticalCommunication"].includes(primaryCategory)) return "growth";
   if (["REITDividend"].includes(primaryCategory)) return "dividend";
   if (["HealthcareInsurance"].includes(primaryCategory)) return "megaCap";
   if (["EVAuto"].includes(primaryCategory)) return "growth";
@@ -4941,9 +4988,9 @@ function buildProfileTagAudit(row, rawTags, context) {
   const fullTags = Object.keys(evidenceMap).filter((tag) => evidenceMap[tag].confidence >= 60);
   const groupOrder = {
     size: ["MegaCap", "LargeCap", "MidCap", "SmallCap", "MicroCap"],
-    core: ["Software", "Cloud", "Semiconductor", "MemoryStorage", "AIInfrastructure", "SocialMedia", "DigitalAds", "EV", "AutoManufacturer", "Ecommerce", "Consumer", "REIT", "Banking", "Fintech", "Energy", "Healthcare", "HealthInsurance", "HealthcareServices", "Biotech", "Crypto", "Industrial", "Defense", "RealEstate", "AI"],
-    theme: ["GPU", "DataCenter", "DRAMNAND", "NAND", "ConsumerPlatform", "ChinaConsumer", "HealthcareRealEstate"],
-    quality: ["CashCow", "ProfitableGrowth", "HighGrowth", "Growth", "Dividend", "Turnaround", "Speculative", "Defensive"],
+    core: ["Software", "Cloud", "Semiconductor", "MemoryStorage", "PowerSemiconductor", "PCB", "OpticalCommunication", "AIInfrastructure", "SocialMedia", "DigitalAds", "EV", "AutoManufacturer", "Ecommerce", "Consumer", "REIT", "Banking", "Fintech", "Energy", "Healthcare", "HealthInsurance", "HealthcareServices", "Biotech", "Crypto", "Industrial", "Defense", "RealEstate", "AI"],
+    theme: ["GPU", "DataCenter", "DRAMNAND", "NAND", "IDM", "AdvancedPackaging", "ImageSensor", "PowerCable", "Networking", "ConsumerElectronics", "ConsumerPlatform", "ChinaConsumer", "HealthcareRealEstate"],
+    quality: ["CashCow", "ProfitableGrowth", "HighGrowth", "Growth", "CyclicalGrowth", "Dividend", "Turnaround", "Speculative", "Defensive"],
     risk: ["HighMultiple", "ExtremeValuation", "HighVolatility", "HighDebtRisk", "CashBurn", "NewlyListed", "RegulatoryRisk"],
     cycle: ["Cyclical", "InterestRateSensitive"],
     geography: ["ChinaADR", "AShare", "USListed", "ChinaInternet"],
@@ -5097,7 +5144,9 @@ function buildCompanyProfile(row, research) {
     pushProfileTag(tagSet, reasons, "CashBurn", currentLanguage === "zh" ? "自由现金流和盈利都偏弱" : "Free cash flow and earnings both look weak");
   }
 
-  const likelyIPO = (ipoAgeYears != null && ipoAgeYears <= 3) || closes.length < 180;
+  const likelyIPO = ipoAgeYears != null
+    ? ipoAgeYears <= 3
+    : (!isCnAShare(row) && closes.length < 180);
   if (likelyIPO) {
     pushProfileTag(tagSet, reasons, "IPO", currentLanguage === "zh" ? "上市时间较短或历史数据不足 3 年" : "Listing history is shorter than roughly three years");
     pushProfileTag(tagSet, reasons, "NewlyListed", currentLanguage === "zh" ? "财务历史仍然较短" : "Financial history is still relatively short");
