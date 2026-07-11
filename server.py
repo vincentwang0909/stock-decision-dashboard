@@ -3204,6 +3204,138 @@ def eastmoney_secid(ticker):
     return f"1.{ticker}" if str(ticker).startswith(("6", "9")) else f"0.{ticker}"
 
 
+def normalize_a_share_volume(value):
+    # Tencent/Eastmoney A-share endpoints report daily volume in lots (手).
+    # Keep the same unit consistently; relative volume and OBV only need consistency.
+    return _safe_int(value)
+
+
+def eastmoney_yi_to_number(value):
+    numeric = _safe_float(value)
+    return int(numeric * 1e8) if numeric is not None else None
+
+
+def fetch_a_share_yfinance_valuation(ticker, timeout=4):
+    def _fetch():
+        symbol = resolve_market_symbol(ticker)
+        instrument = yf.Ticker(symbol)
+        info = {}
+        fast_info = {}
+        try:
+            fast_info = dict(instrument.fast_info or {})
+        except Exception:
+            fast_info = {}
+        try:
+            info = instrument.info or {}
+        except Exception:
+            info = {}
+        market_cap = _safe_int(info.get("marketCap")) or _safe_int(fast_info.get("market_cap"))
+        free_cashflow = _safe_float(info.get("freeCashflow"))
+        price_to_fcf = _safe_float(
+            info.get("priceToFreeCashflow")
+            or info.get("priceToFreeCashFlow")
+            or info.get("priceToFCF")
+        )
+        if price_to_fcf is None and _safe_float(market_cap) not in (None, 0) and free_cashflow not in (None, 0):
+            try:
+                price_to_fcf = abs(_safe_float(market_cap) / free_cashflow)
+            except Exception:
+                price_to_fcf = None
+        return {
+            "trailingPE": _safe_float(info.get("trailingPE")),
+            "forwardPE": _safe_float(info.get("forwardPE")),
+            "marketCap": market_cap,
+            "metadata": {
+                "enterpriseToEbitda": _safe_float(info.get("enterpriseToEbitda")),
+                "pegRatio": _safe_float(info.get("pegRatio")),
+                "priceToFreeCashflow": price_to_fcf,
+                "freeCashflow": free_cashflow,
+                "enterpriseValue": _safe_float(info.get("enterpriseValue")),
+                "floatShares": _safe_int(info.get("floatShares")) or _safe_int(info.get("sharesFloat")) or _safe_int(info.get("publicFloat")) or _safe_int(fast_info.get("float_shares")),
+                "sharesOutstanding": _safe_int(info.get("sharesOutstanding")) or _safe_int(info.get("impliedSharesOutstanding")) or _safe_int(fast_info.get("shares")),
+                "sector": info.get("sector"),
+                "industry": info.get("industry"),
+                "businessSummary": info.get("longBusinessSummary") or info.get("shortBusinessSummary"),
+            },
+            "debug": {
+                "a_share_yfinance_fields": [key for key in ("trailingPE", "forwardPE", "pegRatio", "enterpriseToEbitda", "priceToFreeCashflow", "marketCap", "floatShares", "sharesOutstanding") if (
+                    (key in ("trailingPE", "forwardPE") and info.get(key) is not None)
+                    or (key == "pegRatio" and info.get("pegRatio") is not None)
+                    or (key == "enterpriseToEbitda" and info.get("enterpriseToEbitda") is not None)
+                    or (key == "priceToFreeCashflow" and price_to_fcf is not None)
+                    or (key == "marketCap" and market_cap is not None)
+                    or (key == "floatShares" and (_safe_int(info.get("floatShares")) or _safe_int(info.get("sharesFloat")) or _safe_int(info.get("publicFloat")) or _safe_int(fast_info.get("float_shares"))) is not None)
+                    or (key == "sharesOutstanding" and (_safe_int(info.get("sharesOutstanding")) or _safe_int(info.get("impliedSharesOutstanding")) or _safe_int(fast_info.get("shares"))) is not None)
+                )],
+            },
+        }
+
+    return _run_with_timeout(_fetch, timeout, fallback={}) or {}
+
+
+def merge_a_share_valuation(primary=None, fallback=None):
+    primary = primary or {}
+    fallback = fallback or {}
+    merged = dict(primary)
+    for key in ("trailingPE", "forwardPE", "marketCap", "forwardEpsMean"):
+        if merged.get(key) is None and fallback.get(key) is not None:
+            merged[key] = fallback.get(key)
+    metadata = dict(fallback.get("metadata") or {})
+    metadata.update({key: value for key, value in (primary.get("metadata") or {}).items() if value is not None})
+    merged["metadata"] = metadata
+    debug = {}
+    debug.update(fallback.get("debug") or {})
+    debug.update(primary.get("debug") or {})
+    merged["debug"] = debug
+    return merged
+
+
+def yfinance_history_frame_to_rows(frame, limit=252):
+    if frame is None or frame.empty:
+        return []
+    try:
+        clean = frame.dropna(subset=["Open", "High", "Low", "Close", "Volume"]).tail(limit)
+    except Exception:
+        return []
+    rows = []
+    for index, row in clean.iterrows():
+        try:
+            if hasattr(index, "to_pydatetime"):
+                stamp = index.to_pydatetime()
+            else:
+                stamp = pd.to_datetime(index).to_pydatetime()
+        except Exception:
+            stamp = None
+        close = _safe_float(row.get("Close"))
+        if close is None:
+            continue
+        rows.append({
+            "date": stamp.strftime("%Y-%m-%d") if stamp else str(index)[:10],
+            "datetime": stamp.replace(tzinfo=timezone.utc) if stamp and stamp.tzinfo is None else stamp,
+            "open": _safe_float(row.get("Open")),
+            "close": close,
+            "high": _safe_float(row.get("High")),
+            "low": _safe_float(row.get("Low")),
+            # Yahoo/yfinance reports A-share volume in shares. Keep the whole
+            # history in that unit so relative volume and OBV stay internally
+            # consistent.
+            "volume": _safe_int(row.get("Volume")),
+            "amount": None,
+            "turnover_rate": None,
+        })
+    return rows
+
+
+def fetch_a_share_yfinance_history_rows(ticker, limit=252, timeout=5):
+    def _fetch():
+        symbol = resolve_market_symbol(ticker)
+        instrument = yf.Ticker(symbol)
+        frame = load_yfinance_history_frame(instrument, symbol, period="1y", interval="1d")
+        return yfinance_history_frame_to_rows(frame, limit=limit)
+
+    return _run_with_timeout(_fetch, timeout, fallback=[]) or []
+
+
 def fetch_a_share_tencent_quote(ticker, timeout=4):
     prefix = "sh" if str(ticker).startswith(("6", "9")) else "sz"
     url = f"https://qt.gtimg.cn/q={prefix}{ticker}"
@@ -3227,17 +3359,30 @@ def fetch_a_share_tencent_quote(ticker, timeout=4):
         if price is None or price <= 0:
             return None
         previous_close = _safe_float(fields[4])
+        turnover_rate = _safe_float(fields[38])
+        market_cap = eastmoney_yi_to_number(fields[44])
+        float_market_cap = eastmoney_yi_to_number(fields[45])
+        shares_outstanding = int(market_cap / price) if market_cap is not None and price else None
+        float_shares = int(float_market_cap / price) if float_market_cap is not None and price else None
         return {
             "source": "tencent_quote",
             "price": price,
             "previous_close": previous_close,
             "open": _safe_float(fields[5]),
-            "volume": _safe_int(fields[6]),
+            "volume": normalize_a_share_volume(fields[6]),
+            "amount": _safe_float(fields[57]) * 10000 if _safe_float(fields[57]) is not None else None,
             "name": _safe_text(fields[1]),
             "change": _safe_float(fields[31]),
             "change_percent": _safe_float(fields[32]),
             "high": _safe_float(fields[33]),
             "low": _safe_float(fields[34]),
+            "turnover_rate": turnover_rate,
+            "trailingPE": _safe_float(fields[39]),
+            "market_cap": market_cap,
+            "float_market_cap": float_market_cap,
+            "floatShares": float_shares,
+            "sharesOutstanding": shares_outstanding,
+            "priceToBook": _safe_float(fields[46]),
             "quote_time": _safe_text(fields[30]),
         }
     except Exception:
@@ -3245,7 +3390,7 @@ def fetch_a_share_tencent_quote(ticker, timeout=4):
 
 
 def fetch_a_share_eastmoney_quote(ticker, timeout=4):
-    fields = "f43,f44,f45,f46,f47,f57,f58,f60,f116,f170"
+    fields = "f43,f44,f45,f46,f47,f48,f57,f58,f60,f84,f85,f116,f117,f162,f163,f164,f168,f170"
     url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={eastmoney_secid(ticker)}&fields={fields}"
     try:
         payload = http_get_json_browser(url, timeout=timeout, referer="https://quote.eastmoney.com/")
@@ -3280,8 +3425,15 @@ def fetch_a_share_eastmoney_quote(ticker, timeout=4):
             "high": high,
             "low": low,
             "open": open_price,
-            "volume": _safe_int(data.get("f47")),
+            "volume": normalize_a_share_volume(data.get("f47")),
+            "amount": _safe_float(data.get("f48")),
             "market_cap": _safe_int(data.get("f116")),
+            "float_market_cap": _safe_int(data.get("f117")),
+            "floatShares": _safe_int(data.get("f84")),
+            "sharesOutstanding": _safe_int(data.get("f85")),
+            "turnover_rate": _safe_float(data.get("f168")),
+            "trailingPE": _safe_float(data.get("f163")) or _safe_float(data.get("f162")),
+            "priceToBook": _safe_float(data.get("f164")),
             "change_percent": pct,
             "name": _safe_text(data.get("f58")),
         }
@@ -3291,7 +3443,7 @@ def fetch_a_share_eastmoney_quote(ticker, timeout=4):
 
 def fetch_a_share_eastmoney_history(ticker, limit=260, timeout=4):
     fields1 = "f1,f2,f3,f4,f5,f6"
-    fields2 = "f51,f52,f53,f54,f55,f56,f57"
+    fields2 = "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
     url = (
         f"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={eastmoney_secid(ticker)}"
         f"&klt=101&fqt=0&end=20500101&lmt={int(limit)}&fields1={fields1}&fields2={fields2}"
@@ -3315,7 +3467,9 @@ def fetch_a_share_eastmoney_history(ticker, limit=260, timeout=4):
                 "close": close,
                 "high": _safe_float(parts[3]),
                 "low": _safe_float(parts[4]),
-                "volume": _safe_int(parts[5]),
+                "volume": normalize_a_share_volume(parts[5]),
+                "amount": _safe_float(parts[6]) if len(parts) > 6 else None,
+                "turnover_rate": _safe_float(parts[10]) if len(parts) > 10 else None,
             })
         return rows[-limit:]
     except Exception:
@@ -3328,12 +3482,27 @@ def fetch_a_share_with_eastmoney(ticker, profile_info=None, valuation_info=None,
     # The lightweight endpoints are substantially more reliable on Render than
     # downloading the full AkShare spot table. History also gives us a usable
     # last close when a real-time endpoint is temporarily unavailable.
+    history_source = "eastmoney"
     history_rows = fetch_a_share_eastmoney_history(ticker, limit=252, timeout=4)
+    if not history_rows:
+        history_source = "yfinance"
+        history_rows = fetch_a_share_yfinance_history_rows(ticker, limit=252, timeout=5)
     quote_snapshot = fetch_a_share_tencent_quote(ticker, timeout=3)
     if not quote_snapshot and not history_rows:
         quote_snapshot = fetch_a_share_eastmoney_quote(ticker, timeout=3)
     if not quote_snapshot and not history_rows:
         raise ValueError(f"A-share Eastmoney fallback failed for {ticker}: {primary_error or 'No quote/history'}")
+
+    yf_valuation = fetch_a_share_yfinance_valuation(ticker, timeout=4)
+    quote_valuation = {
+        "trailingPE": (quote_snapshot or {}).get("trailingPE"),
+        "marketCap": (quote_snapshot or {}).get("market_cap"),
+        "metadata": {
+            "floatShares": (quote_snapshot or {}).get("floatShares"),
+            "sharesOutstanding": (quote_snapshot or {}).get("sharesOutstanding"),
+        },
+    }
+    valuation_info = merge_a_share_valuation(merge_a_share_valuation(valuation_info, yf_valuation), quote_valuation)
 
     latest = history_rows[-1] if history_rows else {}
     previous = history_rows[-2] if len(history_rows) > 1 else latest
@@ -3347,6 +3516,7 @@ def fetch_a_share_with_eastmoney(ticker, profile_info=None, valuation_info=None,
     forward_eps_mean = valuation_info.get("forwardEpsMean")
     if forward_pe is None and price is not None and forward_eps_mean:
         forward_pe = price / forward_eps_mean
+    metadata_info = valuation_info.get("metadata") or {}
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {
         "price": price,
@@ -3361,20 +3531,20 @@ def fetch_a_share_with_eastmoney(ticker, profile_info=None, valuation_info=None,
         "shortName": profile_info.get("shortName") or (quote_snapshot or {}).get("name"),
         "longName": profile_info.get("longName") or (quote_snapshot or {}).get("name"),
         "exchangeName": "SZ" if ticker.startswith(("0", "3")) else "SH",
-        "trailingPE": valuation_info.get("trailingPE"),
+        "trailingPE": valuation_info.get("trailingPE") or (quote_snapshot or {}).get("trailingPE"),
         "forwardPE": forward_pe,
         "marketCap": valuation_info.get("marketCap") or (quote_snapshot or {}).get("market_cap"),
         "metadata": {
-            "sector": None,
-            "industry": None,
+            "sector": metadata_info.get("sector"),
+            "industry": metadata_info.get("industry"),
             "beta": None,
             "dividendYield": None,
             "payoutRatio": None,
-            "enterpriseToEbitda": None,
+            "enterpriseToEbitda": metadata_info.get("enterpriseToEbitda"),
             "priceToSalesTrailing12Months": None,
             "enterpriseToRevenue": None,
-            "pegRatio": None,
-            "priceToFreeCashflow": None,
+            "pegRatio": metadata_info.get("pegRatio"),
+            "priceToFreeCashflow": metadata_info.get("priceToFreeCashflow"),
             "operatingMargins": None,
             "profitMargins": None,
             "revenueGrowth": None,
@@ -3383,14 +3553,16 @@ def fetch_a_share_with_eastmoney(ticker, profile_info=None, valuation_info=None,
             "debtToEquity": None,
             "currentRatio": None,
             "quickRatio": None,
-            "freeCashflow": None,
+            "freeCashflow": metadata_info.get("freeCashflow"),
             "totalCash": None,
             "totalDebt": None,
             "capex": None,
-            "businessSummary": None,
+            "businessSummary": metadata_info.get("businessSummary"),
             "ipoDate": None,
-            "floatShares": None,
-            "sharesOutstanding": None,
+            "floatShares": metadata_info.get("floatShares") or (quote_snapshot or {}).get("floatShares"),
+            "sharesOutstanding": metadata_info.get("sharesOutstanding") or (quote_snapshot or {}).get("sharesOutstanding"),
+            "turnoverRate": (quote_snapshot or {}).get("turnover_rate") or latest.get("turnover_rate"),
+            "priceToBook": (quote_snapshot or {}).get("priceToBook"),
         },
         "optionsMarket": build_unavailable_options_payload("A-share options wall data is not supported yet", market="cn"),
         "history": {
@@ -3399,10 +3571,13 @@ def fetch_a_share_with_eastmoney(ticker, profile_info=None, valuation_info=None,
             "highs": [_safe_float(row.get("high")) for row in history_rows],
             "lows": [_safe_float(row.get("low")) for row in history_rows],
             "volumes": [_safe_int(row.get("volume")) for row in history_rows],
+            "turnovers": [_safe_float(row.get("turnover_rate")) for row in history_rows],
         },
         "debug": {
             "a_share_quote_source": (quote_snapshot or {}).get("source") or "eastmoney_history",
-            "a_share_history_source": "eastmoney" if history_rows else None,
+            "a_share_history_source": history_source if history_rows else None,
+            "a_share_history_points": len(history_rows),
+            **(valuation_info.get("debug") or {}),
         },
     }
 
@@ -3429,6 +3604,8 @@ def fetch_a_share_with_yfinance_fallback(ticker, profile_info=None, valuation_in
         info = instrument.info or {}
     except Exception:
         info = {}
+    yf_valuation = fetch_a_share_yfinance_valuation(ticker, timeout=3)
+    valuation_info = merge_a_share_valuation(valuation_info, yf_valuation)
 
     latest_row = history.iloc[-1]
     previous_row = history.iloc[-2] if len(history) > 1 else latest_row
@@ -3473,11 +3650,11 @@ def fetch_a_share_with_yfinance_fallback(ticker, profile_info=None, valuation_in
             "beta": _safe_float(info.get("beta")),
             "dividendYield": _safe_float(info.get("dividendYield")),
             "payoutRatio": _safe_float(info.get("payoutRatio")),
-            "enterpriseToEbitda": _safe_float(info.get("enterpriseToEbitda")),
+            "enterpriseToEbitda": _safe_float(info.get("enterpriseToEbitda")) or (valuation_info.get("metadata") or {}).get("enterpriseToEbitda"),
             "priceToSalesTrailing12Months": _safe_float(info.get("priceToSalesTrailing12Months")),
             "enterpriseToRevenue": _safe_float(info.get("enterpriseToRevenue")),
-            "pegRatio": _safe_float(info.get("pegRatio")),
-            "priceToFreeCashflow": price_to_fcf,
+            "pegRatio": _safe_float(info.get("pegRatio")) or (valuation_info.get("metadata") or {}).get("pegRatio"),
+            "priceToFreeCashflow": price_to_fcf or (valuation_info.get("metadata") or {}).get("priceToFreeCashflow"),
             "operatingMargins": _safe_float(info.get("operatingMargins")),
             "profitMargins": _safe_float(info.get("profitMargins")),
             "revenueGrowth": _safe_float(info.get("revenueGrowth")),
@@ -3486,19 +3663,19 @@ def fetch_a_share_with_yfinance_fallback(ticker, profile_info=None, valuation_in
             "debtToEquity": _safe_float(info.get("debtToEquity")),
             "currentRatio": _safe_float(info.get("currentRatio")),
             "quickRatio": _safe_float(info.get("quickRatio")),
-            "freeCashflow": free_cashflow,
+            "freeCashflow": free_cashflow or (valuation_info.get("metadata") or {}).get("freeCashflow"),
             "totalCash": _safe_float(info.get("totalCash")),
             "totalDebt": _safe_float(info.get("totalDebt")),
             "capex": _safe_float(info.get("capitalExpenditure")),
-            "businessSummary": info.get("longBusinessSummary") or info.get("shortBusinessSummary"),
+            "businessSummary": info.get("longBusinessSummary") or info.get("shortBusinessSummary") or (valuation_info.get("metadata") or {}).get("businessSummary"),
             "country": info.get("country"),
             "city": info.get("city"),
             "state": info.get("state"),
             "exchange": info.get("exchange") or exchange_name,
             "quoteType": info.get("quoteType"),
             "ipoDate": iso_from_epoch(info.get("firstTradeDateEpochUtc")),
-            "floatShares": _safe_int(info.get("floatShares")) or _safe_int(info.get("sharesFloat")) or _safe_int(info.get("publicFloat")) or _safe_int(fast_info.get("float_shares")),
-            "sharesOutstanding": _safe_int(info.get("sharesOutstanding")) or _safe_int(info.get("impliedSharesOutstanding")) or _safe_int(fast_info.get("shares")),
+            "floatShares": _safe_int(info.get("floatShares")) or _safe_int(info.get("sharesFloat")) or _safe_int(info.get("publicFloat")) or _safe_int(fast_info.get("float_shares")) or (valuation_info.get("metadata") or {}).get("floatShares"),
+            "sharesOutstanding": _safe_int(info.get("sharesOutstanding")) or _safe_int(info.get("impliedSharesOutstanding")) or _safe_int(fast_info.get("shares")) or (valuation_info.get("metadata") or {}).get("sharesOutstanding"),
         },
         "optionsMarket": build_unavailable_options_payload("A-share options wall data is not supported yet", market="cn"),
         "history": {
@@ -3507,6 +3684,7 @@ def fetch_a_share_with_yfinance_fallback(ticker, profile_info=None, valuation_in
             "highs": [_safe_float(value) for value in history["High"].tolist()],
             "lows": [_safe_float(value) for value in history["Low"].tolist()],
             "volumes": [_safe_int(value) for value in history["Volume"].tolist()],
+            "turnovers": [None for _ in history["Volume"].tolist()],
         },
     }
 
@@ -3905,6 +4083,7 @@ def fetch_a_share_with_akshare(ticker):
                 "highs": [_safe_float(value) for value in history["最高"].tolist()],
                 "lows": [_safe_float(value) for value in history["最低"].tolist()],
                 "volumes": [_safe_int(value) for value in history["成交量"].tolist()],
+                "turnovers": [_safe_float(value) for value in history["换手率"].tolist()] if "换手率" in history.columns else [None for _ in history["成交量"].tolist()],
             },
         }
     except Exception as exc:
@@ -4048,7 +4227,8 @@ def fetch_a_share_with_akshare(ticker):
             "closes": [_safe_float(value) for value in history_tx["close"].tolist()],
             "highs": [_safe_float(value) for value in history_tx["high"].tolist()],
             "lows": [_safe_float(value) for value in history_tx["low"].tolist()],
-            "volumes": [_safe_int(value) for value in history_tx["amount"].tolist()],
+            "volumes": [_safe_int(value) for value in (history_tx["volume"].tolist() if "volume" in history_tx.columns else history_tx["amount"].tolist())],
+            "turnovers": [_safe_float(value) for value in history_tx["turnover"].tolist()] if "turnover" in history_tx.columns else [None for _ in history_tx["date"].tolist()],
         },
     }
 

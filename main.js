@@ -2052,6 +2052,7 @@ function normalizeHistory(history, fallbackPrice, volatility, ticker, allowSynth
   const highs = Array.isArray(history?.highs) ? history.highs.filter((value) => Number.isFinite(value)) : [];
   const lows = Array.isArray(history?.lows) ? history.lows.filter((value) => Number.isFinite(value)) : [];
   const volumes = Array.isArray(history?.volumes) ? history.volumes.filter((value) => Number.isFinite(value)) : [];
+  const turnovers = Array.isArray(history?.turnovers) ? history.turnovers.map((value) => Number(value)).filter((value) => Number.isFinite(value)) : [];
 
   if (closes.length >= 30 && highs.length >= 30 && lows.length >= 30 && volumes.length >= 30) {
     return {
@@ -2059,6 +2060,7 @@ function normalizeHistory(history, fallbackPrice, volatility, ticker, allowSynth
       highs: highs.slice(-252),
       lows: lows.slice(-252),
       volumes: volumes.slice(-252),
+      turnovers: turnovers.slice(-252),
       synthetic: false,
     };
   }
@@ -2069,6 +2071,7 @@ function normalizeHistory(history, fallbackPrice, volatility, ticker, allowSynth
       highs,
       lows,
       volumes,
+      turnovers,
       synthetic: false,
     };
   }
@@ -2574,6 +2577,7 @@ function computeIndicators(ticker, snapshot, profile) {
   const highs = history.highs;
   const lows = history.lows;
   const volumes = history.volumes;
+  const turnovers = history.turnovers || [];
 
   const close = Number.isFinite(market.price) ? market.price : latest(closes);
   if (!Number.isFinite(close)) {
@@ -2737,7 +2741,7 @@ function computeIndicators(ticker, snapshot, profile) {
       optionsMarket,
       support,
       resistance,
-      history,
+      history: { ...history, turnovers },
       pricePressure,
       srAnalysis,
     },
@@ -6199,6 +6203,7 @@ function buildVolumeConfirmation(row, companyProfile = null, supportResistance =
   const closePosition = tech.closePosition ?? 0.5;
   const closes = tech.history?.closes || [];
   const volumes = tech.history?.volumes || [];
+  const turnovers = tech.history?.turnovers || [];
   const todayVolume = positiveOrNull(tech.latestVolume ?? latest(volumes));
   const avgVolume5d = averageLast(volumes, 5);
   const avgVolume10d = averageLast(volumes, 10);
@@ -6224,11 +6229,16 @@ function buildVolumeConfirmation(row, companyProfile = null, supportResistance =
       : estimatedSharesOutstanding
         ? "market_cap_price_estimate"
         : null;
-  const turnoverRate = turnoverFromVolume(todayVolume, shareBase);
-  const avgTurnover5d = turnoverFromVolume(avgVolume5d, shareBase);
-  const avgTurnover20d = turnoverFromVolume(avgVolume20d, shareBase);
-  const avgTurnover60d = turnoverFromVolume(avgVolume60d, shareBase);
-  const avgTurnover120d = turnoverFromVolume(avgVolume120d, shareBase);
+  const directTurnoverRate = positiveOrNull(metadata.turnoverRate ?? metadata.turnover_rate ?? latest(turnovers));
+  const avgDirectTurnover5d = averageLast(turnovers, 5);
+  const avgDirectTurnover20d = averageLast(turnovers, 20);
+  const avgDirectTurnover60d = averageLast(turnovers, 60);
+  const avgDirectTurnover120d = averageLast(turnovers, 120);
+  const turnoverRate = directTurnoverRate ?? turnoverFromVolume(todayVolume, shareBase);
+  const avgTurnover5d = avgDirectTurnover5d ?? turnoverFromVolume(avgVolume5d, shareBase);
+  const avgTurnover20d = avgDirectTurnover20d ?? turnoverFromVolume(avgVolume20d, shareBase);
+  const avgTurnover60d = avgDirectTurnover60d ?? turnoverFromVolume(avgVolume60d, shareBase);
+  const avgTurnover120d = avgDirectTurnover120d ?? turnoverFromVolume(avgVolume120d, shareBase);
   const obvTrend5d = obvTrend(closes, volumes, 5);
   const obvTrend20d = obvTrend(closes, volumes, 20);
   const obvTrend60d = obvTrend(closes, volumes, 60);
@@ -6310,12 +6320,12 @@ function buildVolumeConfirmation(row, companyProfile = null, supportResistance =
   if (todayVolume == null) missingFields.push("today_volume");
   if (avgVolume20d == null) missingFields.push("avg_volume_20d");
   if (avgVolume60d == null) missingFields.push("avg_volume_60d");
-  if (shareBase == null) missingFields.push("float_shares_or_shares_outstanding");
+  if (shareBase == null && directTurnoverRate == null) missingFields.push("float_shares_or_shares_outstanding");
   if (turnoverRate == null) missingFields.push("turnover_rate");
   if (obvTrend60d === "unavailable") missingFields.push("obv_trend_60d");
   if (upDown60d.ratio == null) missingFields.push("up_down_volume_ratio_60d");
   let confidence = 92 - missingFields.length * 6;
-  if (shareBase == null) confidence -= 8;
+  if (shareBase == null && directTurnoverRate == null) confidence -= 8;
   if (volumes.length < 60) confidence -= 8;
   if (volumes.length < 120) confidence -= 4;
   confidence = clamp(Math.round(confidence), 42, 94);
@@ -6400,7 +6410,7 @@ function buildVolumeConfirmation(row, companyProfile = null, supportResistance =
     relative_volume: Number.isFinite(relativeVolume20d) ? Number(relativeVolume20d.toFixed(2)) : null,
     float_shares: floatShares,
     shares_outstanding: sharesOutstanding,
-    share_base_source: shareBaseSource,
+    share_base_source: directTurnoverRate != null ? "reported_turnover_rate" : shareBaseSource,
     turnover_rate: Number.isFinite(turnoverRate) ? Number(turnoverRate.toFixed(2)) : null,
     avg_turnover_5d: Number.isFinite(avgTurnover5d) ? Number(avgTurnover5d.toFixed(2)) : null,
     avg_turnover_20d: Number.isFinite(avgTurnover20d) ? Number(avgTurnover20d.toFixed(2)) : null,
