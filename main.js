@@ -1065,6 +1065,7 @@ const PROFILE_TAG_LABELS = {
   Stablecoin: { en: "Stablecoin", zh: "稳定币" },
   InterestRateSensitive: { en: "Rate Sensitive", zh: "利率敏感" },
   REIT: { en: "REIT", zh: "REIT" },
+  ETF: { en: "ETF", zh: "ETF" },
   Dividend: { en: "Dividend", zh: "分红" },
   IPO: { en: "IPO", zh: "新股" },
   Speculative: { en: "Speculative", zh: "投机" },
@@ -1308,6 +1309,14 @@ function finiteOrNull(value) {
 function positiveOrNull(value) {
   const numeric = finiteOrNull(value);
   return numeric != null && numeric > 0 ? numeric : null;
+}
+
+function normalizeDividendYield(value) {
+  const numeric = finiteOrNull(value);
+  if (numeric == null || numeric <= 0) return null;
+  // Providers are inconsistent: yfinance often returns 0.032 while some
+  // cached/fund feeds return 3.2 for 3.2%. Tags should use one decimal scale.
+  return numeric > 1 ? numeric / 100 : numeric;
 }
 
 function averageLast(values, period) {
@@ -4688,6 +4697,7 @@ function pushProfileTag(tagSet, reasons, tag, reason) {
 function selectPrimaryCategory(tags) {
   const set = new Set(tags);
   if (set.has("REIT")) return "REIT";
+  if (set.has("ETF")) return "ETF";
   if (set.has("Dividend")) return "Dividend";
   if (set.has("IPO")) return "IPO";
   if (set.has("NewlyListed")) return "NewlyListed";
@@ -4800,7 +4810,7 @@ function buildProfileTagAudit(row, rawTags, context) {
     pe,
     psRatio,
     evSales,
-    dividendYield,
+    dividendYield: rawDividendYield,
     return30,
     return90,
     volatility30,
@@ -4809,9 +4819,11 @@ function buildProfileTagAudit(row, rawTags, context) {
     likelyIPO,
     reitLike,
   } = context;
+  const dividendYield = normalizeDividendYield(rawDividendYield);
   const country = String(row.metadata?.country || "").toLowerCase();
   const exchangeName = String(row.exchangeName || row.metadata?.exchange || "").toLowerCase();
   const quoteType = String(row.metadata?.quoteType || "").toLowerCase();
+  const etfIdentity = /\betf\b|exchange traded fund|fund\b/i.test(`${quoteType} ${sectorIndustryBlob} ${description} ${nameBlob}`);
   const isUsListed = !isCnAShare(row) && /nasdaq|nyse|amex|nms|ngm|ncm|nyq|ase|nas/i.test(exchangeName);
   const directChinaCountry = /china|hong kong|prc/i.test(country);
   const caymanWithChinaBusiness = /cayman islands/i.test(country)
@@ -4853,6 +4865,9 @@ function buildProfileTagAudit(row, rawTags, context) {
     addExposure("ChinaMarket", 90, "China A-share market model", "market");
   } else if (isUsListed) {
     addExposure("USListed", 86, "US exchange listing", "market");
+  }
+  if (etfIdentity) {
+    addEvidence("ETF", 94, "quote type / description indicates exchange-traded fund", "market");
   }
   if (chinaIdentity && adrIdentity && !isCnAShare(row)) {
     addEvidence("ChinaADR", 88, "company identity indicates China-based ADR / ADS listing", "market");
@@ -4994,7 +5009,7 @@ function buildProfileTagAudit(row, rawTags, context) {
   const fullTags = Object.keys(evidenceMap).filter((tag) => evidenceMap[tag].confidence >= 60);
   const groupOrder = {
     size: ["MegaCap", "LargeCap", "MidCap", "SmallCap", "MicroCap"],
-    core: ["Software", "Cloud", "Semiconductor", "MemoryStorage", "PowerSemiconductor", "PCB", "OpticalCommunication", "AIInfrastructure", "SocialMedia", "DigitalAds", "EV", "AutoManufacturer", "Ecommerce", "Consumer", "REIT", "Banking", "Fintech", "Energy", "Healthcare", "HealthInsurance", "HealthcareServices", "Biotech", "Crypto", "Industrial", "Defense", "RealEstate", "AI"],
+    core: ["ETF", "Software", "Cloud", "Semiconductor", "MemoryStorage", "PowerSemiconductor", "PCB", "OpticalCommunication", "AIInfrastructure", "SocialMedia", "DigitalAds", "EV", "AutoManufacturer", "Ecommerce", "Consumer", "REIT", "Banking", "Fintech", "Energy", "Healthcare", "HealthInsurance", "HealthcareServices", "Biotech", "Crypto", "Industrial", "Defense", "RealEstate", "AI"],
     theme: ["GPU", "DataCenter", "DRAMNAND", "NAND", "IDM", "AdvancedPackaging", "ImageSensor", "PowerCable", "Networking", "ConsumerElectronics", "ConsumerPlatform", "ChinaConsumer", "HealthcareRealEstate"],
     quality: ["CashCow", "ProfitableGrowth", "HighGrowth", "Growth", "CyclicalGrowth", "Dividend", "Turnaround", "Speculative", "Defensive"],
     risk: ["HighMultiple", "ExtremeValuation", "HighVolatility", "HighDebtRisk", "CashBurn", "NewlyListed", "RegulatoryRisk"],
@@ -5067,7 +5082,7 @@ function buildCompanyProfile(row, research) {
   const psRatio = metrics.psRatio ?? row.metadata?.priceToSalesTrailing12Months ?? null;
   const evEbitda = metrics.evEbitda ?? row.metadata?.enterpriseToEbitda ?? null;
   const evSales = row.metadata?.enterpriseToRevenue ?? null;
-  const dividendYield = row.metadata?.dividendYield ?? null;
+  const dividendYield = normalizeDividendYield(row.metadata?.dividendYield);
   const payoutRatio = row.metadata?.payoutRatio ?? null;
   const ipoAgeYears = yearsSinceIsoDate(row.metadata?.ipoDate);
   const return30 = computeReturnPct(closes, 30);
@@ -5093,6 +5108,8 @@ function buildCompanyProfile(row, research) {
     businessSummary,
     /\bhospital\b|\btelehealth\b|\bpharma(?:ceutical)?\b|\bbiotech\b|\bmedical device\b|\bclinical\b|\bdrug\b/gi,
   );
+  const quoteType = String(row.metadata?.quoteType || "").toLowerCase();
+  const etfLike = /\betf\b|exchange traded fund|fund\b/i.test(`${quoteType} ${sectorBlob} ${businessSummary} ${row.shortName || ""} ${row.longName || ""}`);
   const evKeywordCount = countRegexMatches(
     textBlob,
     /\belectric vehicle(?:s)?\b|\bev manufacturer\b|\bev maker\b|\bbattery electric vehicle\b|\bvehicle deliveries\b|\bautomaker\b|\bauto manufacturing\b|\bvehicle manufacturing\b/gi,
@@ -5114,6 +5131,9 @@ function buildCompanyProfile(row, research) {
   if (isCnAShare(row)) {
     pushProfileTag(tagSet, reasons, "AShare", currentLanguage === "zh" ? "6 位数字代码识别为 A股。" : "Six-digit numeric ticker is classified as an A-share.");
     pushProfileTag(tagSet, reasons, "ChinaMarket", currentLanguage === "zh" ? "该股票使用中国 A股市场模型。" : "This stock uses the China A-share model.");
+  }
+  if (etfLike) {
+    pushProfileTag(tagSet, reasons, "ETF", currentLanguage === "zh" ? "标的类型识别为 ETF。" : "Quote type indicates an ETF.");
   }
 
   if (Number.isFinite(marketCap)) {
