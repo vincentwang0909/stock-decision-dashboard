@@ -29,6 +29,7 @@ const PENALTY_CONFIG = {
   max_total_penalty: 20,
   missing_data_max_penalty: 3,
 };
+const DIVIDEND_TAG_MIN_YIELD = 0.06;
 const PENALTY_PROFILE_WEIGHTS = {
   MegaCap: { technical: 1.0, valuation: 1.0, fundamental: 1.2, options: 0.8, market_context: 0.8, data_quality: 0.5 },
   CashCow: { technical: 0.8, valuation: 1.0, fundamental: 1.3, options: 0.7, market_context: 0.8, data_quality: 0.5 },
@@ -1620,6 +1621,7 @@ function localizedProfileEvidence(tag, evidence) {
     "debt metrics indicate elevated balance-sheet risk": "债务指标显示资产负债表风险偏高",
     "known profile mapping": "内置分类映射",
     "rule-based profile selection": "规则分类选择",
+    "dividend yield >= 6%": "股息率大于等于 6%",
   };
   return exact[text] || text;
 }
@@ -4927,7 +4929,7 @@ function buildProfileTagAudit(row, rawTags, context) {
   if ((freeCashFlow ?? 0) < 0) addEvidence("CashBurn", 78, "free cash flow is negative", "financial");
   if ((volatility30 ?? 0) >= 55) addEvidence("HighVolatility", 78, "30D annualized volatility is elevated", "technical");
   if ((debtRatio ?? 0) > 0.7) addEvidence("HighDebtRisk", 82, "debt ratio is elevated", "financial");
-  if ((dividendYield ?? 0) >= 0.03) addEvidence("Dividend", 80, "dividend yield >= 3%", "financial");
+  if ((dividendYield ?? 0) >= DIVIDEND_TAG_MIN_YIELD) addEvidence("Dividend", 80, "dividend yield >= 6%", "financial");
   if (rawSet.has("Speculative") && (evidenceMap.MicroCap || evidenceMap.SmallCap || evidenceMap.CashBurn || evidenceMap.HighVolatility)) addEvidence("Speculative", 78, "small / volatile / cash-burning profile", "combined");
   if (!likelyIPO && ((forwardPe ?? -1) > 50 || (pe ?? -1) > 60 || (psRatio ?? -1) > 10 || (evSales ?? -1) > 10)) addEvidence("HighMultiple", 78, "valuation multiples exceed high-multiple thresholds", "valuation");
   if ((return30 ?? 0) > 20 || (return90 ?? 0) > 35 || (nearHigh && (relativeVolume ?? 1) >= 1.15)) addEvidence("Momentum", 78, "30D / 90D return or near-high volume confirms momentum", "technical");
@@ -5177,7 +5179,7 @@ function buildCompanyProfile(row, research) {
   if (reitLike) {
     pushProfileTag(tagSet, reasons, "REIT", currentLanguage === "zh" ? "公司描述包含 REIT / 地产信托特征" : "Business description matches REIT characteristics");
   }
-  if ((dividendYield ?? 0) >= 0.03) pushProfileTag(tagSet, reasons, "Dividend", currentLanguage === "zh" ? "股息率大于等于 3%" : "Dividend yield is above 3%");
+  if ((dividendYield ?? 0) >= DIVIDEND_TAG_MIN_YIELD) pushProfileTag(tagSet, reasons, "Dividend", currentLanguage === "zh" ? "股息率大于等于 6%" : "Dividend yield is above 6%");
   if (tagSet.has("REIT") || tagSet.has("Dividend") || rateSensitiveKeywordCount >= 1) {
     pushProfileTag(tagSet, reasons, "InterestRateSensitive", currentLanguage === "zh" ? "对利率环境更敏感" : "The business is more sensitive to interest-rate conditions");
   }
