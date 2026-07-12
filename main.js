@@ -6457,8 +6457,27 @@ function adjustPercentRange(rangeText, multiplier) {
   return `${adjusted[0]}%`;
 }
 
+function buyRangeLabels(horizon) {
+  const labels = {
+    short: {
+      label: "短期回调买入区间",
+      english_label: "Short-Term Pullback Buy Range",
+    },
+    mid: {
+      label: "中期分批加仓区间",
+      english_label: "Mid-Term Accumulation Range",
+    },
+    long: {
+      label: "长期核心布局区间",
+      english_label: "Long-Term Core Accumulation Range",
+    },
+  };
+  return labels[horizon] || labels.mid;
+}
+
 function makeHorizonBuyRange(title, rawZone, currentPrice, horizon, companyProfile, summary, style) {
   const available = rawZone && Number.isFinite(rawZone.low) && Number.isFinite(rawZone.high);
+  const labels = buyRangeLabels(horizon);
   const confidenceBase = available
     ? computeBuyZoneConfidence(
       horizon === "short" ? "primary" : horizon === "mid" ? "primary" : "deep",
@@ -6470,7 +6489,9 @@ function makeHorizonBuyRange(title, rawZone, currentPrice, horizon, companyProfi
     )
     : 0;
     return {
-      title,
+      title: currentLanguage === "zh" ? labels.label : labels.english_label,
+      label: labels.label,
+      english_label: labels.english_label,
       low: available ? Number(Math.min(rawZone.low, rawZone.high).toFixed(2)) : null,
       high: available ? Number(Math.max(rawZone.low, rawZone.high).toFixed(2)) : null,
     confidence: available ? confidenceBase : 0,
@@ -6483,6 +6504,42 @@ function makeHorizonBuyRange(title, rawZone, currentPrice, horizon, companyProfi
       summary,
     };
   }
+
+function shiftRangeBy(range, amount, reason) {
+  if (!range || range.status !== "available" || !Number.isFinite(amount) || amount <= 0) return false;
+  const width = Math.max(0.01, (range.high ?? 0) - (range.low ?? 0));
+  range.low = Number(Math.max(0.01, range.low - amount).toFixed(2));
+  range.high = Number(Math.max(range.low + width, range.high - amount).toFixed(2));
+  range.based_on = [...new Set([...(range.based_on || []), reason])].slice(0, 8);
+  range.sources = [...new Set([...(range.sources || []), reason])].slice(0, 8);
+  return true;
+}
+
+function enforceBuyRangeOrder(shortRange, midRange, longRange, atr, currentPrice) {
+  const gap = Number.isFinite(atr) ? Math.max(atr * 0.15, (currentPrice || 1) * 0.0025) : Math.max((currentPrice || 1) * 0.003, 0.01);
+  const reason = currentLanguage === "zh" ? "低吸区间顺序修正" : "Buy range order normalization";
+  const enforceLowerThan = (upperRange, lowerRange) => {
+    if (!upperRange || !lowerRange || upperRange.status !== "available" || lowerRange.status !== "available") return false;
+    const highViolation = lowerRange.high - (upperRange.high - gap);
+    const lowViolation = lowerRange.low - (upperRange.low - gap);
+    const shift = Math.max(highViolation, lowViolation, 0);
+    return shiftRangeBy(lowerRange, shift, reason);
+  };
+  const changedMid = enforceLowerThan(shortRange, midRange);
+  const changedLong = enforceLowerThan(midRange, longRange);
+  [shortRange, midRange, longRange].forEach((range) => {
+    if (!range || range.status !== "available") return;
+    range.ordering_note = currentLanguage === "zh"
+      ? "短期区间最高、中期居中、长期最低；长期核心布局区间更低代表更大安全边际，不是长期看空。"
+      : "Short-term range is highest, mid-term is lower, and long-term core range is lowest; the lower long-term range reflects a larger margin of safety, not a bearish long-term view.";
+    if ((changedMid || changedLong) && range !== shortRange) {
+      range.summary = currentLanguage === "zh"
+        ? `${range.summary} 已自动校正区间顺序，确保长期核心布局区间低于短中期区间。`
+        : `${range.summary} Range order was normalized so longer-term core accumulation sits below short / mid-term ranges.`;
+    }
+  });
+  return changedMid || changedLong;
+}
 
 function buildRecommendedBuyPlan(row, buyZones, aiDecision, technical, supportResistance = null, companyProfile = null, marketContext = null, fundamental = null) {
   const tech = row.technicals || {};
@@ -6553,7 +6610,7 @@ function buildRecommendedBuyPlan(row, buyZones, aiDecision, technical, supportRe
       ? "right_side_confirmation"
       : "left_side_accumulation";
   const shortRange = makeHorizonBuyRange(
-    currentLanguage === "zh" ? "短期推荐买入区间" : "Short-Term Buy Range",
+    currentLanguage === "zh" ? "短期回调买入区间" : "Short-Term Pullback Buy Range",
     shortRaw,
     price,
     "short",
@@ -6562,7 +6619,7 @@ function buildRecommendedBuyPlan(row, buyZones, aiDecision, technical, supportRe
     "pullback_accumulation",
   );
   const midRange = makeHorizonBuyRange(
-    currentLanguage === "zh" ? "中期推荐买入区间" : "Mid-Term Buy Range",
+    currentLanguage === "zh" ? "中期分批加仓区间" : "Mid-Term Accumulation Range",
     midRaw,
     price,
     "mid",
@@ -6571,7 +6628,7 @@ function buildRecommendedBuyPlan(row, buyZones, aiDecision, technical, supportRe
     "core_accumulation",
   );
   const longRange = makeHorizonBuyRange(
-    currentLanguage === "zh" ? "长期推荐买入区间" : "Long-Term Buy Range",
+    currentLanguage === "zh" ? "长期核心布局区间" : "Long-Term Core Accumulation Range",
     longRaw,
     price,
     "long",
@@ -6603,6 +6660,7 @@ function buildRecommendedBuyPlan(row, buyZones, aiDecision, technical, supportRe
       ? `${shortRange.summary} 风险偏好配合时，高成长股短期区间可以略靠近现价，但仍需量能确认。`
       : `${shortRange.summary} In risk-on tape, high-growth entries can sit slightly closer to spot, but volume confirmation is still required.`;
   }
+  enforceBuyRangeOrder(shortRange, midRange, longRange, atr, price);
   const fundamentalScore = fundamental?.profile_fundamental?.score ?? fundamental?.fundamental_score ?? 50;
   const companySpecificRisk = fundamentalScore < 35 || fundamental?.profile_fundamental?.high_dividend_debt_risk;
   const priceNearMidOrLong = Number.isFinite(price) && (
@@ -6623,6 +6681,56 @@ function buildRecommendedBuyPlan(row, buyZones, aiDecision, technical, supportRe
   } else if (weakVolume && shortWeak && midWeak) {
     opportunityType = "avoid_falling_knife";
   }
+  const priceAboveShortRange = Number.isFinite(price) && shortRange.status === "available" && price > shortRange.high;
+  const ma20Ok = Number.isFinite(price) && Number.isFinite(tech.ma20) && price > tech.ma20;
+  const maStructureOk = Number.isFinite(tech.ma20) && Number.isFinite(tech.ma50)
+    ? tech.ma20 >= tech.ma50 * 0.98 || price > tech.ma50
+    : ma20Ok;
+  const obvOk = !["falling", "down"].includes(volume.obv_trend_20d);
+  const volumeOk = ["strong_accumulation", "early_accumulation"].includes(volume.behavior_key) || (volume.relative_volume_20d ?? 0) >= 1.1;
+  const closeOk = (volume.close_location_pct ?? 0) >= 60;
+  const marketOk = ["risk_on", "neutral"].includes(marketAdjustment.regime) || indexRecovering;
+  const r1 = supportResistance?.resistances?.[0];
+  const breakoutOrRetest = (r1?.price && price > r1.price * 1.003)
+    || (Number.isFinite(tech.ma20) && Math.abs((price - tech.ma20) / Math.max(price, 1)) <= 0.06 && price > tech.ma20)
+    || rightSideConfirmed;
+  const rightSideMissing = [
+    priceAboveShortRange ? null : (currentLanguage === "zh" ? "当前价格尚未高于短期回调区间，不需要右侧追踪买入。" : "Price is not above the short-term pullback range, so right-side entry is not needed."),
+    ma20Ok ? null : (currentLanguage === "zh" ? "价格尚未站上 MA20。" : "Price has not reclaimed MA20."),
+    maStructureOk ? null : (currentLanguage === "zh" ? "MA20 / MA50 趋势结构仍不足。" : "MA20 / MA50 trend structure is not strong enough."),
+    obvOk ? null : (currentLanguage === "zh" ? "OBV 20D 尚未确认。" : "OBV 20D has not confirmed."),
+    volumeOk ? null : (currentLanguage === "zh" ? "量能确认不足。" : "Volume confirmation is insufficient."),
+    closeOk ? null : (currentLanguage === "zh" ? "收盘位置不够强。" : "Close location is not strong enough."),
+    marketOk ? null : (currentLanguage === "zh" ? "SPY / QQQ 或风险环境尚未配合。" : "SPY / QQQ or risk backdrop is not supportive yet."),
+    breakoutOrRetest ? null : (currentLanguage === "zh" ? "尚未突破 R1 或完成 MA20 回踩确认。" : "No R1 breakout or MA20 retest confirmation yet."),
+  ].filter(Boolean);
+  const rightSideActive = priceAboveShortRange && ma20Ok && maStructureOk && obvOk && volumeOk && closeOk && marketOk && breakoutOrRetest;
+  const rightSideConfirmationEntry = {
+    active: rightSideActive,
+    label: "右侧确认买入",
+    english_label: "Right-Side Confirmation Entry",
+    entry_zone: rightSideActive && Number.isFinite(price) && Number.isFinite(atr)
+      ? {
+        low: Number(Math.max(0.01, price - atr * 0.35).toFixed(2)),
+        high: Number((price + atr * 0.25).toFixed(2)),
+      }
+      : null,
+    risk_control: rightSideActive && Number.isFinite(price) && Number.isFinite(atr)
+      ? (currentLanguage === "zh" ? `若跌回 MA20 或跌破 ${formatCurrency(price - atr, row.currencyCode)}，右侧买入逻辑失效。` : `If price loses MA20 or breaks ${formatCurrency(price - atr, row.currencyCode)}, the right-side setup is invalidated.`)
+      : null,
+    reason: rightSideActive
+      ? (currentLanguage === "zh" ? "价格高于短期低吸区间，并且趋势、量能、OBV 与市场环境出现右侧确认。" : "Price is above the pullback range and trend, volume, OBV, and market backdrop confirm a right-side setup.")
+      : (currentLanguage === "zh" ? `右侧确认未触发：${rightSideMissing.slice(0, 3).join(" / ") || "等待突破或回踩确认。"}` : `Right-side confirmation is not active: ${rightSideMissing.slice(0, 3).join(" / ") || "waiting for breakout or retest confirmation."}`),
+    missing_conditions: rightSideMissing.slice(0, 5),
+    confidence: rightSideActive
+      ? clamp(Math.round(mean([
+        volumeOk ? 78 : 50,
+        obvOk ? 74 : 45,
+        marketOk ? 72 : 45,
+        closeOk ? 74 : 45,
+      ]) ?? 65), 45, 88)
+      : 0,
+  };
   [shortRange, midRange, longRange].forEach((range) => {
     if (range.status === "available" && weakenBuyConfidence) {
       range.confidence = clamp(range.confidence - weakenBuyConfidence, 0, 100);
@@ -6647,6 +6755,7 @@ function buildRecommendedBuyPlan(row, buyZones, aiDecision, technical, supportRe
     short_term_buy_range: shortRange,
     mid_term_buy_range: midRange,
     long_term_buy_range: longRange,
+    right_side_confirmation_entry: rightSideConfirmationEntry,
     market_adjustment_notes: [
       marketAdjustment.note,
       opportunityType === "left_side_accumulation" && ["risk_off", "panic"].includes(marketAdjustment.regime)
@@ -6660,6 +6769,10 @@ function buildRecommendedBuyPlan(row, buyZones, aiDecision, technical, supportRe
         : null,
     ].filter(Boolean),
     opportunity_type: opportunityType,
+    market_regime: marketAdjustment.regime,
+    explanation: currentLanguage === "zh"
+      ? "短期区间最高、中期居中、长期最低。长期核心布局区间更低是为了给长期核心仓位保留更大安全边际，不代表长期看空。右侧确认买入会单独提示，不覆盖三段低吸区间。"
+      : "Short-term range is highest, mid-term is lower, and long-term core range is lowest. The lower long-term core range reflects a larger margin of safety, not a bearish long-term view. Right-side confirmation is shown separately and does not replace pullback ranges.",
     summary: currentLanguage === "zh"
       ? "买入计划按短期试探、中期核心加仓、长期底部布局三种周期拆分。"
       : "The buy plan separates short-term starter entries, mid-term core adds, and long-term accumulation.",
@@ -8836,8 +8949,8 @@ function buildDoNotBuyReasons(row, buyPlan, technical, fundamental, options, mar
   const price = row.price ?? null;
   const reasons = [];
   const shortRange = buyPlan?.short_term_buy_range || {};
-  if (Number.isFinite(price) && Number.isFinite(shortRange.high) && price > shortRange.high * 1.03) {
-    reasons.push(currentLanguage === "zh" ? "当前价格高于短期推荐买入区间，追高赔率一般。" : "Price is above the short-term buy range, so chase risk is elevated.");
+  if (Number.isFinite(price) && Number.isFinite(shortRange.high) && price > shortRange.high) {
+    reasons.push(currentLanguage === "zh" ? "当前价格高于短期回调买入区间，不适合追高。" : "Price is above the short-term pullback buy range, so chasing is not attractive.");
   }
   const volume = technical?.volume_confirmation || {};
   if (volume.behavior_key === "weak_breakout") reasons.push(currentLanguage === "zh" ? "突破缺少量能确认，存在假突破风险。" : "Breakout lacks volume confirmation; weak-breakout risk.");
@@ -8918,6 +9031,91 @@ function buildModuleQuality(row, modules, marketType = "US") {
     sector_cycle_status: sectorCycleStatus,
     unavailable_modules: [...new Set(unavailable)],
     stale_modules: [...new Set(stale)],
+  };
+}
+
+function buildConfidenceProfile(row, aiDecision, buyPlan, modules, moduleQuality, dataQuality) {
+  const unavailable = moduleQuality?.unavailable_modules || [];
+  const stale = moduleQuality?.stale_modules || [];
+  const missingFields = dataQuality?.missing_fields || [];
+  const hasPrice = Number.isFinite(row.price);
+  const hasHistory = (row.technicals?.history?.closes || []).length >= 50;
+  const criticalPenalty = (!hasPrice ? 24 : 0) + (!hasHistory ? 12 : 0);
+  const unavailablePenalty = unavailable
+    .filter((item) => !["sector_cycle"].includes(item))
+    .reduce((sum, item) => sum + (item === "options" ? 6 : item === "market_context" ? 7 : 9), 0);
+  const missingDataPenalty = Math.min(18, Math.round(missingFields.length * 1.25)) + unavailablePenalty + criticalPenalty;
+  const staleDataPenalty = Math.min(12, stale.length * 4);
+  const dataConfidence = clamp(95 - missingDataPenalty - staleDataPenalty, hasPrice ? 45 : 20, 96);
+
+  const volume = modules.technical?.volume_confirmation || {};
+  const scores = [
+    aiDecision.short_term?.score,
+    aiDecision.mid_term?.score,
+    aiDecision.long_term?.score,
+    modules.technical?.technical_score,
+    modules.fundamental?.profile_fundamental?.score ?? modules.fundamental?.fundamental_score,
+  ].filter(Number.isFinite);
+  const avgScore = mean(scores) ?? 50;
+  const dispersion = Math.sqrt(mean(scores.map((score) => (score - avgScore) ** 2)) ?? 0);
+  let signalConfidence = clamp(82 - dispersion * 0.9, 35, 88);
+  if (["strong_accumulation", "early_accumulation", "healthy_pullback"].includes(volume.behavior_key)) signalConfidence += 6;
+  if (["distribution_risk", "panic_selling", "weak_breakout"].includes(volume.behavior_key)) signalConfidence -= 10;
+  if (volume.obv_trend_20d === "falling") signalConfidence -= 6;
+  if ((modules.fundamental?.profile_fundamental?.score ?? 50) >= 70 && (aiDecision.long_term?.score ?? 50) >= 70) signalConfidence += 4;
+  signalConfidence = clamp(Math.round(signalConfidence), 30, 92);
+
+  const finalScore = aiDecision.final_ai_score ?? aiDecision.overall_score ?? 50;
+  const convictionScore = finalScore >= 75
+    ? 78 + Math.min(10, (finalScore - 75) * 0.5)
+    : finalScore <= 44
+      ? 74 + Math.min(10, (44 - finalScore) * 0.35)
+      : 62 + Math.abs(finalScore - 60) * 0.25;
+  let recommendationConfidence = Math.round((dataConfidence * 0.36) + (signalConfidence * 0.34) + (convictionScore * 0.30));
+  if ((aiDecision.long_term?.score ?? 0) >= 75 && (modules.fundamental?.profile_fundamental?.score ?? 0) >= 68 && dataConfidence >= 80) {
+    recommendationConfidence = Math.max(recommendationConfidence, 74);
+  }
+  recommendationConfidence = clamp(recommendationConfidence, 35, 94);
+
+  const price = row.price ?? null;
+  const shortRange = buyPlan?.short_term_buy_range || {};
+  let entryConfidence = 50;
+  if (Number.isFinite(price) && shortRange.status === "available" && Number.isFinite(shortRange.low) && Number.isFinite(shortRange.high)) {
+    if (price >= shortRange.low && price <= shortRange.high) {
+      entryConfidence = 82;
+    } else if (price > shortRange.high) {
+      const distancePct = ((price - shortRange.high) / Math.max(price, 1)) * 100;
+      entryConfidence = clamp(Math.round(72 - distancePct * 3.2), 35, 72);
+    } else {
+      const belowPct = ((shortRange.low - price) / Math.max(price, 1)) * 100;
+      entryConfidence = clamp(Math.round(58 - belowPct * 1.5), 30, 62);
+    }
+  }
+  if (buyPlan?.right_side_confirmation_entry?.active) entryConfidence = Math.max(entryConfidence, buyPlan.right_side_confirmation_entry.confidence || 72);
+  if (["overheated", "risk_off", "panic"].includes(buyPlan?.market_regime)) entryConfidence = Math.min(entryConfidence, 62);
+
+  const explanation = currentLanguage === "zh"
+    ? [
+      `数据完整度只因数据缺失或过期扣分，模块中性不等于低置信度。`,
+      Number.isFinite(price) && shortRange.status === "available" && price > shortRange.high
+        ? "推荐逻辑可以成立，但当前价格高于短期回调买入区间，所以当前买点置信度会降低。"
+        : "当前买点置信度单独衡量价格是否处在合适入场区间。",
+    ].join(" ")
+    : [
+      "Data confidence only penalizes missing or stale data; neutral modules are not treated as low confidence.",
+      Number.isFinite(price) && shortRange.status === "available" && price > shortRange.high
+        ? "The recommendation can still be valid, but entry confidence is lower because price is above the short-term pullback range."
+        : "Entry confidence separately measures whether price is in a favorable entry zone.",
+    ].join(" ");
+
+  return {
+    data_confidence: Math.round(dataConfidence),
+    signal_confidence: Math.round(signalConfidence),
+    recommendation_confidence: Math.round(recommendationConfidence),
+    entry_confidence: Math.round(entryConfidence),
+    missing_data_penalty: Math.round(missingDataPenalty),
+    stale_data_penalty: Math.round(staleDataPenalty),
+    explanation,
   };
 }
 
@@ -9765,6 +9963,9 @@ function buildDecisionModel(row) {
   const doNotBuyReasons = buildDoNotBuyReasons(row, recommendedBuyPlan, technical, fundamental, finalOptions, marketContext, supportResistance);
   const dataQuality = buildDataQuality(row, finalOptions, marketContext, idealBuyZone, companyProfile);
   if (consistency.conflict_warning) dataQuality.warnings.unshift(consistency.conflict_warning.message);
+  const confidenceProfile = buildConfidenceProfile(row, consistency.aiDecision, recommendedBuyPlan, { technical, fundamental, options: finalOptions, market_context: marketContext }, moduleQuality, dataQuality);
+  consistency.aiDecision.overall_confidence = confidenceProfile.recommendation_confidence;
+  consistency.aiDecision.confidence = confidenceProfile;
   const recommendedBuyPlanOutput = {
     ...recommendedBuyPlan,
     primary_buy_zone: buyZones.primary_buy_zone,
@@ -9785,6 +9986,7 @@ function buildDecisionModel(row) {
     },
     decision_profile: companyProfile.decision_profile,
     ai_decision: consistency.aiDecision,
+    confidence: confidenceProfile,
     ideal_buy_zone: idealBuyZone,
     primary_buy_zone: buyZones.primary_buy_zone,
     momentum_entry: buyZones.momentum_entry_zone,
@@ -10004,6 +10206,18 @@ function renderDetailModal(row) {
         ${isMomentum && waiting && missingItems.length ? `<div class="detail-line-note">${currentLanguage === "zh" ? "当前缺少" : "Missing"}: ${missingItems.slice(0, 3).map(localizedDashboardText).join(" / ")}</div>` : ""}
         ${isMomentum && waiting && triggerItems.length ? `<div class="detail-line-note">${currentLanguage === "zh" ? "等待条件" : "Trigger Conditions"}: ${triggerItems.map(localizedDashboardText).join(" / ")}</div>` : ""}
         ${zone?.action ? `<div class="detail-line-note">${currentLanguage === "zh" ? "操作" : "Action"}: ${localizedDashboardText(zone.action)}</div>` : ""}
+      </article>
+    `;
+  };
+  const renderRightSideConfirmationCard = (entry) => {
+    if (!entry?.active) return "";
+    return `
+      <article class="decision-list-card">
+        <div class="decision-list-title">${currentLanguage === "zh" ? entry.label : entry.english_label}</div>
+        <div class="detail-line-label">${entry.entry_zone?.low != null && entry.entry_zone?.high != null ? `${formatCurrency(entry.entry_zone.low, currencyCode)} - ${formatCurrency(entry.entry_zone.high, currencyCode)}` : t("dataUnavailable")}</div>
+        <div class="detail-line-note">${currentLanguage === "zh" ? "置信度" : "Confidence"}: ${entry.confidence ?? 0}%</div>
+        <div class="detail-line-note">${currentLanguage === "zh" ? "原因" : "Reason"}: ${localizedDashboardText(entry.reason || t("dataUnavailable"))}</div>
+        <div class="detail-line-note">${currentLanguage === "zh" ? "风险控制" : "Risk Control"}: ${localizedDashboardText(entry.risk_control || t("dataUnavailable"))}</div>
       </article>
     `;
   };
@@ -10258,7 +10472,8 @@ function renderDetailModal(row) {
         <article class="decision-core-card ${scoreToBand(ai.overall_score).tone}">
           <span>${t("overallAiScore")}</span>
           <strong>${ai.overall_score}/100</strong>
-          <small>${t("confidencePct")} ${ai.overall_confidence}%</small>
+          <small>${currentLanguage === "zh" ? "推荐置信度" : "Recommendation Confidence"} ${decision.confidence?.recommendation_confidence ?? ai.overall_confidence}%</small>
+          <small>${currentLanguage === "zh" ? "数据完整度" : "Data Confidence"} ${decision.confidence?.data_confidence ?? "—"}% · ${currentLanguage === "zh" ? "当前买点" : "Entry"} ${decision.confidence?.entry_confidence ?? "—"}%</small>
           <small>${t("profileCategory")}: ${profile.category}</small>
         </article>
       </div>
@@ -10278,6 +10493,9 @@ function renderDetailModal(row) {
             <div class="detail-overview-label">${t("overallAiScore")}</div>
             <div class="detail-overview-value">${ai.overall_score}/100</div>
             <p class="detail-overview-reason">${ai.overall_score_formula || (currentLanguage === "zh" ? "短期 25% + 中期 35% + 长期 40%" : "short_term 25% + mid_term 35% + long_term 40%")}</p>
+            <p class="detail-overview-reason">${currentLanguage === "zh" ? "推荐置信度" : "Recommendation Confidence"}: ${decision.confidence?.recommendation_confidence ?? ai.overall_confidence}% · ${currentLanguage === "zh" ? "数据完整度" : "Data Confidence"}: ${decision.confidence?.data_confidence ?? "—"}%</p>
+            <p class="detail-overview-reason">${currentLanguage === "zh" ? "当前买点置信度" : "Entry Confidence"}: ${decision.confidence?.entry_confidence ?? "—"}% · ${currentLanguage === "zh" ? "信号一致性" : "Signal Confidence"}: ${decision.confidence?.signal_confidence ?? "—"}%</p>
+            ${decision.confidence?.explanation ? `<p class="detail-overview-reason">${localizedDashboardText(decision.confidence.explanation)}</p>` : ""}
             ${decision.conflict_warning ? `
               <div class="decision-warning-banner">
                 <strong>${currentLanguage === "zh" ? "冲突提示" : "Conflict Warning"}</strong>
@@ -10297,17 +10515,18 @@ function renderDetailModal(row) {
         <div class="decision-summary-grid">
           ${[
             renderBuyZoneCard(
-              decision.buy_plan?.short_term_buy_range?.title || (currentLanguage === "zh" ? "短期推荐买入区间" : "Short-Term Buy Range"),
+              decision.buy_plan?.short_term_buy_range?.title || (currentLanguage === "zh" ? "短期回调买入区间" : "Short-Term Pullback Buy Range"),
               decision.buy_plan?.short_term_buy_range,
             ),
             renderBuyZoneCard(
-              decision.buy_plan?.mid_term_buy_range?.title || (currentLanguage === "zh" ? "中期推荐买入区间" : "Mid-Term Buy Range"),
+              decision.buy_plan?.mid_term_buy_range?.title || (currentLanguage === "zh" ? "中期分批加仓区间" : "Mid-Term Accumulation Range"),
               decision.buy_plan?.mid_term_buy_range,
             ),
             renderBuyZoneCard(
-              decision.buy_plan?.long_term_buy_range?.title || (currentLanguage === "zh" ? "长期推荐买入区间" : "Long-Term Buy Range"),
+              decision.buy_plan?.long_term_buy_range?.title || (currentLanguage === "zh" ? "长期核心布局区间" : "Long-Term Core Accumulation Range"),
               decision.buy_plan?.long_term_buy_range,
             ),
+            renderRightSideConfirmationCard(decision.buy_plan?.right_side_confirmation_entry),
           ].filter(Boolean).join("")}
         </div>
         ${decision.accumulation_plan ? `
