@@ -2321,6 +2321,15 @@ function signalLabel(value) {
 
 function localizedActionLabel(value) {
   if (currentLanguage === "zh") {
+    if (value === "strong_buy_now") return "现在强烈买入";
+    if (value === "buy_now") return "当前可以买入";
+    if (value === "accumulate") return "分批加仓";
+    if (value === "wait_for_pullback") return "等待回调";
+    if (value === "wait_for_confirmation") return "等待确认";
+    if (value === "hold_watch") return "持有 / 观望";
+    if (value === "trim_reduce") return "减仓";
+    if (value === "sell_avoid") return "卖出 / 避免";
+    if (value === "short_candidate") return "做空候选";
     if (value === "Strong Buy") return "强烈买入";
     if (value === "Buy") return "买入";
     if (value === "Weak Hold") return "弱持有 / 减仓观察";
@@ -2340,6 +2349,15 @@ function localizedActionLabel(value) {
   if (value === "Sell-Avoid") return "Sell / Avoid";
   if (value === "Short Candidate") return "Short Candidate";
   if (value === "Sell") return "Sell / Reduce";
+  if (value === "strong_buy_now") return "Strong Buy Now";
+  if (value === "buy_now") return "Buy Now";
+  if (value === "accumulate") return "Accumulate";
+  if (value === "wait_for_pullback") return "Wait For Pullback";
+  if (value === "wait_for_confirmation") return "Wait For Confirmation";
+  if (value === "hold_watch") return "Hold / Watch";
+  if (value === "trim_reduce") return "Trim / Reduce";
+  if (value === "sell_avoid") return "Sell / Avoid";
+  if (value === "short_candidate") return "Short Candidate";
   return value;
 }
 
@@ -4839,9 +4857,13 @@ function localizedStrength(value) {
 
 function ratingTone(value) {
   const normalized = String(value || "").toLowerCase();
+  if (["strong_buy_now", "buy_now", "accumulate"].includes(normalized)) return "buy";
+  if (["wait_for_pullback", "wait_for_confirmation", "hold_watch"].includes(normalized)) return "hold";
+  if (normalized === "trim_reduce") return "reduce";
+  if (["sell_avoid", "short_candidate"].includes(normalized)) return "sell";
   if (normalized.includes("buy")) return "buy";
   if (normalized.includes("weak hold")) return "hold";
-  if (normalized.includes("reduce")) return "sell";
+  if (normalized.includes("reduce")) return "reduce";
   if (normalized.includes("sell") || normalized.includes("avoid") || normalized.includes("short")) return "sell";
   return "hold";
 }
@@ -9231,6 +9253,67 @@ function actionLabel(action) {
   return currentLanguage === "zh" ? item.zh : item.en;
 }
 
+function compactFinalActionLabel(action, fallbackLabel = "") {
+  if (currentLanguage !== "zh") return fallbackLabel || actionLabel(action);
+  const labels = {
+    strong_buy_now: "强买",
+    buy_now: "买入",
+    accumulate: "加仓",
+    wait_for_pullback: "等回调",
+    wait_for_confirmation: "等确认",
+    hold_watch: "持有/观望",
+    trim_reduce: "减仓",
+    sell_avoid: "避免",
+    short_candidate: "做空",
+  };
+  return labels[action] || fallbackLabel || localizedActionLabel(action);
+}
+
+function getHorizonAction(decision, horizonKey) {
+  const scoreKey = horizonKey === "short_term" ? "short" : horizonKey === "mid_term" ? "mid" : "long";
+  const actionPlanBlock = decision?.action_plan?.[horizonKey];
+  const aiBlock = decision?.ai_decision?.[horizonKey];
+  const breakdownBlock = decision?.score_breakdown?.[scoreKey] || aiBlock?.score_breakdown;
+  const finalAction = actionPlanBlock?.final_action || breakdownBlock?.final_action || aiBlock?.final_action || null;
+  const finalActionLabel = actionPlanBlock?.final_action_label || breakdownBlock?.final_action_label || aiBlock?.final_action_label || (finalAction ? actionLabel(finalAction) : null);
+  const scoreRating = actionPlanBlock?.score_rating || breakdownBlock?.score_rating || aiBlock?.score_rating || aiBlock?.rating || null;
+  return {
+    final_action: finalAction || scoreRating || "Hold-Watch",
+    final_action_label: finalActionLabel || localizedActionLabel(scoreRating || "Hold-Watch"),
+    compact_label: compactFinalActionLabel(finalAction, finalActionLabel || localizedActionLabel(scoreRating || "Hold-Watch")),
+    score_rating: scoreRating || "Hold-Watch",
+  };
+}
+
+function applyDecisionSummaryToRow(row) {
+  const decision = row.decisionModel;
+  if (!decision?.ai_decision) return;
+  const shortAction = getHorizonAction(decision, "short_term");
+  const midAction = getHorizonAction(decision, "mid_term");
+  const longAction = getHorizonAction(decision, "long_term");
+  row.score = decision.ai_decision.overall_score;
+  row.action = shortAction.final_action;
+  row.actionLabel = shortAction.final_action_label;
+  row.actionCompactLabel = shortAction.compact_label;
+  row.currentAction = shortAction.final_action;
+  row.midTermRating = midAction.final_action;
+  row.midTermActionLabel = midAction.final_action_label;
+  row.midTermCompactLabel = midAction.compact_label;
+  row.longTermRating = longAction.final_action;
+  row.longTermActionLabel = longAction.final_action_label;
+  row.longTermCompactLabel = longAction.compact_label;
+  row.shortTermScoreRating = shortAction.score_rating;
+  row.midTermScoreRating = midAction.score_rating;
+  row.longTermScoreRating = longAction.score_rating;
+  row.overallAction = decision.action_plan?.overall_action?.final_action || decision.overall_action?.final_action || null;
+  row.overallActionLabel = decision.action_plan?.overall_action?.final_action_label || decision.overall_action?.final_action_label || (row.overallAction ? actionLabel(row.overallAction) : null);
+  row.stockType = decision.company_profile.category_key;
+  row.stockTypeLabel = decision.company_profile.category;
+  row.note = row.overallActionLabel || decision.ai_decision.bullish_reasons?.[0] || row.research?.thesis?.summary;
+  row.summary = `${row.ticker} ${currentLanguage === "zh" ? "决策快照" : "decision snapshot"}`;
+  row.dominant = actionClass(row.action);
+}
+
 function priceVsBuyRange(row, range, companyProfile) {
   const price = row.price ?? null;
   const allowedPct = allowedAboveRangePct(companyProfile);
@@ -10434,7 +10517,7 @@ function renderDetailModal(row) {
     return localizedDashboardText(value);
   };
   const renderHorizonCard = (title, block) => `
-    <article class="decision-core-card ${ratingTone(block.rating)}">
+    <article class="decision-core-card ${ratingTone(block.final_action || block.rating)}">
       <span>${title}</span>
       <strong>${block.final_action_label || localizedActionLabel(block.rating)}</strong>
       <small>${block.horizon}</small>
@@ -10493,6 +10576,7 @@ function renderDetailModal(row) {
         ${zone?.meaning ? `<div class="detail-line-note">${currentLanguage === "zh" ? "含义" : "Meaning"}: ${localizedDashboardText(zone.meaning)}</div>` : ""}
         ${!isMomentum || triggered || waiting ? `<div class="detail-line-note">${t("confidencePct")}: ${zone?.confidence ?? 0}%</div>` : ""}
         ${zone?.allocation_hint ? `<div class="detail-line-note">${currentLanguage === "zh" ? "建议分批比例" : "Allocation Hint"}: ${zone.allocation_hint}</div>` : ""}
+        ${zone?.horizon_recommendation ? `<div class="detail-line-note">${currentLanguage === "zh" ? "评分评级" : "Score Rating"}: ${localizedActionLabel(zone.horizon_recommendation.score_rating)}</div>` : ""}
         ${zone?.horizon_recommendation ? `<div class="detail-line-note">${currentLanguage === "zh" ? "当前价格" : "Current Price"}: ${formatCurrentPrice(zone.horizon_recommendation.current_price, currencyCode)} · ${currentLanguage === "zh" ? "当前推荐" : "Current Action"}: ${zone.horizon_recommendation.final_action_label}</div>` : ""}
         ${zone?.horizon_recommendation?.reason ? `<div class="detail-line-note">${currentLanguage === "zh" ? "原因" : "Reason"}: ${localizedDashboardText(zone.horizon_recommendation.reason)}</div>` : ""}
         ${zone?.style ? `<div class="detail-line-note">${currentLanguage === "zh" ? "风格" : "Style"}: ${localizedDashboardText(zone.style)}</div>` : ""}
@@ -11242,9 +11326,9 @@ function renderDetailModal(row) {
           <span class="${changeTone}">${t("dayMove")} ${formatChangePercent(row.changePercent)}</span>
           <span>${profile.category}</span>
           <span>${t("overallAiScore")} ${ai.overall_score}/100</span>
-          <span>${t("shortTerm")} ${localizedActionLabel(ai.short_term.rating)}</span>
-          <span>${t("midTerm")} ${localizedActionLabel(ai.mid_term.rating)}</span>
-          <span>${t("longTerm")} ${localizedActionLabel(ai.long_term.rating)}</span>
+          <span>${t("shortTerm")} ${ai.short_term.final_action_label || localizedActionLabel(ai.short_term.rating)}</span>
+          <span>${t("midTerm")} ${ai.mid_term.final_action_label || localizedActionLabel(ai.mid_term.rating)}</span>
+          <span>${t("longTerm")} ${ai.long_term.final_action_label || localizedActionLabel(ai.long_term.rating)}</span>
         </div>
       </div>
     </section>
@@ -11322,9 +11406,13 @@ function renderSelectedOverview(row) {
 function actionClass(action) {
   const normalized = String(action || "").toLowerCase();
   if (normalized === "n/a") return "na";
+  if (["strong_buy_now", "buy_now", "accumulate"].includes(normalized)) return "buy";
+  if (["wait_for_pullback", "wait_for_confirmation", "hold_watch"].includes(normalized)) return "hold";
+  if (normalized === "trim_reduce") return "reduce";
+  if (["sell_avoid", "short_candidate"].includes(normalized)) return "sell";
   if (normalized.includes("buy")) return "buy";
   if (normalized.includes("weak hold")) return "hold";
-  if (normalized.includes("reduce")) return "sell";
+  if (normalized.includes("reduce")) return "reduce";
   if (normalized === "hold") return "hold";
   if (normalized.includes("sell") || normalized === "short") return "sell";
   return normalized;
@@ -11395,10 +11483,11 @@ function renderStockList() {
           <strong>${scoreValue(row.score)}</strong>
         </div>
         <div class="stock-horizon-inline">
-          <span class="stock-mini-chip ${actionClass(row.action)}">${currentLanguage === "zh" ? "短" : "S"}: ${localizedActionLabel(row.action)}</span>
-          <span class="stock-mini-chip ${actionClass(row.midTermRating)}">${currentLanguage === "zh" ? "中" : "M"}: ${localizedActionLabel(row.midTermRating)}</span>
-          <span class="stock-mini-chip ${actionClass(row.longTermRating)}">${currentLanguage === "zh" ? "长" : "L"}: ${localizedActionLabel(row.longTermRating)}</span>
+          <span class="stock-mini-chip ${actionClass(row.action)}">${currentLanguage === "zh" ? "短" : "S"}: ${row.actionCompactLabel || localizedActionLabel(row.action)}</span>
+          <span class="stock-mini-chip ${actionClass(row.midTermRating)}">${currentLanguage === "zh" ? "中" : "M"}: ${row.midTermCompactLabel || localizedActionLabel(row.midTermRating)}</span>
+          <span class="stock-mini-chip ${actionClass(row.longTermRating)}">${currentLanguage === "zh" ? "长" : "L"}: ${row.longTermCompactLabel || localizedActionLabel(row.longTermRating)}</span>
         </div>
+        ${row.overallActionLabel ? `<div class="stock-current-action">${currentLanguage === "zh" ? "当前" : "Now"}: ${row.overallActionLabel}</div>` : ""}
       </div>
     `;
     item.addEventListener("click", () => {
@@ -11566,16 +11655,7 @@ function render() {
     if (!row.technicals && !row.indicatorMap) return;
     row.research = buildLongTermResearch(row);
     row.decisionModel = buildDecisionModel(row);
-    row.score = row.decisionModel.ai_decision.overall_score;
-    row.action = row.decisionModel.ai_decision.short_term.rating;
-    row.currentAction = row.decisionModel.ai_decision.short_term.rating;
-    row.midTermRating = row.decisionModel.ai_decision.mid_term.rating;
-    row.longTermRating = row.decisionModel.ai_decision.long_term.rating;
-    row.stockType = row.decisionModel.company_profile.category_key;
-    row.stockTypeLabel = row.decisionModel.company_profile.category;
-    row.note = row.decisionModel.ai_decision.bullish_reasons?.[0] || row.research.thesis.summary;
-    row.summary = `${row.ticker} ${currentLanguage === "zh" ? "决策快照" : "decision snapshot"}`;
-    row.dominant = actionClass(row.action);
+    applyDecisionSummaryToRow(row);
   });
   const current = selectedRow();
   renderStockList();
@@ -11668,16 +11748,7 @@ function applySnapshot(snapshot, shouldPersist = true) {
     row.noData = metrics.noData || false;
     row.research = buildLongTermResearch(row);
     row.decisionModel = buildDecisionModel(row);
-    row.score = row.decisionModel.ai_decision.overall_score;
-    row.action = row.decisionModel.ai_decision.short_term.rating;
-    row.currentAction = row.decisionModel.ai_decision.short_term.rating;
-    row.midTermRating = row.decisionModel.ai_decision.mid_term.rating;
-    row.longTermRating = row.decisionModel.ai_decision.long_term.rating;
-    row.stockType = row.decisionModel.company_profile.category_key;
-    row.stockTypeLabel = row.decisionModel.company_profile.category;
-    row.summary = `${row.ticker} ${currentLanguage === "zh" ? "决策快照" : "decision snapshot"}`;
-    row.note = row.decisionModel.ai_decision.bullish_reasons?.[0] || row.research.thesis.summary;
-    row.dominant = actionClass(row.action);
+    applyDecisionSummaryToRow(row);
 
     if (snapshot?.source === "yahoo-chart" && row.noData && !DEFAULT_WATCHLIST.includes(row.ticker)) {
       invalidCustomTickers.push(row.ticker);

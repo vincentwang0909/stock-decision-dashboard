@@ -2039,9 +2039,21 @@ tbody tr.selected-row td {
   background: var(--hold-bg);
 }
 
+.stock-mini-chip.reduce {
+  color: var(--hold);
+  background: var(--hold-bg);
+}
+
 .stock-mini-chip.sell {
   color: var(--sell);
   background: var(--sell-bg);
+}
+
+.stock-current-action {
+  width: 100%;
+  color: #aebdd2;
+  font-size: 0.76rem;
+  font-weight: 700;
 }
 
 .consensus-grid {
@@ -2194,6 +2206,13 @@ tbody tr.selected-row td {
 .detail-kpi-card.hold strong,
 .dimension-card.hold strong,
 .detail-overview-value.hold {
+  color: var(--hold);
+}
+
+.decision-core-card.reduce strong,
+.detail-kpi-card.reduce strong,
+.dimension-card.reduce strong,
+.detail-overview-value.reduce {
   color: var(--hold);
 }
 
