@@ -14,10 +14,14 @@ const LIVE_REFRESH_BATCH_SIZE = 2;
 const REQUIRED_DEFAULT_TICKERS = ["300657", "002463", "603005", "600522"];
 const CALIBRATION_CONFIG = {
   rating_thresholds: {
-    strong_buy: 85,
-    buy: 70,
-    hold: 55,
-    sell: 40,
+    strong_buy: 90,
+    buy: 75,
+    hold: 60,
+    reduce: 45,
+    sell: 45,
+    sell_avoid: 25,
+    strong_sell: 11,
+    short_candidate: 10,
   },
   missing_data_neutral_score: 50,
   max_penalty_per_module: 15,
@@ -50,16 +54,108 @@ const PENALTY_PROFILE_WEIGHTS = {
 };
 const PROFILE_WEIGHT_DEFAULTS = { technical: 1, valuation: 1, fundamental: 1, options: 1, market_context: 1, data_quality: 0.5 };
 const SCORING_PROFILE_WEIGHTS = {
-  software_cloud: { technical: 0.35, fundamental: 0.45, market_context: 0.1, options: 0.1 },
-  memory_cycle: { technical: 0.45, fundamental: 0.3, sector_cycle: 0.15, market_context: 0.1 },
-  ai_infrastructure: { technical: 0.4, fundamental: 0.35, options: 0.15, market_context: 0.1 },
-  platform_ads: { technical: 0.35, fundamental: 0.45, market_context: 0.1, options: 0.1 },
-  reit_dividend: { fundamental: 0.45, market_context: 0.25, technical: 0.2, options: 0.1 },
-  china_a_share: { technical: 0.55, fundamental: 0.25, sector_theme: 0.15, market_context: 0.05 },
-  china_adr: { technical: 0.4, fundamental: 0.35, market_context: 0.15, options: 0.1 },
-  healthcare_defensive: { fundamental: 0.5, technical: 0.25, market_context: 0.15, options: 0.1 },
-  high_growth_cyclical: { technical: 0.45, fundamental: 0.25, options: 0.15, market_context: 0.15 },
-  generic: { technical: 0.4, fundamental: 0.35, options: 0.15, market_context: 0.1 },
+  generic: {
+    short: { technical: 0.50, fundamental: 0.20, options: 0.15, market_context: 0.15 },
+    mid: { technical: 0.40, fundamental: 0.35, options: 0.10, market_context: 0.15 },
+    long: { technical: 0.25, fundamental: 0.55, options: 0.05, market_context: 0.15 },
+  },
+  software_cloud: {
+    short: { technical: 0.45, fundamental: 0.25, options: 0.15, market_context: 0.15 },
+    mid: { technical: 0.35, fundamental: 0.40, options: 0.10, market_context: 0.15 },
+    long: { technical: 0.25, fundamental: 0.55, options: 0.05, market_context: 0.15 },
+  },
+  platform_ads: {
+    short: { technical: 0.45, fundamental: 0.25, options: 0.10, market_context: 0.20 },
+    mid: { technical: 0.35, fundamental: 0.40, options: 0.10, market_context: 0.15 },
+    long: { technical: 0.25, fundamental: 0.55, options: 0.05, market_context: 0.15 },
+  },
+  ai_infrastructure: {
+    short: { technical: 0.50, fundamental: 0.20, options: 0.15, market_context: 0.15 },
+    mid: { technical: 0.40, fundamental: 0.35, options: 0.10, market_context: 0.15 },
+    long: { technical: 0.30, fundamental: 0.50, options: 0.05, market_context: 0.15 },
+  },
+  memory_cycle: {
+    short: { technical: 0.50, fundamental: 0.20, sector_cycle: 0.15, market_context: 0.15 },
+    mid: { technical: 0.40, fundamental: 0.30, sector_cycle: 0.20, market_context: 0.10 },
+    long: { technical: 0.25, fundamental: 0.35, sector_cycle: 0.30, market_context: 0.10 },
+  },
+  reit_dividend: {
+    short: { technical: 0.35, fundamental: 0.25, options: 0.10, market_context: 0.30 },
+    mid: { technical: 0.25, fundamental: 0.40, options: 0.05, market_context: 0.30 },
+    long: { technical: 0.15, fundamental: 0.55, options: 0.05, market_context: 0.25 },
+  },
+  healthcare_defensive: {
+    short: { technical: 0.40, fundamental: 0.35, options: 0.10, market_context: 0.15 },
+    mid: { technical: 0.30, fundamental: 0.50, options: 0.05, market_context: 0.15 },
+    long: { technical: 0.20, fundamental: 0.65, options: 0.05, market_context: 0.10 },
+  },
+  high_growth_cyclical: {
+    short: { technical: 0.55, fundamental: 0.15, options: 0.15, market_context: 0.15 },
+    mid: { technical: 0.45, fundamental: 0.25, options: 0.10, market_context: 0.20 },
+    long: { technical: 0.30, fundamental: 0.45, options: 0.05, market_context: 0.20 },
+  },
+  china_adr: {
+    short: { technical: 0.50, fundamental: 0.20, options: 0.10, market_context: 0.20 },
+    mid: { technical: 0.40, fundamental: 0.35, options: 0.05, market_context: 0.20 },
+    long: { technical: 0.25, fundamental: 0.50, options: 0.05, market_context: 0.20 },
+  },
+  etf_profile: {
+    short: { technical: 0.50, market_context: 0.35, fundamental: 0.10, options: 0.05 },
+    mid: { technical: 0.40, market_context: 0.40, fundamental: 0.15, options: 0.05 },
+    long: { technical: 0.30, market_context: 0.50, fundamental: 0.15, options: 0.05 },
+  },
+  china_a_share: {
+    short: { technical: 0.70, fundamental: 0.20, sector_theme: 0.10 },
+    mid: { technical: 0.45, fundamental: 0.45, sector_theme: 0.10 },
+    long: { technical: 0.35, fundamental: 0.55, sector_theme: 0.10 },
+  },
+};
+const TECHNICAL_PROFILE_WEIGHTS = {
+  generic: {
+    short: { money_flow_core: 0.45, trend_confirm: 0.25, support_resistance: 0.15, volatility: 0.10, breakout_quality: 0.05 },
+    mid: { money_flow_core: 0.40, trend_confirm: 0.35, support_resistance: 0.15, volatility: 0.10 },
+    long: { long_money_flow: 0.30, long_trend: 0.45, support_resistance: 0.20, volatility_regime: 0.05 },
+  },
+  software_cloud: {
+    short: { money_flow_core: 0.40, trend_confirm: 0.30, support_resistance: 0.15, volatility: 0.10, breakout_quality: 0.05 },
+    mid: { money_flow_core: 0.35, trend_confirm: 0.40, support_resistance: 0.15, volatility: 0.10 },
+    long: { long_money_flow: 0.25, long_trend: 0.50, support_resistance: 0.20, volatility_regime: 0.05 },
+  },
+  platform_ads: {
+    short: { money_flow_core: 0.40, trend_confirm: 0.30, support_resistance: 0.15, volatility: 0.10, breakout_quality: 0.05 },
+    mid: { money_flow_core: 0.35, trend_confirm: 0.40, support_resistance: 0.15, volatility: 0.10 },
+    long: { long_money_flow: 0.25, long_trend: 0.50, support_resistance: 0.20, volatility_regime: 0.05 },
+  },
+  ai_infrastructure: {
+    short: { money_flow_core: 0.50, trend_confirm: 0.25, breakout_quality: 0.10, support_resistance: 0.10, volatility: 0.05 },
+    mid: { money_flow_core: 0.45, trend_confirm: 0.35, support_resistance: 0.10, volatility: 0.10 },
+    long: { long_money_flow: 0.35, long_trend: 0.40, support_resistance: 0.20, volatility_regime: 0.05 },
+  },
+  memory_cycle: {
+    short: { money_flow_core: 0.55, trend_confirm: 0.20, support_resistance: 0.15, volatility: 0.10 },
+    mid: { money_flow_core: 0.45, trend_confirm: 0.30, support_resistance: 0.15, volatility: 0.10 },
+    long: { long_money_flow: 0.35, long_trend: 0.35, support_resistance: 0.20, volatility_regime: 0.10 },
+  },
+  reit_dividend: {
+    short: { money_flow_core: 0.35, trend_confirm: 0.25, support_resistance: 0.25, volatility: 0.15 },
+    mid: { money_flow_core: 0.30, trend_confirm: 0.30, support_resistance: 0.25, volatility: 0.15 },
+    long: { long_money_flow: 0.20, long_trend: 0.35, support_resistance: 0.30, volatility_regime: 0.15 },
+  },
+  healthcare_defensive: {
+    short: { money_flow_core: 0.35, trend_confirm: 0.30, support_resistance: 0.20, volatility: 0.15 },
+    mid: { money_flow_core: 0.30, trend_confirm: 0.35, support_resistance: 0.20, volatility: 0.15 },
+    long: { long_money_flow: 0.20, long_trend: 0.45, support_resistance: 0.25, volatility_regime: 0.10 },
+  },
+  high_growth_cyclical: {
+    short: { money_flow_core: 0.55, trend_confirm: 0.20, breakout_quality: 0.10, support_resistance: 0.10, volatility: 0.05 },
+    mid: { money_flow_core: 0.45, trend_confirm: 0.30, support_resistance: 0.15, volatility: 0.10 },
+    long: { long_money_flow: 0.30, long_trend: 0.40, support_resistance: 0.20, volatility_regime: 0.10 },
+  },
+  etf_profile: {
+    short: { money_flow_core: 0.35, trend_confirm: 0.35, support_resistance: 0.15, volatility: 0.10, breakout_quality: 0.05 },
+    mid: { money_flow_core: 0.30, trend_confirm: 0.40, support_resistance: 0.15, volatility: 0.15 },
+    long: { long_money_flow: 0.20, long_trend: 0.50, support_resistance: 0.20, volatility_regime: 0.10 },
+  },
 };
 const KNOWN_CLASSIFICATION_PROFILES = {
   MSFT: {
@@ -1648,6 +1744,7 @@ function scoringProfileLabel(profileKey) {
     reit_dividend: { en: "REIT / dividend profile", zh: "REIT / 分红评分模型" },
     china_a_share: { en: "China A-share profile", zh: "A股评分模型" },
     china_adr: { en: "China ADR profile", zh: "中概股评分模型" },
+    etf_profile: { en: "ETF profile", zh: "ETF评分模型" },
     healthcare_defensive: { en: "Healthcare defensive profile", zh: "医疗防御评分模型" },
     high_growth_cyclical: { en: "High-growth cyclical profile", zh: "高成长周期评分模型" },
     generic: { en: "Generic profile", zh: "通用评分模型" },
@@ -1656,8 +1753,10 @@ function scoringProfileLabel(profileKey) {
 }
 
 function normalizeScoringWeights(weights = {}, horizon = "mid") {
+  const horizonWeightsSource = weights?.[horizon] || weights;
   const normalized = {};
-  Object.entries(weights).forEach(([key, value]) => {
+  Object.entries(horizonWeightsSource).forEach(([key, value]) => {
+    if (typeof value === "object") return;
     if (!Number.isFinite(value) || value <= 0) return;
     let mappedKey = key === "sector_cycle" ? "sector_theme" : key;
     if (horizon === "long" && mappedKey === "technical") mappedKey = "long_term_technical";
@@ -1674,6 +1773,7 @@ function normalizeScoringWeights(weights = {}, horizon = "mid") {
 function inferScoringProfile(tags = [], category = "", marketType = "US") {
   const tagSet = new Set(tags);
   if (marketType === "CN_A_SHARE" || tagSet.has("AShare")) return "china_a_share";
+  if (tagSet.has("ETF")) return "etf_profile";
   if (tagSet.has("REIT") || tagSet.has("Dividend")) return "reit_dividend";
   if (tagSet.has("MemoryStorage") || tagSet.has("DRAMNAND") || tagSet.has("NAND")) return "memory_cycle";
   if (tagSet.has("AIInfrastructure") || tagSet.has("GPU") || tagSet.has("DataCenter")) return "ai_infrastructure";
@@ -1685,6 +1785,257 @@ function inferScoringProfile(tags = [], category = "", marketType = "US") {
   return "generic";
 }
 
+function cloneProfileWeights(weights) {
+  return JSON.parse(JSON.stringify(weights || {}));
+}
+
+function normalizeHorizonWeightMap(weightMap) {
+  const entries = Object.entries(weightMap || {}).filter(([, value]) => Number.isFinite(value) && value > 0);
+  const total = entries.reduce((sum, [, value]) => sum + value, 0) || 1;
+  return Object.fromEntries(entries.map(([key, value]) => [key, Number((value / total).toFixed(4))]));
+}
+
+function normalizeNestedWeights(weights) {
+  return Object.fromEntries(
+    Object.entries(weights || {}).map(([horizon, weightMap]) => [horizon, normalizeHorizonWeightMap(weightMap)]),
+  );
+}
+
+function adjustNestedWeight(weights, horizon, key, delta) {
+  if (!weights?.[horizon]) return;
+  weights[horizon][key] = Math.max(0, Number(((weights[horizon][key] || 0) + delta).toFixed(4)));
+}
+
+function adjustAllHorizons(weights, key, delta) {
+  ["short", "mid", "long"].forEach((horizon) => adjustNestedWeight(weights, horizon, key, delta));
+}
+
+function decisionProfileLabelFromTags(tags = [], candidates = []) {
+  return candidates.find((tag) => tags.includes(tag)) || null;
+}
+
+function buildDecisionProfile(classification = {}, marketType = "US") {
+  const topTags = classification.top_tags || classification.tags || [];
+  const fullTags = [...new Set([...(classification.full_tags || []), ...(classification.tags || []), ...topTags])];
+  const exposureTags = classification.exposure_tags || [];
+  const tagSet = new Set([...fullTags, ...topTags]);
+  const exposureSet = new Set(exposureTags);
+  const baseProfile = marketType === "CN_A_SHARE"
+    ? "china_a_share"
+    : inferScoringProfile([...tagSet], classification.category, marketType);
+  const finalWeights = cloneProfileWeights(SCORING_PROFILE_WEIGHTS[baseProfile] || SCORING_PROFILE_WEIGHTS.generic);
+  const technicalWeights = cloneProfileWeights(TECHNICAL_PROFILE_WEIGHTS[baseProfile] || TECHNICAL_PROFILE_WEIGHTS.generic);
+  const fundamentalBase = {
+    software_cloud: { revenue_growth: 0.20, profit_margin: 0.15, free_cash_flow: 0.20, forward_pe: 0.15, peg: 0.15, balance_sheet_quality: 0.10, earnings_growth_quality: 0.05 },
+    platform_ads: { revenue_growth: 0.20, profit_margin: 0.15, free_cash_flow: 0.20, forward_pe: 0.15, peg: 0.15, balance_sheet_quality: 0.10, earnings_growth_quality: 0.05 },
+    ai_infrastructure: { revenue_growth: 0.25, profit_margin: 0.15, free_cash_flow: 0.15, forward_pe: 0.10, peg: 0.10, valuation_risk: 0.20, balance_sheet_quality: 0.05 },
+    high_growth_cyclical: { revenue_growth: 0.25, profit_margin: 0.15, free_cash_flow: 0.15, forward_pe: 0.10, peg: 0.10, valuation_risk: 0.20, balance_sheet_quality: 0.05 },
+    memory_cycle: { revenue_growth: 0.15, gross_margin_trend: 0.25, inventory_cycle: 0.20, free_cash_flow: 0.15, valuation_normalized: 0.15, balance_sheet_quality: 0.10 },
+    reit_dividend: { dividend_yield: 0.15, dividend_safety: 0.20, debt_risk: 0.25, ffo_affo_proxy: 0.20, interest_rate_sensitivity: 0.10, valuation_vs_yield: 0.10 },
+    healthcare_defensive: { revenue_growth: 0.15, profit_margin: 0.20, free_cash_flow: 0.20, forward_pe: 0.15, balance_sheet_quality: 0.15, regulatory_risk: 0.15 },
+    china_adr: { revenue_growth: 0.20, profit_margin: 0.15, free_cash_flow: 0.20, forward_pe: 0.15, peg: 0.10, valuation_risk: 0.10, balance_sheet_quality: 0.10 },
+    etf_profile: { trend_quality: 0.35, market_context: 0.35, volatility_regime: 0.20, liquidity: 0.10 },
+    generic: { revenue_growth: 0.20, profit_margin: 0.15, free_cash_flow: 0.20, forward_pe: 0.15, peg: 0.10, valuation_risk: 0.10, balance_sheet_quality: 0.10 },
+  };
+  const fundamentalWeights = cloneProfileWeights(fundamentalBase[baseProfile] || fundamentalBase.generic);
+  const appliedModifiers = [];
+  const addModifier = (name, reason, confidenceDelta = 0) => {
+    appliedModifiers.push({ name, reason, confidence_delta: confidenceDelta });
+  };
+  let confidence = 82;
+  const sizeProfile = decisionProfileLabelFromTags([...tagSet], ["MegaCap", "LargeCap", "MidCap", "SmallCap", "MicroCap"]) || "UnknownSize";
+  if (tagSet.has("MegaCap")) {
+    adjustNestedWeight(finalWeights, "long", "fundamental", 0.05);
+    adjustNestedWeight(finalWeights, "short", "technical", -0.03);
+    confidence += 4;
+    addModifier("MegaCap", "stable size profile: long fundamental weight up, short technical weight down", 4);
+  } else if (tagSet.has("MidCap")) {
+    adjustNestedWeight(finalWeights, "short", "technical", 0.03);
+    confidence -= 1;
+    addModifier("MidCap", "mid-cap profile: technical and volatility buffer slightly higher", -1);
+  } else if (tagSet.has("SmallCap")) {
+    adjustNestedWeight(finalWeights, "short", "technical", 0.05);
+    adjustAllHorizons(finalWeights, "fundamental", -0.02);
+    confidence -= 5;
+    addModifier("SmallCap", "small-cap risk: higher technical weight and lower confidence", -5);
+  } else if (tagSet.has("MicroCap")) {
+    adjustNestedWeight(finalWeights, "short", "technical", 0.08);
+    adjustAllHorizons(finalWeights, "fundamental", -0.05);
+    confidence -= 10;
+    addModifier("MicroCap", "micro-cap risk: technical/volume dominates and position size should stay small", -10);
+  }
+
+  if (tagSet.has("CashCow")) {
+    adjustNestedWeight(finalWeights, "long", "fundamental", 0.05);
+    fundamentalWeights.free_cash_flow = (fundamentalWeights.free_cash_flow || 0) + 0.04;
+    fundamentalWeights.balance_sheet_quality = (fundamentalWeights.balance_sheet_quality || 0) + 0.03;
+    confidence += 4;
+    addModifier("CashCow", "cash-flow quality increases long-term fundamental weight", 4);
+  }
+  if (tagSet.has("ProfitableGrowth")) {
+    fundamentalWeights.revenue_growth = (fundamentalWeights.revenue_growth || 0) + 0.03;
+    fundamentalWeights.profit_margin = (fundamentalWeights.profit_margin || 0) + 0.03;
+    confidence += 3;
+    addModifier("ProfitableGrowth", "growth plus profitability improves fundamental confidence", 3);
+  }
+  if (tagSet.has("HighGrowth")) {
+    adjustAllHorizons(finalWeights, "market_context", 0.02);
+    adjustNestedWeight(finalWeights, "short", "technical", 0.03);
+    fundamentalWeights.valuation_risk = (fundamentalWeights.valuation_risk || 0) + 0.04;
+    addModifier("HighGrowth", "high growth raises technical / market sensitivity and valuation scrutiny", 0);
+  }
+  if (tagSet.has("Defensive")) {
+    adjustAllHorizons(finalWeights, "market_context", -0.02);
+    confidence += 3;
+    addModifier("Defensive", "defensive profile lowers broad market downside sensitivity", 3);
+  }
+  if (tagSet.has("Dividend")) {
+    adjustNestedWeight(finalWeights, "long", "fundamental", 0.04);
+    fundamentalWeights.dividend_yield = (fundamentalWeights.dividend_yield || 0) + 0.05;
+    fundamentalWeights.dividend_safety = (fundamentalWeights.dividend_safety || 0) + 0.05;
+    addModifier("Dividend", "dividend income enters long-term score but requires safety checks", 0);
+  }
+  if (hasAnyTag([...tagSet], ["Speculative", "StoryStock", "CashBurn", "UnprofitableGrowth"])) {
+    adjustNestedWeight(finalWeights, "short", "technical", 0.06);
+    adjustAllHorizons(finalWeights, "fundamental", -0.04);
+    confidence -= 10;
+    addModifier("SpeculativeRisk", "speculative / cash-burn profile lowers confidence and raises technical weight", -10);
+  }
+  if (tagSet.has("Turnaround")) {
+    adjustNestedWeight(finalWeights, "short", "technical", 0.03);
+    confidence -= 3;
+    addModifier("Turnaround", "turnaround requires right-side volume confirmation", -3);
+  }
+
+  if (tagSet.has("HighMultiple")) {
+    fundamentalWeights.valuation_risk = (fundamentalWeights.valuation_risk || 0) + 0.08;
+    adjustAllHorizons(finalWeights, "market_context", 0.02);
+    addModifier("HighMultiple", "valuation and 10Y / QQQ sensitivity increased", 0);
+  }
+  if (tagSet.has("ExtremeValuation")) {
+    fundamentalWeights.valuation_risk = (fundamentalWeights.valuation_risk || 0) + 0.12;
+    adjustNestedWeight(finalWeights, "short", "technical", 0.03);
+    confidence -= 7;
+    addModifier("ExtremeValuation", "requires stronger growth and volume confirmation", -7);
+  }
+  if (tagSet.has("HighVolatility")) {
+    adjustNestedWeight(finalWeights, "short", "technical", 0.04);
+    confidence -= 5;
+    addModifier("HighVolatility", "ATR buffer and stop width should increase", -5);
+  }
+  if (tagSet.has("HighDebtRisk")) {
+    fundamentalWeights.debt_risk = (fundamentalWeights.debt_risk || 0) + 0.10;
+    confidence -= 6;
+    addModifier("HighDebtRisk", "debt risk and dividend safety receive higher weight", -6);
+  }
+  if (tagSet.has("InterestRateSensitive")) {
+    adjustAllHorizons(finalWeights, "market_context", 0.04);
+    addModifier("InterestRateSensitive", "10Y yield sensitivity increased", 0);
+  }
+  if (tagSet.has("RegulatoryRisk")) {
+    confidence -= 4;
+    fundamentalWeights.regulatory_risk = (fundamentalWeights.regulatory_risk || 0) + 0.06;
+    addModifier("RegulatoryRisk", "regulatory shock lowers confidence and enters fundamental stop", -4);
+  }
+  if (tagSet.has("Cyclical")) {
+    if (finalWeights.short?.sector_cycle == null) finalWeights.short.sector_cycle = 0.05;
+    if (finalWeights.mid?.sector_cycle == null) finalWeights.mid.sector_cycle = 0.08;
+    if (finalWeights.long?.sector_cycle == null) finalWeights.long.sector_cycle = 0.10;
+    addModifier("Cyclical", "sector cycle weight increased; PE/PEG should be less dominant", 0);
+  }
+  if (tagSet.has("NewlyListed") || tagSet.has("IPO")) {
+    confidence -= 10;
+    adjustAllHorizons(finalWeights, "fundamental", -0.04);
+    adjustNestedWeight(finalWeights, "short", "technical", 0.05);
+    addModifier("NewlyListed", "limited history lowers confidence and widens buy/stop behavior", -10);
+  }
+  if (tagSet.has("Meme")) {
+    confidence -= 12;
+    adjustNestedWeight(finalWeights, "short", "technical", 0.08);
+    adjustAllHorizons(finalWeights, "options", -0.03);
+    addModifier("Meme", "meme risk makes options and sizing more conservative", -12);
+  }
+  if (tagSet.has("Momentum")) {
+    ["short", "mid"].forEach((horizon) => {
+      if (technicalWeights[horizon]?.trend_confirm != null) technicalWeights[horizon].trend_confirm += 0.04;
+      if (technicalWeights[horizon]?.breakout_quality != null) technicalWeights[horizon].breakout_quality += 0.04;
+    });
+    addModifier("Momentum", "breakout quality matters more, but volume confirmation remains required", 0);
+  }
+
+  const regionProfile = tagSet.has("ChinaADR")
+    ? "ChinaADR"
+    : tagSet.has("Global")
+      ? "Global"
+      : tagSet.has("USListed")
+        ? "USListed"
+        : marketType;
+  if (tagSet.has("ChinaADR")) {
+    adjustAllHorizons(finalWeights, "market_context", 0.04);
+    adjustAllHorizons(finalWeights, "options", -0.03);
+    confidence -= tagSet.has("RegulatoryRisk") ? 6 : 3;
+    addModifier("ChinaADR", "risk sentiment and regulatory risk matter more; options weight lower", tagSet.has("RegulatoryRisk") ? -6 : -3);
+  }
+  if (tagSet.has("Global")) {
+    adjustAllHorizons(finalWeights, "market_context", -0.01);
+    addModifier("Global", "global revenue mix slightly dilutes US-only market context", 0);
+  }
+  if (exposureSet.has("ChinaExposure")) {
+    adjustAllHorizons(finalWeights, "market_context", 0.01);
+    confidence -= 1;
+    addModifier("ChinaExposure", "exposure-only China risk adds a mild regional adjustment", -1);
+  }
+  if (exposureSet.has("HealthcareExposure") || exposureSet.has("ConsumerExposure") || exposureSet.has("FinancialExposure")) {
+    confidence -= 1;
+    addModifier("ExposureTags", "exposure tags are explanatory only and do not override core business", -1);
+  }
+
+  const normalizedFinalWeights = normalizeNestedWeights(finalWeights);
+  const normalizedTechnicalWeights = normalizeNestedWeights(technicalWeights);
+  const normalizedFundamentalWeights = normalizeHorizonWeightMap(fundamentalWeights);
+  const riskTags = ["HighMultiple", "ExtremeValuation", "HighVolatility", "HighDebtRisk", "InterestRateSensitive", "RegulatoryRisk", "Cyclical", "NewlyListed", "IPO", "Meme"].filter((tag) => tagSet.has(tag));
+  return {
+    base_profile: baseProfile,
+    size_profile: sizeProfile,
+    business_profile: decisionProfileLabelFromTags([...tagSet], ["Software", "Cloud", "Semiconductor", "MemoryStorage", "AIInfrastructure", "SocialMedia", "DigitalAds", "Ecommerce", "Healthcare", "HealthInsurance", "HealthcareServices", "REIT", "EV", "AutoManufacturer", "Crypto", "ETF"]) || "generic_business",
+    theme_profile: ["GPU", "DataCenter", "DRAMNAND", "NAND", "PCB", "PowerSemiconductor", "AI", "Cybersecurity", "Momentum"].filter((tag) => tagSet.has(tag)),
+    quality_profile: ["CashCow", "ProfitableGrowth", "HighGrowth", "Growth", "Mature", "Value", "Defensive", "Dividend", "Turnaround", "Speculative", "StoryStock", "CashBurn", "UnprofitableGrowth"].filter((tag) => tagSet.has(tag)),
+    risk_profile: riskTags,
+    region_profile: regionProfile,
+    exposure_profile: exposureTags,
+    profile_modifiers: appliedModifiers,
+    applied_modifiers: appliedModifiers,
+    final_weights: normalizedFinalWeights,
+    technical_weights: normalizedTechnicalWeights,
+    fundamental_weights: normalizedFundamentalWeights,
+    buy_range_behavior: {
+      style: hasAnyTag([...tagSet], ["HighVolatility", "Speculative", "NewlyListed", "Meme"]) ? "wider_and_lower" : tagSet.has("MegaCap") || tagSet.has("CashCow") ? "closer_to_support" : "balanced_pullback",
+      left_side_bias: true,
+      require_volume_confirmation: hasAnyTag([...tagSet], ["Turnaround", "Momentum", "Speculative", "HighVolatility"]),
+    },
+    stop_behavior: {
+      atr_buffer: hasAnyTag([...tagSet], ["HighVolatility", "Speculative", "NewlyListed", "Meme"]) ? "wide" : tagSet.has("MegaCap") || tagSet.has("Defensive") ? "narrow" : "normal",
+      include_fundamental_stop: hasAnyTag([...tagSet], ["Dividend", "HighDebtRisk", "RegulatoryRisk", "CashBurn"]),
+    },
+    options_behavior: {
+      sell_put_style: hasAnyTag([...tagSet], ["HighVolatility", "Speculative", "NewlyListed", "Meme", "HighDebtRisk"]) ? "very_conservative" : tagSet.has("CashCow") ? "support_based" : "balanced",
+      covered_call_style: hasAnyTag([...tagSet], ["HighGrowth", "AIInfrastructure", "Momentum"]) ? "farther_or_conservative" : tagSet.has("Dividend") || tagSet.has("REIT") ? "income_friendly" : "balanced",
+    },
+    dividend_behavior: {
+      active: tagSet.has("Dividend"),
+      requires_safety_check: tagSet.has("Dividend") || tagSet.has("REIT"),
+      high_debt_cap: tagSet.has("HighDebtRisk"),
+    },
+    market_sensitivity: {
+      ten_year_yield: hasAnyTag([...tagSet], ["InterestRateSensitive", "HighMultiple", "REIT", "Dividend"]) ? "high" : "normal",
+      qqq: hasAnyTag([...tagSet], ["HighGrowth", "AIInfrastructure", "Software", "Cloud", "HighMultiple"]) ? "high" : "normal",
+      spy: tagSet.has("Defensive") || tagSet.has("ETF") ? "high" : "normal",
+      risk_sentiment: tagSet.has("ChinaADR") || hasAnyTag([...tagSet], ["Speculative", "Crypto", "Meme"]) ? "high" : "normal",
+    },
+    confidence: clamp(Math.round(confidence), 25, 96),
+  };
+}
+
 function buildClassificationProfile(row, tagAudit, fallbackCategory, missing = []) {
   const known = knownClassificationForTicker(row.ticker);
   const marketType = schemaMarketTypeForTicker(row);
@@ -1692,7 +2043,7 @@ function buildClassificationProfile(row, tagAudit, fallbackCategory, missing = [
   const tags = (known?.tags || tagAudit.top_tags || []).slice(0, 6);
   const category = known?.category || fallbackCategory || selectPrimaryCategory(tags);
   const scoringProfile = known?.scoring_profile || inferScoringProfile(tags, category, marketType);
-  const scoringWeights = { ...(SCORING_PROFILE_WEIGHTS[scoringProfile] || SCORING_PROFILE_WEIGHTS.generic) };
+  const scoringWeights = JSON.parse(JSON.stringify(SCORING_PROFILE_WEIGHTS[scoringProfile] || SCORING_PROFILE_WEIGHTS.generic));
   const tagEvidence = { ...(tagAudit.tag_evidence || {}) };
   tags.forEach((tag) => {
     tagEvidence[tag] ??= {
@@ -1752,12 +2103,36 @@ function localizedDashboardText(value) {
     "medium": "中等",
     "high": "高",
     "unavailable": "数据暂不可用",
+    "fallback": "技术位回退",
+    "risk_on": "偏进攻",
+    "risk_off": "偏防守",
+    "panic": "恐慌环境",
+    "overheated": "情绪过热",
+    "left_side_accumulation": "左侧分批低吸",
+    "right_side_confirmation": "右侧确认买入",
+    "wait_for_stabilization": "等待企稳",
+    "avoid_falling_knife": "避免接飞刀",
+    "company_specific_risk": "个股风险优先",
+    "avoid": "暂时回避",
+    "short_term_buy_range": "短期推荐买入区间",
+    "mid_term_buy_range": "中期推荐买入区间",
+    "long_term_buy_range": "长期推荐买入区间",
+    "pullback_accumulation": "回调分批低吸",
+    "core_accumulation": "核心区间加仓",
     "Primary Buy Zone": "主要买入区",
     "Current Entry Stop": "当前价止损",
   };
   if (exact[text]) return exact[text];
   return text
     .replaceAll("Market environment is balanced.", "市场环境整体均衡。")
+    .replaceAll("left_side_accumulation", "左侧分批低吸")
+    .replaceAll("right_side_confirmation", "右侧确认买入")
+    .replaceAll("wait_for_stabilization", "等待企稳")
+    .replaceAll("avoid_falling_knife", "避免接飞刀")
+    .replaceAll("company_specific_risk", "个股风险优先")
+    .replaceAll("short_term_buy_range", "短期推荐买入区间")
+    .replaceAll("mid_term_buy_range", "中期推荐买入区间")
+    .replaceAll("long_term_buy_range", "长期推荐买入区间")
     .replaceAll("Primary Buy Zone", "主要买入区")
     .replaceAll("Current Entry Stop", "当前价止损")
     .replaceAll("Weak Momentum", "动能偏弱")
@@ -1949,14 +2324,21 @@ function localizedActionLabel(value) {
     if (value === "Strong Buy") return "强烈买入";
     if (value === "Buy") return "买入";
     if (value === "Weak Hold") return "弱持有 / 减仓观察";
-    if (value === "Reduce") return "减仓";
+    if (value === "Reduce") return "谨慎减仓";
+    if (value === "Sell-Avoid") return "卖出 / 避免";
+    if (value === "Short Candidate") return "做空候选";
     if (value === "Short") return "做空";
     if (value === "Strong Sell") return "强烈卖出";
     if (value === "Sell") return "卖出";
+    if (value === "Hold-Watch") return "持有 / 观望";
     if (value === "Hold") return "持有 / 观望";
     if (value === "N/A") return "无数据";
   }
+  if (value === "Hold-Watch") return "Hold / Watch";
   if (value === "Hold") return "Hold / Watch";
+  if (value === "Reduce") return "Reduce";
+  if (value === "Sell-Avoid") return "Sell / Avoid";
+  if (value === "Short Candidate") return "Short Candidate";
   if (value === "Sell") return "Sell / Reduce";
   return value;
 }
@@ -3605,8 +3987,10 @@ function scoreToBand(score) {
   if (score >= CALIBRATION_CONFIG.rating_thresholds.strong_buy) return { tone: "buy", label: t("aiRatingScaleStrongBuy") };
   if (score >= CALIBRATION_CONFIG.rating_thresholds.buy) return { tone: "buy", label: t("aiRatingScaleBuy") };
   if (score >= CALIBRATION_CONFIG.rating_thresholds.hold) return { tone: "hold", label: t("aiRatingScaleHold") };
-  if (score >= CALIBRATION_CONFIG.rating_thresholds.sell) return { tone: "sell", label: t("aiRatingScaleSell") };
-  return { tone: "sell", label: t("aiRatingScaleStrongSell") };
+  if (score >= CALIBRATION_CONFIG.rating_thresholds.reduce) return { tone: "sell", label: currentLanguage === "zh" ? "谨慎减仓" : "Reduce" };
+  if (score >= CALIBRATION_CONFIG.rating_thresholds.sell_avoid) return { tone: "sell", label: currentLanguage === "zh" ? "卖出 / 避免" : "Sell / Avoid" };
+  if (score >= CALIBRATION_CONFIG.rating_thresholds.strong_sell) return { tone: "sell", label: t("aiRatingScaleStrongSell") };
+  return { tone: "sell", label: currentLanguage === "zh" ? "做空候选" : "Short Candidate" };
 }
 
 function scoreValue(score) {
@@ -3747,8 +4131,11 @@ function inverseMetricScore(value, low, high) {
 function scoreBucketLabel(score) {
   if (score >= CALIBRATION_CONFIG.rating_thresholds.strong_buy) return "Strong Buy";
   if (score >= CALIBRATION_CONFIG.rating_thresholds.buy) return "Buy";
-  if (score >= CALIBRATION_CONFIG.rating_thresholds.hold) return "Hold";
-  if (score >= CALIBRATION_CONFIG.rating_thresholds.sell) return "Sell";
+  if (score >= CALIBRATION_CONFIG.rating_thresholds.hold) return "Hold-Watch";
+  if (score >= CALIBRATION_CONFIG.rating_thresholds.reduce) return "Reduce";
+  if (score >= CALIBRATION_CONFIG.rating_thresholds.sell_avoid) return "Sell-Avoid";
+  if (score >= CALIBRATION_CONFIG.rating_thresholds.strong_sell) return "Strong Sell";
+  if (score >= 0) return "Short Candidate";
   return "Strong Sell";
 }
 
@@ -4455,7 +4842,7 @@ function ratingTone(value) {
   if (normalized.includes("buy")) return "buy";
   if (normalized.includes("weak hold")) return "hold";
   if (normalized.includes("reduce")) return "sell";
-  if (normalized.includes("sell") || normalized === "short") return "sell";
+  if (normalized.includes("sell") || normalized.includes("avoid") || normalized.includes("short")) return "sell";
   return "hold";
 }
 
@@ -5171,10 +5558,10 @@ function buildCompanyProfile(row, research) {
   }
 
   const likelyIPO = ipoAgeYears != null
-    ? ipoAgeYears <= 3
-    : (!isCnAShare(row) && closes.length < 180);
+    ? ipoAgeYears < 1
+    : (!isCnAShare(row) && closes.length > 0 && closes.length < 252);
   if (likelyIPO) {
-    pushProfileTag(tagSet, reasons, "IPO", currentLanguage === "zh" ? "上市时间较短或历史数据不足 3 年" : "Listing history is shorter than roughly three years");
+    pushProfileTag(tagSet, reasons, "IPO", currentLanguage === "zh" ? "上市时间不足 1 年或交易历史不足 1 年" : "Listing or trading history is shorter than roughly one year");
     pushProfileTag(tagSet, reasons, "NewlyListed", currentLanguage === "zh" ? "财务历史仍然较短" : "Financial history is still relatively short");
   }
 
@@ -5272,6 +5659,13 @@ function buildCompanyProfile(row, research) {
   const fallbackTopTags = tagAudit.top_tags.length ? tagAudit.top_tags : fallbackTags.slice(0, 6);
   const fallbackCategory = selectPrimaryCategory(fallbackTopTags.length ? fallbackTopTags : fallbackTags);
   const classificationProfile = buildClassificationProfile(row, tagAudit, fallbackCategory, missing);
+  const decisionProfile = buildDecisionProfile({
+    ...classificationProfile,
+    top_tags: classificationProfile.tags,
+    full_tags: tagAudit.full_tags,
+    exposure_tags: tagAudit.exposure_tags,
+    rejected_tags: tagAudit.rejected_tags,
+  }, schemaMarketTypeForTicker(row));
   const tags = [...new Set([...(classificationProfile.tags || []), ...fallbackTags])];
   const primaryCategory = classificationProfile.category || fallbackCategory;
   const classificationConfidence = classificationProfile.tag_confidence;
@@ -5303,9 +5697,10 @@ function buildCompanyProfile(row, research) {
     penalty_profile_weights: penaltyWeights,
     scoring_impact: scoringImpact,
     classification: classificationProfile,
+    decision_profile: decisionProfile,
     scoring_profile: classificationProfile.scoring_profile,
     scoring_profile_label: classificationProfile.scoring_profile_label,
-    scoring_weights: classificationProfile.scoring_weights,
+    scoring_weights: decisionProfile.final_weights,
     tag_confidence: classificationProfile.tag_confidence,
     tag_source: classificationProfile.tag_source,
   };
@@ -5326,13 +5721,17 @@ function levelSourceLabel(item) {
 function ratingRank(rating) {
   const map = {
     Short: 0,
+    "Short Candidate": 0,
     "Strong Sell": 1,
+    "Sell-Avoid": 2,
     Sell: 2,
-    Hold: 3,
-    Buy: 4,
-    "Strong Buy": 5,
+    Reduce: 3,
+    "Hold-Watch": 4,
+    Hold: 4,
+    Buy: 5,
+    "Strong Buy": 6,
   };
-  return map[rating] ?? 3;
+  return map[rating] ?? 4;
 }
 
 function ratingAtLeast(rating, target) {
@@ -5629,6 +6028,10 @@ function buildSupportResistanceSchema(row) {
       test_count: strengthInfo.test_count,
       has_volume_cluster: strengthInfo.has_volume_cluster,
       volume_notes: strengthInfo.volume_notes || [],
+      volume_confirmation: (strengthInfo.volume_notes || []).length
+        ? (strengthInfo.volume_notes || []).join(" / ")
+        : (currentLanguage === "zh" ? "量能未给出额外确认" : "No extra volume confirmation"),
+      notes: (strengthInfo.volume_notes || []).slice(0, 3),
     };
   });
   const resistances = resistanceCandidates.slice(0, 5).map((item, index) => {
@@ -5648,6 +6051,10 @@ function buildSupportResistanceSchema(row) {
       test_count: strengthInfo.test_count,
       has_volume_cluster: strengthInfo.has_volume_cluster,
       volume_notes: strengthInfo.volume_notes || [],
+      volume_confirmation: (strengthInfo.volume_notes || []).length
+        ? (strengthInfo.volume_notes || []).join(" / ")
+        : (currentLanguage === "zh" ? "量能未给出额外确认" : "No extra volume confirmation"),
+      notes: (strengthInfo.volume_notes || []).slice(0, 3),
     };
   });
 
@@ -5978,240 +6385,417 @@ function buyZoneStopBuffer(row, companyProfile) {
   return 0.98;
 }
 
-function buildRecommendedBuyPlan(row, buyZones, aiDecision, technical, supportResistance = null) {
-  const shortRating = aiDecision?.short_term?.rating || "Hold";
-  const midRating = aiDecision?.mid_term?.rating || "Hold";
-  const bearishWatch = ["Sell", "Strong Sell", "Short"].includes(shortRating) && ["Sell", "Strong Sell", "Short"].includes(midRating);
-  const primary = { ...(buyZones.primary_buy_zone || {}) };
-  primary.purpose = currentLanguage === "zh" ? "回调到合理支撑区分批买入，偏稳健。" : "Staged pullback entry near reasonable support.";
-  if (bearishWatch && primary.status === "available") {
-    primary.plan_type = "watch";
-    primary.title = currentLanguage === "zh" ? "观察买入区" : "Watch Buy Zone";
-    primary.confidence = clamp((primary.confidence ?? 50) - 12, 0, 100);
-    primary.summary = currentLanguage === "zh"
-      ? "短期和中期评级偏弱，该区间先作为观察区，等待量能和趋势重新确认。"
-      : "Short and mid-term ratings are weak, so this zone is for watching until volume and trend confirm.";
-  } else {
-    primary.plan_type = "primary";
-    primary.title = currentLanguage === "zh" ? "主要买入区" : "Primary Buy Zone";
+function allocationHintForRange(companyProfile, horizon) {
+  const tags = companyProfile?.tags || [];
+  const profile = companyProfile?.scoring_profile || "generic";
+  if (hasAnyTag(tags, ["Speculative", "HighVolatility", "NewlyListed", "Crypto"])) {
+    return horizon === "short" ? "0-10%" : horizon === "mid" ? "30%" : "60%";
   }
+  if (profile === "ai_infrastructure" || profile === "high_growth_cyclical") {
+    return horizon === "short" ? "10%" : horizon === "mid" ? "30%" : "60%";
+  }
+  if (profile === "reit_dividend" && hasAnyTag(tags, ["HighDebtRisk"])) {
+    return horizon === "short" ? "0-20%" : horizon === "mid" ? "30%" : "50%";
+  }
+  if (profile === "china_adr") {
+    return horizon === "short" ? "10%" : horizon === "mid" ? "30%" : "60%";
+  }
+  if (profile === "healthcare_defensive" || hasAnyTag(tags, ["MegaCap", "CashCow"])) {
+    return horizon === "short" ? "20%" : horizon === "mid" ? "40%" : "40%";
+  }
+  return horizon === "short" ? "10-25%" : horizon === "mid" ? "30-45%" : "30-60%";
+}
 
-  const tech = row.technicals || {};
-  const volume = technical?.volume_confirmation || {};
-  const price = row.price ?? null;
-  const r1 = supportResistance?.resistances?.[0]?.price ?? null;
-  const hasTrend = Number.isFinite(price) && Number.isFinite(tech.ma20) && price > tech.ma20;
-  const maStructure = Number.isFinite(tech.ma20) && Number.isFinite(tech.ma50) && tech.ma20 >= tech.ma50 * 0.995;
-  const macdImproving = Number.isFinite(tech.macdHistogram) && tech.macdHistogram >= 0;
-  const obvOk = ["rising", "neutral"].includes(volume.obv_trend_20d);
-  const relVolOk = (volume.relative_volume_20d ?? 0) >= 1.2;
-  const closeOk = (volume.close_location_pct ?? 0) >= 60;
-  const turnoverScore = turnoverActivityScore(volume.turnover_rate, row, null);
-  const turnoverOk = turnoverScore >= 55 && turnoverScore <= 85;
-  const nearBreakout = Number.isFinite(r1) && Number.isFinite(price)
-    ? Math.abs((r1 - price) / Math.max(price, 1)) * 100 <= 5
-    : Number.isFinite(tech.ma10) && Number.isFinite(price)
-      ? Math.abs((price - tech.ma10) / Math.max(price, 1)) * 100 <= 3
-      : false;
-  const missingConditions = [
-    !relVolOk ? (currentLanguage === "zh" ? "20D 量比不足 1.2" : "20D relative volume is below 1.2") : null,
-    !obvOk ? (currentLanguage === "zh" ? "OBV 20D 尚未确认" : "OBV 20D has not confirmed") : null,
-    !closeOk ? (currentLanguage === "zh" ? "收盘位置不足 60%" : "Close location is below 60%") : null,
-    !maStructure ? (currentLanguage === "zh" ? "MA20 / MA50 趋势结构不足" : "MA20 / MA50 trend structure is not strong enough") : null,
-    !macdImproving ? (currentLanguage === "zh" ? "MACD histogram 尚未改善" : "MACD histogram is not improving") : null,
-    !hasTrend ? (currentLanguage === "zh" ? "价格尚未站上 MA20" : "Price is not above MA20") : null,
-    !turnoverOk ? (currentLanguage === "zh" ? "换手率未处于健康活跃区间" : "Turnover is not in a healthy active range") : null,
-    !nearBreakout ? (currentLanguage === "zh" ? "价格尚未接近 R1 突破或 MA10 / MA20 回踩确认" : "Price is not near R1 breakout or MA10 / MA20 retest") : null,
-  ].filter(Boolean).slice(0, 3);
-  const triggerConditions = [
-    currentLanguage === "zh" ? "放量突破 R1" : "Break above R1 on volume",
-    currentLanguage === "zh" ? "或回踩 MA20 后重新站上" : "Or reclaim MA20 after a retest",
-    currentLanguage === "zh" ? "OBV / 量比 / 收盘位置确认" : "OBV / relative volume / close location confirm",
-  ];
-  const momentumRaw = buyZones.momentum_entry_zone || {};
-  const momentumTriggered = momentumRaw.status === "available" && momentumRaw.low != null && momentumRaw.high != null;
-  const invalidMomentum = bearishWatch
-    || (Number.isFinite(price) && Number.isFinite(tech.ma50) && price < tech.ma50 && Number.isFinite(tech.ma20) && tech.ma20 < tech.ma50)
-    || (volume.obv_trend_20d === "falling" && (volume.close_location_pct ?? 50) < 45);
-  const invalidReasons = [
-    Number.isFinite(price) && Number.isFinite(tech.ma20) && Number.isFinite(tech.ma50) && price < tech.ma20 && price < tech.ma50
-      ? (currentLanguage === "zh" ? "价格低于 MA20 / MA50" : "Price is below MA20 / MA50")
-      : null,
-    Number.isFinite(tech.ma20) && Number.isFinite(tech.ma50) && tech.ma20 < tech.ma50
-      ? (currentLanguage === "zh" ? "MA20 低于 MA50，趋势结构偏弱" : "MA20 is below MA50, so trend structure is weak")
-      : null,
-    volume.obv_trend_20d === "falling" ? (currentLanguage === "zh" ? "OBV 20D 偏弱" : "OBV 20D is weak") : null,
-    (volume.relative_volume_20d ?? 0) < 1.2 ? (currentLanguage === "zh" ? "20D 量比不足 1.2" : "20D relative volume is below 1.2") : null,
-    (volume.close_location_pct ?? 50) < 45 ? (currentLanguage === "zh" ? "收盘位置偏弱" : "Close location is weak") : null,
-    bearishWatch ? (currentLanguage === "zh" ? "短期和中期评级偏弱" : "Short and mid-term ratings are weak") : null,
-  ].filter(Boolean).slice(0, 3);
-  const momentum = momentumTriggered
-    ? {
-      ...momentumRaw,
-      status: "triggered",
-      zone: { low: momentumRaw.low, high: momentumRaw.high },
-      plan_type: "momentum",
-      title: currentLanguage === "zh" ? "动量买入" : "Momentum Entry",
-      trigger_status: "triggered",
-      trigger_price: Number.isFinite(r1) ? r1 : momentumRaw.high,
-      purpose: currentLanguage === "zh" ? "突破或回踩确认后的趋势买入，偏趋势交易。" : "Trend entry after breakout or retest confirmation.",
-      meaning: currentLanguage === "zh" ? "趋势突破条件已满足，可以考虑趋势买入。" : "Trend-breakout conditions are met; a trend entry can be considered.",
-      missing_conditions: [],
-      trigger_conditions: triggerConditions,
-      reason: currentLanguage === "zh" ? "趋势、量能、OBV 和收盘位置已经满足动量入场条件。" : "Trend, volume, OBV, and close location meet momentum-entry conditions.",
-      action: currentLanguage === "zh" ? "按仓位计划分批买入，并使用当前价止损控制风险。" : "Scale in according to the position plan and use the Current Entry Stop for risk control.",
-    }
-    : {
-      low: null,
-      high: null,
-      zone: null,
-      confidence: invalidMomentum ? 0 : 35,
-      status: invalidMomentum ? "invalid" : "waiting",
-      plan_type: "momentum",
-      title: currentLanguage === "zh" ? "动量买入" : "Momentum Entry",
-      trigger_status: invalidMomentum ? "invalid" : "waiting",
-      trigger_price: Number.isFinite(r1) ? r1 : (Number.isFinite(tech.ma20) ? tech.ma20 : null),
-      purpose: currentLanguage === "zh" ? "突破或回踩确认后的趋势买入，偏趋势交易。" : "Trend entry after breakout or retest confirmation.",
-      meaning: currentLanguage === "zh"
-        ? (invalidMomentum ? "趋势结构不足，或量能 / OBV 不支持趋势买入。" : "如果股价放量突破该位置，说明趋势可能转强。")
-        : (invalidMomentum ? "Trend structure is insufficient, or volume / OBV does not support a trend entry." : "A high-volume break above this level would suggest the trend may be strengthening."),
-      sources: [],
-      summary: currentLanguage === "zh"
-        ? (invalidMomentum ? "不适用：趋势结构或资金流明显破坏。" : "未触发 / 等待触发：量能或突破确认不足。")
-        : (invalidMomentum ? "Invalid: trend structure or money flow is materially broken." : "Not triggered / waiting: volume or breakout confirmation is insufficient."),
-      missing_conditions: missingConditions.length ? missingConditions : [currentLanguage === "zh" ? "等待明确突破或回踩确认" : "Awaiting a clear breakout or retest confirmation"],
-      trigger_conditions: triggerConditions,
-      reason: invalidMomentum
-        ? invalidReasons
-        : missingConditions,
-      top_invalid_reasons: invalidReasons,
-      action: invalidMomentum
-        ? (currentLanguage === "zh" ? "不要追涨，优先关注主要买入区或等待重新企稳。" : "Do not chase; focus on the Primary Buy Zone or wait for stabilization.")
-        : (currentLanguage === "zh" ? "暂不追高，等待放量突破或回踩确认。" : "Do not chase; wait for a high-volume breakout or retest confirmation."),
-    };
+function normalizePlanMarketRegime(marketContext = null) {
+  const enhanced = marketContext?.enhanced_context;
+  if (enhanced?.market_regime) return enhanced.market_regime;
+  const engine = marketContext?.market_engine || {};
+  const rawRegime = marketContext?.market_regime?.regime || engine.regime || "neutral";
+  const vix = engine.vix || {};
+  const fearGreed = engine.fear_greed || {};
+  const equityTrend = engine.equity_trend || {};
+  const vixValue = vix.value ?? null;
+  const vix5d = vix.change_5d ?? null;
+  const spyTrend = equityTrend.spy?.trend || equityTrend.spy?.signal || null;
+  const qqqTrend = equityTrend.qqq?.trend || equityTrend.qqq?.signal || null;
+  if ((Number.isFinite(vixValue) && vixValue >= 35) || (Number.isFinite(vix5d) && vix5d >= 20)) return "panic";
+  if (fearGreed.label === "Extreme Greed") return "overheated";
+  if (rawRegime === "risk_off" || equityTrend.impact === "negative" || (spyTrend === "bearish" && qqqTrend === "bearish")) return "risk_off";
+  if (rawRegime === "risk_on" || equityTrend.impact === "supportive" || (spyTrend === "bullish" && qqqTrend === "bullish")) return "risk_on";
+  return "neutral";
+}
 
-  const deep = {
-    ...(buyZones.deep_pullback_zone || {}),
-    plan_type: "deep_pullback",
-    title: currentLanguage === "zh" ? "深度回调区" : "Deep Pullback Zone",
-    purpose: currentLanguage === "zh" ? "大幅回调后的长期低吸区，不代表现在必须等到这里。" : "Longer-term deep-pullback accumulation area, not a requirement to wait for it now.",
+function marketAdjustmentForPlans(marketContext = null) {
+  const regime = normalizePlanMarketRegime(marketContext);
+  const multiplierMap = {
+    risk_on: 1,
+    neutral: 0.9,
+    risk_off: 0.68,
+    panic: 0.5,
+    overheated: 0.7,
   };
-
+  const noteMap = {
+    risk_on: currentLanguage === "zh" ? "市场环境偏进攻，按默认分批计划执行。" : "Risk-on tape supports the default staged plan.",
+    neutral: currentLanguage === "zh" ? "市场环境中性，仓位按默认计划小幅折扣。" : "Neutral tape uses a modest sizing haircut.",
+    risk_off: currentLanguage === "zh" ? "市场环境偏防守，买入区间更保守，止损可略放宽但仓位必须降低。" : "Risk-off tape calls for more conservative entries, slightly wider stops, and lower sizing.",
+    panic: currentLanguage === "zh" ? "波动率或风险冲击较高，优先等待企稳，只允许小仓位分批。" : "Panic conditions favor waiting for stabilization and using small staged entries.",
+    overheated: currentLanguage === "zh" ? "情绪过热，不扩大止损，买入区间更保守，避免追高。" : "Overheated sentiment keeps stops tight and entries conservative; avoid chasing.",
+  };
   return {
-    primary_buy_zone: primary,
-    momentum_entry: momentum,
-    deep_pullback_zone: deep,
-    summary: currentLanguage === "zh"
-      ? "推荐买入计划区分正常回调、动量突破和深度回调三种场景。"
-      : "Recommended buy plan separates pullback, momentum, and deep-pullback scenarios.",
+    regime,
+    position_multiplier: multiplierMap[regime] ?? 0.9,
+    note: noteMap[regime],
   };
 }
 
-function buildStopLossPlan(row, buyZones, supportResistance, companyProfile, aiDecision, technical) {
-  const price = row.price ?? null;
-  const atr = Number.isFinite(row.technicals?.atr14) ? row.technicals.atr14 : (Number.isFinite(price) ? price * 0.035 : null);
-  if (!Number.isFinite(price) || !Number.isFinite(atr)) {
+function adjustPercentRange(rangeText, multiplier) {
+  if (!rangeText || !Number.isFinite(multiplier)) return rangeText || null;
+  const nums = String(rangeText).match(/\d+(?:\.\d+)?/g)?.map(Number) || [];
+  if (!nums.length) return rangeText;
+  const adjusted = nums.map((value) => Number((value * multiplier).toFixed(value * multiplier < 5 ? 1 : 0)));
+  if (adjusted.length >= 2) return `${adjusted[0]}-${adjusted[1]}%`;
+  return `${adjusted[0]}%`;
+}
+
+function makeHorizonBuyRange(title, rawZone, currentPrice, horizon, companyProfile, summary, style) {
+  const available = rawZone && Number.isFinite(rawZone.low) && Number.isFinite(rawZone.high);
+  const confidenceBase = available
+    ? computeBuyZoneConfidence(
+      horizon === "short" ? "primary" : horizon === "mid" ? "primary" : "deep",
+      rawZone,
+      rawZone.low,
+      rawZone.high,
+      currentPrice,
+      { maxDrawdownPct: horizon === "short" ? 12 : horizon === "mid" ? 24 : 42, companyProfile },
+    )
+    : 0;
     return {
-      current_entry_stop: {
-        price: null,
-        stop_type: "unavailable",
-        stop_distance_pct: null,
-        risk_level: "unavailable",
-        based_on: [],
-        invalidation_reason: t("dataUnavailable"),
-        action_if_triggered: t("dataUnavailable"),
-      },
-      buy_zone_stop: {
-        price: null,
-        stop_type: "unavailable",
-        stop_distance_pct_from_zone_low: null,
-        applies_to_zone: "Primary Buy Zone",
-        risk_level: "unavailable",
-        based_on: [],
-        invalidation_reason: t("dataUnavailable"),
-        action_if_triggered: t("dataUnavailable"),
-      },
+      title,
+      low: available ? Number(Math.min(rawZone.low, rawZone.high).toFixed(2)) : null,
+      high: available ? Number(Math.max(rawZone.low, rawZone.high).toFixed(2)) : null,
+    confidence: available ? confidenceBase : 0,
+    status: available ? "available" : "unavailable",
+      based_on: [...new Set(rawZone?.sources || [])].slice(0, 6),
+      sources: [...new Set(rawZone?.sources || [])].slice(0, 6),
+      style,
+      purpose: summary,
+      allocation_hint: allocationHintForRange(companyProfile, horizon),
+      summary,
     };
   }
 
-  const primary = buyZones.primary_buy_zone || {};
-  const multiplier = atrStopMultiplier(row, companyProfile);
-  const nearestSupport = supportResistance.supports.find((level) => Number.isFinite(level.price) && level.price < price);
-  const swingLow = Math.min(...(row.technicals?.history?.lows || []).slice(-30).filter(Number.isFinite));
-  const maBase = [row.technicals?.ma20, row.technicals?.ma50].filter((value) => Number.isFinite(value) && value < price).sort((a, b) => b - a)[0];
-  const putWall = !isCnAShare(row) && Number.isFinite(row.research?.optionsRead?.putWall) && row.research.optionsRead.putWall < price
-    ? row.research.optionsRead.putWall * 0.985
+function buildRecommendedBuyPlan(row, buyZones, aiDecision, technical, supportResistance = null, companyProfile = null, marketContext = null, fundamental = null) {
+  const tech = row.technicals || {};
+  const price = row.price ?? null;
+  const atr = Number.isFinite(tech.atr14) ? tech.atr14 : (Number.isFinite(price) ? price * 0.035 : null);
+  const options = row.research?.optionsRead || buildOptionsRead(row);
+  const marketAdjustment = marketAdjustmentForPlans(marketContext);
+  const add = (list, priceValue, weight, source) => {
+    if (Number.isFinite(priceValue) && priceValue > 0) list.push({ price: priceValue, weight, source });
+  };
+  const fib = (ratio) => (Number.isFinite(tech.rangeLow) && Number.isFinite(tech.rangeHigh))
+    ? tech.rangeLow + (tech.rangeHigh - tech.rangeLow) * ratio
     : null;
-  const candidates = [
-    { value: nearestSupport?.price ? nearestSupport.price * 0.985 : null, type: "support_stop", source: nearestSupport?.level || "Support" },
-    { value: price - atr * multiplier, type: "atr_stop", source: `ATR x ${multiplier.toFixed(1)}` },
-    { value: Number.isFinite(maBase) ? maBase * 0.985 : null, type: "ma_stop", source: maBase === row.technicals?.ma20 ? "MA20" : "MA50" },
-    { value: Number.isFinite(row.technicals?.lowerBand) ? row.technicals.lowerBand * 0.985 : null, type: "bollinger_stop", source: "Bollinger Lower" },
-    { value: Number.isFinite(swingLow) ? swingLow * 0.985 : null, type: "swing_low_stop", source: "Recent Swing Low" },
-    { value: putWall, type: "put_wall_stop", source: "Put Wall" },
-  ].filter((item) => Number.isFinite(item.value) && item.value > 0 && item.value < price);
-  const chosen = candidates.sort((a, b) => b.value - a.value)[0];
-  const currentStop = chosen?.value ?? price - atr * multiplier;
-  const currentDistancePct = ((price - currentStop) / price) * 100;
-  const shortWeak = ["Sell", "Strong Sell", "Short"].includes(aiDecision?.short_term?.rating);
-  const midWeak = ["Sell", "Strong Sell", "Short"].includes(aiDecision?.mid_term?.rating);
-  const volumeRisk = ["distribution_risk", "panic_selling", "weak_breakout"].includes(technical?.volume_confirmation?.behavior_key);
-  let currentRiskLevel = currentDistancePct <= 4 ? "low" : currentDistancePct <= 8 ? "medium" : "high";
-  if ((shortWeak && midWeak) || volumeRisk) currentRiskLevel = currentRiskLevel === "low" ? "medium" : "high";
+  const swingLow = Math.min(...(tech.history?.lows || []).slice(-35).filter(Number.isFinite));
+  const majorSwingLow = Math.min(...(tech.history?.lows || []).slice(-180).filter(Number.isFinite));
+  const shortCandidates = [];
+  const midCandidates = [];
+  const longCandidates = [];
 
-  const zoneLow = Number.isFinite(primary.low) ? primary.low : null;
-  const buffer = buyZoneStopBuffer(row, companyProfile);
-  const supportBelowZone = supportResistance.supports
-    .filter((level) => Number.isFinite(level.price) && Number.isFinite(zoneLow) && level.price < zoneLow)
-    .map((level) => ({ value: level.price * 0.985, type: "support_below_zone", source: level.level }));
-  const zoneCandidates = [
-    { value: Number.isFinite(zoneLow) ? zoneLow * buffer : null, type: "zone_buffer_stop", source: `Primary Low x ${buffer.toFixed(3)}` },
-    { value: Number.isFinite(zoneLow) ? zoneLow - atr * Math.min(multiplier, 2.4) * 0.55 : null, type: "zone_atr_stop", source: "Primary Low - ATR buffer" },
-    ...supportBelowZone,
-  ].filter((item) => Number.isFinite(item.value) && Number.isFinite(zoneLow) && item.value > 0 && item.value < zoneLow);
-  const zoneChosen = zoneCandidates.sort((a, b) => b.value - a.value)[0];
-  const buyZoneStop = zoneChosen?.value ?? (Number.isFinite(zoneLow) ? zoneLow * buffer : null);
-  const zoneDistancePct = Number.isFinite(zoneLow) && Number.isFinite(buyZoneStop)
-    ? ((zoneLow - buyZoneStop) / zoneLow) * 100
-    : null;
-  let zoneRiskLevel = zoneDistancePct == null ? "unavailable" : zoneDistancePct <= 2.5 ? "low" : zoneDistancePct <= 6 ? "medium" : "high";
-  if ((shortWeak && midWeak) || volumeRisk) zoneRiskLevel = zoneRiskLevel === "low" ? "medium" : "high";
-  const priceBelowZone = Number.isFinite(zoneLow) && price < zoneLow;
+  (supportResistance?.supports || []).slice(0, 2).forEach((level, index) => add(shortCandidates, level.price, 1.8 - index * 0.25, level.level));
+  add(shortCandidates, tech.ma10, 1.05, "MA10");
+  add(shortCandidates, tech.ma20, 1.25, "MA20");
+  add(shortCandidates, tech.middleBand, 0.85, currentLanguage === "zh" ? "布林中轨" : "Bollinger Middle");
+  if (Number.isFinite(price) && Number.isFinite(atr)) add(shortCandidates, price - atr * 0.75, 1.0, "ATR 0.75");
+  add(shortCandidates, fib(0.382), 0.95, "Fib 38.2%");
+  add(shortCandidates, swingLow, 0.95, "Recent Swing Low");
+
+  (supportResistance?.supports || []).slice(1, 4).forEach((level, index) => add(midCandidates, level.price, 1.8 - index * 0.22, level.level));
+  add(midCandidates, tech.ma20, 0.8, "MA20");
+  add(midCandidates, tech.ma50, 1.35, "MA50");
+  add(midCandidates, tech.ma100, 1.2, "MA100");
+  add(midCandidates, fib(0.5), 1.1, "Fib 50%");
+  add(midCandidates, fib(0.618), 1.05, "Fib 61.8%");
+  if (Number.isFinite(price) && Number.isFinite(atr)) add(midCandidates, price - atr * 1.35, 1.0, "ATR 1.35");
+  if (!isCnAShare(row) && options.available) add(midCandidates, options.putWall, 1.15, "Put Wall");
+
+  (supportResistance?.supports || []).slice(2, 5).forEach((level, index) => add(longCandidates, level.price, 1.8 - index * 0.2, level.level));
+  add(longCandidates, tech.ma100, 1.1, "MA100");
+  add(longCandidates, tech.ma200, 1.55, "MA200");
+  add(longCandidates, fib(0.618), 1.15, "Fib 61.8%");
+  add(longCandidates, fib(0.786), 1.1, "Fib 78.6%");
+  add(longCandidates, tech.rangeLow, 1.2, "52W Support");
+  add(longCandidates, majorSwingLow, 1.25, "Major Swing Low");
+  if (Number.isFinite(price) && Number.isFinite(atr)) add(longCandidates, price - atr * 2.0, 1.0, "ATR 2.0");
+
+  const shortRaw = Number.isFinite(price) ? weightedZoneFromCandidates(shortCandidates, price, { minDrawdownPct: -1, maxDrawdownPct: 12 }) : null;
+  const midRaw = Number.isFinite(price) ? weightedZoneFromCandidates(midCandidates, price, { minDrawdownPct: 2, maxDrawdownPct: 28 }) : null;
+  const longRaw = Number.isFinite(price) ? weightedZoneFromCandidates(longCandidates, price, { minDrawdownPct: 8, maxDrawdownPct: hasAnyTag(companyProfile?.tags || [], ["Speculative", "HighVolatility"]) ? 48 : 38 }) : null;
+  const shortWeak = ["Reduce", "Sell", "Sell-Avoid", "Strong Sell", "Short Candidate", "Short"].includes(aiDecision?.short_term?.rating);
+  const midWeak = ["Reduce", "Sell", "Sell-Avoid", "Strong Sell", "Short Candidate", "Short"].includes(aiDecision?.mid_term?.rating);
+  const weakenBuyConfidence = shortWeak && midWeak ? 12 : 0;
+  const volume = technical?.volume_confirmation || {};
+  const weakVolume = ["distribution_risk", "panic_selling", "weak_breakout"].includes(volume.behavior_key) || volume.obv_trend_20d === "falling";
+  const rightSideConfirmed = ["strong_accumulation", "early_accumulation"].includes(volume.behavior_key)
+    && (volume.relative_volume_20d ?? 0) >= 1.1
+    && (volume.close_location_pct ?? 0) >= 55
+    && !shortWeak;
+  const marketConfidencePenalty = marketAdjustment.regime === "panic"
+    ? 16
+    : marketAdjustment.regime === "risk_off"
+      ? 10
+      : marketAdjustment.regime === "overheated"
+        ? 8
+        : 0;
+  let opportunityType = marketAdjustment.regime === "panic" || (shortWeak && midWeak) || weakVolume
+    ? "wait_for_stabilization"
+    : rightSideConfirmed
+      ? "right_side_confirmation"
+      : "left_side_accumulation";
+  const shortRange = makeHorizonBuyRange(
+    currentLanguage === "zh" ? "短期推荐买入区间" : "Short-Term Buy Range",
+    shortRaw,
+    price,
+    "short",
+    companyProfile,
+    currentLanguage === "zh" ? "适合轻仓试探或已有仓位回踩加仓，重点看短期支撑和量能承接。" : "Light starter / pullback add zone anchored to short-term support and volume sponsorship.",
+    "pullback_accumulation",
+  );
+  const midRange = makeHorizonBuyRange(
+    currentLanguage === "zh" ? "中期推荐买入区间" : "Mid-Term Buy Range",
+    midRaw,
+    price,
+    "mid",
+    companyProfile,
+    currentLanguage === "zh" ? "适合核心分批加仓，重点看 MA50 / MA100、S2-S3 和成交密集支撑。" : "Core staged accumulation zone anchored to MA50 / MA100, S2-S3, and volume support.",
+    "core_accumulation",
+  );
+  const longRange = makeHorizonBuyRange(
+    currentLanguage === "zh" ? "长期推荐买入区间" : "Long-Term Buy Range",
+    longRaw,
+    price,
+    "long",
+    companyProfile,
+    currentLanguage === "zh" ? "适合底部布局或大幅回调后的长期低吸，不代表必须现在等到这里。" : "Long-term left-side accumulation area after a deeper pullback; not a requirement to wait for it now.",
+    "left_side_accumulation",
+  );
+  const shiftRangeLower = (range, atrMultiple, reason) => {
+    if (!range || range.status !== "available" || !Number.isFinite(atr)) return;
+    range.low = Number(Math.max(0.01, range.low - atr * atrMultiple).toFixed(2));
+    range.high = Number(Math.max(range.low, range.high - atr * atrMultiple).toFixed(2));
+    range.based_on = [...new Set([...(range.based_on || []), reason])].slice(0, 7);
+    range.sources = [...new Set([...(range.sources || []), reason])].slice(0, 7);
+  };
+  if (marketAdjustment.regime === "risk_off") {
+    shiftRangeLower(shortRange, 0.5, currentLanguage === "zh" ? "市场偏防守下移 0.5 ATR" : "Risk-off 0.5 ATR shift");
+    shiftRangeLower(midRange, 0.75, currentLanguage === "zh" ? "市场偏防守下移 0.75 ATR" : "Risk-off 0.75 ATR shift");
+    shiftRangeLower(longRange, 1.0, currentLanguage === "zh" ? "市场偏防守下移 1.0 ATR" : "Risk-off 1.0 ATR shift");
+  } else if (marketAdjustment.regime === "panic") {
+    shiftRangeLower(shortRange, 0.75, currentLanguage === "zh" ? "恐慌环境下移 0.75 ATR" : "Panic 0.75 ATR shift");
+    shiftRangeLower(midRange, 1.0, currentLanguage === "zh" ? "恐慌环境下移 1.0 ATR" : "Panic 1.0 ATR shift");
+    shiftRangeLower(longRange, 1.25, currentLanguage === "zh" ? "恐慌环境下移 1.25 ATR" : "Panic 1.25 ATR shift");
+    if (longRange.status === "available") longRange.confidence = clamp(longRange.confidence + 8, 0, 100);
+  } else if (marketAdjustment.regime === "overheated") {
+    shiftRangeLower(shortRange, 0.5, currentLanguage === "zh" ? "情绪过热下移 0.5 ATR" : "Overheated 0.5 ATR shift");
+    shiftRangeLower(midRange, 0.5, currentLanguage === "zh" ? "情绪过热下移 0.5 ATR" : "Overheated 0.5 ATR shift");
+  } else if (marketAdjustment.regime === "risk_on" && hasAnyTag(companyProfile?.tags || [], ["HighGrowth", "AIInfrastructure", "Momentum"])) {
+    shortRange.summary = currentLanguage === "zh"
+      ? `${shortRange.summary} 风险偏好配合时，高成长股短期区间可以略靠近现价，但仍需量能确认。`
+      : `${shortRange.summary} In risk-on tape, high-growth entries can sit slightly closer to spot, but volume confirmation is still required.`;
+  }
+  const fundamentalScore = fundamental?.profile_fundamental?.score ?? fundamental?.fundamental_score ?? 50;
+  const companySpecificRisk = fundamentalScore < 35 || fundamental?.profile_fundamental?.high_dividend_debt_risk;
+  const priceNearMidOrLong = Number.isFinite(price) && (
+    (midRange.status === "available" && price <= midRange.high * 1.03)
+    || (longRange.status === "available" && price <= longRange.high * 1.05)
+  );
+  const enhancedMarket = marketContext?.enhanced_context || normalizeEnhancedMarketContext(marketContext?.market_engine || {}, marketContext?.macro || {});
+  const vixEasing = (enhancedMarket.vix?.change_5d_pct ?? 0) < -15 || (enhancedMarket.vix?.change_20d_pct ?? 0) < -25;
+  const indexRecovering = ["recovering", "bullish"].includes(enhancedMarket.qqq_trend?.trend) || ["recovering", "bullish"].includes(enhancedMarket.spy_trend?.trend);
+  if (companySpecificRisk && (shortWeak || midWeak)) {
+    opportunityType = "company_specific_risk";
+  } else if (marketAdjustment.regime === "panic" && !vixEasing && !indexRecovering) {
+    opportunityType = "wait_for_stabilization";
+  } else if (["risk_off", "panic"].includes(marketAdjustment.regime) && priceNearMidOrLong && !companySpecificRisk) {
+    opportunityType = vixEasing || indexRecovering || rightSideConfirmed ? "left_side_accumulation" : "wait_for_stabilization";
+  } else if (rightSideConfirmed || (vixEasing && indexRecovering && !weakVolume)) {
+    opportunityType = "right_side_confirmation";
+  } else if (weakVolume && shortWeak && midWeak) {
+    opportunityType = "avoid_falling_knife";
+  }
+  [shortRange, midRange, longRange].forEach((range) => {
+    if (range.status === "available" && weakenBuyConfidence) {
+      range.confidence = clamp(range.confidence - weakenBuyConfidence, 0, 100);
+      range.summary = currentLanguage === "zh"
+        ? `${range.summary} 当前短中期偏弱，先降低置信度，等待量能重新确认。`
+        : `${range.summary} Short and mid-term signals are weak, so confidence is reduced until volume reconfirms.`;
+    }
+    if (range.status === "available" && marketConfidencePenalty) {
+      const appliedPenalty = range === longRange && marketAdjustment.regime === "panic"
+        ? Math.max(0, marketConfidencePenalty - 12)
+        : marketConfidencePenalty;
+      range.confidence = clamp(range.confidence - appliedPenalty, 0, 100);
+    }
+    if (range.status === "available" && marketAdjustment.regime === "overheated" && range !== longRange) {
+      range.summary = currentLanguage === "zh"
+        ? `${range.summary} 情绪偏热时不建议追高，优先等回踩。`
+        : `${range.summary} Overheated sentiment argues against chasing; wait for pullbacks.`;
+    }
+  });
+
   return {
-    // Backward-compatible headline fields; UI now displays the scenario-specific stops below.
-    recommended_stop: Number(currentStop.toFixed(2)),
-    stop_type: chosen?.type || "atr_stop",
-    stop_distance_pct: Number(currentDistancePct.toFixed(1)),
-    risk_level: currentRiskLevel,
-    current_entry_stop: {
-      price: Number(currentStop.toFixed(2)),
+    short_term_buy_range: shortRange,
+    mid_term_buy_range: midRange,
+    long_term_buy_range: longRange,
+    market_adjustment_notes: [
+      marketAdjustment.note,
+      opportunityType === "left_side_accumulation" && ["risk_off", "panic"].includes(marketAdjustment.regime)
+        ? (currentLanguage === "zh" ? "宏观冲击型下跌且基本面未明显破坏时，可小仓位分批布局，但等待 VIX / 指数 / OBV 继续确认。" : "Macro-driven selloff with intact fundamentals can support small staged accumulation while waiting for VIX / index / OBV confirmation.")
+        : null,
+      opportunityType === "right_side_confirmation"
+        ? (currentLanguage === "zh" ? "右侧确认需要指数企稳、VIX 回落，以及个股量能 / OBV 配合。" : "Right-side confirmation requires index stabilization, VIX easing, and stock-level volume / OBV confirmation.")
+        : null,
+      opportunityType === "company_specific_risk"
+        ? (currentLanguage === "zh" ? "当前更像个股基本面或资产负债表风险，不按普通宏观错杀处理。" : "This looks more company-specific than macro-driven, so it is not treated as a generic dip-buy.")
+        : null,
+    ].filter(Boolean),
+    opportunity_type: opportunityType,
+    summary: currentLanguage === "zh"
+      ? "买入计划按短期试探、中期核心加仓、长期底部布局三种周期拆分。"
+      : "The buy plan separates short-term starter entries, mid-term core adds, and long-term accumulation.",
+  };
+}
+
+function buildStopLossPlan(row, buyPlan, supportResistance, companyProfile, aiDecision, technical, marketContext = null) {
+  const price = row.price ?? null;
+  const atr = Number.isFinite(row.technicals?.atr14) ? row.technicals.atr14 : (Number.isFinite(price) ? price * 0.035 : null);
+  const marketAdjustment = marketAdjustmentForPlans(marketContext);
+  if (!Number.isFinite(price) || !Number.isFinite(atr)) {
+    return {
+      short_term_stop: {
+        price: null,
+        stop_type: "unavailable",
+        based_on: [],
+        applies_to: currentLanguage === "zh" ? "短期交易 / 轻仓试探" : "Short-term trade / starter position",
+        action_if_triggered: t("dataUnavailable"),
+      },
+      mid_term_stop: {
+        price: null,
+        stop_type: "unavailable",
+        based_on: [],
+        applies_to: currentLanguage === "zh" ? "中期分批加仓" : "Mid-term accumulation",
+        action_if_triggered: t("dataUnavailable"),
+      },
+      long_term_stop: {
+        price: null,
+        stop_type: "unavailable",
+        based_on: [],
+        applies_to: currentLanguage === "zh" ? "长期底仓 / 左侧布局" : "Long-term core / left-side accumulation",
+        action_if_triggered: t("dataUnavailable"),
+      },
+      fundamental_stop: { triggers: [] },
+    };
+  }
+
+  const marketStopWidening = marketAdjustment.regime === "panic"
+    ? 1.18
+    : marketAdjustment.regime === "risk_off"
+      ? 1.1
+      : 1;
+  const multiplier = atrStopMultiplier(row, companyProfile) * marketStopWidening;
+  const shortWeak = ["Reduce", "Sell", "Sell-Avoid", "Strong Sell", "Short Candidate", "Short"].includes(aiDecision?.short_term?.rating);
+  const midWeak = ["Reduce", "Sell", "Sell-Avoid", "Strong Sell", "Short Candidate", "Short"].includes(aiDecision?.mid_term?.rating);
+  const volumeRisk = ["distribution_risk", "panic_selling", "weak_breakout"].includes(technical?.volume_confirmation?.behavior_key);
+
+  const buildStop = (range, horizon, atrMultiple, supportIndexes, maKeys, label) => {
+    const rangeLow = Number.isFinite(range?.low) ? range.low : null;
+    const supports = supportIndexes
+      .map((index) => supportResistance.supports[index])
+      .filter((level) => level && Number.isFinite(level.price));
+    const maCandidates = maKeys
+      .map((key) => ({ value: row.technicals?.[key], source: key.toUpperCase() }))
+      .filter((item) => Number.isFinite(item.value));
+    const candidates = [
+      { value: Number.isFinite(rangeLow) ? rangeLow - atr * (horizon === "short" ? 0.25 : horizon === "mid" ? 0.4 : 0.55) : null, type: "range_low_atr_stop", source: `${label} low + ATR buffer` },
+      ...supports.map((level) => ({ value: level.price * (horizon === "long" ? 0.975 : 0.985), type: "support_stop", source: level.level })),
+      ...maCandidates.map((item) => ({ value: item.value * (horizon === "long" ? 0.975 : 0.985), type: "ma_stop", source: item.source })),
+      { value: price - atr * atrMultiple, type: "atr_stop", source: `ATR x ${atrMultiple.toFixed(1)}` },
+    ].filter((item) => Number.isFinite(item.value) && item.value > 0 && item.value < price);
+    const belowRange = Number.isFinite(rangeLow)
+      ? candidates.filter((item) => item.value < rangeLow * 0.998)
+      : candidates;
+    const chosenPool = belowRange.length ? belowRange : candidates;
+    const chosen = chosenPool.sort((a, b) => b.value - a.value)[0];
+    const stopPrice = chosen?.value ?? price - atr * atrMultiple;
+    const distancePct = ((price - stopPrice) / price) * 100;
+    let riskLevel = distancePct <= 5 ? "low" : distancePct <= 10 ? "medium" : "high";
+    if ((shortWeak && midWeak) || volumeRisk) riskLevel = riskLevel === "low" ? "medium" : "high";
+    return {
+      price: Number(stopPrice.toFixed(2)),
       stop_type: chosen?.type || "atr_stop",
-      stop_distance_pct: Number(currentDistancePct.toFixed(1)),
-      applies_to: currentLanguage === "zh" ? "当前价附近买入 / 已持有" : "Current-price entry / existing position",
-      risk_level: currentRiskLevel,
+      stop_distance_pct: Number(distancePct.toFixed(1)),
+      risk_level: riskLevel,
+      applies_to: label,
       based_on: candidates.slice(0, 4).map((item) => item.source),
       invalidation_reason: currentLanguage === "zh"
-        ? `跌破 ${formatCurrency(currentStop, row.currencyCode)}，说明当前这笔入场失败。`
-        : `A break below ${formatCurrency(currentStop, row.currencyCode)} means the current entry has failed.`,
+        ? `跌破 ${formatCurrency(stopPrice, row.currencyCode)}，说明${label}的支撑逻辑失效。`
+        : `A break below ${formatCurrency(stopPrice, row.currencyCode)} invalidates the ${label} support logic.`,
       action_if_triggered: currentLanguage === "zh"
-        ? "减仓、退出，或等待重新确认。"
-        : "Reduce, exit, or wait for fresh confirmation.",
+        ? (horizon === "short" ? "停止短线加仓，减仓或等待重新确认。" : horizon === "mid" ? "暂停中期加仓，检查趋势和量能是否继续恶化。" : "重新评估长期逻辑，检查基本面是否破坏。")
+        : (horizon === "short" ? "Stop short-term adds, reduce, or wait for reconfirmation." : horizon === "mid" ? "Pause mid-term adds and review trend / volume deterioration." : "Reassess the long-term thesis and check whether fundamentals broke."),
+      market_adjustment_note: marketAdjustment.note,
+    };
+  };
+
+  const shortStop = buildStop(
+    buyPlan.short_term_buy_range,
+    "short",
+    Math.min(multiplier, 1.2),
+    [0, 1],
+    ["ma10", "ma20"],
+    currentLanguage === "zh" ? "短期买入区间" : "short-term buy range",
+  );
+  const midStop = buildStop(
+    buyPlan.mid_term_buy_range,
+    "mid",
+    clamp(multiplier, 1.2, 1.8),
+    [1, 2, 3],
+    ["ma50", "ma100"],
+    currentLanguage === "zh" ? "中期买入区间" : "mid-term buy range",
+  );
+  const longStop = buildStop(
+    buyPlan.long_term_buy_range,
+    "long",
+    clamp(multiplier + 0.4, 2.0, 3.0),
+    [2, 3, 4],
+    ["ma100", "ma200"],
+    currentLanguage === "zh" ? "长期买入区间" : "long-term buy range",
+  );
+  const tags = companyProfile?.tags || [];
+  const fundamentalTriggers = [
+    hasAnyTag(tags, ["Dividend", "REIT"]) ? (currentLanguage === "zh" ? "分红削减或分红安全性明显恶化" : "Dividend cut or dividend-safety deterioration") : null,
+    hasAnyTag(tags, ["HighDebtRisk", "REIT"]) ? (currentLanguage === "zh" ? "债务风险继续上升或再融资压力加大" : "Debt risk rises or refinancing pressure worsens") : null,
+    currentLanguage === "zh" ? "营收增长明显坍塌" : "Revenue growth collapses",
+    currentLanguage === "zh" ? "利润率持续恶化" : "Margins deteriorate materially",
+    currentLanguage === "zh" ? "自由现金流转负或持续恶化" : "Free cash flow turns negative or deteriorates",
+    currentLanguage === "zh" ? "监管冲击或核心投资逻辑被破坏" : "Regulatory shock or core thesis broken",
+  ].filter(Boolean);
+  return {
+    short_term_stop: shortStop,
+    mid_term_stop: midStop,
+    long_term_stop: longStop,
+    current_entry_stop: {
+      ...shortStop,
+      deprecated: true,
+      compatibility_note: "Use short_term_stop in the new decision model.",
     },
     buy_zone_stop: {
-      price: Number.isFinite(buyZoneStop) ? Number(buyZoneStop.toFixed(2)) : null,
-      stop_type: zoneChosen?.type || "zone_buffer_stop",
-      stop_distance_pct_from_zone_low: Number.isFinite(zoneDistancePct) ? Number(zoneDistancePct.toFixed(1)) : null,
-      applies_to_zone: "Primary Buy Zone",
-      risk_level: zoneRiskLevel,
-      based_on: zoneCandidates.slice(0, 4).map((item) => item.source),
-      invalidation_reason: Number.isFinite(buyZoneStop)
-        ? (currentLanguage === "zh"
-          ? `跌破 ${formatCurrency(buyZoneStop, row.currencyCode)}，说明买入区支撑失败。`
-          : `A break below ${formatCurrency(buyZoneStop, row.currencyCode)} means the buy-zone support has failed.`)
-        : t("dataUnavailable"),
-      action_if_triggered: priceBelowZone
-        ? (currentLanguage === "zh" ? "停止加仓，减仓或止损；等待重新计算。" : "Stop adding, reduce or stop out; wait for recalculation.")
-        : (currentLanguage === "zh" ? "停止加仓，减仓或止损。" : "Stop adding, reduce, or stop out."),
+      ...midStop,
+      deprecated: true,
+      compatibility_note: "Use mid_term_stop / long_term_stop in the new decision model.",
+    },
+    fundamental_stop: {
+      triggers: fundamentalTriggers.slice(0, 6),
     },
   };
 }
@@ -6571,39 +7155,38 @@ function buildTechnicalModule(row, supportResistance, companyProfile = null) {
         nearestResistance?.score != null ? 100 - nearestResistance.score : null,
       ].filter(Number.isFinite)) ?? 52);
   const momentumScore = Math.round(mean([macdScore, rsiScore, kdjScore, volatilityScore]) ?? 50);
-  const shortTechnicalScore = weightedComponentScore({
+  const profileKey = companyProfile?.scoring_profile || companyProfile?.classification?.scoring_profile || "generic";
+  const technicalProfile = companyProfile?.decision_profile?.technical_weights || TECHNICAL_PROFILE_WEIGHTS[profileKey] || TECHNICAL_PROFILE_WEIGHTS.generic;
+  const breakoutQualityScore = Math.round(mean([
+    (volumeConfirmation.behavior_key === "strong_accumulation" || volumeConfirmation.behavior_key === "volume_breakout") ? 82 : null,
+    (volumeConfirmation.behavior_key === "weak_breakout") ? 35 : null,
+    (volumeConfirmation.relative_volume_20d ?? 1) >= 1.2 ? 68 : 45,
+    (volumeConfirmation.close_location_pct ?? 50) >= 60 ? 66 : 42,
+    ["rising", "neutral"].includes(volumeConfirmation.obv_trend_20d) ? 64 : 38,
+  ].filter(Number.isFinite)) ?? 50);
+  const shortComponents = {
     money_flow_core: volumeConfirmation.money_flow_core.short_term.score,
-    price_trend_confirm: priceTrendConfirmScore,
+    trend_confirm: priceTrendConfirmScore,
     support_resistance: supportResistanceScore,
-    volatility_bollinger_atr: volatilityScore,
-  }, {
-    money_flow_core: 55,
-    price_trend_confirm: 20,
-    support_resistance: 15,
-    volatility_bollinger_atr: 10,
-  });
-  const midTechnicalScore = weightedComponentScore({
+    volatility: volatilityScore,
+    breakout_quality: breakoutQualityScore,
+  };
+  const midComponents = {
     money_flow_core: volumeConfirmation.money_flow_core.mid_term.score,
-    price_trend_confirm: priceTrendConfirmScore,
+    trend_confirm: priceTrendConfirmScore,
     support_resistance: supportResistanceScore,
-    volatility_bollinger_atr: volatilityScore,
-  }, {
-    money_flow_core: 45,
-    price_trend_confirm: 30,
-    support_resistance: 15,
-    volatility_bollinger_atr: 10,
-  });
-  const longTechnicalScore = weightedComponentScore({
-    long_term_money_flow_obv: volumeConfirmation.money_flow_core.long_term.score,
-    long_trend_confirm: longTrendConfirmScore,
+    volatility: volatilityScore,
+  };
+  const longComponents = {
+    long_money_flow: volumeConfirmation.money_flow_core.long_term.score,
+    long_trend: longTrendConfirmScore,
     support_resistance: supportResistanceScore,
     volatility_regime: volatilityScore,
-  }, {
-    long_term_money_flow_obv: 35,
-    long_trend_confirm: 40,
-    support_resistance: 20,
-    volatility_regime: 5,
-  });
+  };
+  const weightToPercent = (weights) => Object.fromEntries(Object.entries(weights || {}).map(([key, value]) => [key, value * 100]));
+  const shortTechnicalScore = weightedComponentScore(shortComponents, weightToPercent(technicalProfile.short));
+  const midTechnicalScore = weightedComponentScore(midComponents, weightToPercent(technicalProfile.mid));
+  const longTechnicalScore = weightedComponentScore(longComponents, weightToPercent(technicalProfile.long));
   const technicalScore = clamp(Math.round(shortTechnicalScore * 0.35 + midTechnicalScore * 0.35 + longTechnicalScore * 0.3), 0, 100);
   const summary = technicalScore >= 70
     ? (currentLanguage === "zh" ? "技术结构偏强，主要由量能/换手率和趋势验证共同支撑。" : "Technicals are constructive, led by money-flow confirmation and trend validation.")
@@ -6627,10 +7210,12 @@ function buildTechnicalModule(row, supportResistance, companyProfile = null) {
       short_term: {
         money_flow_core_score: volumeConfirmation.money_flow_core.short_term.score,
         price_trend_confirm_score: priceTrendConfirmScore,
+        breakout_quality_score: breakoutQualityScore,
         volatility_score: volatilityScore,
         support_resistance_score: supportResistanceScore,
         final_technical_score: shortTechnicalScore,
-        weights: { money_flow_core: 55, price_trend_confirm: 20, support_resistance: 15, volatility_bollinger_atr: 10 },
+        weights: technicalProfile.short,
+        components: shortComponents,
       },
       mid_term: {
         money_flow_core_score: volumeConfirmation.money_flow_core.mid_term.score,
@@ -6638,7 +7223,8 @@ function buildTechnicalModule(row, supportResistance, companyProfile = null) {
         volatility_score: volatilityScore,
         support_resistance_score: supportResistanceScore,
         final_technical_score: midTechnicalScore,
-        weights: { money_flow_core: 45, price_trend_confirm: 30, support_resistance: 15, volatility_bollinger_atr: 10 },
+        weights: technicalProfile.mid,
+        components: midComponents,
       },
       long_term: {
         long_term_money_flow_obv_score: volumeConfirmation.money_flow_core.long_term.score,
@@ -6646,7 +7232,8 @@ function buildTechnicalModule(row, supportResistance, companyProfile = null) {
         support_resistance_score: supportResistanceScore,
         volatility_regime_score: volatilityScore,
         final_technical_score: longTechnicalScore,
-        weights: { long_term_money_flow_obv: 35, long_trend_confirm: 40, support_resistance: 20, volatility_regime: 5 },
+        weights: technicalProfile.long,
+        components: longComponents,
       },
     },
     trend_score: trendScore,
@@ -6750,6 +7337,133 @@ function buildFundamentalModule(row, research) {
     summary: buildFundamentalConclusion(row, research),
     key_strengths: strengths.slice(0, 4),
     key_risks: risks.slice(0, 4),
+  };
+}
+
+function weightedAvailableScore(components, weights, fallback = 50) {
+  const valid = Object.entries(weights || {})
+    .map(([key, weight]) => ({ key, weight, value: components?.[key] }))
+    .filter((item) => Number.isFinite(item.value) && Number.isFinite(item.weight) && item.weight > 0);
+  const total = valid.reduce((sum, item) => sum + item.weight, 0);
+  if (!valid.length || total <= 0) {
+    return {
+      score: fallback,
+      used_weights: {},
+      missing_fields: Object.keys(weights || {}),
+      confidence: 0.55,
+    };
+  }
+  const usedWeights = {};
+  const score = valid.reduce((sum, item) => {
+    const normalized = item.weight / total;
+    usedWeights[item.key] = Number(normalized.toFixed(4));
+    return sum + item.value * normalized;
+  }, 0);
+  return {
+    score: clamp(Math.round(score), 0, 100),
+    used_weights: usedWeights,
+    missing_fields: Object.keys(weights || {}).filter((key) => !valid.some((item) => item.key === key)),
+    confidence: clamp(total / Object.values(weights || {}).reduce((sum, value) => sum + value, 0), 0.35, 1),
+  };
+}
+
+function buildProfileFundamentalScore(row, fundamental, companyProfile) {
+  const profile = companyProfile?.decision_profile?.base_profile || companyProfile?.scoring_profile || companyProfile?.classification?.scoring_profile || "generic";
+  const dividendYield = normalizeDividendYield(row.metadata?.dividendYield);
+  const revenueGrowthScore = metricScore((fundamental.growth.revenue_growth ?? 0) * 100, 0, 25);
+  const profitMarginScore = metricScore((fundamental.quality.operating_margin ?? fundamental.quality.net_margin ?? 0) * 100, 4, 28);
+  const grossMarginTrendScore = metricScore((fundamental.quality.gross_margin ?? 0) * 100, 20, 55);
+  const fcfScore = metricScore(fundamental.financial_health.free_cash_flow ?? 0, -2, 8);
+  const forwardPeScore = inverseMetricScore(fundamental.valuation.forward_pe ?? fundamental.valuation.pe ?? null, 15, 70);
+  const pegScore = inverseMetricScore(fundamental.valuation.peg ?? null, 0.8, 3.2);
+  const valuationRiskScore = Math.round(mean([
+    forwardPeScore,
+    inverseMetricScore(fundamental.valuation.ev_ebitda ?? null, 8, 35),
+    inverseMetricScore(fundamental.valuation.price_fcf ?? null, 10, 55),
+  ].filter(Number.isFinite)) ?? 50);
+  const balanceSheetScore = Math.round(mean([
+    inverseMetricScore((fundamental.quality.debt_ratio ?? 0.5) * 100, 25, 85),
+    metricScore((fundamental.quality.cash_ratio ?? 0.3) * 100, 8, 45),
+  ]) ?? 50);
+  const dividendSafetyScore = Math.round(mean([
+    fcfScore,
+    inverseMetricScore((fundamental.quality.debt_ratio ?? 0.5) * 100, 30, 90),
+    metricScore((fundamental.quality.operating_margin ?? 0) * 100, 4, 22),
+  ]) ?? 50);
+  const dividendYieldScore = Number.isFinite(dividendYield)
+    ? metricScore(dividendYield * 100, 2, 8)
+    : null;
+  const debtRiskScore = inverseMetricScore((fundamental.quality.debt_ratio ?? null) * 100, 35, 90);
+  const interestRateSensitivityScore = hasAnyTag(companyProfile?.tags || [], ["REIT", "Dividend", "InterestRateSensitive"])
+    ? 48
+    : 58;
+  const inventoryCycleScore = Math.round(mean([
+    grossMarginTrendScore,
+    row.changePercent != null ? metricScore(row.changePercent, -4, 4) : null,
+    fundamental.growth.revenue_growth != null ? revenueGrowthScore : null,
+  ].filter(Number.isFinite)) ?? 50);
+  const normalizedValuationScore = Math.round(mean([
+    inverseMetricScore(fundamental.valuation.ev_ebitda ?? null, 6, 30),
+    inverseMetricScore(fundamental.valuation.price_fcf ?? null, 8, 50),
+    forwardPeScore,
+  ].filter(Number.isFinite)) ?? 50);
+  const regulatoryRiskScore = hasAnyTag(companyProfile?.tags || [], ["RegulatoryRisk", "ChinaADR"])
+    ? 45
+    : 60;
+  const earningsGrowthQualityScore = Math.round(mean([
+    revenueGrowthScore,
+    fundamental.growth.eps_growth != null ? metricScore(fundamental.growth.eps_growth * 100, -10, 25) : null,
+    fcfScore,
+  ].filter(Number.isFinite)) ?? 50);
+  const components = {
+    revenue_growth: revenueGrowthScore,
+    profit_margin: profitMarginScore,
+    gross_margin_trend: grossMarginTrendScore,
+    inventory_cycle: inventoryCycleScore,
+    free_cash_flow: fcfScore,
+    forward_pe: forwardPeScore,
+    peg: pegScore,
+    valuation_risk: valuationRiskScore,
+    valuation_normalized: normalizedValuationScore,
+    balance_sheet_quality: balanceSheetScore,
+    earnings_growth_quality: earningsGrowthQualityScore,
+    dividend_yield: dividendYieldScore,
+    dividend_safety: dividendSafetyScore,
+    debt_risk: debtRiskScore,
+    ffo_affo_proxy: fcfScore,
+    interest_rate_sensitivity: interestRateSensitivityScore,
+    valuation_vs_yield: Math.round(mean([dividendYieldScore, valuationRiskScore].filter(Number.isFinite)) ?? 50),
+    regulatory_risk: regulatoryRiskScore,
+  };
+  const profileWeights = {
+    software_cloud: { revenue_growth: 0.20, profit_margin: 0.15, free_cash_flow: 0.20, forward_pe: 0.15, peg: 0.15, balance_sheet_quality: 0.10, earnings_growth_quality: 0.05 },
+    platform_ads: { revenue_growth: 0.20, profit_margin: 0.15, free_cash_flow: 0.20, forward_pe: 0.15, peg: 0.15, balance_sheet_quality: 0.10, earnings_growth_quality: 0.05 },
+    ai_infrastructure: { revenue_growth: 0.25, profit_margin: 0.15, free_cash_flow: 0.15, forward_pe: 0.10, peg: 0.10, valuation_risk: 0.20, balance_sheet_quality: 0.05 },
+    high_growth_cyclical: { revenue_growth: 0.25, profit_margin: 0.15, free_cash_flow: 0.15, forward_pe: 0.10, peg: 0.10, valuation_risk: 0.20, balance_sheet_quality: 0.05 },
+    memory_cycle: { revenue_growth: 0.15, gross_margin_trend: 0.25, inventory_cycle: 0.20, free_cash_flow: 0.15, valuation_normalized: 0.15, balance_sheet_quality: 0.10 },
+    reit_dividend: { dividend_yield: 0.15, dividend_safety: 0.20, debt_risk: 0.25, ffo_affo_proxy: 0.20, interest_rate_sensitivity: 0.10, valuation_vs_yield: 0.10 },
+    healthcare_defensive: { revenue_growth: 0.15, profit_margin: 0.20, free_cash_flow: 0.20, forward_pe: 0.15, balance_sheet_quality: 0.15, regulatory_risk: 0.15 },
+    china_adr: { revenue_growth: 0.20, profit_margin: 0.15, free_cash_flow: 0.20, forward_pe: 0.15, peg: 0.10, valuation_risk: 0.10, balance_sheet_quality: 0.10 },
+    generic: { revenue_growth: 0.20, profit_margin: 0.15, free_cash_flow: 0.20, forward_pe: 0.15, peg: 0.10, valuation_risk: 0.10, balance_sheet_quality: 0.10 },
+  };
+  const weighted = weightedAvailableScore(components, companyProfile?.decision_profile?.fundamental_weights || profileWeights[profile] || profileWeights.generic, fundamental.fundamental_score ?? 50);
+  const highDividendDebtRisk = (dividendYield ?? 0) >= DIVIDEND_TAG_MIN_YIELD && (fundamental.quality.debt_ratio ?? 0) > 0.65;
+  const adjustedScore = highDividendDebtRisk ? Math.min(weighted.score, 58) : weighted.score;
+  return {
+    profile,
+    score: adjustedScore,
+    raw_score: weighted.score,
+    components,
+    used_weights: weighted.used_weights,
+    missing_fields: weighted.missing_fields,
+    confidence: weighted.confidence,
+    dividend_yield: dividendYield,
+    dividend_safety_score: dividendSafetyScore,
+    income_attractiveness: dividendYieldScore,
+    high_dividend_debt_risk: highDividendDebtRisk,
+    summary: highDividendDebtRisk
+      ? (currentLanguage === "zh" ? "股息率有吸引力，但债务/现金流安全性限制评级上调。" : "Dividend income is attractive, but debt and safety checks cap the score.")
+      : fundamental.summary,
   };
 }
 
@@ -6868,14 +7582,17 @@ function buildOptionsStrategies(row, optionsRead, idealBuyZone, supportResistanc
   const longTermRating = decisionHints.longTermRating || "Hold";
   const tags = decisionHints.companyProfile?.tags || [];
   const price = row.price ?? 0;
+  const marketAdjustment = marketAdjustmentForPlans(decisionHints.marketContext || null);
+  const optionsAvailable = Boolean(optionsRead?.available);
   const buyZones = decisionHints.buyZones || {};
-  const primaryZone = buyZones.primary_buy_zone || idealBuyZone;
-  const deepZone = buyZones.deep_pullback_zone || {};
-  const momentumZone = buyZones.momentum_entry_zone || {};
+  const buyPlan = decisionHints.buyPlan || null;
+  const primaryZone = buyPlan?.mid_term_buy_range || buyPlan?.short_term_buy_range || buyZones.primary_buy_zone || idealBuyZone;
+  const deepZone = buyPlan?.long_term_buy_range || buyZones.deep_pullback_zone || {};
+  const momentumZone = buyPlan?.short_term_buy_range || buyZones.momentum_entry_zone || {};
   const atr = Number.isFinite(row.technicals?.atr14) ? row.technicals.atr14 : Math.max(price * 0.035, 0.5);
   const ivRank = optionsRead.ivRank ?? null;
   const premiumWeak = Number.isFinite(ivRank) && ivRank < 30;
-  const bearishShortTerm = ["Sell", "Strong Sell", "Short"].includes(shortTermRating);
+  const bearishShortTerm = ["Reduce", "Sell", "Sell-Avoid", "Strong Sell", "Short Candidate", "Short"].includes(shortTermRating);
   const bullishLongTerm = ["Buy", "Strong Buy"].includes(longTermRating);
   const volume = decisionHints.technical?.volume_confirmation || {};
   const volumeDistributionRisk = ["distribution_risk", "panic_selling"].includes(volume.behavior_key)
@@ -6886,11 +7603,10 @@ function buildOptionsStrategies(row, optionsRead, idealBuyZone, supportResistanc
   const megaCashProfile = hasAnyTag(tags, ["MegaCap", "CashCow"]);
   const reitDividendProfile = hasAnyTag(tags, ["REIT", "Dividend", "InterestRateSensitive"]);
 
-  if (!optionsRead.available) {
-    const status = isCnAShare(row) ? "not_supported" : "unavailable";
+  if (isCnAShare(row)) {
     return {
-      sell_put_plan: { status, plans: [] },
-      covered_call_plan: { status, plans: [] },
+      sell_put_plan: { status: "not_supported", plans: [] },
+      covered_call_plan: { status: "not_supported", plans: [] },
       cash_secured_put: {
         recommendation: "Neutral",
         suggested_dte: t("dataUnavailable"),
@@ -6911,15 +7627,18 @@ function buildOptionsStrategies(row, optionsRead, idealBuyZone, supportResistanc
       },
     };
   }
+  const fallbackReason = optionsAvailable
+    ? ""
+    : (currentLanguage === "zh" ? " 期权链暂不可用，当前使用支撑压力、ATR 和买入区间做技术位 fallback，置信度降低。" : " Option chain is unavailable, so this uses support / resistance, ATR, and buy ranges as a lower-confidence technical fallback.");
 
   const supportCandidates = [
     { price: supportResistance.supports[1]?.price, sources: ["S2", ...(supportResistance.supports[1]?.sources || supportResistance.supports[1]?.source || [])] },
     { price: supportResistance.supports[2]?.price, sources: ["S3", ...(supportResistance.supports[2]?.sources || supportResistance.supports[2]?.source || [])] },
     { price: supportResistance.supports[3]?.price, sources: ["S4", ...(supportResistance.supports[3]?.sources || supportResistance.supports[3]?.source || [])] },
     { price: optionsRead.putWall, sources: ["Put Wall"] },
-    { price: primaryZone.low, sources: ["Primary Buy Zone"] },
-    { price: primaryZone.high, sources: ["Primary Buy Zone"] },
-    { price: deepZone.status === "available" ? deepZone.high : null, sources: ["Deep Pullback Zone"] },
+    { price: primaryZone.low, sources: [currentLanguage === "zh" ? "短期 / 中期买入区间" : "Short / Mid Buy Range"] },
+    { price: primaryZone.high, sources: [currentLanguage === "zh" ? "短期 / 中期买入区间" : "Short / Mid Buy Range"] },
+    { price: deepZone.status === "available" ? deepZone.high : null, sources: [currentLanguage === "zh" ? "长期买入区间" : "Long-Term Buy Range"] },
     { price: price - atr, sources: ["ATR"] },
     { price: price - atr * 1.35, sources: ["ATR"] },
   ];
@@ -6928,11 +7647,11 @@ function buildOptionsStrategies(row, optionsRead, idealBuyZone, supportResistanc
     { price: supportResistance.resistances[2]?.price, sources: ["R3", ...(supportResistance.resistances[2]?.sources || supportResistance.resistances[2]?.source || [])] },
     { price: supportResistance.resistances[3]?.price, sources: ["R4", ...(supportResistance.resistances[3]?.sources || supportResistance.resistances[3]?.source || [])] },
     { price: optionsRead.callWall, sources: ["Call Wall"] },
-    { price: momentumZone.status === "available" ? momentumZone.high : null, sources: ["Momentum Entry Zone"] },
+    { price: momentumZone.status === "available" ? momentumZone.high : null, sources: [currentLanguage === "zh" ? "短期突破参考" : "Short-Term Breakout Reference"] },
     { price: price + atr, sources: ["ATR"] },
     { price: price + atr * 1.35, sources: ["ATR"] },
   ];
-  const putConservativeMultiplier = speculativeProfile
+  const basePutConservativeMultiplier = speculativeProfile
     ? 1.85
     : semAiProfile
       ? 1.45
@@ -6941,6 +7660,14 @@ function buildOptionsStrategies(row, optionsRead, idealBuyZone, supportResistanc
         : megaCashProfile
           ? 0.9
           : 1.15;
+  const marketPutShift = marketAdjustment.regime === "panic"
+    ? 0.9
+    : marketAdjustment.regime === "risk_off"
+      ? 0.45
+      : marketAdjustment.regime === "risk_on"
+        ? -0.1
+        : 0;
+  const putConservativeMultiplier = Math.max(0.75, basePutConservativeMultiplier + marketPutShift);
   const volumeRiskShift = volumeDistributionRisk ? 0.45 : 0;
   const put30Target = Number.isFinite(primaryZone.low)
     ? Math.min(primaryZone.low, price - atr * (0.65 + volumeRiskShift), price - atr * putConservativeMultiplier * 0.75)
@@ -6954,9 +7681,21 @@ function buildOptionsStrategies(row, optionsRead, idealBuyZone, supportResistanc
   const weakBounceTighten = volume.behavior_key === "weak_breakout" || ((volume.relative_volume_20d ?? 1) < 0.9 && (row.changePercent ?? 0) > 0) ? -0.15 : 0;
   const call30 = choosePlanStrike(resistanceCandidates, price + atr * Math.max(0.85, (bullishLongTerm ? 1.25 : 1) + callDistanceBoost + weakBounceTighten), "call", price);
   const call45 = choosePlanStrike(resistanceCandidates, price + atr * Math.max(1.15, (bullishLongTerm ? 1.6 : 1.4) + callDistanceBoost), "call", price);
-  const putRisk = bearishShortTerm || volumeDistributionRisk || speculativeProfile ? "high" : premiumWeak ? "medium" : "low";
+  const putRisk = marketAdjustment.regime === "panic" || bearishShortTerm || volumeDistributionRisk || speculativeProfile ? "high" : premiumWeak || marketAdjustment.regime === "risk_off" ? "medium" : "low";
   const callRisk = bullishLongTerm || strongVolumeBreakout || speculativeProfile ? "medium" : "low";
-  const avoidSellPut = volumeDistributionRisk || (speculativeProfile && bearishShortTerm);
+  const avoidSellPut = marketAdjustment.regime === "panic" || volumeDistributionRisk || (speculativeProfile && bearishShortTerm);
+  const marketContextNotes = [
+    marketAdjustment.note,
+    marketAdjustment.regime === "risk_off"
+      ? (currentLanguage === "zh" ? "市场偏防守，Sell Put 行权价优先靠近长期买入区 / S4-S5。" : "Risk-off tape pushes sell-put strikes toward long-term buy range / S4-S5.")
+      : null,
+    marketAdjustment.regime === "panic"
+      ? (currentLanguage === "zh" ? "恐慌环境下 Sell Put 只考虑极低行权价或直接回避。" : "In panic, sell puts should use very low strikes or be avoided.")
+      : null,
+    marketAdjustment.regime === "overheated"
+      ? (currentLanguage === "zh" ? "情绪过热时不追高，Covered Call 吸引力提高。" : "Overheated sentiment improves covered-call appeal and discourages chasing.")
+      : null,
+  ].filter(Boolean);
   const sellPutPlans = [put30, put45].map((plan, index) => ({
     dte: index === 0 ? 30 : 45,
     suggested_strike: plan?.strike ?? null,
@@ -6964,8 +7703,8 @@ function buildOptionsStrategies(row, optionsRead, idealBuyZone, supportResistanc
     assignment_risk: bearishShortTerm || volumeDistributionRisk ? "high" : index === 0 ? "medium" : "low",
     reason: plan?.strike
       ? (currentLanguage === "zh"
-        ? `${index === 0 ? "30D" : "45D"} 行权价低于现价，贴近 ${plan.sources.slice(0, 3).join(" / ")}，定位为相对保守、较低被行权概率方案。${premiumWeak ? " 当前 IV Rank 偏低，权利金环境较弱。" : ""}${bearishShortTerm ? " 短期趋势偏弱，Sell Put 需更保守。" : ""}${volumeDistributionRisk ? " 量能出现出货/弱承接，行权价已下移且风险提高。" : ""}${speculativeProfile ? " 投机/高波动画像要求更远 OTM。" : ""}`
-        : `${index === 0 ? "30D" : "45D"} strike is below spot and near ${plan.sources.slice(0, 3).join(" / ")}, designed as a relatively conservative lower-assignment-probability setup.${premiumWeak ? " IV rank is low, so premium quality is weaker." : ""}${bearishShortTerm ? " Short-term trend risk argues for a more conservative put strike." : ""}${volumeDistributionRisk ? " Distribution / weak sponsorship shifts the strike lower and raises risk." : ""}${speculativeProfile ? " Speculative / high-volatility profile requires farther OTM strikes." : ""}`)
+        ? `${index === 0 ? "30D" : "45D"} 行权价低于现价，贴近 ${plan.sources.slice(0, 3).join(" / ")}，定位为相对保守、较低被行权概率方案。${premiumWeak ? " 当前 IV Rank 偏低，权利金环境较弱。" : ""}${bearishShortTerm ? " 短期趋势偏弱，Sell Put 需更保守。" : ""}${volumeDistributionRisk ? " 量能出现出货/弱承接，行权价已下移且风险提高。" : ""}${speculativeProfile ? " 投机/高波动画像要求更远 OTM。" : ""}${marketAdjustment.regime === "risk_off" ? " 市场偏防守，strike 下移。" : ""}${fallbackReason}`
+        : `${index === 0 ? "30D" : "45D"} strike is below spot and near ${plan.sources.slice(0, 3).join(" / ")}, designed as a relatively conservative lower-assignment-probability setup.${premiumWeak ? " IV rank is low, so premium quality is weaker." : ""}${bearishShortTerm ? " Short-term trend risk argues for a more conservative put strike." : ""}${volumeDistributionRisk ? " Distribution / weak sponsorship shifts the strike lower and raises risk." : ""}${speculativeProfile ? " Speculative / high-volatility profile requires farther OTM strikes." : ""}${marketAdjustment.regime === "risk_off" ? " Risk-off tape shifts the strike lower." : ""}${fallbackReason}`)
       : t("dataUnavailable"),
     sources: plan?.sources || [],
   }));
@@ -6976,24 +7715,26 @@ function buildOptionsStrategies(row, optionsRead, idealBuyZone, supportResistanc
     assignment_risk: bullishLongTerm ? "medium" : "low",
     reason: plan?.strike
       ? (currentLanguage === "zh"
-        ? `${index === 0 ? "30D" : "45D"} 行权价高于现价，贴近 ${plan.sources.slice(0, 3).join(" / ")}，用于较低被行权概率的 Covered Call。${bullishLongTerm || semAiProfile ? " 长期偏多/高成长画像，因此 strike 保持更远，避免过早限制上涨空间。" : ""}${strongVolumeBreakout ? " 量能强突破，Covered Call 更保守或上移。" : ""}${premiumWeak ? " 当前 IV Rank 偏低，权利金吸引力一般。" : ""}`
-        : `${index === 0 ? "30D" : "45D"} strike is above spot and near ${plan.sources.slice(0, 3).join(" / ")}, intended as a lower-assignment-probability covered call.${bullishLongTerm || semAiProfile ? " Long-term / high-growth setup keeps the strike farther out." : ""}${strongVolumeBreakout ? " Strong volume breakout shifts covered calls farther out or conservative." : ""}${premiumWeak ? " Low IV rank makes premium less attractive." : ""}`)
+        ? `${index === 0 ? "30D" : "45D"} 行权价高于现价，贴近 ${plan.sources.slice(0, 3).join(" / ")}，用于较低被行权概率的 Covered Call。${bullishLongTerm || semAiProfile ? " 长期偏多/高成长画像，因此 strike 保持更远，避免过早限制上涨空间。" : ""}${strongVolumeBreakout ? " 量能强突破，Covered Call 更保守或上移。" : ""}${premiumWeak ? " 当前 IV Rank 偏低，权利金吸引力一般。" : ""}${marketAdjustment.regime === "overheated" ? " 情绪偏热，Covered Call 吸引力提高。" : ""}${fallbackReason}`
+        : `${index === 0 ? "30D" : "45D"} strike is above spot and near ${plan.sources.slice(0, 3).join(" / ")}, intended as a lower-assignment-probability covered call.${bullishLongTerm || semAiProfile ? " Long-term / high-growth setup keeps the strike farther out." : ""}${strongVolumeBreakout ? " Strong volume breakout shifts covered calls farther out or conservative." : ""}${premiumWeak ? " Low IV rank makes premium less attractive." : ""}${marketAdjustment.regime === "overheated" ? " Overheated sentiment improves covered-call appeal." : ""}${fallbackReason}`)
       : t("dataUnavailable"),
     sources: plan?.sources || [],
   }));
   const cspStrike = sellPutPlans[0]?.suggested_strike ?? null;
   const ccStrike = coveredCallPlans[0]?.suggested_strike ?? null;
-  const cspRecommended = Boolean(cspStrike) && !bearishShortTerm && !avoidSellPut && ratingAtLeast(longTermRating, "Hold");
+  const cspRecommended = Boolean(cspStrike) && !bearishShortTerm && !avoidSellPut && ratingAtLeast(longTermRating, "Hold-Watch");
   const ccRecommended = Boolean(ccStrike) && shortTermRating !== "Strong Buy" && !strongVolumeBreakout;
 
   return {
     sell_put_plan: {
-      status: "available",
+      status: optionsAvailable ? "available" : "fallback",
       plans: sellPutPlans,
+      market_context_notes: marketContextNotes,
     },
     covered_call_plan: {
-      status: "available",
+      status: optionsAvailable ? "available" : "fallback",
       plans: coveredCallPlans,
+      market_context_notes: marketContextNotes,
     },
     cash_secured_put: {
       recommendation: cspRecommended ? "Recommended" : (avoidSellPut || speculativeProfile || bearishShortTerm) ? "Avoid" : ratingAtLeast(longTermRating, "Buy") ? "Neutral" : "Avoid",
@@ -7121,6 +7862,285 @@ function midFearGreedContribution(label) {
   if (label === "Greed") return -1;
   if (label === "Extreme Greed") return -3;
   return 0;
+}
+
+const MARKET_CONTEXT_PROFILE_WEIGHTS = {
+  software_cloud: { vix: 0.25, fear_greed: 0.15, ten_year_yield: 0.25, spy_trend: 0.15, qqq_trend: 0.20 },
+  platform_ads: { vix: 0.25, fear_greed: 0.20, ten_year_yield: 0.20, spy_trend: 0.15, qqq_trend: 0.20 },
+  ai_infrastructure: { vix: 0.25, fear_greed: 0.15, ten_year_yield: 0.25, spy_trend: 0.10, qqq_trend: 0.25 },
+  memory_cycle: { vix: 0.20, fear_greed: 0.15, ten_year_yield: 0.15, spy_trend: 0.25, qqq_trend: 0.25 },
+  reit_dividend: { vix: 0.15, fear_greed: 0.10, ten_year_yield: 0.45, spy_trend: 0.25, qqq_trend: 0.05 },
+  healthcare_defensive: { vix: 0.20, fear_greed: 0.10, ten_year_yield: 0.15, spy_trend: 0.45, qqq_trend: 0.10 },
+  high_growth_cyclical: { vix: 0.25, fear_greed: 0.15, ten_year_yield: 0.25, spy_trend: 0.10, qqq_trend: 0.25 },
+  china_adr: { vix: 0.20, fear_greed: 0.20, ten_year_yield: 0.10, spy_trend: 0.25, qqq_trend: 0.25 },
+  generic: { vix: 0.25, fear_greed: 0.15, ten_year_yield: 0.20, spy_trend: 0.20, qqq_trend: 0.20 },
+};
+
+const MARKET_CONTEXT_MODIFIER_RANGES = {
+  software_cloud: { short: [-5, 4], mid: [-4, 4], long: [-3, 3] },
+  platform_ads: { short: [-6, 4], mid: [-5, 4], long: [-3, 3] },
+  ai_infrastructure: { short: [-8, 5], mid: [-6, 5], long: [-4, 4] },
+  memory_cycle: { short: [-6, 5], mid: [-5, 5], long: [-4, 4] },
+  reit_dividend: { short: [-8, 4], mid: [-8, 4], long: [-7, 4] },
+  healthcare_defensive: { short: [-3, 3], mid: [-3, 3], long: [-2, 2] },
+  high_growth_cyclical: { short: [-8, 5], mid: [-7, 5], long: [-5, 4] },
+  china_adr: { short: [-8, 5], mid: [-7, 5], long: [-5, 4] },
+  generic: { short: [-5, 4], mid: [-4, 4], long: [-3, 3] },
+};
+
+function normalizeYieldValue(value) {
+  if (!Number.isFinite(value)) return null;
+  return value > 15 ? Number((value / 10).toFixed(2)) : Number(value.toFixed(2));
+}
+
+function marketChangeValue(source, keys = []) {
+  for (const key of keys) {
+    const value = source?.[key];
+    if (Number.isFinite(value)) return Number(value);
+  }
+  return null;
+}
+
+function vixRegime(value) {
+  if (!Number.isFinite(value)) return null;
+  if (value < 13) return "complacency";
+  if (value < 18) return "normal";
+  if (value < 25) return "elevated";
+  if (value <= 35) return "risk_off";
+  return "panic";
+}
+
+function fearGreedRegime(value, label = null) {
+  if (label === "Extreme Fear") return "extreme_fear";
+  if (label === "Fear") return "fear";
+  if (label === "Greed") return "greed";
+  if (label === "Extreme Greed") return "extreme_greed";
+  if (!Number.isFinite(value)) return null;
+  if (value <= 25) return "extreme_fear";
+  if (value <= 45) return "fear";
+  if (value <= 55) return "neutral";
+  if (value <= 75) return "greed";
+  return "extreme_greed";
+}
+
+function tenYearYieldRegime(value) {
+  if (!Number.isFinite(value)) return null;
+  if (value < 3.5) return "growth_friendly";
+  if (value < 4.25) return "neutral";
+  if (value <= 4.75) return "rate_pressure";
+  return "high_rate_pressure";
+}
+
+function normalizeIndexTrend(raw = {}) {
+  if (!raw) return null;
+  const price = raw.price ?? raw.value ?? raw.last ?? null;
+  const ma20 = raw.ma20 ?? raw.sma20 ?? null;
+  const ma50 = raw.ma50 ?? raw.sma50 ?? null;
+  const ma200 = raw.ma200 ?? raw.sma200 ?? null;
+  const change20 = marketChangeValue(raw, ["change_20d_pct", "change20d_pct", "change_20d", "return_20d"]);
+  let trend = raw.trend || raw.signal || "neutral";
+  if (Number.isFinite(price) && Number.isFinite(ma20) && Number.isFinite(ma50) && Number.isFinite(change20)) {
+    if (price > ma20 && ma20 > ma50 && change20 > 0) trend = "bullish";
+    else if (price < ma20 && ma20 < ma50 && change20 < 0) trend = "bearish";
+    else if (price > ma20 && ma20 < ma50) trend = "recovering";
+    else trend = "neutral";
+  }
+  const overextended = Boolean(
+    raw.overextended
+    || (Number.isFinite(price) && Number.isFinite(ma20) && ma20 > 0 && ((price - ma20) / ma20) * 100 >= 6),
+  );
+  return {
+    price: Number.isFinite(price) ? price : null,
+    change_5d_pct: marketChangeValue(raw, ["change_5d_pct", "change5d_pct", "change_5d", "return_5d"]),
+    change_20d_pct: change20,
+    change_60d_pct: marketChangeValue(raw, ["change_60d_pct", "change60d_pct", "change_60d", "return_60d"]),
+    ma20: Number.isFinite(ma20) ? ma20 : null,
+    ma50: Number.isFinite(ma50) ? ma50 : null,
+    ma200: Number.isFinite(ma200) ? ma200 : null,
+    trend,
+    overextended,
+  };
+}
+
+function normalizeEnhancedMarketContext(engine = {}, macro = {}) {
+  const vixValue = engine.vix?.value ?? macro.vix ?? null;
+  const fearValue = engine.fear_greed?.value ?? macro.fear_greed ?? null;
+  const yieldValue = normalizeYieldValue(engine.ten_year_yield?.value ?? macro.treasury_yield ?? null);
+  const spyTrend = normalizeIndexTrend(engine.equity_trend?.spy);
+  const qqqTrend = normalizeIndexTrend(engine.equity_trend?.qqq);
+  const vix = {
+    value: Number.isFinite(vixValue) ? vixValue : null,
+    change_1d_pct: marketChangeValue(engine.vix, ["change_1d_pct", "change1d_pct", "change_1d"]),
+    change_5d_pct: marketChangeValue(engine.vix, ["change_5d_pct", "change5d_pct", "change_5d"]),
+    change_20d_pct: marketChangeValue(engine.vix, ["change_20d_pct", "change20d_pct", "change_20d"]),
+    percentile_1y: marketChangeValue(engine.vix, ["percentile_1y", "one_year_percentile", "percentile"]),
+    regime: vixRegime(vixValue),
+  };
+  const fearGreed = {
+    value: Number.isFinite(fearValue) ? fearValue : null,
+    change_5d: marketChangeValue(engine.fear_greed, ["change_5d", "change_5d_pct", "change5d"]),
+    change_20d: marketChangeValue(engine.fear_greed, ["change_20d", "change_20d_pct", "change20d"]),
+    regime: fearGreedRegime(fearValue, engine.fear_greed?.label),
+  };
+  const tenYearYield = {
+    value: yieldValue,
+    change_5d_bps: marketChangeValue(engine.ten_year_yield, ["change_5d_bps", "change5d_bps"]),
+    change_20d_bps: marketChangeValue(engine.ten_year_yield, ["change_20d_bps", "change20d_bps"]),
+    change_60d_bps: marketChangeValue(engine.ten_year_yield, ["change_60d_bps", "change60d_bps"]),
+    regime: tenYearYieldRegime(yieldValue),
+  };
+  const indicators = [
+    vix.value != null,
+    fearGreed.value != null,
+    tenYearYield.value != null,
+    spyTrend?.price != null || spyTrend?.trend,
+    qqqTrend?.price != null || qqqTrend?.trend,
+  ];
+  const availableCount = indicators.filter(Boolean).length;
+  const marketRegime = deriveMarketRegimeFromContext({ vix, fear_greed: fearGreed, ten_year_yield: tenYearYield, spy_trend: spyTrend, qqq_trend: qqqTrend }, engine.regime);
+  return {
+    vix,
+    fear_greed: fearGreed,
+    ten_year_yield: tenYearYield,
+    spy_trend: spyTrend,
+    qqq_trend: qqqTrend,
+    market_regime: marketRegime,
+    status: availableCount >= 4 ? "available" : availableCount > 0 ? "partial" : "unavailable",
+    updated_at: engine.updated_at || macro.updated_at || null,
+    available_count: availableCount,
+  };
+}
+
+function deriveMarketRegimeFromContext(ctx, fallbackRegime = "neutral") {
+  const vix = ctx.vix || {};
+  const fg = ctx.fear_greed || {};
+  const spy = ctx.spy_trend || {};
+  const qqq = ctx.qqq_trend || {};
+  const vixRising = (vix.change_1d_pct ?? 0) > 10 || (vix.change_5d_pct ?? 0) > 20 || (vix.change_20d_pct ?? 0) > 30;
+  const vixFalling = (vix.change_5d_pct ?? 0) < -15 || (vix.change_20d_pct ?? 0) < -25;
+  const anyBullish = spy.trend === "bullish" || qqq.trend === "bullish";
+  const bothBearish = spy.trend === "bearish" && qqq.trend === "bearish";
+  const overextended = spy.overextended || qqq.overextended;
+  if (vix.regime === "panic" || (fg.regime === "extreme_fear" && bothBearish)) return "panic";
+  if (fg.regime === "extreme_greed" && overextended && vix.regime === "complacency") return "overheated";
+  if (["elevated", "risk_off"].includes(vix.regime) && (vixRising || bothBearish)) return "risk_off";
+  if (["normal", "complacency"].includes(vix.regime) && (vixFalling || anyBullish) && fg.regime !== "extreme_greed") return "risk_on";
+  return fallbackRegime || "neutral";
+}
+
+function marketContextWeightsForProfile(companyProfile = {}) {
+  const profile = companyProfile?.decision_profile?.base_profile || companyProfile?.scoring_profile || "generic";
+  return MARKET_CONTEXT_PROFILE_WEIGHTS[profile] || MARKET_CONTEXT_PROFILE_WEIGHTS.generic;
+}
+
+function marketModifierRangeForProfile(companyProfile = {}, horizon = "mid") {
+  const profile = companyProfile?.decision_profile?.base_profile || companyProfile?.scoring_profile || "generic";
+  return (MARKET_CONTEXT_MODIFIER_RANGES[profile] || MARKET_CONTEXT_MODIFIER_RANGES.generic)[horizon] || [-4, 4];
+}
+
+function scoreMarketFactorScores(ctx, horizon = "short") {
+  const vix = ctx.vix || {};
+  const fg = ctx.fear_greed || {};
+  const tenYear = ctx.ten_year_yield || {};
+  const spy = ctx.spy_trend || {};
+  const qqq = ctx.qqq_trend || {};
+  const vixEasing = (vix.change_5d_pct ?? 0) < -15 || (vix.change_20d_pct ?? 0) < -25;
+  const vixSpike = (vix.change_1d_pct ?? 0) > 10 || (vix.change_5d_pct ?? 0) > 20;
+  const factor = {
+    vix: 0,
+    fear_greed: 0,
+    ten_year_yield: 0,
+    spy_trend: 0,
+    qqq_trend: 0,
+  };
+  if (vix.value != null) {
+    factor.vix += vix.regime === "panic" ? -1 : vix.regime === "risk_off" ? -0.75 : vix.regime === "elevated" ? -0.35 : vix.regime === "normal" ? 0.1 : -0.15;
+    if (vixSpike) factor.vix -= horizon === "short" ? 0.45 : 0.25;
+    if (vixEasing) factor.vix += horizon === "long" ? 0.35 : 0.25;
+  }
+  if (fg.value != null) {
+    if (fg.regime === "extreme_fear") factor.fear_greed += horizon === "long" ? 0.45 : -0.35;
+    else if (fg.regime === "fear") factor.fear_greed += horizon === "long" ? 0.2 : -0.1;
+    else if (fg.regime === "greed") factor.fear_greed -= horizon === "short" ? 0.2 : 0.05;
+    else if (fg.regime === "extreme_greed") factor.fear_greed -= horizon === "short" ? 0.65 : horizon === "mid" ? 0.35 : 0.15;
+    if ((fg.change_5d ?? 0) > 8 && ["extreme_fear", "fear"].includes(fg.regime)) factor.fear_greed += 0.2;
+  }
+  if (tenYear.value != null) {
+    factor.ten_year_yield += tenYear.regime === "high_rate_pressure" ? -0.7 : tenYear.regime === "rate_pressure" ? -0.35 : tenYear.regime === "growth_friendly" ? 0.25 : 0;
+    if ((tenYear.change_5d_bps ?? 0) >= 15) factor.ten_year_yield -= horizon === "short" ? 0.45 : 0.25;
+    if ((tenYear.change_20d_bps ?? 0) >= 30) factor.ten_year_yield -= horizon === "long" ? 0.25 : 0.35;
+    if ((tenYear.change_60d_bps ?? 0) >= 50) factor.ten_year_yield -= horizon === "long" ? 0.4 : 0.15;
+    if ((tenYear.change_5d_bps ?? 0) <= -15 || (tenYear.change_20d_bps ?? 0) <= -30) factor.ten_year_yield += 0.35;
+  }
+  const trendScore = (trend) => {
+    if (trend === "bullish") return 0.55;
+    if (trend === "recovering") return 0.3;
+    if (trend === "bearish") return -0.55;
+    return 0;
+  };
+  if (spy.trend) {
+    factor.spy_trend += trendScore(spy.trend);
+    if (horizon === "short" && spy.overextended) factor.spy_trend -= 0.25;
+    if (horizon === "long" && (spy.change_60d_pct ?? 0) < -8 && vixEasing) factor.spy_trend += 0.2;
+  }
+  if (qqq.trend) {
+    factor.qqq_trend += trendScore(qqq.trend);
+    if (horizon === "short" && qqq.overextended) factor.qqq_trend -= 0.3;
+    if (horizon === "long" && (qqq.change_60d_pct ?? 0) < -10 && vixEasing) factor.qqq_trend += 0.25;
+  }
+  return Object.fromEntries(Object.entries(factor).map(([key, value]) => [key, clamp(value, -1, 1)]));
+}
+
+function buildMarketContextImpact(companyProfile = {}, marketContext = {}, horizon = "mid") {
+  const ctx = marketContext.enhanced_context || normalizeEnhancedMarketContext(marketContext.market_engine || {}, marketContext.macro || {});
+  const baseWeights = marketContextWeightsForProfile(companyProfile);
+  const factorScores = scoreMarketFactorScores(ctx, horizon);
+  const availableEntries = Object.entries(baseWeights).filter(([key]) => {
+    if (key === "vix") return ctx.vix?.value != null;
+    if (key === "fear_greed") return ctx.fear_greed?.value != null;
+    if (key === "ten_year_yield") return ctx.ten_year_yield?.value != null;
+    if (key === "spy_trend") return ctx.spy_trend?.trend != null;
+    if (key === "qqq_trend") return ctx.qqq_trend?.trend != null;
+    return false;
+  });
+  const totalWeight = availableEntries.reduce((sum, [, weight]) => sum + weight, 0);
+  const usedWeights = totalWeight > 0
+    ? Object.fromEntries(availableEntries.map(([key, weight]) => [key, Number((weight / totalWeight).toFixed(4))]))
+    : {};
+  const weightedSignal = Object.entries(usedWeights).reduce((sum, [key, weight]) => sum + (factorScores[key] ?? 0) * weight, 0);
+  const [minMod, maxMod] = marketModifierRangeForProfile(companyProfile, horizon);
+  const modifier = totalWeight > 0
+    ? Number((weightedSignal >= 0 ? weightedSignal * maxMod : Math.abs(weightedSignal) * minMod).toFixed(1))
+    : 0;
+  const drivers = [];
+  const warnings = [];
+  if (ctx.vix?.regime) {
+    const text = currentLanguage === "zh" ? `VIX ${ctx.vix.value ?? "N/A"}，状态 ${ctx.vix.regime}` : `VIX ${ctx.vix.value ?? "N/A"} regime ${ctx.vix.regime}`;
+    (factorScores.vix >= 0 ? drivers : warnings).push(text);
+  }
+  if (ctx.ten_year_yield?.regime) {
+    const text = currentLanguage === "zh" ? `10Y ${ctx.ten_year_yield.value ?? "N/A"}%，状态 ${ctx.ten_year_yield.regime}` : `10Y ${ctx.ten_year_yield.value ?? "N/A"}% regime ${ctx.ten_year_yield.regime}`;
+    (factorScores.ten_year_yield >= 0 ? drivers : warnings).push(text);
+  }
+  if (ctx.qqq_trend?.trend) {
+    const text = currentLanguage === "zh" ? `QQQ 趋势 ${ctx.qqq_trend.trend}` : `QQQ trend ${ctx.qqq_trend.trend}`;
+    (factorScores.qqq_trend >= 0 ? drivers : warnings).push(text);
+  }
+  if (ctx.spy_trend?.trend) {
+    const text = currentLanguage === "zh" ? `SPY 趋势 ${ctx.spy_trend.trend}` : `SPY trend ${ctx.spy_trend.trend}`;
+    (factorScores.spy_trend >= 0 ? drivers : warnings).push(text);
+  }
+  const confidence = Math.round(clamp((totalWeight || 0) * 100, 0, 100));
+  return {
+    market_regime: ctx.market_regime,
+    profile_market_sensitivity: usedWeights,
+    modifier,
+    key_drivers: [...new Set(drivers)].slice(0, 4),
+    warnings: [...new Set(warnings)].slice(0, 4),
+    market_context_confidence: confidence,
+    factor_scores: factorScores,
+    missing_fields: Object.keys(baseWeights).filter((key) => usedWeights[key] == null),
+  };
 }
 
 function marketRateSensitivity(companyProfile, row, engine, horizon) {
@@ -7394,6 +8414,7 @@ function buildMarketContextModule(row, companyProfile) {
       equity_trend: macro.source_info?.equity_trend,
     },
   };
+  const enhancedContext = normalizeEnhancedMarketContext(engine, macro);
   const companyNews = row.companyNews || {
     sentiment: null,
     score: 50,
@@ -7456,6 +8477,14 @@ function buildMarketContextModule(row, companyProfile) {
   }
 
   return {
+    status: enhancedContext.status,
+    vix: enhancedContext.vix,
+    fear_greed: enhancedContext.fear_greed,
+    ten_year_yield: enhancedContext.ten_year_yield,
+    spy_trend: enhancedContext.spy_trend,
+    qqq_trend: enhancedContext.qqq_trend,
+    updated_at: enhancedContext.updated_at,
+    enhanced_context: enhancedContext,
     market_context_score: marketContextScore,
     macro_score: macroScore,
     sector_score: sectorScore,
@@ -7584,7 +8613,7 @@ function buildConflictWarning(row, aiDecision, idealBuyZone, supportResistance, 
   const price = row.price ?? null;
   const insideZone = isPriceInsideIdealBuyZone(price, idealBuyZone);
   const nearZone = isPriceNearIdealBuyZone(price, idealBuyZone, 2);
-  const bearishRatings = [aiDecision.short_term, aiDecision.mid_term, aiDecision.long_term].filter((block) => ["Sell", "Strong Sell", "Short"].includes(block.rating));
+  const bearishRatings = [aiDecision.short_term, aiDecision.mid_term, aiDecision.long_term].filter((block) => ["Reduce", "Sell", "Sell-Avoid", "Strong Sell", "Short Candidate", "Short"].includes(block.rating));
   if ((!insideZone && !nearZone) || !bearishRatings.length) return null;
 
   const reasons = [];
@@ -7623,7 +8652,7 @@ function enforceDecisionConsistency(row, aiDecision, idealBuyZone, supportResist
     ["short_term", "mid_term", "long_term"].forEach((key) => {
       if ((aiDecision[key]?.score ?? 0) < CALIBRATION_CONFIG.rating_thresholds.hold) {
         aiDecision[key].score = CALIBRATION_CONFIG.rating_thresholds.hold;
-        aiDecision[key].rating = "Hold";
+        aiDecision[key].rating = "Hold-Watch";
         aiDecision[key].reasons = [
           insideZone
             ? (currentLanguage === "zh"
@@ -7653,7 +8682,7 @@ function enforceDecisionConsistency(row, aiDecision, idealBuyZone, supportResist
           ? "Price is already inside the ideal buy zone, so direct stock buying should be at least neutral."
           : "Price is already near the ideal buy zone, so direct stock buying should not stay on Avoid.");
     }
-    if ((ratingAtLeast(aiDecision.mid_term.rating, "Hold") || ratingAtLeast(aiDecision.long_term.rating, "Hold")) && strategyMatrix.add_position.action === "Avoid") {
+    if ((ratingAtLeast(aiDecision.mid_term.rating, "Hold-Watch") || ratingAtLeast(aiDecision.long_term.rating, "Hold-Watch")) && strategyMatrix.add_position.action === "Avoid") {
       strategyMatrix.add_position.action = "Neutral";
     }
     if (strategyMatrix.covered_call.action === "Recommended") {
@@ -7673,10 +8702,10 @@ function enforceDecisionConsistency(row, aiDecision, idealBuyZone, supportResist
     if (count < 3 || (zoneQualified && !hardBearishOverride.active)) {
       ["short_term", "mid_term", "long_term"].forEach((key) => {
         if (aiDecision[key].rating === "Strong Sell") {
-          aiDecision[key].rating = zoneQualified && !hardBearishOverride.active ? "Hold" : "Sell";
+          aiDecision[key].rating = zoneQualified && !hardBearishOverride.active ? "Hold-Watch" : "Reduce";
           aiDecision[key].score = Math.max(aiDecision[key].score, zoneQualified && !hardBearishOverride.active
             ? CALIBRATION_CONFIG.rating_thresholds.hold
-            : CALIBRATION_CONFIG.rating_thresholds.sell);
+            : CALIBRATION_CONFIG.rating_thresholds.reduce);
           if (aiDecision[key].score_breakdown) aiDecision[key].score_breakdown.final_score = aiDecision[key].score;
         }
       });
@@ -7698,8 +8727,204 @@ function enforceDecisionConsistency(row, aiDecision, idealBuyZone, supportResist
   };
 }
 
+function buildAccumulationPlan(row, companyProfile, buyPlan, aiDecision, marketContext = null, technical = null) {
+  const tags = companyProfile?.tags || [];
+  const profile = companyProfile?.scoring_profile || "generic";
+  const marketAdjustment = marketAdjustmentForPlans(marketContext);
+  const longRating = aiDecision?.long_term?.rating || "Hold";
+  const shortRating = aiDecision?.short_term?.rating || "Hold";
+  const midRating = aiDecision?.mid_term?.rating || "Hold";
+  const volume = technical?.volume_confirmation || {};
+  const weakSetup = ["Reduce", "Sell-Avoid", "Strong Sell", "Short Candidate", "Short"].includes(shortRating)
+    && ["Reduce", "Sell-Avoid", "Strong Sell", "Short Candidate", "Short"].includes(midRating);
+  const volumeNotConfirmed = ["distribution_risk", "panic_selling", "weak_breakout"].includes(volume.behavior_key) || volume.obv_trend_20d === "falling";
+  let tranches = [
+    { range: "short_term_buy_range", allocation: "20%" },
+    { range: "mid_term_buy_range", allocation: "40%" },
+    { range: "long_term_buy_range", allocation: "40%" },
+  ];
+  if (["ai_infrastructure", "high_growth_cyclical", "china_adr"].includes(profile)) {
+    tranches = [
+      { range: "short_term_buy_range", allocation: "10%" },
+      { range: "mid_term_buy_range", allocation: "30%" },
+      { range: "long_term_buy_range", allocation: "60%" },
+    ];
+  }
+  if (hasAnyTag(tags, ["Speculative", "HighVolatility", "NewlyListed", "Crypto"])) {
+    tranches = [
+      { range: "short_term_buy_range", allocation: "0-10%" },
+      { range: "mid_term_buy_range", allocation: "30%" },
+      { range: "long_term_buy_range", allocation: "60%" },
+    ];
+  }
+  if (profile === "reit_dividend" && hasAnyTag(tags, ["HighDebtRisk"])) {
+    tranches = [
+      { range: "short_term_buy_range", allocation: "0-20%" },
+      { range: "mid_term_buy_range", allocation: "30%" },
+      { range: "long_term_buy_range", allocation: "50%" },
+    ];
+  }
+  let style = buyPlan?.opportunity_type || "left_side_accumulation";
+  if (["avoid_falling_knife", "company_specific_risk"].includes(style)) style = "avoid";
+  if (weakSetup || marketAdjustment.regime === "panic" || volumeNotConfirmed) style = "wait_for_stabilization";
+  if (ratingAtLeast(longRating, "Buy") && !weakSetup && marketAdjustment.regime !== "panic" && !["right_side_confirmation", "avoid", "wait_for_stabilization"].includes(style)) {
+    style = "left_side_accumulation";
+  }
+  if (["Strong Sell", "Short Candidate", "Short"].includes(longRating) && weakSetup) style = "avoid";
+  return {
+    style,
+    tranches,
+    reason: currentLanguage === "zh"
+      ? (style === "avoid"
+        ? "短中期结构偏弱，先避免急着加仓，等量能或支撑重新确认。"
+        : style === "wait_for_stabilization"
+          ? "市场、趋势或量能还没企稳，先等待支撑和 OBV 重新确认，再分批低吸。"
+          : style === "left_side_accumulation"
+          ? "长期逻辑较好，适合按短中长期区间分批低吸。"
+          : "趋势买入需要右侧确认，优先等放量突破或回踩承接。")
+      : (style === "avoid"
+        ? "Short and mid-term structure is weak; avoid rushing adds until support or volume reconfirms."
+        : style === "wait_for_stabilization"
+          ? "Market, trend, or volume has not stabilized yet; wait for support and OBV reconfirmation."
+          : style === "left_side_accumulation"
+          ? "Long-term thesis is constructive, so staged left-side accumulation fits."
+          : "Trend entries need right-side confirmation through volume breakout or sponsored retest."),
+  };
+}
+
+function buildPositionSizing(row, companyProfile, marketContext = null) {
+  const tags = companyProfile?.tags || [];
+  const profile = companyProfile?.scoring_profile || "generic";
+  const marketAdjustment = marketAdjustmentForPlans(marketContext);
+  let suggested = "4-7%";
+  let riskLevel = "medium";
+  if (hasAnyTag(tags, ["MegaCap", "CashCow"])) {
+    suggested = "8-12%";
+    riskLevel = "low";
+  } else if (profile === "healthcare_defensive") {
+    suggested = "6-10%";
+    riskLevel = "low";
+  } else if (profile === "ai_infrastructure" || hasAnyTag(tags, ["HighMultiple"])) {
+    suggested = "4-7%";
+    riskLevel = "medium-high";
+  } else if (hasAnyTag(tags, ["Speculative", "HighVolatility", "NewlyListed", "Crypto"])) {
+    suggested = "1-3%";
+    riskLevel = "high";
+  } else if (profile === "reit_dividend" && hasAnyTag(tags, ["HighDebtRisk"])) {
+    suggested = "2-5%";
+    riskLevel = "high";
+  } else if (profile === "china_adr") {
+    suggested = "3-6%";
+    riskLevel = "medium-high";
+  }
+  return {
+    suggested_max_position_pct: suggested,
+    risk_level: riskLevel,
+    market_position_adjustment: {
+      regime: marketAdjustment.regime,
+      multiplier: marketAdjustment.position_multiplier,
+      adjusted_suggested_max_position_pct: adjustPercentRange(suggested, marketAdjustment.position_multiplier),
+      note: marketAdjustment.note,
+    },
+    reason: currentLanguage === "zh"
+      ? "仓位上限按公司质量、波动率、估值风险和地域 / 行业风险综合设定。"
+      : "Sizing cap reflects quality, volatility, valuation risk, and sector / geographic risk.",
+  };
+}
+
+function buildDoNotBuyReasons(row, buyPlan, technical, fundamental, options, marketContext, supportResistance = null) {
+  const price = row.price ?? null;
+  const reasons = [];
+  const shortRange = buyPlan?.short_term_buy_range || {};
+  if (Number.isFinite(price) && Number.isFinite(shortRange.high) && price > shortRange.high * 1.03) {
+    reasons.push(currentLanguage === "zh" ? "当前价格高于短期推荐买入区间，追高赔率一般。" : "Price is above the short-term buy range, so chase risk is elevated.");
+  }
+  const volume = technical?.volume_confirmation || {};
+  if (volume.behavior_key === "weak_breakout") reasons.push(currentLanguage === "zh" ? "突破缺少量能确认，存在假突破风险。" : "Breakout lacks volume confirmation; weak-breakout risk.");
+  if (["distribution_risk", "panic_selling"].includes(volume.behavior_key)) reasons.push(currentLanguage === "zh" ? "量价结构显示出货或恐慌下跌风险。" : "Volume / price behavior shows distribution or panic-selling risk.");
+  if (volume.obv_trend_20d === "falling") reasons.push(currentLanguage === "zh" ? "OBV 20D 仍在下降，资金流没有确认。" : "OBV 20D is falling; money flow has not confirmed.");
+  if ((fundamental.profile_fundamental?.components?.valuation_risk ?? 50) < 35) reasons.push(currentLanguage === "zh" ? "估值风险较高，需要更好的买入价。" : "Valuation risk is elevated; a better entry price is needed.");
+  if (options.status !== "available" && isUsMarket(row)) reasons.push(currentLanguage === "zh" ? "期权结构暂不可用，无法确认 Put Wall / Call Wall 支撑压力。" : "Options structure is unavailable, so put / call wall confirmation is missing.");
+  if (marketContext.market_regime?.regime === "risk_off") reasons.push(currentLanguage === "zh" ? "市场环境偏防守，进攻型加仓需要更谨慎。" : "Market regime is risk-off, so aggressive adds need caution.");
+  if (fundamental.profile_fundamental?.high_dividend_debt_risk) reasons.push(currentLanguage === "zh" ? "高分红同时伴随债务风险，不能只因为股息率高就买入。" : "High dividend yield comes with debt risk; do not buy on yield alone.");
+  const s1 = supportResistance?.supports?.[0];
+  const s2 = supportResistance?.supports?.[1];
+  if (Number.isFinite(price) && s1?.price && price < s1.price * 0.995) {
+    reasons.push(currentLanguage === "zh" ? "价格已经跌破 S1 支撑，先等重新站回或下一个支撑确认。" : "Price has broken S1; wait for a reclaim or confirmation at the next support.");
+  }
+  if (Number.isFinite(price) && s2?.price && price < s2.price * 0.995) {
+    reasons.push(currentLanguage === "zh" ? "价格跌破 S2，说明中期承接减弱。" : "A break below S2 suggests weaker mid-term sponsorship.");
+  }
+  if (fundamental.profile_fundamental?.components?.regulatory_risk != null && fundamental.profile_fundamental.components.regulatory_risk < 40) {
+    reasons.push(currentLanguage === "zh" ? "公司特定监管 / 业务风险较高，买入需要更大安全边际。" : "Company-specific regulatory / business risk needs a wider safety margin.");
+  }
+  return [...new Set(reasons)].slice(0, 6);
+}
+
+function buildDecisionTriggers(row, supportResistance, technical, marketContext, fundamental) {
+  const r1 = supportResistance.resistances?.[0];
+  const s2 = supportResistance.supports?.[1];
+  const s3 = supportResistance.supports?.[2];
+  return {
+    upgrade_triggers: [
+      r1?.price ? (currentLanguage === "zh" ? `放量站上 ${r1.level} ${formatCurrency(r1.price, row.currencyCode)}` : `Break above ${r1.level} ${formatCurrency(r1.price, row.currencyCode)} on volume`) : null,
+      currentLanguage === "zh" ? "OBV 20D 转升或保持稳定" : "OBV 20D turns higher or stays stable",
+      currentLanguage === "zh" ? "回踩 MA50 不破并出现承接" : "MA50 retest holds with sponsorship",
+      currentLanguage === "zh" ? "VIX 回落或 QQQ / SPY 趋势转强" : "VIX cools or QQQ / SPY trend strengthens",
+      currentLanguage === "zh" ? "基本面评分改善，收入 / 利润率 / FCF 有确认" : "Fundamental score improves through revenue / margin / FCF confirmation",
+    ].filter(Boolean).slice(0, 5),
+    downgrade_triggers: [
+      s2?.price ? (currentLanguage === "zh" ? `放量跌破 ${s2.level} ${formatCurrency(s2.price, row.currencyCode)}` : `Break below ${s2.level} ${formatCurrency(s2.price, row.currencyCode)} on volume`) : null,
+      s3?.price ? (currentLanguage === "zh" ? `跌破 ${s3.level} 后无法快速收复` : `Fails to reclaim ${s3.level}`) : null,
+      currentLanguage === "zh" ? "OBV 继续下降且反弹缩量" : "OBV keeps falling and rebounds on weak volume",
+      currentLanguage === "zh" ? "VIX 快速升高，或 QQQ / SPY 出现破位" : "VIX rises quickly, or QQQ / SPY breaks down",
+      currentLanguage === "zh" ? "收入、利润率或自由现金流恶化" : "Revenue, margins, or free cash flow deteriorate",
+      currentLanguage === "zh" ? "分红削减、债务风险上升或监管冲击" : "Dividend cut, debt risk increase, or regulatory shock",
+    ].filter(Boolean).slice(0, 5),
+  };
+}
+
+function buildModuleQuality(row, modules, marketType = "US") {
+  const unavailable = [];
+  const stale = [];
+  const technicalStatus = modules.technical?.technical_score == null ? "unavailable" : "available";
+  const fundamentalStatus = modules.fundamental?.fundamental_score == null ? "unavailable" : "available";
+  const optionsStatus = marketType === "US" ? (modules.options?.status || "unavailable") : "not_supported";
+  const marketContextStatus = marketType === "US"
+    ? (modules.market_context?.market_engine?.vix?.value != null
+      || modules.market_context?.market_engine?.ten_year_yield?.value != null
+      || modules.market_context?.market_engine?.equity_trend?.spy?.value != null
+      || modules.market_context?.market_engine?.equity_trend?.qqq?.value != null
+      ? "available"
+      : "unavailable")
+    : "not_supported";
+  const sectorCycleStatus = modules.market_context?.sector_score == null ? "unavailable" : "available";
+  [
+    ["technical", technicalStatus],
+    ["fundamental", fundamentalStatus],
+    ["options", optionsStatus],
+    ["market_context", marketContextStatus],
+    ["sector_cycle", sectorCycleStatus],
+  ].forEach(([name, status]) => {
+    if (status === "unavailable") unavailable.push(name);
+    if (status === "stale") stale.push(name);
+  });
+  if (row.dataStaleness === "stale" || row.marketStatus === "closed") stale.push("price");
+  return {
+    technical_status: technicalStatus,
+    fundamental_status: fundamentalStatus,
+    options_status: optionsStatus,
+    market_context_status: marketContextStatus,
+    sector_cycle_status: sectorCycleStatus,
+    unavailable_modules: [...new Set(unavailable)],
+    stale_modules: [...new Set(stale)],
+  };
+}
+
 function horizonWeights(companyProfile, horizon, marketType = "US") {
   const isCn = marketType === "CN_A_SHARE";
+  const decisionWeights = normalizeScoringWeights(companyProfile?.decision_profile?.final_weights, horizon);
+  if (decisionWeights) return decisionWeights;
   const profileWeights = normalizeScoringWeights(companyProfile?.scoring_weights, horizon);
   if (profileWeights) return profileWeights;
   return isCn
@@ -8096,11 +9321,13 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
     ?? modules.technical.volume_signal_score
     ?? modules.technical.volume_confirmation_score,
   );
-  const fundamentalScore = neutralScore(modules.fundamental.fundamental_score);
+  const profileFundamental = modules.fundamental.profile_fundamental || buildProfileFundamentalScore(row, modules.fundamental, companyProfile);
+  const fundamentalScore = neutralScore(profileFundamental.score ?? modules.fundamental.fundamental_score);
   const optionsScore = marketType === "CN_A_SHARE" ? 50 : neutralScore(modules.options.options_score);
   const marketScore = neutralScore(modules.market_context.horizon_scores?.[horizon] ?? modules.market_context.market_context_score);
   const sectorThemeScore = neutralScore(modules.market_context.sector_score ?? (companyProfile.tags?.length ? 58 : 50));
   const marketBreakdown = modules.market_context.horizon_breakdown?.[horizon] || null;
+  const marketContextImpact = buildMarketContextImpact(companyProfile, modules.market_context, horizon);
   const moduleScores = {
     technical: technicalScore,
     long_term_technical: longTermTechnicalScore,
@@ -8109,11 +9336,39 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
     market_context: marketScore,
     sector_theme: sectorThemeScore,
   };
+  const marketEngine = modules.market_context.market_engine || {};
+  const hasMarketContextData = marketType === "US" && Boolean(
+    marketEngine.vix?.value != null
+    || marketEngine.ten_year_yield?.value != null
+    || marketEngine.equity_trend?.spy?.value != null
+    || marketEngine.equity_trend?.qqq?.value != null
+    || marketEngine.fear_greed?.value != null,
+  );
+  const moduleAvailability = {
+    technical: Number.isFinite(technicalScore),
+    long_term_technical: Number.isFinite(longTermTechnicalScore),
+    fundamental: (profileFundamental.confidence ?? 0) > 0,
+    options: marketType === "US" && modules.options.status === "available",
+    market_context: hasMarketContextData,
+    sector_theme: marketType !== "US" || (modules.market_context.sector_score ?? null) != null,
+  };
+  const activeWeightEntries = Object.entries(weights).filter(([key, weight]) => (weight ?? 0) > 0 && moduleAvailability[key] !== false);
+  const missingModules = Object.entries(weights)
+    .filter(([key, weight]) => (weight ?? 0) > 0 && moduleAvailability[key] === false)
+    .map(([key]) => key);
+  const rawActiveWeight = activeWeightEntries.reduce((sum, [, weight]) => sum + weight, 0);
+  const usedWeights = rawActiveWeight > 0
+    ? Object.fromEntries(activeWeightEntries.map(([key, weight]) => [key, Number((weight / rawActiveWeight).toFixed(4))]))
+    : { technical: 1 };
+  const staleModules = [];
+  if (row.dataStaleness === "stale" || row.marketStatus === "closed") staleModules.push("price");
+  if (modules.options.status === "stale") staleModules.push("options");
+  if (modules.market_context.status === "stale") staleModules.push("market_context");
 
   const contributions = Object.fromEntries(
-    Object.entries(weights).map(([key, weight]) => [key, Number(((moduleScores[key] ?? 50) * weight).toFixed(1))]),
+    Object.entries(usedWeights).map(([key, weight]) => [key, Number(((moduleScores[key] ?? 50) * weight).toFixed(1))]),
   );
-  const contribution_caps = Object.fromEntries(Object.entries(weights).map(([key, weight]) => [key, Math.round(weight * 100)]));
+  const contribution_caps = Object.fromEntries(Object.entries(usedWeights).map(([key, weight]) => [key, Math.round(weight * 100)]));
   const baseScore = Object.values(contributions).reduce((sum, value) => sum + value, 0);
   const adjustment = profileScoreAdjustment(companyProfile, modules.fundamental, modules.technical, horizon);
   const hardBearishOverride = decisionContext.hard_bearish_override || { active: false, reasons: [] };
@@ -8121,8 +9376,8 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
     ? { total: 0, items: [], module_totals: {} }
     : buildBonusItems(row, horizon, companyProfile, modules, decisionContext);
   const penalties = buildPenaltyItems(row, horizon, companyProfile, modules, decisionContext);
-  let score = Math.round(clamp(baseScore + adjustment.value + bonuses.total + penalties.total, 0, 100));
-  const bullishModules = Object.keys(weights).map((key) => moduleScores[key] ?? 50).filter((value) => value >= CALIBRATION_CONFIG.rating_thresholds.buy).length;
+  let score = Math.round(clamp(baseScore + adjustment.value + bonuses.total + penalties.total + marketContextImpact.modifier, 0, 100));
+  const bullishModules = Object.keys(usedWeights).map((key) => moduleScores[key] ?? 50).filter((value) => value >= CALIBRATION_CONFIG.rating_thresholds.buy).length;
   if (bullishModules >= 2 && score < CALIBRATION_CONFIG.rating_thresholds.sell) {
     score = CALIBRATION_CONFIG.rating_thresholds.sell;
   }
@@ -8143,7 +9398,7 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
     score = CALIBRATION_CONFIG.rating_thresholds.buy - 1;
   }
   let rating = scoreBucketLabel(score);
-  const componentScores = Object.keys(weights).map((key) => moduleScores[key] ?? 50);
+  const componentScores = Object.keys(usedWeights).map((key) => moduleScores[key] ?? 50);
   const missing = [
     marketType === "US" && modules.market_context.market_engine?.vix?.value == null,
     marketType === "US" && modules.market_context.market_engine?.fear_greed?.value == null,
@@ -8151,7 +9406,9 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
     marketType === "US" && modules.options.put_wall == null,
     ...(companyProfile.missing_classification_data || []).map(() => true),
   ].filter(Boolean).length;
-  const confidence = calculateConfidence(componentScores, missing);
+  const dataCoverage = Math.round(clamp(rawActiveWeight * 100, 0, 100));
+  const baseConfidence = calculateConfidence(componentScores, missing + missingModules.length);
+  const confidence = Math.round(Math.min(baseConfidence, dataCoverage || baseConfidence));
   const reasons = [];
   if (horizon === "short") {
     reasons.push(modules.technical.summary, modules.options.summary, row.changePercent != null ? `${t("dayMove")} ${formatChangePercent(row.changePercent)}` : null);
@@ -8165,6 +9422,10 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
   }
   const scoreBreakdown = {
     weights,
+    used_weights: usedWeights,
+    missing_modules: missingModules,
+    stale_modules: staleModules,
+    data_coverage_pct: dataCoverage,
     module_scores: moduleScores,
     contribution_caps,
     contributions,
@@ -8175,12 +9436,18 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
     market_context: contributions.market_context ?? 0,
     sector_theme: contributions.sector_theme ?? 0,
     market_context_details: marketBreakdown,
+    market_modifier: marketContextImpact.modifier,
+    market_context_impact: marketContextImpact,
+    fundamental_profile_details: profileFundamental,
     profile_adjustment: adjustment.value,
     profile_adjustment_reasons: adjustment.reasons,
     profile_weight_impact: companyProfile.scoring_impact || [],
     support_confluence_bonus: bonuses.module_totals.technical ?? 0,
     bonuses,
     penalties,
+    score,
+    rating,
+    confidence,
     final_score: score,
   };
   if (DEV_MODE) {
@@ -8192,8 +9459,10 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
     score,
     rating,
     confidence,
+    missing_modules: missingModules,
+    stale_modules: staleModules,
     module_scores: moduleScores,
-    adjusted_weights: weights,
+    adjusted_weights: usedWeights,
     top_positive_reasons: [...(bonuses.items || [])].sort((a, b) => b.final_score - a.final_score).slice(0, 3).map((item) => item.reason),
     top_negative_reasons: [...(penalties.items || [])].sort((a, b) => a.final_score - b.final_score).slice(0, 3).map((item) => item.reason),
     reasons: reasons.filter(Boolean).slice(0, 3),
@@ -8223,8 +9492,8 @@ function buildStrategyMatrix(row, aiDecision, idealBuyZone, supportResistance, o
   const kdjJ = row.technicals?.kdj?.j ?? null;
   const volumeConfirmation = row.decisionModel?.technical?.volume_confirmation || {};
   const obvDivergence = (row.changePercent ?? 0) > 0 && (volumeConfirmation.relative_volume ?? 1) >= 1.6 && (volumeConfirmation.close_position ?? 0.5) < 0.58;
-  const signalsConflict = (ratingRank(longRating) >= ratingRank("Buy") && ratingRank(shortRating) <= ratingRank("Sell"))
-    || (ratingRank(midRating) >= ratingRank("Buy") && ratingRank(shortRating) <= ratingRank("Sell"))
+  const signalsConflict = (ratingRank(longRating) >= ratingRank("Buy") && ratingRank(shortRating) <= ratingRank("Reduce"))
+    || (ratingRank(midRating) >= ratingRank("Buy") && ratingRank(shortRating) <= ratingRank("Reduce"))
     || new Set([shortRating, midRating, longRating]).size === 3;
   const clearSupport = supportResistance.supports.some((level) => level.strength !== "weak");
   const clearResistance = supportResistance.resistances.some((level) => level.strength !== "weak");
@@ -8235,16 +9504,16 @@ function buildStrategyMatrix(row, aiDecision, idealBuyZone, supportResistance, o
     (kdjJ ?? 0) > 100,
     obvDivergence,
     optionsModule.covered_call.recommendation === "Recommended",
-    ["Sell", "Strong Sell"].includes(shortRating),
+    ["Reduce", "Sell", "Sell-Avoid", "Strong Sell", "Short Candidate", "Short"].includes(shortRating),
   ].filter(Boolean).length;
   const priceExtended = Number.isFinite(idealBuyZone.high) && price > idealBuyZone.high * 1.03;
   const waitShouldRecommend = (!insideBuyZone && priceExtended) || signalsConflict || !clearSupport || !clearResistance;
 
   const makeEntry = (action, stars, reason, extra = {}) => ({ action, stars, reason, ...extra });
-  let buyAction = (insideBuyZone || nearBuyZone) && !["Sell", "Strong Sell", "Short"].includes(shortRating) && marketState !== "Strong Bearish"
+  let buyAction = (insideBuyZone || nearBuyZone) && !["Sell-Avoid", "Strong Sell", "Short Candidate", "Short"].includes(shortRating) && marketState !== "Strong Bearish"
     ? "Recommended"
     : (ratingAtLeast(longRating, "Buy") || ratingAtLeast(midRating, "Buy")) ? "Neutral" : "Avoid";
-  let addAction = addCanRecommend ? "Recommended" : ratingAtLeast(midRating, "Hold") ? "Neutral" : "Avoid";
+  let addAction = addCanRecommend ? "Recommended" : ratingAtLeast(midRating, "Hold-Watch") ? "Neutral" : "Avoid";
   let takeProfitAction = takeProfitChecks >= 2 ? "Recommended" : (nearResistance || nearR2Plus) ? "Neutral" : "Avoid";
   let waitAction = waitShouldRecommend ? "Recommended" : "Neutral";
   let cspAction = optionsModule.cash_secured_put.recommendation;
@@ -8396,7 +9665,8 @@ function buildDecisionModel(row) {
   const idealBuyZone = buyZones.primary_buy_zone;
   const technical = buildTechnicalModule(row, supportResistance, companyProfile);
   const fundamental = buildFundamentalModule(row, research);
-  const placeholderAi = { short_term: { rating: "Hold" }, mid_term: { rating: "Hold" }, long_term: { rating: "Hold" } };
+  fundamental.profile_fundamental = buildProfileFundamentalScore(row, fundamental, companyProfile);
+  const placeholderAi = { short_term: { rating: "Hold-Watch" }, mid_term: { rating: "Hold-Watch" }, long_term: { rating: "Hold-Watch" } };
   const options = buildOptionsModule(row, supportResistance, idealBuyZone, {
     shortTermRating: placeholderAi.short_term.rating,
     midTermRating: placeholderAi.mid_term.rating,
@@ -8441,12 +9711,23 @@ function buildDecisionModel(row) {
     buildShortSetup(row, companyProfile, refreshedModules, supportResistance, idealBuyZone, "long"),
   ].sort((a, b) => b.score - a.score);
   const shortSetup = shortSetupCandidates[0] || buildShortSetup(row, companyProfile, refreshedModules, supportResistance, idealBuyZone, "short");
-  if (shortSetup.qualified && shortSetup.display_rating && shortSetup.score >= 85 && marketType !== "CN_A_SHARE") {
-    const targetKey = shortSetup.timeframe === "mid"
-      ? "mid_term"
-      : shortSetup.timeframe === "long"
-        ? "long_term"
-        : "short_term";
+  const targetKey = shortSetup.timeframe === "mid"
+    ? "mid_term"
+    : shortSetup.timeframe === "long"
+      ? "long_term"
+      : "short_term";
+  ["short_term", "mid_term", "long_term"].forEach((key) => {
+    if (consistency.aiDecision[key]?.rating === "Short Candidate") {
+      consistency.aiDecision[key].rating = "Strong Sell";
+    }
+  });
+  if (
+    shortSetup.qualified
+    && shortSetup.display_rating
+    && shortSetup.score >= 85
+    && marketType === "US"
+    && (consistency.aiDecision[targetKey]?.score ?? 100) <= CALIBRATION_CONFIG.rating_thresholds.short_candidate
+  ) {
     if (consistency.aiDecision[targetKey]) {
       consistency.aiDecision[targetKey].rating = "Short";
       consistency.aiDecision[targetKey].reasons = [...shortSetup.reasons, ...(consistency.aiDecision[targetKey].reasons || [])].slice(0, 3);
@@ -8455,11 +9736,41 @@ function buildDecisionModel(row) {
   consistency.aiDecision.overall_score = Math.round((consistency.aiDecision.short_term.score * 0.25) + (consistency.aiDecision.mid_term.score * 0.35) + (consistency.aiDecision.long_term.score * 0.4));
   consistency.aiDecision.final_ai_score = consistency.aiDecision.overall_score;
   consistency.aiDecision.final_rating = scoreBucketLabel(consistency.aiDecision.overall_score);
+  if (consistency.aiDecision.final_rating === "Short Candidate") {
+    consistency.aiDecision.final_rating = shortSetup.qualified
+      && shortSetup.score >= 85
+      && marketType === "US"
+      && consistency.aiDecision.overall_score <= CALIBRATION_CONFIG.rating_thresholds.short_candidate
+      ? "Short"
+      : "Strong Sell";
+  }
   consistency.aiDecision.overall_score_formula = currentLanguage === "zh" ? "短期 25% + 中期 35% + 长期 40%" : "short_term 25% + mid_term 35% + long_term 40%";
-  const recommendedBuyPlan = buildRecommendedBuyPlan(row, buyZones, consistency.aiDecision, technical, supportResistance);
-  const stopLossPlan = buildStopLossPlan(row, buyZones, supportResistance, companyProfile, consistency.aiDecision, technical);
-  const dataQuality = buildDataQuality(row, refreshedOptions, marketContext, idealBuyZone, companyProfile);
+  const recommendedBuyPlan = buildRecommendedBuyPlan(row, buyZones, consistency.aiDecision, technical, supportResistance, companyProfile, marketContext, fundamental);
+  const finalOptions = buildOptionsModule(row, supportResistance, idealBuyZone, {
+    shortTermRating: consistency.aiDecision.short_term.rating,
+    midTermRating: consistency.aiDecision.mid_term.rating,
+    longTermRating: consistency.aiDecision.long_term.rating,
+    technical,
+    buyZones,
+    buyPlan: recommendedBuyPlan,
+    companyProfile,
+    fundamental,
+    marketContext,
+  });
+  const moduleQuality = buildModuleQuality(row, { technical, fundamental, options: finalOptions, market_context: marketContext }, marketType);
+  const stopLossPlan = buildStopLossPlan(row, recommendedBuyPlan, supportResistance, companyProfile, consistency.aiDecision, technical, marketContext);
+  const accumulationPlan = buildAccumulationPlan(row, companyProfile, recommendedBuyPlan, consistency.aiDecision, marketContext, technical);
+  const positionSizing = buildPositionSizing(row, companyProfile, marketContext);
+  const decisionTriggers = buildDecisionTriggers(row, supportResistance, technical, marketContext, fundamental);
+  const doNotBuyReasons = buildDoNotBuyReasons(row, recommendedBuyPlan, technical, fundamental, finalOptions, marketContext, supportResistance);
+  const dataQuality = buildDataQuality(row, finalOptions, marketContext, idealBuyZone, companyProfile);
   if (consistency.conflict_warning) dataQuality.warnings.unshift(consistency.conflict_warning.message);
+  const recommendedBuyPlanOutput = {
+    ...recommendedBuyPlan,
+    primary_buy_zone: buyZones.primary_buy_zone,
+    momentum_entry: buyZones.momentum_entry_zone,
+    deep_pullback_zone: buyZones.deep_pullback_zone,
+  };
 
   return {
     ticker: row.ticker,
@@ -8468,28 +9779,79 @@ function buildDecisionModel(row) {
     current_price: row.price ?? null,
     today_change_pct: row.changePercent ?? null,
     company_profile: companyProfile,
-    classification: companyProfile.classification,
+    classification: {
+      ...companyProfile.classification,
+      decision_profile: companyProfile.decision_profile,
+    },
+    decision_profile: companyProfile.decision_profile,
     ai_decision: consistency.aiDecision,
     ideal_buy_zone: idealBuyZone,
-    buy_zones: {
-      ...buyZones,
-      primary_buy_zone: recommendedBuyPlan.primary_buy_zone,
-      momentum_entry: recommendedBuyPlan.momentum_entry,
-      deep_pullback_zone: recommendedBuyPlan.deep_pullback_zone,
-    },
-    recommended_buy_plan: recommendedBuyPlan,
+    primary_buy_zone: buyZones.primary_buy_zone,
+    momentum_entry: buyZones.momentum_entry_zone,
+    deep_pullback_zone: buyZones.deep_pullback_zone,
+    buy_zones: buyZones,
+    buy_plan: recommendedBuyPlan,
+    recommended_buy_plan: recommendedBuyPlanOutput,
     stop_loss_plan: stopLossPlan,
+    accumulation_plan: accumulationPlan,
+    position_sizing: positionSizing,
+    do_not_buy_reasons: doNotBuyReasons,
+    upgrade_triggers: decisionTriggers.upgrade_triggers,
+    downgrade_triggers: decisionTriggers.downgrade_triggers,
+    options_strategy_plan: {
+      sell_put_plan: finalOptions.sell_put_plan,
+      covered_call_plan: finalOptions.covered_call_plan,
+      market_context_notes: [
+        ...(finalOptions.sell_put_plan?.market_context_notes || []),
+        ...(finalOptions.covered_call_plan?.market_context_notes || []),
+      ].filter((item, index, array) => item && array.indexOf(item) === index),
+      confidence_note: finalOptions.status === "available"
+        ? null
+        : (currentLanguage === "zh" ? "期权链暂不可用，策略使用技术位 fallback，置信度降低。" : "Option chain is unavailable; strategy uses technical fallback with lower confidence."),
+    },
+    support_resistance: {
+      supports: supportResistance.supports,
+      resistances: supportResistance.resistances,
+    },
     support_levels: supportResistance.supports,
     resistance_levels: supportResistance.resistances,
     short_setup: shortSetup,
     score_breakdown: {
+      short: consistency.aiDecision.short_term.score_breakdown,
+      mid: consistency.aiDecision.mid_term.score_breakdown,
+      long: consistency.aiDecision.long_term.score_breakdown,
+      final_ai_score: consistency.aiDecision.final_ai_score,
+      final_rating: consistency.aiDecision.final_rating,
+      market_context_impact: {
+        market_regime: marketContext.enhanced_context?.market_regime || marketContext.market_regime?.regime || "neutral",
+        profile_market_sensitivity: consistency.aiDecision.mid_term.score_breakdown?.market_context_impact?.profile_market_sensitivity || {},
+        short_modifier: consistency.aiDecision.short_term.score_breakdown?.market_context_impact?.modifier ?? 0,
+        mid_modifier: consistency.aiDecision.mid_term.score_breakdown?.market_context_impact?.modifier ?? 0,
+        long_modifier: consistency.aiDecision.long_term.score_breakdown?.market_context_impact?.modifier ?? 0,
+        key_drivers: [
+          ...(consistency.aiDecision.short_term.score_breakdown?.market_context_impact?.key_drivers || []),
+          ...(consistency.aiDecision.mid_term.score_breakdown?.market_context_impact?.key_drivers || []),
+          ...(consistency.aiDecision.long_term.score_breakdown?.market_context_impact?.key_drivers || []),
+        ].filter((item, index, array) => item && array.indexOf(item) === index).slice(0, 5),
+        warnings: [
+          ...(consistency.aiDecision.short_term.score_breakdown?.market_context_impact?.warnings || []),
+          ...(consistency.aiDecision.mid_term.score_breakdown?.market_context_impact?.warnings || []),
+          ...(consistency.aiDecision.long_term.score_breakdown?.market_context_impact?.warnings || []),
+        ].filter((item, index, array) => item && array.indexOf(item) === index).slice(0, 5),
+        market_context_confidence: Math.round(mean([
+          consistency.aiDecision.short_term.score_breakdown?.market_context_impact?.market_context_confidence,
+          consistency.aiDecision.mid_term.score_breakdown?.market_context_impact?.market_context_confidence,
+          consistency.aiDecision.long_term.score_breakdown?.market_context_impact?.market_context_confidence,
+        ].filter(Number.isFinite)) ?? 0),
+      },
       short_term: consistency.aiDecision.short_term.score_breakdown,
       mid_term: consistency.aiDecision.mid_term.score_breakdown,
       long_term: consistency.aiDecision.long_term.score_breakdown,
     },
+    module_quality: moduleQuality,
     technical,
     fundamental,
-    options: refreshedOptions,
+    options: finalOptions,
     market_context: marketContext,
     conflict_warning: consistency.conflict_warning,
     hard_bearish_override: consistency.hard_bearish_override,
@@ -8634,6 +9996,8 @@ function renderDetailModal(row) {
         ${zone?.trigger_price ? `<div class="detail-line-note">${currentLanguage === "zh" ? "触发价" : "Trigger Price"}: ${formatCurrency(zone.trigger_price, currencyCode)}</div>` : ""}
         ${zone?.meaning ? `<div class="detail-line-note">${currentLanguage === "zh" ? "含义" : "Meaning"}: ${localizedDashboardText(zone.meaning)}</div>` : ""}
         ${!isMomentum || triggered || waiting ? `<div class="detail-line-note">${t("confidencePct")}: ${zone?.confidence ?? 0}%</div>` : ""}
+        ${zone?.allocation_hint ? `<div class="detail-line-note">${currentLanguage === "zh" ? "建议分批比例" : "Allocation Hint"}: ${zone.allocation_hint}</div>` : ""}
+        ${zone?.style ? `<div class="detail-line-note">${currentLanguage === "zh" ? "风格" : "Style"}: ${localizedDashboardText(zone.style)}</div>` : ""}
         ${!isMomentum ? `<div class="detail-line-note">${t("source")}: ${(zone?.sources || []).map(localizedDashboardText).join(" / ") || t("dataUnavailable")}</div>` : ""}
         ${!isMomentum && reasonText ? `<div class="detail-line-note">${reasonText}</div>` : ""}
         ${isMomentum && triggered ? `<div class="detail-line-note">${currentLanguage === "zh" ? "依据" : "Confirmed Conditions"}: ${reasonText || t("dataUnavailable")}</div>` : ""}
@@ -8644,12 +10008,10 @@ function renderDetailModal(row) {
     `;
   };
   const renderStopLossPlan = (plan) => {
-    if (!plan || (!plan.current_entry_stop && !plan.buy_zone_stop)) {
+    if (!plan || (!plan.short_term_stop && !plan.mid_term_stop && !plan.long_term_stop)) {
       return `<div class="decision-bullet muted">${t("dataUnavailable")}</div>`;
     }
-    const currentStop = plan.current_entry_stop || {};
-    const zoneStop = plan.buy_zone_stop || {};
-    const renderStopCard = (title, stop, distanceLabel) => `
+    const renderStopCard = (title, stop) => `
       <article class="decision-list-card">
         <div class="decision-list-title">${title}</div>
         <div class="detail-line-label">${stop.price == null ? t("dataUnavailable") : formatCurrency(stop.price, currencyCode)}</div>
@@ -8657,22 +10019,28 @@ function renderDetailModal(row) {
         <div class="detail-line-note">${currentLanguage === "zh" ? "含义" : "Meaning"}: ${localizedDashboardText(stop.invalidation_reason || t("dataUnavailable"))}</div>
         <div class="detail-line-note">${currentLanguage === "zh" ? "动作" : "Action"}: ${localizedDashboardText(stop.action_if_triggered || t("dataUnavailable"))}</div>
         <div class="detail-line-note">${currentLanguage === "zh" ? "类型" : "Type"}: ${localizedDashboardText(stop.stop_type || t("dataUnavailable"))} · ${currentLanguage === "zh" ? "风险" : "Risk"}: ${localizedDashboardText(stop.risk_level || t("dataUnavailable"))}</div>
-        <div class="detail-line-note">${distanceLabel}: ${stop.stop_distance_pct ?? stop.stop_distance_pct_from_zone_low ?? "—"}%</div>
+        <div class="detail-line-note">${currentLanguage === "zh" ? "距当前价" : "Distance From Current Price"}: ${stop.stop_distance_pct ?? "—"}%</div>
         <div class="detail-line-note">${currentLanguage === "zh" ? "依据" : "Based On"}: ${(stop.based_on || []).map(localizedDashboardText).join(" / ") || t("dataUnavailable")}</div>
       </article>
     `;
     return `
       <div class="decision-summary-grid">
         ${renderStopCard(
-          currentLanguage === "zh" ? "当前价止损" : "Current Entry Stop",
-          currentStop,
-          currentLanguage === "zh" ? "距当前价" : "Distance From Current Price",
+          currentLanguage === "zh" ? "短期止损" : "Short-Term Stop",
+          plan.short_term_stop || {},
         )}
         ${renderStopCard(
-          currentLanguage === "zh" ? "买入区止损" : "Buy Zone Stop",
-          zoneStop,
-          currentLanguage === "zh" ? "距买入区下沿" : "Distance From Zone Low",
+          currentLanguage === "zh" ? "中期止损" : "Mid-Term Stop",
+          plan.mid_term_stop || {},
         )}
+        ${renderStopCard(
+          currentLanguage === "zh" ? "长期止损" : "Long-Term Stop",
+          plan.long_term_stop || {},
+        )}
+        <article class="decision-list-card">
+          <div class="decision-list-title">${currentLanguage === "zh" ? "基本面止损触发" : "Fundamental Stop Triggers"}</div>
+          <div class="decision-bullets">${renderReasonBullets(plan.fundamental_stop?.triggers || [], "warning")}</div>
+        </article>
       </div>
     `;
   };
@@ -8727,6 +10095,19 @@ function renderDetailModal(row) {
           <em>${block.horizon}</em>
         </div>
       </div>
+      <div class="detail-line-note">
+        ${currentLanguage === "zh" ? "实际使用权重" : "Used weights"}: ${Object.entries(breakdown.used_weights || {}).map(([key, value]) => `${moduleLabel(key)} ${(value * 100).toFixed(0)}%`).join(" / ") || t("dataUnavailable")}
+        ${breakdown.missing_modules?.length ? ` · ${currentLanguage === "zh" ? "缺失模块" : "Missing"}: ${breakdown.missing_modules.map(moduleLabel).join(" / ")}` : ""}
+        ${Number.isFinite(breakdown.data_coverage_pct) ? ` · ${currentLanguage === "zh" ? "数据覆盖" : "Coverage"}: ${breakdown.data_coverage_pct}%` : ""}
+      </div>
+      ${breakdown.market_context_impact ? `
+        <div class="detail-line-note">
+          ${currentLanguage === "zh" ? "市场环境修正" : "Market Context Modifier"}: ${breakdown.market_context_impact.modifier > 0 ? "+" : ""}${breakdown.market_context_impact.modifier ?? 0}
+          · ${currentLanguage === "zh" ? "置信度" : "Confidence"} ${breakdown.market_context_impact.market_context_confidence ?? 0}%
+          ${(breakdown.market_context_impact.key_drivers || []).length ? ` · ${(breakdown.market_context_impact.key_drivers || []).slice(0, 2).map(localizedDashboardText).join(" / ")}` : ""}
+          ${(breakdown.market_context_impact.warnings || []).length ? ` · ${(breakdown.market_context_impact.warnings || []).slice(0, 2).map(localizedDashboardText).join(" / ")}` : ""}
+        </div>
+      ` : ""}
       <div class="detail-line-list">
         <div class="detail-line-row">
           <div>
@@ -8768,6 +10149,8 @@ function renderDetailModal(row) {
           <div>
             <div class="detail-line-label">${level.level} · ${formatCurrency(level.price, currencyCode)}</div>
             <div class="detail-line-note">${t("source")}: ${(level.sources || level.source || []).map(localizedDashboardText).join(" / ")} · ${t("strength")}: ${level.strength_label || localizedStrength(level.strength)}</div>
+            <div class="detail-line-note">${currentLanguage === "zh" ? "量能确认" : "Volume Confirmation"}: ${localizedDashboardText(level.volume_confirmation || t("dataUnavailable"))}</div>
+            ${(level.notes || []).length ? `<div class="detail-line-note">${currentLanguage === "zh" ? "备注" : "Notes"}: ${(level.notes || []).map(localizedDashboardText).join(" / ")}</div>` : ""}
           </div>
           <div class="detail-line-side"><strong>${level.strength_label || localizedStrength(level.strength)}</strong></div>
         </div>
@@ -8809,7 +10192,7 @@ function renderDetailModal(row) {
     if (!plan || plan.status === "not_supported") {
       return `<div class="decision-bullet muted">${currentLanguage === "zh" ? "该市场暂不支持期权策略计划。" : "Options strategy plans are not supported for this market."}</div>`;
     }
-    if (plan.status !== "available" || !plan.plans?.length) {
+    if (!["available", "fallback"].includes(plan.status) || !plan.plans?.length) {
       return `<div class="decision-bullet muted">${t("optionsUnavailable")}</div>`;
     }
     return plan.plans.map((item) => `
@@ -8907,31 +10290,68 @@ function renderDetailModal(row) {
       </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "推荐买入计划" : "Recommended Buy Plan"}</h3></div>
+        <div class="detail-line-note">
+          ${currentLanguage === "zh" ? "机会类型" : "Opportunity Type"}: ${localizedDashboardText(decision.buy_plan?.opportunity_type || t("dataUnavailable"))}
+          ${(decision.buy_plan?.market_adjustment_notes || []).length ? ` · ${(decision.buy_plan.market_adjustment_notes || []).map(localizedDashboardText).join(" / ")}` : ""}
+        </div>
         <div class="decision-summary-grid">
           ${[
             renderBuyZoneCard(
-              decision.recommended_buy_plan?.primary_buy_zone?.title || (currentLanguage === "zh" ? "主要买入区" : "Primary Buy Zone"),
-              decision.recommended_buy_plan?.primary_buy_zone || decision.buy_zones?.primary_buy_zone || decision.ideal_buy_zone,
+              decision.buy_plan?.short_term_buy_range?.title || (currentLanguage === "zh" ? "短期推荐买入区间" : "Short-Term Buy Range"),
+              decision.buy_plan?.short_term_buy_range,
             ),
             renderBuyZoneCard(
-              decision.recommended_buy_plan?.momentum_entry?.title || (currentLanguage === "zh" ? "动量买入" : "Momentum Entry"),
-              decision.recommended_buy_plan?.momentum_entry || decision.buy_zones?.momentum_entry_zone,
+              decision.buy_plan?.mid_term_buy_range?.title || (currentLanguage === "zh" ? "中期推荐买入区间" : "Mid-Term Buy Range"),
+              decision.buy_plan?.mid_term_buy_range,
             ),
             renderBuyZoneCard(
-              decision.recommended_buy_plan?.deep_pullback_zone?.title || (currentLanguage === "zh" ? "深度回调区" : "Deep Pullback Zone"),
-              decision.recommended_buy_plan?.deep_pullback_zone || decision.buy_zones?.deep_pullback_zone,
+              decision.buy_plan?.long_term_buy_range?.title || (currentLanguage === "zh" ? "长期推荐买入区间" : "Long-Term Buy Range"),
+              decision.buy_plan?.long_term_buy_range,
             ),
           ].filter(Boolean).join("")}
         </div>
+        ${decision.accumulation_plan ? `
+          <div class="detail-line-list">
+            <div class="detail-line-row">
+              <div>
+                <div class="detail-line-label">${currentLanguage === "zh" ? "分批计划" : "Accumulation Plan"} · ${localizedDashboardText(decision.accumulation_plan.style)}</div>
+                <div class="detail-line-note">${localizedDashboardText(decision.accumulation_plan.reason)}</div>
+                <div class="detail-line-note">${(decision.accumulation_plan.tranches || []).map((item) => `${localizedDashboardText(item.range)}: ${item.allocation}`).join(" / ")}</div>
+              </div>
+            </div>
+          </div>
+        ` : ""}
       </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "止损计划" : "Stop Loss Plan"}</h3></div>
         ${renderStopLossPlan(decision.stop_loss_plan)}
       </section>
       <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "仓位与触发条件" : "Sizing & Triggers"}</h3></div>
+        <div class="decision-summary-grid">
+          <div class="decision-list-card">
+            <div class="decision-list-title">${currentLanguage === "zh" ? "仓位上限" : "Position Sizing"}</div>
+            <div class="detail-line-label">${decision.position_sizing?.suggested_max_position_pct || t("dataUnavailable")}</div>
+            <div class="detail-line-note">${currentLanguage === "zh" ? "风险" : "Risk"}: ${localizedDashboardText(decision.position_sizing?.risk_level || t("dataUnavailable"))}</div>
+            ${decision.position_sizing?.market_position_adjustment ? `<div class="detail-line-note">${currentLanguage === "zh" ? "市场调整后" : "Market Adjusted"}: ${decision.position_sizing.market_position_adjustment.adjusted_suggested_max_position_pct || t("dataUnavailable")} · ${localizedDashboardText(decision.position_sizing.market_position_adjustment.note)}</div>` : ""}
+            <div class="detail-line-note">${localizedDashboardText(decision.position_sizing?.reason || t("dataUnavailable"))}</div>
+          </div>
+          <div class="decision-list-card">
+            <div class="decision-list-title">${currentLanguage === "zh" ? "暂不买入原因" : "Do Not Buy Reasons"}</div>
+            <div class="decision-bullets">${renderReasonBullets(decision.do_not_buy_reasons || [], "warning")}</div>
+          </div>
+          <div class="decision-list-card">
+            <div class="decision-list-title">${currentLanguage === "zh" ? "上调触发" : "Upgrade Triggers"}</div>
+            <div class="decision-bullets">${renderReasonBullets(decision.upgrade_triggers || [], "positive")}</div>
+          </div>
+          <div class="decision-list-card">
+            <div class="decision-list-title">${currentLanguage === "zh" ? "下调触发" : "Downgrade Triggers"}</div>
+            <div class="decision-bullets">${renderReasonBullets(decision.downgrade_triggers || [], "warning")}</div>
+          </div>
+        </div>
+      </section>
+      <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("supportLevels")}</h3></div>
-        ${renderLevelSummary(decision.support_levels, "nearestSupport", "strongestSupport")}
-        ${renderLevelSummary(decision.resistance_levels, "nearestResistance", "strongestResistance")}
         <div class="decision-summary-grid">
           <div class="decision-list-card">
             <div class="decision-list-title">${t("supportLevels")}</div>
@@ -8946,6 +10366,7 @@ function renderDetailModal(row) {
       ${isUsStock ? `
         <section class="detail-section-card">
           <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "期权策略计划" : "Options Strategy Plan"}</h3></div>
+          ${decision.options_strategy_plan?.confidence_note ? `<div class="decision-bullet muted">${localizedDashboardText(decision.options_strategy_plan.confidence_note)}</div>` : ""}
           <div class="decision-summary-grid">
             <div class="decision-list-card">
               <div class="decision-list-title">${currentLanguage === "zh" ? "卖出看跌期权计划" : "Sell Put Plan"}</div>
