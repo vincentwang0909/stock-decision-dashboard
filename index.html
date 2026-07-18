@@ -52,17 +52,17 @@
               <button id="addStockButton" type="submit" class="watchlist-submit" disabled>Add Selected</button>
             </form>
             <div class="sort-rail" role="tablist" aria-label="Sort stocks">
-              <button class="sort-btn" type="button" data-sort-key="score" aria-label="Sort by signal mix">
-                <span id="sortMixLabel">Overall AI Score</span><span class="sort-indicator">↕</span>
+              <button class="sort-btn" type="button" data-sort-key="score" aria-label="Sort by action score">
+                <span id="sortMixLabel">Action Score</span><span class="sort-indicator">↕</span>
               </button>
-              <button class="sort-btn" type="button" data-sort-key="shortScore" aria-label="Sort by short-term score">
-                <span id="sortShortLabel">Short-Term Score</span><span class="sort-indicator">↕</span>
+              <button class="sort-btn" type="button" data-sort-key="shortScore" aria-label="Sort by short-term action score">
+                <span id="sortShortLabel">Short-Term Action Score</span><span class="sort-indicator">↕</span>
               </button>
-              <button class="sort-btn" type="button" data-sort-key="midScore" aria-label="Sort by mid-term score">
-                <span id="sortMidLabel">Mid-Term Score</span><span class="sort-indicator">↕</span>
+              <button class="sort-btn" type="button" data-sort-key="midScore" aria-label="Sort by mid-term action score">
+                <span id="sortMidLabel">Mid-Term Action Score</span><span class="sort-indicator">↕</span>
               </button>
-              <button class="sort-btn" type="button" data-sort-key="longScore" aria-label="Sort by long-term score">
-                <span id="sortLongLabel">Long-Term Score</span><span class="sort-indicator">↕</span>
+              <button class="sort-btn" type="button" data-sort-key="longScore" aria-label="Sort by long-term action score">
+                <span id="sortLongLabel">Long-Term Action Score</span><span class="sort-indicator">↕</span>
               </button>
               <button class="sort-btn" type="button" data-sort-key="ticker" aria-label="Sort by ticker">
                 <span id="sortTickerLabel">Ticker</span><span class="sort-indicator">↕</span>
@@ -97,7 +97,7 @@
               <p id="heroGuide" class="hero-guide">
                 <strong>Action</strong> = mid / long-term accumulation view.
                 <strong>Tactical</strong> = short-term support / resistance timing.
-                <strong>Signal Mix</strong> = indicator blend, not a direct buy rating.
+                <strong>Action Score</strong> = how strongly the current action is supported.
               </p>
             </div>
           </div>
@@ -112,7 +112,7 @@
               <strong id="detailAction">Hold</strong>
             </div>
             <div class="mini-metric">
-              <span id="detailMixLabel">Signal Mix</span>
+              <span id="detailMixLabel">Action Score</span>
               <strong id="detailScore">47</strong>
             </div>
           </div>
@@ -165,8 +165,8 @@
 
         <section class="grid-card summary-card full-width" hidden>
           <h2 id="howTitle">How the Signals Work</h2>
-          <p id="howBody"><strong>Action</strong> is the patient mid / long-term stance. <strong>Tactical Buy / Hold / Sell</strong> is the short-term level read. <strong>Signal Mix</strong> is just the blended indicator balance and can stay high even when the stock is not yet in a good ambush entry zone.</p>
-          <p id="howSmall" class="small">Examples: a stock can show high Signal Mix because the trend is healthy, while Action still stays Hold if price is too extended from support.</p>
+          <p id="howBody"><strong>Action</strong> is the current operation recommendation. <strong>Action Score</strong> measures how strongly the model supports executing that action, after price position, ranges, trend, volume, fundamentals, valuation, options, and market context are combined.</p>
+          <p id="howSmall" class="small">Example: Hold / Watch can have a high Action Score when the stock is between buy and sell ranges and neither side has enough edge.</p>
         </section>
       </main>
     </div>
