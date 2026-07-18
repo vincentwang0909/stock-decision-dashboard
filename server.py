@@ -1593,7 +1593,7 @@ def find_active_market_event(events, as_of_date=None, lookback_days=3):
 
 
 def build_index_trend(symbol, label):
-    points = fetch_symbol_history_points(symbol, period="3mo", interval="1d", limit=50)
+    points = fetch_symbol_history_points(symbol, period="1y", interval="1d", limit=180)
     if not points:
         return {
             "symbol": symbol,
@@ -1601,22 +1601,23 @@ def build_index_trend(symbol, label):
             "value": None,
             "change_5d_pct": None,
             "change_20d_pct": None,
+            "change_60d_pct": None,
+            "change_120d_pct": None,
             "trend": "neutral",
             "impact": "Data unavailable",
         }
     current_value = latest_series_value(points)
-    change_5d = series_change(points, 5)
-    change_20d = series_change(points, 20)
-    change_5d_pct = None
-    change_20d_pct = None
-    if current_value is not None and len(points) > 5:
-        base_5d = _safe_float(points[max(0, len(points) - 6)].get("value"))
-        if base_5d not in (None, 0):
-            change_5d_pct = round(((current_value - base_5d) / base_5d) * 100, 2)
-    if current_value is not None and len(points) > 20:
-        base_20d = _safe_float(points[max(0, len(points) - 21)].get("value"))
-        if base_20d not in (None, 0):
-            change_20d_pct = round(((current_value - base_20d) / base_20d) * 100, 2)
+    def pct_change_for_lookback(lookback):
+        if current_value is None or len(points) <= lookback:
+            return None
+        base_value = _safe_float(points[max(0, len(points) - lookback - 1)].get("value"))
+        if base_value in (None, 0):
+            return None
+        return round(((current_value - base_value) / base_value) * 100, 2)
+    change_5d_pct = pct_change_for_lookback(5)
+    change_20d_pct = pct_change_for_lookback(20)
+    change_60d_pct = pct_change_for_lookback(60)
+    change_120d_pct = pct_change_for_lookback(120)
     trend = "neutral"
     if (change_5d_pct or 0) >= 1.5 and (change_20d_pct or 0) >= 0:
         trend = "rising"
@@ -1633,6 +1634,8 @@ def build_index_trend(symbol, label):
         "value": current_value,
         "change_5d_pct": change_5d_pct,
         "change_20d_pct": change_20d_pct,
+        "change_60d_pct": change_60d_pct,
+        "change_120d_pct": change_120d_pct,
         "trend": trend,
         "impact": impact,
     }
@@ -1718,6 +1721,8 @@ def build_unavailable_market_trend(symbol):
         "value": None,
         "change_5d_pct": None,
         "change_20d_pct": None,
+        "change_60d_pct": None,
+        "change_120d_pct": None,
         "trend": "neutral",
         "impact": "Data unavailable",
     }
@@ -4794,6 +4799,15 @@ def market_context_payload_valid(payload):
     return market_context_payload_status(payload) in {"available", "partial"}
 
 
+def market_context_has_index_lookbacks(payload):
+    market_context = (payload or {}).get("market_context") or {}
+    equity_trend = market_context.get("equity_trend") or {}
+    spy = equity_trend.get("spy") or {}
+    qqq = equity_trend.get("qqq") or {}
+    required_fields = ("change_60d_pct", "change_120d_pct")
+    return all(spy.get(field) is not None for field in required_fields) and all(qqq.get(field) is not None for field in required_fields)
+
+
 def flatten_market_context_payload(payload, meta=None):
     market_context = (payload or {}).get("market_context") or {}
     equity_trend = market_context.get("equity_trend") or {}
@@ -4939,8 +4953,8 @@ def build_unavailable_market_context(reason="Market context skipped for fast mar
             "fear_greed": {"value": None, "label": None, "trend": None, "impact": "Data unavailable"},
             "ten_year_yield": {"value": None, "change_5d_bps": None, "change_20d_bps": None, "trend": "neutral", "impact": "Data unavailable"},
             "equity_trend": {
-                "spy": {"symbol": "SPY", "label": "SPY", "value": None, "change_5d_pct": None, "change_20d_pct": None, "trend": "neutral", "impact": "Data unavailable"},
-                "qqq": {"symbol": "QQQ", "label": "QQQ", "value": None, "change_5d_pct": None, "change_20d_pct": None, "trend": "neutral", "impact": "Data unavailable"},
+                "spy": {"symbol": "SPY", "label": "SPY", "value": None, "change_5d_pct": None, "change_20d_pct": None, "change_60d_pct": None, "change_120d_pct": None, "trend": "neutral", "impact": "Data unavailable"},
+                "qqq": {"symbol": "QQQ", "label": "QQQ", "value": None, "change_5d_pct": None, "change_20d_pct": None, "change_60d_pct": None, "change_120d_pct": None, "trend": "neutral", "impact": "Data unavailable"},
                 "summary": reason,
                 "impact": "neutral",
             },
@@ -4991,6 +5005,7 @@ def get_market_context_cached_snapshot(force=False, allow_live=True):
         and not force
         and MARKET_CONTEXT_CACHE.get("expiresAt", 0) > now
         and (market_context_payload_valid(cached_memory) or not allow_live)
+        and (market_context_has_index_lookbacks(cached_memory) or not allow_live)
     ):
         attempts.append({"source": "memory_cache", "success": True, "fresh": True})
         return cached_memory, {
@@ -5016,7 +5031,14 @@ def get_market_context_cached_snapshot(force=False, allow_live=True):
             "fresh": cache_is_fresh,
             "age_minutes": round((cached_disk.get("cache_age_seconds") or 0) / 60, 2) if cached_disk.get("cache_age_seconds") is not None else None,
         })
-        if cached_disk_payload and not force and cache_is_fresh and (market_context_payload_valid(cached_disk_payload) or not allow_live):
+        disk_has_required_index_lookbacks = market_context_has_index_lookbacks(cached_disk_payload)
+        if (
+            cached_disk_payload
+            and not force
+            and cache_is_fresh
+            and (market_context_payload_valid(cached_disk_payload) or not allow_live)
+            and (disk_has_required_index_lookbacks or not allow_live)
+        ):
             MARKET_CONTEXT_CACHE["value"] = cached_disk_payload
             MARKET_CONTEXT_CACHE["expiresAt"] = now + NEWS_CACHE_SECONDS
             return cached_disk_payload, {
@@ -5766,8 +5788,8 @@ class Handler(SimpleHTTPRequestHandler):
                         "source": "market_events.json",
                     },
                     "equity_trend": {
-                        "spy": {"symbol": "SPY", "label": "SPY", "value": None, "change_5d_pct": None, "change_20d_pct": None, "trend": "neutral", "impact": "Data unavailable"},
-                        "qqq": {"symbol": "QQQ", "label": "QQQ", "value": None, "change_5d_pct": None, "change_20d_pct": None, "trend": "neutral", "impact": "Data unavailable"},
+                        "spy": {"symbol": "SPY", "label": "SPY", "value": None, "change_5d_pct": None, "change_20d_pct": None, "change_60d_pct": None, "change_120d_pct": None, "trend": "neutral", "impact": "Data unavailable"},
+                        "qqq": {"symbol": "QQQ", "label": "QQQ", "value": None, "change_5d_pct": None, "change_20d_pct": None, "change_60d_pct": None, "change_120d_pct": None, "trend": "neutral", "impact": "Data unavailable"},
                         "summary": f"Equity trend feed unavailable: {exc}",
                         "impact": "neutral",
                     },

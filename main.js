@@ -5212,6 +5212,8 @@ function buildRelativeStrengthModule(row, marketContext = {}, companyProfile = {
     return Number.isFinite(stockValue) && Number.isFinite(benchmarkValue) ? stockValue - benchmarkValue : null;
   };
   const sectorEtf = sectorEtfForClassification(companyProfile);
+  const spyHasAllLookbacks = [20, 60, 120].every((lookback) => Number.isFinite(benchmarkTrendReturn(spyTrend, lookback)));
+  const qqqHasAllLookbacks = [20, 60, 120].every((lookback) => Number.isFinite(benchmarkTrendReturn(qqqTrend, lookback)));
   return {
     stock_return_20d: stockReturns["20d"],
     stock_return_60d: stockReturns["60d"],
@@ -5226,8 +5228,8 @@ function buildRelativeStrengthModule(row, marketContext = {}, companyProfile = {
     sector_etf: sectorEtf,
     relative_strength_percentile: null,
     source_status: {
-      spy: Number.isFinite(benchmarkTrendReturn(spyTrend, 20)) ? "available" : "unavailable",
-      qqq: Number.isFinite(benchmarkTrendReturn(qqqTrend, 20)) ? "available" : "unavailable",
+      spy: spyHasAllLookbacks ? "available" : Number.isFinite(benchmarkTrendReturn(spyTrend, 20)) ? "partial" : "unavailable",
+      qqq: qqqHasAllLookbacks ? "available" : Number.isFinite(benchmarkTrendReturn(qqqTrend, 20)) ? "partial" : "unavailable",
       sector_etf: "unavailable",
       percentile: "unavailable",
     },
@@ -9159,6 +9161,7 @@ function normalizeIndexTrend(raw = {}) {
     change_5d_pct: marketChangeValue(raw, ["change_5d_pct", "change5d_pct", "change_5d", "return_5d"]),
     change_20d_pct: change20,
     change_60d_pct: marketChangeValue(raw, ["change_60d_pct", "change60d_pct", "change_60d", "return_60d"]),
+    change_120d_pct: marketChangeValue(raw, ["change_120d_pct", "change120d_pct", "change_120d", "return_120d"]),
     ma20: Number.isFinite(ma20) ? ma20 : null,
     ma50: Number.isFinite(ma50) ? ma50 : null,
     ma200: Number.isFinite(ma200) ? ma200 : null,
@@ -12828,8 +12831,8 @@ function renderDetailModal(row) {
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "相对强度" : "Relative Strength"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
           { label: currentLanguage === "zh" ? "本股 20 / 60 / 120日涨跌" : "Stock Return 20 / 60 / 120D", value: `${displayValue(relativeStrength.stock_return_20d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_return_60d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_return_120d, (value) => formatChangePercent(value))}` },
-          { label: currentLanguage === "zh" ? "相对 SPY 20 / 60 / 120日" : "Stock vs SPY 20 / 60 / 120D", value: `${displayValue(relativeStrength.stock_vs_spy_20d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_spy_60d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_spy_120d, (value) => formatChangePercent(value))}`, note: relativeStrength.source_status?.spy === "unavailable" ? (currentLanguage === "zh" ? "SPY 60/120日基准序列缺失时显示暂不可用。" : "Unavailable when SPY benchmark history is missing.") : "" },
-          { label: currentLanguage === "zh" ? "相对 QQQ 20 / 60 / 120日" : "Stock vs QQQ 20 / 60 / 120D", value: `${displayValue(relativeStrength.stock_vs_qqq_20d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_qqq_60d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_qqq_120d, (value) => formatChangePercent(value))}`, note: relativeStrength.source_status?.qqq === "unavailable" ? (currentLanguage === "zh" ? "QQQ 60/120日基准序列缺失时显示暂不可用。" : "Unavailable when QQQ benchmark history is missing.") : "" },
+          { label: currentLanguage === "zh" ? "相对 SPY 20 / 60 / 120日" : "Stock vs SPY 20 / 60 / 120D", value: `${displayValue(relativeStrength.stock_vs_spy_20d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_spy_60d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_spy_120d, (value) => formatChangePercent(value))}`, note: relativeStrength.source_status?.spy !== "available" ? (currentLanguage === "zh" ? "SPY 基准 60/120日序列缺失时对应周期显示暂不可用；手动刷新会重建新版市场缓存。" : "Missing SPY 60/120D benchmark history leaves those horizons unavailable; manual refresh rebuilds the market cache.") : "" },
+          { label: currentLanguage === "zh" ? "相对 QQQ 20 / 60 / 120日" : "Stock vs QQQ 20 / 60 / 120D", value: `${displayValue(relativeStrength.stock_vs_qqq_20d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_qqq_60d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_qqq_120d, (value) => formatChangePercent(value))}`, note: relativeStrength.source_status?.qqq !== "available" ? (currentLanguage === "zh" ? "QQQ 基准 60/120日序列缺失时对应周期显示暂不可用；手动刷新会重建新版市场缓存。" : "Missing QQQ 60/120D benchmark history leaves those horizons unavailable; manual refresh rebuilds the market cache.") : "" },
           { label: currentLanguage === "zh" ? "相对行业ETF" : "Stock vs Sector ETF", value: displayValue(relativeStrength.stock_vs_sector_etf, (value) => formatChangePercent(value)), note: relativeStrength.sector_etf ? `${currentLanguage === "zh" ? "参考ETF" : "Reference ETF"}: ${relativeStrength.sector_etf} · ${localizedDashboardText(relativeStrength.note)}` : localizedDashboardText(relativeStrength.note) },
           { label: currentLanguage === "zh" ? "相对强度百分位" : "Relative Strength Percentile", value: displayValue(relativeStrength.relative_strength_percentile, (value) => `${Math.round(value)}%`), note: currentLanguage === "zh" ? "需要同一股票池横截面分布；当前没有足够样本时不伪造。" : "Requires cross-sectional universe data and is not fabricated without it." },
         ])}</div>
@@ -13026,8 +13029,8 @@ function renderDetailModal(row) {
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "SPY / QQQ 大盘趋势" : "SPY / QQQ Trend"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: "SPY", value: marketEngine.equity_trend?.spy?.value == null ? t("dataUnavailable") : `${formatCurrency(marketEngine.equity_trend.spy.value, "USD")} · ${localizeMarketSentiment(marketEngine.equity_trend.spy.trend)}`, note: marketEngine.equity_trend?.spy?.value == null ? renderSourceInfo(marketEngine.source_info?.equity_trend) : `${currentLanguage === "zh" ? "5日" : "5D"} ${displayValue(marketEngine.equity_trend.spy.change_5d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "20日" : "20D"} ${displayValue(marketEngine.equity_trend.spy.change_20d_pct, (value) => formatChangePercent(value))}` },
-          { label: "QQQ", value: marketEngine.equity_trend?.qqq?.value == null ? t("dataUnavailable") : `${formatCurrency(marketEngine.equity_trend.qqq.value, "USD")} · ${localizeMarketSentiment(marketEngine.equity_trend.qqq.trend)}`, note: marketEngine.equity_trend?.qqq?.value == null ? renderSourceInfo(marketEngine.source_info?.equity_trend) : `${currentLanguage === "zh" ? "5日" : "5D"} ${displayValue(marketEngine.equity_trend.qqq.change_5d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "20日" : "20D"} ${displayValue(marketEngine.equity_trend.qqq.change_20d_pct, (value) => formatChangePercent(value))}` },
+          { label: "SPY", value: marketEngine.equity_trend?.spy?.value == null ? t("dataUnavailable") : `${formatCurrency(marketEngine.equity_trend.spy.value, "USD")} · ${localizeMarketSentiment(marketEngine.equity_trend.spy.trend)}`, note: marketEngine.equity_trend?.spy?.value == null ? renderSourceInfo(marketEngine.source_info?.equity_trend) : `${currentLanguage === "zh" ? "5日" : "5D"} ${displayValue(marketEngine.equity_trend.spy.change_5d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "20日" : "20D"} ${displayValue(marketEngine.equity_trend.spy.change_20d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "60日" : "60D"} ${displayValue(marketEngine.equity_trend.spy.change_60d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "120日" : "120D"} ${displayValue(marketEngine.equity_trend.spy.change_120d_pct, (value) => formatChangePercent(value))}` },
+          { label: "QQQ", value: marketEngine.equity_trend?.qqq?.value == null ? t("dataUnavailable") : `${formatCurrency(marketEngine.equity_trend.qqq.value, "USD")} · ${localizeMarketSentiment(marketEngine.equity_trend.qqq.trend)}`, note: marketEngine.equity_trend?.qqq?.value == null ? renderSourceInfo(marketEngine.source_info?.equity_trend) : `${currentLanguage === "zh" ? "5日" : "5D"} ${displayValue(marketEngine.equity_trend.qqq.change_5d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "20日" : "20D"} ${displayValue(marketEngine.equity_trend.qqq.change_20d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "60日" : "60D"} ${displayValue(marketEngine.equity_trend.qqq.change_60d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "120日" : "120D"} ${displayValue(marketEngine.equity_trend.qqq.change_120d_pct, (value) => formatChangePercent(value))}` },
           { label: t("summary"), value: marketEngine.equity_trend?.summary || t("dataUnavailable") },
         ])}</div>
       </section>
