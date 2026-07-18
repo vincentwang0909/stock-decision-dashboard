@@ -833,7 +833,17 @@ def fetch_stooq_chart_frame(symbol, limit=260):
 
 
 def fetch_yahoo_quote_summary_snapshot(symbol):
-    modules = "price,summaryDetail,defaultKeyStatistics,financialData,summaryProfile"
+    modules = ",".join([
+        "price",
+        "summaryDetail",
+        "defaultKeyStatistics",
+        "financialData",
+        "summaryProfile",
+        "calendarEvents",
+        "earningsTrend",
+        "recommendationTrend",
+        "upgradeDowngradeHistory",
+    ])
     for host in ("query1.finance.yahoo.com", "query2.finance.yahoo.com"):
         try:
             url = f"https://{host}/v10/finance/quoteSummary/{quote_plus(symbol)}?modules={modules}"
@@ -2040,6 +2050,28 @@ def build_unavailable_options_payload(reason, market="us"):
         "expiries": [],
         "nearestExpiry": None,
         "updatedAt": None,
+        "expectedMove": {
+            "atmStraddleMove": None,
+            "atmStraddleMovePct": None,
+            "sevenDayMove": None,
+            "sevenDayMovePct": None,
+            "thirtyDayMove": None,
+            "thirtyDayMovePct": None,
+            "source": None,
+            "samples": [],
+        },
+        "skew": {
+            "putCallIvSkew": None,
+            "method": None,
+            "source": None,
+        },
+        "termStructure": {
+            "frontIv": None,
+            "backIv": None,
+            "slope": None,
+            "regime": None,
+            "points": [],
+        },
         "coverage": "none",
     }
 
@@ -2390,6 +2422,178 @@ def _estimate_expiry_atm_iv(calls_frame, puts_frame, spot_price, dte):
     total_liquidity = sum(candidate["liquidity"] for candidate in filtered_candidates)
     observation_weight = expiry_weight * max(0.75, 0.8 + min(0.9, math.log1p(total_liquidity) / 8.0))
     return weighted_iv, observation_weight
+
+
+def _option_mid_price(row):
+    bid = _safe_float(row.get("bid"))
+    ask = _safe_float(row.get("ask"))
+    last_price = _safe_float(row.get("lastPrice"))
+    if bid is not None and ask is not None and bid >= 0 and ask >= bid and ask > 0:
+        return (bid + ask) / 2
+    if last_price is not None and last_price > 0:
+        return last_price
+    return None
+
+
+def _nearest_option_contract(frame, spot_price):
+    if frame is None or frame.empty or spot_price is None or spot_price <= 0:
+        return None
+    best = None
+    for _, row in frame.iterrows():
+        strike = _safe_float(row.get("strike"))
+        if strike is None or strike <= 0:
+            continue
+        distance = abs(strike - spot_price)
+        liquidity = (_safe_int(row.get("openInterest")) or 0) + ((_safe_int(row.get("volume")) or 0) * 0.35)
+        candidate = {
+            "row": row,
+            "strike": strike,
+            "distance": distance,
+            "liquidity": liquidity,
+        }
+        if best is None or (distance, -liquidity) < (best["distance"], -best["liquidity"]):
+            best = candidate
+    return best
+
+
+def _estimate_expiry_expected_move(calls_frame, puts_frame, spot_price, dte, atm_iv=None):
+    if spot_price is None or spot_price <= 0 or dte is None or dte < 0:
+        return None
+    call_contract = _nearest_option_contract(calls_frame, spot_price)
+    put_contract = _nearest_option_contract(puts_frame, spot_price)
+    call_mid = _option_mid_price(call_contract["row"]) if call_contract else None
+    put_mid = _option_mid_price(put_contract["row"]) if put_contract else None
+    straddle_move = call_mid + put_mid if call_mid is not None and put_mid is not None else None
+    straddle_move_pct = (straddle_move / spot_price) * 100 if straddle_move is not None else None
+
+    iv_move = None
+    iv_move_pct = None
+    if atm_iv is not None and atm_iv > 0:
+        years = max(dte, 1) / 365.0
+        iv_move_pct = (atm_iv / 100.0) * math.sqrt(years) * 100
+        iv_move = spot_price * iv_move_pct / 100.0
+
+    if straddle_move is None and iv_move is None:
+        return None
+
+    return {
+        "daysToExpiry": dte,
+        "callStrike": call_contract["strike"] if call_contract else None,
+        "putStrike": put_contract["strike"] if put_contract else None,
+        "atmIv": round(atm_iv, 2) if atm_iv is not None else None,
+        "straddleMove": round(straddle_move, 2) if straddle_move is not None else None,
+        "straddleMovePct": round(straddle_move_pct, 2) if straddle_move_pct is not None else None,
+        "ivMove": round(iv_move, 2) if iv_move is not None else None,
+        "ivMovePct": round(iv_move_pct, 2) if iv_move_pct is not None else None,
+        "source": "atm-straddle" if straddle_move is not None else "atm-iv-fallback",
+    }
+
+
+def _option_iv_near_moneyness(frame, spot_price, target_moneyness, tolerance=0.035):
+    if frame is None or frame.empty or spot_price is None or spot_price <= 0:
+        return None
+    candidates = []
+    for _, row in frame.iterrows():
+        strike = _safe_float(row.get("strike"))
+        implied_volatility = _safe_float(row.get("impliedVolatility"))
+        if strike is None or implied_volatility is None or implied_volatility <= 0 or implied_volatility > 8:
+            continue
+        moneyness = strike / spot_price
+        distance = abs(moneyness - target_moneyness)
+        if distance > tolerance:
+            continue
+        liquidity = (_safe_int(row.get("openInterest")) or 0) + ((_safe_int(row.get("volume")) or 0) * 0.35)
+        candidates.append((implied_volatility * 100, 1 / (1 + distance * 100) * (1 + min(1, math.log1p(liquidity) / 7))))
+    return _weighted_average(candidates) if candidates else None
+
+
+def _estimate_expiry_skew(calls_frame, puts_frame, spot_price):
+    put_iv = _option_iv_near_moneyness(puts_frame, spot_price, 0.95)
+    call_iv = _option_iv_near_moneyness(calls_frame, spot_price, 1.05)
+    if put_iv is None or call_iv is None:
+        return None
+    return {
+        "putCallIvSkew": round(put_iv - call_iv, 2),
+        "putIv": round(put_iv, 2),
+        "callIv": round(call_iv, 2),
+        "method": "5pct-otm-iv-difference",
+        "source": "yfinance-options-chain",
+    }
+
+
+def _nearest_expected_move_sample(samples, target_dte):
+    if not samples:
+        return None
+    return min(samples, key=lambda item: (abs((item.get("daysToExpiry") or 9999) - target_dte), item.get("daysToExpiry") or 9999))
+
+
+def _build_options_expected_move_payload(samples):
+    if not samples:
+        return {
+            "atmStraddleMove": None,
+            "atmStraddleMovePct": None,
+            "sevenDayMove": None,
+            "sevenDayMovePct": None,
+            "thirtyDayMove": None,
+            "thirtyDayMovePct": None,
+            "source": None,
+            "samples": [],
+        }
+    front = _nearest_expected_move_sample(samples, 30) or samples[0]
+    seven_day = _nearest_expected_move_sample(samples, 7)
+    thirty_day = _nearest_expected_move_sample(samples, 30)
+
+    def pick_move(sample):
+        if not sample:
+            return None, None
+        move = sample.get("straddleMove") if sample.get("straddleMove") is not None else sample.get("ivMove")
+        move_pct = sample.get("straddleMovePct") if sample.get("straddleMovePct") is not None else sample.get("ivMovePct")
+        return move, move_pct
+
+    atm_move, atm_move_pct = pick_move(front)
+    seven_move, seven_move_pct = pick_move(seven_day)
+    thirty_move, thirty_move_pct = pick_move(thirty_day)
+    return {
+        "atmStraddleMove": atm_move,
+        "atmStraddleMovePct": atm_move_pct,
+        "sevenDayMove": seven_move,
+        "sevenDayMovePct": seven_move_pct,
+        "thirtyDayMove": thirty_move,
+        "thirtyDayMovePct": thirty_move_pct,
+        "source": front.get("source"),
+        "samples": samples[:6],
+    }
+
+
+def _build_term_structure_payload(points):
+    cleaned = sorted(
+        [point for point in points if point.get("atmIv") is not None and point.get("daysToExpiry") is not None],
+        key=lambda item: item["daysToExpiry"],
+    )
+    if len(cleaned) < 2:
+        return {
+            "frontIv": cleaned[0]["atmIv"] if cleaned else None,
+            "backIv": None,
+            "slope": None,
+            "regime": None,
+            "points": cleaned,
+        }
+    front = cleaned[0]
+    back = cleaned[-1]
+    slope = back["atmIv"] - front["atmIv"]
+    if slope > 2:
+        regime = "contango"
+    elif slope < -2:
+        regime = "backwardation"
+    else:
+        regime = "flat"
+    return {
+        "frontIv": round(front["atmIv"], 2),
+        "backIv": round(back["atmIv"], 2),
+        "slope": round(slope, 2),
+        "regime": regime,
+        "points": cleaned,
+    }
 
 
 def _estimate_implied_volatility(expiry_samples):
@@ -3023,6 +3227,9 @@ def fetch_us_options_market(instrument, ticker, spot_price, updated_at, history_
     contracts = []
     used_expiries = []
     iv_expiry_samples = []
+    expected_move_samples = []
+    term_structure_points = []
+    skew_samples = []
     total_calls_count = 0
     total_puts_count = 0
     for expiry, dte in wall_expiries:
@@ -3037,10 +3244,31 @@ def fetch_us_options_market(instrument, ticker, spot_price, updated_at, history_
         total_puts_count += len(puts_frame.index) if puts_frame is not None else 0
         _aggregate_option_metrics(calls_frame, call_bucket, [], spot_price, time_years, "call")
         _aggregate_option_metrics(puts_frame, put_bucket, [], spot_price, time_years, "put")
+        expiry_iv_value = None
         if 3 <= dte <= 75:
             expiry_iv = _estimate_expiry_atm_iv(calls_frame, puts_frame, spot_price, dte)
             if expiry_iv is not None:
                 iv_expiry_samples.append(expiry_iv)
+                expiry_iv_value = expiry_iv[0]
+        elif dte >= 0:
+            expiry_iv = _estimate_expiry_atm_iv(calls_frame, puts_frame, spot_price, dte)
+            expiry_iv_value = expiry_iv[0] if expiry_iv is not None else None
+        if 0 <= dte <= 180:
+            expected_move = _estimate_expiry_expected_move(calls_frame, puts_frame, spot_price, dte, expiry_iv_value)
+            if expected_move:
+                expected_move["expiry"] = expiry
+                expected_move_samples.append(expected_move)
+            if expiry_iv_value is not None:
+                term_structure_points.append({
+                    "expiry": expiry,
+                    "daysToExpiry": dte,
+                    "atmIv": round(expiry_iv_value, 2),
+                })
+            skew_sample = _estimate_expiry_skew(calls_frame, puts_frame, spot_price)
+            if skew_sample:
+                skew_sample["expiry"] = expiry
+                skew_sample["daysToExpiry"] = dte
+                skew_samples.append(skew_sample)
         if expiry in gamma_expiry_keys:
             _aggregate_option_metrics(calls_frame, {}, contracts, spot_price, time_years, "call")
             _aggregate_option_metrics(puts_frame, {}, contracts, spot_price, time_years, "put")
@@ -3069,6 +3297,11 @@ def fetch_us_options_market(instrument, ticker, spot_price, updated_at, history_
     history_highs = history_frame["High"].tolist() if history_frame is not None and "High" in history_frame else []
     history_lows = history_frame["Low"].tolist() if history_frame is not None and "Low" in history_frame else []
     iv_regime = _estimate_iv_regime_metrics(implied_volatility, history_closes, history_highs, history_lows)
+    skew_summary = skew_samples[0] if skew_samples else {
+        "putCallIvSkew": None,
+        "method": None,
+        "source": None,
+    }
 
     return {
         "available": True,
@@ -3089,7 +3322,10 @@ def fetch_us_options_market(instrument, ticker, spot_price, updated_at, history_
         "historicVolatility": round(iv_regime["historicVolatility"], 2) if iv_regime.get("historicVolatility") is not None else None,
         "ivPercentile": round(iv_regime["ivPercentile"], 2) if iv_regime.get("ivPercentile") is not None else None,
         "ivRank": round(iv_regime["ivRank"], 2) if iv_regime.get("ivRank") is not None else None,
-        "coverage": "estimated-gex-nearby-expiries-atm-iv-rv-proxy",
+        "expectedMove": _build_options_expected_move_payload(expected_move_samples),
+        "skew": skew_summary,
+        "termStructure": _build_term_structure_payload(term_structure_points),
+        "coverage": "estimated-gex-nearby-expiries-atm-iv-rv-proxy-expected-move",
         "gammaFlipStrikeCount": gamma_flip_strike_count,
         "selectedExpiration": used_expiries[0]["expiry"] if used_expiries else None,
         "callsCount": total_calls_count,
@@ -3846,6 +4082,20 @@ def fetch_us_quote_with_yfinance(ticker, include_options=True):
         "revenueGrowth",
         "profitMargins",
         "marketCap",
+        "targetMeanPrice",
+        "targetMedianPrice",
+        "targetHighPrice",
+        "targetLowPrice",
+        "numberOfAnalystOpinions",
+        "recommendationMean",
+        "recommendationKey",
+        "earningsGrowth",
+        "earningsQuarterlyGrowth",
+        "epsForward",
+        "epsTrailingTwelveMonths",
+        "earningsTimestamp",
+        "earningsTimestampStart",
+        "earningsTimestampEnd",
         "shortName",
         "longName",
         "sector",
@@ -3900,6 +4150,16 @@ def fetch_us_quote_with_yfinance(ticker, include_options=True):
             price_to_fcf = abs(_safe_float(market_cap) / free_cashflow)
         except Exception:
             price_to_fcf = None
+    earnings_timestamp = (
+        info.get("earningsTimestamp")
+        or info.get("earningsTimestampStart")
+        or info.get("earningsTimestampEnd")
+    )
+    earnings_date = iso_from_epoch(earnings_timestamp)
+    days_to_earnings = None
+    earnings_dt = dt_from_epoch(earnings_timestamp)
+    if earnings_dt is not None:
+        days_to_earnings = (earnings_dt.date() - datetime.now(timezone.utc).date()).days
 
     return {
         "price": price,
@@ -3928,6 +4188,22 @@ def fetch_us_quote_with_yfinance(ticker, include_options=True):
             "enterpriseToRevenue": _safe_float(info.get("enterpriseToRevenue")),
             "pegRatio": _safe_float(info.get("pegRatio")),
             "priceToFreeCashflow": reported_price_to_fcf if reported_price_to_fcf is not None else price_to_fcf,
+            "targetMeanPrice": _safe_float(info.get("targetMeanPrice")),
+            "targetMedianPrice": _safe_float(info.get("targetMedianPrice")),
+            "targetHighPrice": _safe_float(info.get("targetHighPrice")),
+            "targetLowPrice": _safe_float(info.get("targetLowPrice")),
+            "numberOfAnalystOpinions": _safe_int(info.get("numberOfAnalystOpinions")),
+            "recommendationMean": _safe_float(info.get("recommendationMean")),
+            "recommendationKey": info.get("recommendationKey"),
+            "earningsGrowth": _safe_float(info.get("earningsGrowth")),
+            "earningsQuarterlyGrowth": _safe_float(info.get("earningsQuarterlyGrowth")),
+            "epsForward": _safe_float(info.get("epsForward")),
+            "epsTrailingTwelveMonths": _safe_float(info.get("epsTrailingTwelveMonths")),
+            "earningsDate": earnings_date,
+            "earningsTimestamp": _safe_int(earnings_timestamp),
+            "earningsTimestampStart": _safe_int(info.get("earningsTimestampStart")),
+            "earningsTimestampEnd": _safe_int(info.get("earningsTimestampEnd")),
+            "daysToEarnings": days_to_earnings,
             "operatingMargins": _safe_float(info.get("operatingMargins")),
             "profitMargins": _safe_float(info.get("profitMargins")),
             "revenueGrowth": _safe_float(info.get("revenueGrowth")),
@@ -3949,6 +4225,13 @@ def fetch_us_quote_with_yfinance(ticker, include_options=True):
             "ipoDate": iso_from_epoch(info.get("firstTradeDateEpochUtc")),
             "floatShares": _safe_int(info.get("floatShares")) or _safe_int(info.get("sharesFloat")) or _safe_int(info.get("publicFloat")) or _safe_int(fast_info.get("float_shares")),
             "sharesOutstanding": _safe_int(info.get("sharesOutstanding")) or _safe_int(info.get("impliedSharesOutstanding")) or _safe_int(fast_info.get("shares")),
+        },
+        "earnings": {
+            "earningsDate": earnings_date,
+            "daysToEarnings": days_to_earnings,
+            "earningsTimestampStart": iso_from_epoch(info.get("earningsTimestampStart")),
+            "earningsTimestampEnd": iso_from_epoch(info.get("earningsTimestampEnd")),
+            "source": "yfinance-info-yahoo-quote-summary",
         },
         "debug": {
             "yfinance_import_success": True,
@@ -4450,12 +4733,23 @@ def extract_options_fields_from_quote(quote):
     options_market = quote.get("optionsMarket") if isinstance(quote, dict) else {}
     if not isinstance(options_market, dict):
         options_market = {}
+    expected_move = options_market.get("expectedMove") if isinstance(options_market.get("expectedMove"), dict) else {}
+    skew = options_market.get("skew") if isinstance(options_market.get("skew"), dict) else {}
+    term_structure = options_market.get("termStructure") if isinstance(options_market.get("termStructure"), dict) else {}
     return {
         "status": "available" if options_market.get("available") else "unavailable",
         "reason": options_market.get("reason"),
         "call_wall": options_market.get("callWall"),
         "put_wall": options_market.get("putWall"),
         "gamma_flip": options_market.get("gammaFlip"),
+        "atm_straddle_move_pct": expected_move.get("atmStraddleMovePct"),
+        "seven_day_expected_move_pct": expected_move.get("sevenDayMovePct"),
+        "thirty_day_expected_move_pct": expected_move.get("thirtyDayMovePct"),
+        "iv_percentile": options_market.get("ivPercentile"),
+        "iv_rank": options_market.get("ivRank"),
+        "skew": skew.get("putCallIvSkew"),
+        "term_structure_slope": term_structure.get("slope"),
+        "term_structure_regime": term_structure.get("regime"),
         "expiries_count": len(options_market.get("expiries") or []),
         "coverage": options_market.get("coverage"),
     }

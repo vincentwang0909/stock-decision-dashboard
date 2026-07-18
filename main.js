@@ -5094,6 +5094,175 @@ function computeOptionsVolatilityFallback(row, options) {
   };
 }
 
+function normalizeRatioPercent(value) {
+  if (value == null || !Number.isFinite(Number(value))) return null;
+  const numeric = Number(value);
+  return Math.abs(numeric) <= 2 ? numeric * 100 : numeric;
+}
+
+function formatUnavailableReason(sourceName) {
+  return currentLanguage === "zh"
+    ? `${sourceName} 暂不可用；需要历史分析师预期快照或外部数据源。`
+    : `${sourceName} is unavailable; it requires historical estimate snapshots or an external feed.`;
+}
+
+function estimateExpectedMoveFromIv(price, ivPercent, days) {
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(ivPercent) || ivPercent <= 0 || !Number.isFinite(days) || days <= 0) {
+    return { move: null, move_pct: null, source: null };
+  }
+  const movePct = (ivPercent / 100) * Math.sqrt(days / 365) * 100;
+  return {
+    move: price * movePct / 100,
+    move_pct: movePct,
+    source: "iv-fallback",
+  };
+}
+
+function buildOptionsExpectedMoveModule(row, options = {}) {
+  const rawExpectedMove = row.technicals?.optionsMarket?.expectedMove || {};
+  const rawSkew = row.technicals?.optionsMarket?.skew || {};
+  const rawTermStructure = row.technicals?.optionsMarket?.termStructure || {};
+  const iv = Number.isFinite(options.implied_volatility)
+    ? options.implied_volatility
+    : Number.isFinite(row.technicals?.optionsMarket?.impliedVolatility)
+      ? row.technicals.optionsMarket.impliedVolatility
+      : null;
+  const fallback7 = estimateExpectedMoveFromIv(row.price, iv, 7);
+  const fallback30 = estimateExpectedMoveFromIv(row.price, iv, 30);
+  const sevenDayMovePct = rawExpectedMove.sevenDayMovePct ?? fallback7.move_pct;
+  const thirtyDayMovePct = rawExpectedMove.thirtyDayMovePct ?? fallback30.move_pct;
+  return {
+    atm_straddle_implied_move: rawExpectedMove.atmStraddleMove ?? null,
+    atm_straddle_implied_move_pct: rawExpectedMove.atmStraddleMovePct ?? null,
+    expected_move_7d: rawExpectedMove.sevenDayMove ?? fallback7.move,
+    expected_move_7d_pct: sevenDayMovePct,
+    expected_move_30d: rawExpectedMove.thirtyDayMove ?? fallback30.move,
+    expected_move_30d_pct: thirtyDayMovePct,
+    iv_percentile: options.iv_percentile ?? row.technicals?.optionsMarket?.ivPercentile ?? null,
+    iv_rank: options.iv_rank ?? row.technicals?.optionsMarket?.ivRank ?? null,
+    skew: rawSkew.putCallIvSkew ?? null,
+    skew_method: rawSkew.method ?? null,
+    term_structure: rawTermStructure,
+    term_structure_slope: rawTermStructure.slope ?? null,
+    term_structure_regime: rawTermStructure.regime ?? null,
+    source: rawExpectedMove.source || fallback30.source || null,
+  };
+}
+
+function buildAnalystRevisionModule(row, fundamental = {}) {
+  const metadata = row.metadata || {};
+  const targetMeanPrice = metadata.targetMeanPrice ?? null;
+  const targetMedianPrice = metadata.targetMedianPrice ?? null;
+  const targetRevisionTrend = metadata.targetRevisionTrend ?? null;
+  return {
+    eps_estimate_revisions_7d: metadata.epsEstimateRevision7d ?? null,
+    eps_estimate_revisions_30d: metadata.epsEstimateRevision30d ?? null,
+    eps_estimate_revisions_90d: metadata.epsEstimateRevision90d ?? null,
+    revenue_estimate_revisions: metadata.revenueEstimateRevision ?? null,
+    next_year_eps_growth: metadata.earningsGrowth ?? metadata.earningsQuarterlyGrowth ?? fundamental.growth?.eps_growth ?? null,
+    forward_guidance_changes: metadata.forwardGuidanceChange ?? fundamental.growth?.forward_guidance ?? null,
+    analyst_target_revision_trend: targetRevisionTrend,
+    target_mean_price: targetMeanPrice,
+    target_median_price: targetMedianPrice,
+    recommendation_mean: metadata.recommendationMean ?? null,
+    recommendation_key: metadata.recommendationKey ?? null,
+    analyst_count: metadata.numberOfAnalystOpinions ?? null,
+    source_status: {
+      revisions: metadata.epsEstimateRevision30d == null ? "unavailable" : "available",
+      target_snapshot: targetMeanPrice != null || targetMedianPrice != null ? "available" : "unavailable",
+    },
+    notes: [
+      metadata.epsEstimateRevision30d == null ? formatUnavailableReason(currentLanguage === "zh" ? "EPS 7/30/90日预期修正" : "EPS 7/30/90D estimate revisions") : "",
+      targetRevisionTrend == null ? formatUnavailableReason(currentLanguage === "zh" ? "目标价修正趋势" : "Analyst target revision trend") : "",
+    ].filter(Boolean),
+  };
+}
+
+function benchmarkTrendReturn(trend, lookback) {
+  if (!trend) return null;
+  const key = `change_${lookback}d_pct`;
+  return Number.isFinite(trend[key]) ? trend[key] : null;
+}
+
+function sectorEtfForClassification(companyProfile = {}) {
+  const tags = new Set([...(companyProfile.tags || []), ...(companyProfile.top_tags || [])]);
+  if (tags.has("Semiconductor") || tags.has("AIInfrastructure") || tags.has("MemoryStorage")) return "SMH";
+  if (tags.has("Software") || tags.has("Cloud")) return "IGV";
+  if (tags.has("Healthcare") || tags.has("HealthInsurance") || tags.has("HealthcareServices")) return "XLV";
+  if (tags.has("REIT") || tags.has("RealEstate")) return "XLRE";
+  if (tags.has("Banking") || tags.has("Fintech")) return "XLF";
+  if (tags.has("Energy")) return "XLE";
+  if (tags.has("Industrial") || tags.has("Defense")) return "XLI";
+  if (tags.has("EV") || tags.has("AutoManufacturer") || tags.has("Consumer") || tags.has("Ecommerce")) return "XLY";
+  return null;
+}
+
+function buildRelativeStrengthModule(row, marketContext = {}, companyProfile = {}) {
+  const closes = row.technicals?.history?.closes || row.history?.closes || [];
+  const stockReturns = {
+    "20d": computeReturnPct(closes, 20),
+    "60d": computeReturnPct(closes, 60),
+    "120d": computeReturnPct(closes, 120),
+  };
+  const spyTrend = marketContext.market_engine?.equity_trend?.spy || marketContext.enhanced_context?.spy_trend || {};
+  const qqqTrend = marketContext.market_engine?.equity_trend?.qqq || marketContext.enhanced_context?.qqq_trend || {};
+  const vsBenchmark = (trend, lookback) => {
+    const stockValue = stockReturns[`${lookback}d`];
+    const benchmarkValue = benchmarkTrendReturn(trend, lookback);
+    return Number.isFinite(stockValue) && Number.isFinite(benchmarkValue) ? stockValue - benchmarkValue : null;
+  };
+  const sectorEtf = sectorEtfForClassification(companyProfile);
+  return {
+    stock_return_20d: stockReturns["20d"],
+    stock_return_60d: stockReturns["60d"],
+    stock_return_120d: stockReturns["120d"],
+    stock_vs_spy_20d: vsBenchmark(spyTrend, 20),
+    stock_vs_spy_60d: vsBenchmark(spyTrend, 60),
+    stock_vs_spy_120d: vsBenchmark(spyTrend, 120),
+    stock_vs_qqq_20d: vsBenchmark(qqqTrend, 20),
+    stock_vs_qqq_60d: vsBenchmark(qqqTrend, 60),
+    stock_vs_qqq_120d: vsBenchmark(qqqTrend, 120),
+    stock_vs_sector_etf: null,
+    sector_etf: sectorEtf,
+    relative_strength_percentile: null,
+    source_status: {
+      spy: Number.isFinite(benchmarkTrendReturn(spyTrend, 20)) ? "available" : "unavailable",
+      qqq: Number.isFinite(benchmarkTrendReturn(qqqTrend, 20)) ? "available" : "unavailable",
+      sector_etf: "unavailable",
+      percentile: "unavailable",
+    },
+    note: sectorEtf
+      ? (currentLanguage === "zh" ? `行业ETF参考 ${sectorEtf}，当前尚未抓取该ETF历史序列。` : `Sector ETF reference is ${sectorEtf}; its history is not fetched yet.`)
+      : (currentLanguage === "zh" ? "未识别到稳定行业ETF参考。" : "No stable sector ETF reference was identified."),
+  };
+}
+
+function buildEarningsEventRiskModule(row, optionsExpectedMove = {}) {
+  const metadata = row.metadata || {};
+  const earningsDate = metadata.earningsDate || row.earnings?.earningsDate || null;
+  const daysToEarnings = Number.isFinite(metadata.daysToEarnings)
+    ? metadata.daysToEarnings
+    : Number.isFinite(row.earnings?.daysToEarnings)
+      ? row.earnings.daysToEarnings
+      : null;
+  return {
+    days_to_earnings: daysToEarnings,
+    earnings_date: earningsDate,
+    historical_earnings_gap: metadata.historicalEarningsGap ?? null,
+    expected_move_from_options: optionsExpectedMove.expected_move_30d_pct ?? optionsExpectedMove.atm_straddle_implied_move_pct ?? null,
+    post_earnings_drift: metadata.postEarningsDrift ?? null,
+    source_status: {
+      calendar: earningsDate != null || daysToEarnings != null ? "available" : "unavailable",
+      historical_gap: metadata.historicalEarningsGap == null ? "unavailable" : "available",
+      expected_move: optionsExpectedMove.expected_move_30d_pct == null && optionsExpectedMove.atm_straddle_implied_move_pct == null ? "unavailable" : "available",
+      drift: metadata.postEarningsDrift == null ? "unavailable" : "available",
+    },
+    note: currentLanguage === "zh"
+      ? "历史财报跳空和财报后漂移需要历史财报日期序列；缺失时不会伪造。"
+      : "Historical earnings gap and post-earnings drift require past earnings-date series and are not fabricated when unavailable.",
+  };
+}
+
 function yearsSinceIsoDate(value) {
   if (!value) return null;
   const parsed = new Date(value);
@@ -11773,6 +11942,15 @@ function buildDecisionModel(row) {
     covered_call_plan: optionsStrategyPlan.covered_call_plan,
     options_strategy_plan: optionsStrategyPlan,
   };
+  const optionsExpectedMove = buildOptionsExpectedMoveModule(row, finalOptions);
+  finalOptions.expected_move = optionsExpectedMove;
+  finalOptions.options_expected_move = optionsExpectedMove;
+  const analystRevisions = buildAnalystRevisionModule(row, fundamental);
+  fundamental.analyst_revisions = analystRevisions;
+  const relativeStrength = buildRelativeStrengthModule(row, marketContext, companyProfile);
+  technical.relative_strength = relativeStrength;
+  const earningsEventRisk = buildEarningsEventRiskModule(row, optionsExpectedMove);
+  marketContext.earnings_event_risk = earningsEventRisk;
   const validation = {
     action_consistency: validateActionConsistency(actionPlan),
     options_consistency: validateOptionsConsistency(actionPlan, optionsStrategyPlan),
@@ -11876,6 +12054,10 @@ function buildDecisionModel(row) {
     fundamental,
     options: finalOptions,
     market_context: marketContext,
+    analyst_revisions: analystRevisions,
+    relative_strength: relativeStrength,
+    earnings_event_risk: earningsEventRisk,
+    options_expected_move: optionsExpectedMove,
     conflict_warning: consistency.conflict_warning,
     hard_bearish_override: consistency.hard_bearish_override,
     data_quality: dataQuality,
@@ -11911,6 +12093,10 @@ function renderDetailModal(row) {
   const options = decision.options;
   const marketContext = decision.market_context;
   const marketEngine = marketContext.market_engine || {};
+  const analystRevisions = fundamental.analyst_revisions || decision.analyst_revisions || {};
+  const relativeStrength = technical.relative_strength || decision.relative_strength || {};
+  const earningsEventRisk = marketContext.earnings_event_risk || decision.earnings_event_risk || {};
+  const optionsExpectedMove = options.expected_move || decision.options_expected_move || {};
   const profile = decision.company_profile;
   const isCnMarket = decision.market_type === "CN_A_SHARE";
   const isUsStock = decision.market_type === "US";
@@ -12639,6 +12825,16 @@ function renderDetailModal(row) {
         ])}</div>
       </section>
       <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "相对强度" : "Relative Strength"}</h3></div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: currentLanguage === "zh" ? "本股 20 / 60 / 120日涨跌" : "Stock Return 20 / 60 / 120D", value: `${displayValue(relativeStrength.stock_return_20d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_return_60d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_return_120d, (value) => formatChangePercent(value))}` },
+          { label: currentLanguage === "zh" ? "相对 SPY 20 / 60 / 120日" : "Stock vs SPY 20 / 60 / 120D", value: `${displayValue(relativeStrength.stock_vs_spy_20d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_spy_60d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_spy_120d, (value) => formatChangePercent(value))}`, note: relativeStrength.source_status?.spy === "unavailable" ? (currentLanguage === "zh" ? "SPY 60/120日基准序列缺失时显示暂不可用。" : "Unavailable when SPY benchmark history is missing.") : "" },
+          { label: currentLanguage === "zh" ? "相对 QQQ 20 / 60 / 120日" : "Stock vs QQQ 20 / 60 / 120D", value: `${displayValue(relativeStrength.stock_vs_qqq_20d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_qqq_60d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_qqq_120d, (value) => formatChangePercent(value))}`, note: relativeStrength.source_status?.qqq === "unavailable" ? (currentLanguage === "zh" ? "QQQ 60/120日基准序列缺失时显示暂不可用。" : "Unavailable when QQQ benchmark history is missing.") : "" },
+          { label: currentLanguage === "zh" ? "相对行业ETF" : "Stock vs Sector ETF", value: displayValue(relativeStrength.stock_vs_sector_etf, (value) => formatChangePercent(value)), note: relativeStrength.sector_etf ? `${currentLanguage === "zh" ? "参考ETF" : "Reference ETF"}: ${relativeStrength.sector_etf} · ${localizedDashboardText(relativeStrength.note)}` : localizedDashboardText(relativeStrength.note) },
+          { label: currentLanguage === "zh" ? "相对强度百分位" : "Relative Strength Percentile", value: displayValue(relativeStrength.relative_strength_percentile, (value) => `${Math.round(value)}%`), note: currentLanguage === "zh" ? "需要同一股票池横截面分布；当前没有足够样本时不伪造。" : "Requires cross-sectional universe data and is not fabricated without it." },
+        ])}</div>
+      </section>
+      <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("technicalSummaryTitle")}</h3></div>
         <div class="decision-bullets"><div class="decision-bullet">• ${localizedDashboardText(technical.summary)}</div></div>
       </section>
@@ -12696,6 +12892,17 @@ function renderDetailModal(row) {
         ])}</div>
       </section>
       <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "分析师盈利预期修正" : "Analyst Estimate Revisions"}</h3></div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: currentLanguage === "zh" ? "EPS预期修正 7 / 30 / 90日" : "EPS Estimate Revisions 7 / 30 / 90D", value: `${displayValue(analystRevisions.eps_estimate_revisions_7d, (value) => formatChangePercent(normalizeRatioPercent(value)))} / ${displayValue(analystRevisions.eps_estimate_revisions_30d, (value) => formatChangePercent(normalizeRatioPercent(value)))} / ${displayValue(analystRevisions.eps_estimate_revisions_90d, (value) => formatChangePercent(normalizeRatioPercent(value)))}`, note: analystRevisions.source_status?.revisions === "unavailable" ? (analystRevisions.notes || [])[0] : "" },
+          { label: currentLanguage === "zh" ? "收入预期修正" : "Revenue Estimate Revisions", value: displayValue(analystRevisions.revenue_estimate_revisions, (value) => formatChangePercent(normalizeRatioPercent(value))) },
+          { label: currentLanguage === "zh" ? "下一年EPS增长" : "Next-Year EPS Growth", value: displayValue(analystRevisions.next_year_eps_growth, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "前瞻指引变化" : "Forward Guidance Changes", value: displayValue(analystRevisions.forward_guidance_changes, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "目标价修正趋势" : "Analyst Target Revision Trend", value: analystRevisions.analyst_target_revision_trend || t("dataUnavailable"), note: analystRevisions.target_mean_price != null || analystRevisions.target_median_price != null ? `${currentLanguage === "zh" ? "当前目标价快照" : "Current target snapshot"}: ${displayValue(analystRevisions.target_mean_price, (value) => formatCurrency(value, currencyCode))} / ${displayValue(analystRevisions.target_median_price, (value) => formatCurrency(value, currencyCode))}` : (analystRevisions.notes || [])[1] },
+          { label: currentLanguage === "zh" ? "分析师数量 / 推荐均值" : "Analyst Count / Recommendation Mean", value: `${analystRevisions.analyst_count ?? "—"} / ${displayValue(analystRevisions.recommendation_mean, (value) => formatRatio(value))}`, note: analystRevisions.recommendation_key || "" },
+        ])}</div>
+      </section>
+      <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("valuationScore")}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
           { label: t("pe"), value: displayValue(fundamental.valuation.pe, (value) => formatRatio(value)) },
@@ -12738,6 +12945,18 @@ function renderDetailModal(row) {
         ])}</div>
       </section>
       <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "期权隐含波动区间" : "Options Expected Move"}</h3></div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: currentLanguage === "zh" ? "ATM跨式隐含波动" : "ATM Straddle Implied Move", value: optionsExpectedMove.atm_straddle_implied_move == null && optionsExpectedMove.atm_straddle_implied_move_pct == null ? t("dataUnavailable") : `${displayValue(optionsExpectedMove.atm_straddle_implied_move, (value) => formatCurrency(value, currencyCode))} / ${displayValue(optionsExpectedMove.atm_straddle_implied_move_pct, (value) => formatPercentValue(value))}`, note: optionsExpectedMove.source ? `${t("source")}: ${optionsExpectedMove.source}` : (currentLanguage === "zh" ? "需要可用的ATM call/put报价。" : "Requires usable ATM call/put quotes.") },
+          { label: currentLanguage === "zh" ? "7日期权预期波动" : "7D Expected Move", value: optionsExpectedMove.expected_move_7d == null && optionsExpectedMove.expected_move_7d_pct == null ? t("dataUnavailable") : `${displayValue(optionsExpectedMove.expected_move_7d, (value) => formatCurrency(value, currencyCode))} / ${displayValue(optionsExpectedMove.expected_move_7d_pct, (value) => formatPercentValue(value))}` },
+          { label: currentLanguage === "zh" ? "30日期权预期波动" : "30D Expected Move", value: optionsExpectedMove.expected_move_30d == null && optionsExpectedMove.expected_move_30d_pct == null ? t("dataUnavailable") : `${displayValue(optionsExpectedMove.expected_move_30d, (value) => formatCurrency(value, currencyCode))} / ${displayValue(optionsExpectedMove.expected_move_30d_pct, (value) => formatPercentValue(value))}` },
+          { label: currentLanguage === "zh" ? "IV百分位" : "IV Percentile", value: displayValue(optionsExpectedMove.iv_percentile, (value) => `${Math.round(value)}%`) },
+          { label: currentLanguage === "zh" ? "IV排名" : "IV Rank", value: displayValue(optionsExpectedMove.iv_rank, (value) => `${Math.round(value)}%`) },
+          { label: currentLanguage === "zh" ? "期权偏斜" : "Skew", value: displayValue(optionsExpectedMove.skew, (value) => `${value > 0 ? "+" : ""}${formatOneDecimal(value)} ${currentLanguage === "zh" ? "波动率点" : "vol pts"}`), note: optionsExpectedMove.skew_method || (currentLanguage === "zh" ? "缺少价外 call/put IV 时暂不可用。" : "Unavailable when OTM call/put IV is missing.") },
+          { label: currentLanguage === "zh" ? "期限结构" : "Term Structure", value: optionsExpectedMove.term_structure_regime ? `${localizedDashboardText(optionsExpectedMove.term_structure_regime)} · ${displayValue(optionsExpectedMove.term_structure_slope, (value) => `${value > 0 ? "+" : ""}${formatOneDecimal(value)} ${currentLanguage === "zh" ? "波动率点" : "vol pts"}`)}` : t("dataUnavailable"), note: optionsExpectedMove.term_structure?.points?.length ? `${currentLanguage === "zh" ? "样本到期日" : "Sample expiries"}: ${optionsExpectedMove.term_structure.points.slice(0, 4).map((item) => `${item.daysToExpiry}D ${formatOneDecimal(item.atmIv)}%`).join(" / ")}` : "" },
+        ])}</div>
+      </section>
+      <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "期权策略建议" : "Options Strategy Recommendation"}</h3></div>
         ${renderUnifiedOptionsStrategyPlan(decision.options_strategy_plan || options.options_strategy_plan)}
       </section>
@@ -12766,6 +12985,16 @@ function renderDetailModal(row) {
           { label: t("scoreLabel"), value: `${marketContext.market_regime?.score ?? 50}/100`, note: currentLanguage === "zh" ? "50 为中性起点，只使用 VIX、Fear & Greed、10Y Yield、SPY / QQQ Trend。" : "50 is the neutral base; only VIX, Fear & Greed, 10Y Yield, and SPY / QQQ Trend are used." },
           { label: t("confidencePct"), value: marketContext.market_regime?.confidence == null ? t("dataUnavailable") : `${marketContext.market_regime.confidence}%`, note: currentLanguage === "zh" ? "缺失数据只会降低置信度，不会直接变成看空。" : "Unavailable feeds lower confidence rather than forcing a bearish score." },
           { label: t("summary"), value: marketContext.market_regime?.summary || t("dataUnavailable") },
+        ])}</div>
+      </section>
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "财报事件风险" : "Earnings Event Risk"}</h3></div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: currentLanguage === "zh" ? "财报日期" : "Earnings Date", value: earningsEventRisk.earnings_date ? formatSnapshotTimestamp(earningsEventRisk.earnings_date) : t("dataUnavailable"), note: earningsEventRisk.source_status?.calendar === "unavailable" ? (currentLanguage === "zh" ? "财报日源暂不可用。" : "Earnings calendar source unavailable.") : "" },
+          { label: currentLanguage === "zh" ? "距离财报天数" : "Days to Earnings", value: earningsEventRisk.days_to_earnings == null ? t("dataUnavailable") : `${earningsEventRisk.days_to_earnings} ${currentLanguage === "zh" ? "天" : "days"}` },
+          { label: currentLanguage === "zh" ? "历史财报跳空" : "Historical Earnings Gap", value: displayValue(earningsEventRisk.historical_earnings_gap, (value) => formatPercentValue(normalizeRatioPercent(value))), note: earningsEventRisk.source_status?.historical_gap === "unavailable" ? localizedDashboardText(earningsEventRisk.note) : "" },
+          { label: currentLanguage === "zh" ? "期权隐含财报波动参考" : "Expected Move from Options", value: displayValue(earningsEventRisk.expected_move_from_options, (value) => formatPercentValue(value)), note: earningsEventRisk.source_status?.expected_move === "unavailable" ? (currentLanguage === "zh" ? "期权 expected move 暂不可用。" : "Options expected move unavailable.") : "" },
+          { label: currentLanguage === "zh" ? "财报后漂移" : "Post-Earnings Drift", value: displayValue(earningsEventRisk.post_earnings_drift, (value) => formatPercentValue(normalizeRatioPercent(value))), note: earningsEventRisk.source_status?.drift === "unavailable" ? (currentLanguage === "zh" ? "需要历史财报日后的价格序列。" : "Requires price series after historical earnings dates.") : "" },
         ])}</div>
       </section>
       <section class="detail-section-card">
