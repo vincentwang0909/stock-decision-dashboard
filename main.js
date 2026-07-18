@@ -1438,6 +1438,19 @@ function upDownVolumeStats(closes, volumes, period) {
   let ratio = null;
   if (downVolume > 0) ratio = upVolume / downVolume;
   else if (upVolume > 0) ratio = 9.99;
+  const epsRevisionNote = metadata.epsEstimateRevision30d == null
+    ? formatUnavailableReason(currentLanguage === "zh" ? "EPS 7/30/90日预期修正" : "EPS 7/30/90D estimate revisions")
+    : "";
+  const revenueRevisionNote = revenueRevision == null && revenueEstimateGrowth != null
+    ? (currentLanguage === "zh" ? "Yahoo 当前提供收入预期增长/快照，未提供收入预期历史修正序列。" : "Yahoo provides revenue estimate growth/snapshot here, not historical revenue revision snapshots.")
+    : revenueRevision == null
+      ? formatUnavailableReason(currentLanguage === "zh" ? "收入预期修正" : "Revenue estimate revisions")
+      : "";
+  const targetRevisionNote = targetRevisionTrend == null
+    ? formatUnavailableReason(currentLanguage === "zh" ? "目标价修正趋势" : "Analyst target revision trend")
+    : metadata.targetRevisionTrendProxy
+      ? (currentLanguage === "zh" ? `目标价历史不可用；当前使用 ${metadata.targetRevisionTrendProxy} 作为趋势代理。` : `Target-price history unavailable; using ${metadata.targetRevisionTrendProxy} as a trend proxy.`)
+      : "";
   return {
     upVolume: upVolume || null,
     downVolume: downVolume || null,
@@ -5106,6 +5119,15 @@ function formatUnavailableReason(sourceName) {
     : `${sourceName} is unavailable; it requires historical estimate snapshots or an external feed.`;
 }
 
+function analystTrendLabel(value) {
+  if (!value) return t("dataUnavailable");
+  if (currentLanguage !== "zh") return localizedDashboardText(value);
+  if (value === "improving") return "改善";
+  if (value === "deteriorating") return "转弱";
+  if (value === "stable") return "稳定";
+  return localizedDashboardText(value);
+}
+
 function estimateExpectedMoveFromIv(price, ivPercent, days) {
   if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(ivPercent) || ivPercent <= 0 || !Number.isFinite(days) || days <= 0) {
     return { move: null, move_pct: null, source: null };
@@ -5154,14 +5176,24 @@ function buildAnalystRevisionModule(row, fundamental = {}) {
   const targetMeanPrice = metadata.targetMeanPrice ?? null;
   const targetMedianPrice = metadata.targetMedianPrice ?? null;
   const targetRevisionTrend = metadata.targetRevisionTrend ?? null;
+  const revenueRevision = metadata.revenueEstimateRevision ?? null;
+  const revenueEstimateGrowth = metadata.revenueEstimateGrowth ?? null;
   return {
     eps_estimate_revisions_7d: metadata.epsEstimateRevision7d ?? null,
     eps_estimate_revisions_30d: metadata.epsEstimateRevision30d ?? null,
     eps_estimate_revisions_90d: metadata.epsEstimateRevision90d ?? null,
-    revenue_estimate_revisions: metadata.revenueEstimateRevision ?? null,
-    next_year_eps_growth: metadata.earningsGrowth ?? metadata.earningsQuarterlyGrowth ?? fundamental.growth?.eps_growth ?? null,
+    eps_estimate_current: metadata.epsEstimateCurrent ?? null,
+    eps_estimate_30d_ago: metadata.epsEstimate30DaysAgo ?? null,
+    revenue_estimate_revisions: revenueRevision,
+    revenue_estimate_growth: revenueEstimateGrowth,
+    revenue_estimate_current: metadata.revenueEstimateCurrent ?? null,
+    next_year_eps_growth: metadata.nextYearEpsGrowth ?? metadata.earningsGrowth ?? metadata.earningsQuarterlyGrowth ?? fundamental.growth?.eps_growth ?? null,
     forward_guidance_changes: metadata.forwardGuidanceChange ?? fundamental.growth?.forward_guidance ?? null,
     analyst_target_revision_trend: targetRevisionTrend,
+    analyst_target_revision_trend_proxy: metadata.targetRevisionTrendProxy ?? null,
+    recommendation_trend_delta: metadata.recommendationTrendDelta ?? null,
+    analyst_upgrade_count_recent: metadata.analystUpgradeCountRecent ?? null,
+    analyst_downgrade_count_recent: metadata.analystDowngradeCountRecent ?? null,
     target_mean_price: targetMeanPrice,
     target_median_price: targetMedianPrice,
     recommendation_mean: metadata.recommendationMean ?? null,
@@ -5169,11 +5201,17 @@ function buildAnalystRevisionModule(row, fundamental = {}) {
     analyst_count: metadata.numberOfAnalystOpinions ?? null,
     source_status: {
       revisions: metadata.epsEstimateRevision30d == null ? "unavailable" : "available",
+      revenue_revisions: revenueRevision == null ? (revenueEstimateGrowth == null ? "unavailable" : "snapshot_only") : "available",
       target_snapshot: targetMeanPrice != null || targetMedianPrice != null ? "available" : "unavailable",
+      target_trend: targetRevisionTrend == null ? "unavailable" : (metadata.targetRevisionTrendProxy ? "proxy" : "available"),
     },
+    eps_revision_note: epsRevisionNote,
+    revenue_revision_note: revenueRevisionNote,
+    target_revision_note: targetRevisionNote,
     notes: [
-      metadata.epsEstimateRevision30d == null ? formatUnavailableReason(currentLanguage === "zh" ? "EPS 7/30/90日预期修正" : "EPS 7/30/90D estimate revisions") : "",
-      targetRevisionTrend == null ? formatUnavailableReason(currentLanguage === "zh" ? "目标价修正趋势" : "Analyst target revision trend") : "",
+      epsRevisionNote,
+      revenueRevisionNote,
+      targetRevisionNote,
     ].filter(Boolean),
   };
 }
@@ -12897,11 +12935,11 @@ function renderDetailModal(row) {
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "分析师盈利预期修正" : "Analyst Estimate Revisions"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: currentLanguage === "zh" ? "EPS预期修正 7 / 30 / 90日" : "EPS Estimate Revisions 7 / 30 / 90D", value: `${displayValue(analystRevisions.eps_estimate_revisions_7d, (value) => formatChangePercent(normalizeRatioPercent(value)))} / ${displayValue(analystRevisions.eps_estimate_revisions_30d, (value) => formatChangePercent(normalizeRatioPercent(value)))} / ${displayValue(analystRevisions.eps_estimate_revisions_90d, (value) => formatChangePercent(normalizeRatioPercent(value)))}`, note: analystRevisions.source_status?.revisions === "unavailable" ? (analystRevisions.notes || [])[0] : "" },
-          { label: currentLanguage === "zh" ? "收入预期修正" : "Revenue Estimate Revisions", value: displayValue(analystRevisions.revenue_estimate_revisions, (value) => formatChangePercent(normalizeRatioPercent(value))) },
+          { label: currentLanguage === "zh" ? "EPS预期修正 7 / 30 / 90日" : "EPS Estimate Revisions 7 / 30 / 90D", value: `${displayValue(analystRevisions.eps_estimate_revisions_7d, (value) => formatChangePercent(value))} / ${displayValue(analystRevisions.eps_estimate_revisions_30d, (value) => formatChangePercent(value))} / ${displayValue(analystRevisions.eps_estimate_revisions_90d, (value) => formatChangePercent(value))}`, note: analystRevisions.source_status?.revisions === "unavailable" ? analystRevisions.eps_revision_note : "" },
+          { label: currentLanguage === "zh" ? "收入预期修正" : "Revenue Estimate Revisions", value: analystRevisions.revenue_estimate_revisions == null ? displayValue(analystRevisions.revenue_estimate_growth, (value) => formatPercentage(value)) : displayValue(analystRevisions.revenue_estimate_revisions, (value) => formatChangePercent(normalizeRatioPercent(value))), note: analystRevisions.revenue_estimate_revisions == null ? analystRevisions.revenue_revision_note : "" },
           { label: currentLanguage === "zh" ? "下一年EPS增长" : "Next-Year EPS Growth", value: displayValue(analystRevisions.next_year_eps_growth, (value) => formatPercentage(value)) },
           { label: currentLanguage === "zh" ? "前瞻指引变化" : "Forward Guidance Changes", value: displayValue(analystRevisions.forward_guidance_changes, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "目标价修正趋势" : "Analyst Target Revision Trend", value: analystRevisions.analyst_target_revision_trend || t("dataUnavailable"), note: analystRevisions.target_mean_price != null || analystRevisions.target_median_price != null ? `${currentLanguage === "zh" ? "当前目标价快照" : "Current target snapshot"}: ${displayValue(analystRevisions.target_mean_price, (value) => formatCurrency(value, currencyCode))} / ${displayValue(analystRevisions.target_median_price, (value) => formatCurrency(value, currencyCode))}` : (analystRevisions.notes || [])[1] },
+          { label: currentLanguage === "zh" ? "目标价修正趋势" : "Analyst Target Revision Trend", value: analystTrendLabel(analystRevisions.analyst_target_revision_trend), note: analystRevisions.target_mean_price != null || analystRevisions.target_median_price != null ? `${currentLanguage === "zh" ? "当前目标价快照" : "Current target snapshot"}: ${displayValue(analystRevisions.target_mean_price, (value) => formatCurrency(value, currencyCode))} / ${displayValue(analystRevisions.target_median_price, (value) => formatCurrency(value, currencyCode))}${analystRevisions.analyst_target_revision_trend_proxy ? ` · ${currentLanguage === "zh" ? "趋势代理" : "Trend proxy"}: ${localizedDashboardText(analystRevisions.analyst_target_revision_trend_proxy)}` : ""}` : analystRevisions.target_revision_note },
           { label: currentLanguage === "zh" ? "分析师数量 / 推荐均值" : "Analyst Count / Recommendation Mean", value: `${analystRevisions.analyst_count ?? "—"} / ${displayValue(analystRevisions.recommendation_mean, (value) => formatRatio(value))}`, note: analystRevisions.recommendation_key || "" },
         ])}</div>
       </section>

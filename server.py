@@ -683,6 +683,117 @@ def _unwrap_yahoo_value(value):
     return value
 
 
+def _yahoo_nested_value(payload, *keys):
+    current = payload
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return _unwrap_yahoo_value(current)
+
+
+def _pct_change_from_current(current_value, prior_value):
+    current_float = _safe_float(current_value)
+    prior_float = _safe_float(prior_value)
+    if current_float is None or prior_float in (None, 0):
+        return None
+    return ((current_float - prior_float) / abs(prior_float)) * 100
+
+
+def _select_earnings_trend_period(earnings_trend, preferred_periods=("0q", "+1q", "0y", "+1y")):
+    trend_items = earnings_trend.get("trend") if isinstance(earnings_trend, dict) else []
+    if not isinstance(trend_items, list):
+        return {}
+    for period in preferred_periods:
+        for item in trend_items:
+            if isinstance(item, dict) and item.get("period") == period:
+                return item
+    return trend_items[0] if trend_items and isinstance(trend_items[0], dict) else {}
+
+
+def _parse_yahoo_earnings_revision_fields(earnings_trend):
+    trend_item = _select_earnings_trend_period(earnings_trend)
+    eps_trend = trend_item.get("epsTrend") if isinstance(trend_item, dict) else {}
+    revenue_estimate = trend_item.get("revenueEstimate") if isinstance(trend_item, dict) else {}
+    current_eps = _yahoo_nested_value(eps_trend, "current")
+    fields = {
+        "epsEstimateRevision7d": _pct_change_from_current(current_eps, _yahoo_nested_value(eps_trend, "7daysAgo")),
+        "epsEstimateRevision30d": _pct_change_from_current(current_eps, _yahoo_nested_value(eps_trend, "30daysAgo")),
+        "epsEstimateRevision60d": _pct_change_from_current(current_eps, _yahoo_nested_value(eps_trend, "60daysAgo")),
+        "epsEstimateRevision90d": _pct_change_from_current(current_eps, _yahoo_nested_value(eps_trend, "90daysAgo")),
+        "epsEstimateCurrent": current_eps,
+        "epsEstimate7DaysAgo": _yahoo_nested_value(eps_trend, "7daysAgo"),
+        "epsEstimate30DaysAgo": _yahoo_nested_value(eps_trend, "30daysAgo"),
+        "epsEstimate90DaysAgo": _yahoo_nested_value(eps_trend, "90daysAgo"),
+        "revenueEstimateCurrent": _yahoo_nested_value(revenue_estimate, "avg"),
+        "revenueEstimateGrowth": _yahoo_nested_value(revenue_estimate, "growth"),
+        "earningsTrendPeriod": trend_item.get("period") if isinstance(trend_item, dict) else None,
+        "earningsTrendEndDate": trend_item.get("endDate") if isinstance(trend_item, dict) else None,
+    }
+    next_year_item = _select_earnings_trend_period(earnings_trend, preferred_periods=("+1y", "0y", "+1q", "0q"))
+    next_year_growth = _yahoo_nested_value(next_year_item, "growth") if next_year_item else None
+    if next_year_growth is not None:
+        fields["nextYearEpsGrowth"] = next_year_growth
+    return {key: value for key, value in fields.items() if value is not None}
+
+
+def _recommendation_score_from_trend_item(item):
+    if not isinstance(item, dict):
+        return None
+    strong_buy = _safe_float(item.get("strongBuy")) or 0
+    buy = _safe_float(item.get("buy")) or 0
+    hold = _safe_float(item.get("hold")) or 0
+    sell = _safe_float(item.get("sell")) or 0
+    strong_sell = _safe_float(item.get("strongSell")) or 0
+    total = strong_buy + buy + hold + sell + strong_sell
+    if total <= 0:
+        return None
+    return ((strong_buy * 2) + buy - sell - (strong_sell * 2)) / total
+
+
+def _parse_yahoo_recommendation_trend_fields(recommendation_trend, upgrade_downgrade_history=None):
+    trend_items = recommendation_trend.get("trend") if isinstance(recommendation_trend, dict) else []
+    fields = {}
+    if isinstance(trend_items, list) and trend_items:
+        current_item = next((item for item in trend_items if isinstance(item, dict) and item.get("period") in {"0m", "0"}), trend_items[0])
+        prior_item = trend_items[1] if len(trend_items) > 1 else None
+        current_score = _recommendation_score_from_trend_item(current_item)
+        prior_score = _recommendation_score_from_trend_item(prior_item)
+        if current_score is not None:
+            fields["recommendationTrendScore"] = current_score
+        if current_score is not None and prior_score is not None:
+            delta = current_score - prior_score
+            if delta > 0.08:
+                trend_label = "improving"
+            elif delta < -0.08:
+                trend_label = "deteriorating"
+            else:
+                trend_label = "stable"
+            fields["targetRevisionTrend"] = trend_label
+            fields["targetRevisionTrendProxy"] = "recommendation_trend"
+            fields["recommendationTrendDelta"] = delta
+    history_items = upgrade_downgrade_history.get("history") if isinstance(upgrade_downgrade_history, dict) else []
+    if isinstance(history_items, list) and history_items:
+        recent_actions = [
+            _safe_text(item.get("action")).lower()
+            for item in history_items[:12]
+            if isinstance(item, dict)
+        ]
+        upgrade_count = sum(1 for action in recent_actions if "up" in action or "main" in action or "init" in action)
+        downgrade_count = sum(1 for action in recent_actions if "down" in action)
+        fields["analystUpgradeCountRecent"] = upgrade_count
+        fields["analystDowngradeCountRecent"] = downgrade_count
+        if "targetRevisionTrend" not in fields:
+            if upgrade_count > downgrade_count:
+                fields["targetRevisionTrend"] = "improving"
+            elif downgrade_count > upgrade_count:
+                fields["targetRevisionTrend"] = "deteriorating"
+            else:
+                fields["targetRevisionTrend"] = "stable"
+            fields["targetRevisionTrendProxy"] = "upgrade_downgrade_history"
+    return fields
+
+
 def fetch_yahoo_chart_points(symbol, range_value="3mo", interval="1d", limit=60, value_scale=1.0):
     rows = fetch_yahoo_chart_rows(symbol, range_value=range_value, interval=interval, limit=limit)
     return [
@@ -854,10 +965,15 @@ def fetch_yahoo_quote_summary_snapshot(symbol):
             financial_data = result.get("financialData") or {}
             price = result.get("price") or {}
             summary_profile = result.get("summaryProfile") or {}
+            earnings_trend = result.get("earningsTrend") or {}
+            recommendation_trend = result.get("recommendationTrend") or {}
+            upgrade_downgrade_history = result.get("upgradeDowngradeHistory") or {}
             flattened = {}
             for source in [summary_detail, default_key_stats, financial_data, price, summary_profile]:
                 for key, value in source.items():
                     flattened[key] = _unwrap_yahoo_value(value)
+            flattened.update(_parse_yahoo_earnings_revision_fields(earnings_trend))
+            flattened.update(_parse_yahoo_recommendation_trend_fields(recommendation_trend, upgrade_downgrade_history))
             if flattened:
                 return flattened
         except Exception:
@@ -4101,6 +4217,16 @@ def fetch_us_quote_with_yfinance(ticker, include_options=True):
         "earningsTimestamp",
         "earningsTimestampStart",
         "earningsTimestampEnd",
+        "epsEstimateRevision7d",
+        "epsEstimateRevision30d",
+        "epsEstimateRevision60d",
+        "epsEstimateRevision90d",
+        "epsEstimateCurrent",
+        "revenueEstimateCurrent",
+        "revenueEstimateGrowth",
+        "nextYearEpsGrowth",
+        "targetRevisionTrend",
+        "targetRevisionTrendProxy",
         "shortName",
         "longName",
         "sector",
@@ -4202,6 +4328,22 @@ def fetch_us_quote_with_yfinance(ticker, include_options=True):
             "recommendationKey": info.get("recommendationKey"),
             "earningsGrowth": _safe_float(info.get("earningsGrowth")),
             "earningsQuarterlyGrowth": _safe_float(info.get("earningsQuarterlyGrowth")),
+            "nextYearEpsGrowth": _safe_float(info.get("nextYearEpsGrowth")),
+            "epsEstimateRevision7d": _safe_float(info.get("epsEstimateRevision7d")),
+            "epsEstimateRevision30d": _safe_float(info.get("epsEstimateRevision30d")),
+            "epsEstimateRevision60d": _safe_float(info.get("epsEstimateRevision60d")),
+            "epsEstimateRevision90d": _safe_float(info.get("epsEstimateRevision90d")),
+            "epsEstimateCurrent": _safe_float(info.get("epsEstimateCurrent")),
+            "epsEstimate7DaysAgo": _safe_float(info.get("epsEstimate7DaysAgo")),
+            "epsEstimate30DaysAgo": _safe_float(info.get("epsEstimate30DaysAgo")),
+            "epsEstimate90DaysAgo": _safe_float(info.get("epsEstimate90DaysAgo")),
+            "revenueEstimateCurrent": _safe_float(info.get("revenueEstimateCurrent")),
+            "revenueEstimateGrowth": _safe_float(info.get("revenueEstimateGrowth")),
+            "targetRevisionTrend": info.get("targetRevisionTrend"),
+            "targetRevisionTrendProxy": info.get("targetRevisionTrendProxy"),
+            "recommendationTrendDelta": _safe_float(info.get("recommendationTrendDelta")),
+            "analystUpgradeCountRecent": _safe_int(info.get("analystUpgradeCountRecent")),
+            "analystDowngradeCountRecent": _safe_int(info.get("analystDowngradeCountRecent")),
             "epsForward": _safe_float(info.get("epsForward")),
             "epsTrailingTwelveMonths": _safe_float(info.get("epsTrailingTwelveMonths")),
             "earningsDate": earnings_date,
