@@ -2,6 +2,8 @@ const API_BASE = window.location.protocol === "file:" ? "http://127.0.0.1:4173" 
 const API_URL = `${API_BASE}/api/market-data`;
 const WATCHLIST_API_URL = `${API_BASE}/api/watchlist`;
 const SYMBOL_SEARCH_API_URL = `${API_BASE}/api/symbol-search`;
+const APP_BUILD_VERSION = "2026.07.19.etf-engine-v1";
+const DECISION_MODEL_VERSION = "trade-plan-v5-etf-engine";
 const PRICE_CACHE_KEY = "stock-dashboard-market-cache-v9";
 const WATCHLIST_CACHE_KEY = "stock-dashboard-watchlist-v1";
 const WATCHLIST_SESSION_KEY = "stock-dashboard-watchlist-session-v1";
@@ -252,6 +254,84 @@ const KNOWN_CLASSIFICATION_PROFILES = {
     tags: ["AShare", "OpticalCommunication", "Networking", "ChinaMarket", "Industrial", "Cyclical"],
     category: "OpticalCommunication",
     scoring_profile: "china_a_share",
+  },
+};
+const SUPPORTED_ETF_METADATA = {
+  QQQ: {
+    etf_type: "broad_index",
+    benchmark: "Nasdaq-100",
+    direction: "long",
+    leverage_multiple: 1,
+    daily_reset: false,
+    sector: "technology_growth",
+    factor_style: null,
+    suitable_horizons: ["1-30D", "30-90D", "90-180D"],
+    benchmark_tickers: ["QQQ"],
+    relative_strength_benchmarks: ["SPY", "SPMO"],
+  },
+  SPMO: {
+    etf_type: "momentum_factor",
+    benchmark: "S&P 500 Momentum Index",
+    direction: "long",
+    leverage_multiple: 1,
+    daily_reset: false,
+    sector: "multi_sector",
+    factor_style: "momentum",
+    suitable_horizons: ["1-30D", "30-90D", "90-180D"],
+    benchmark_tickers: ["SPY"],
+    relative_strength_benchmarks: ["SPY", "QQQ"],
+  },
+  TQQQ: {
+    etf_type: "leveraged_long",
+    benchmark: "Nasdaq-100",
+    direction: "long",
+    leverage_multiple: 3,
+    daily_reset: true,
+    sector: "technology_growth",
+    factor_style: null,
+    suitable_horizons: ["1-10D", "10-30D", "30-60D risk review"],
+    benchmark_tickers: ["QQQ"],
+    underlying_proxy: "QQQ",
+    relative_strength_benchmarks: ["QQQ", "SPY"],
+  },
+  SQQQ: {
+    etf_type: "leveraged_inverse",
+    benchmark: "Nasdaq-100",
+    direction: "inverse",
+    leverage_multiple: -3,
+    daily_reset: true,
+    sector: "technology_growth",
+    factor_style: null,
+    suitable_horizons: ["1-10D", "10-30D", "30-60D risk review"],
+    benchmark_tickers: ["QQQ"],
+    underlying_proxy: "QQQ",
+    relative_strength_benchmarks: ["QQQ", "SPY"],
+  },
+  SOXL: {
+    etf_type: "sector_leveraged_long",
+    benchmark: "Semiconductor Index",
+    direction: "long",
+    leverage_multiple: 3,
+    daily_reset: true,
+    sector: "semiconductor",
+    factor_style: "semiconductor_beta",
+    suitable_horizons: ["1-10D", "10-30D", "30-60D risk review"],
+    benchmark_tickers: ["SMH", "SOXX", "QQQ"],
+    underlying_proxy: "SMH/SOXX",
+    relative_strength_benchmarks: ["QQQ", "SPY", "SMH"],
+  },
+  SOXS: {
+    etf_type: "sector_leveraged_inverse",
+    benchmark: "Semiconductor Index",
+    direction: "inverse",
+    leverage_multiple: -3,
+    daily_reset: true,
+    sector: "semiconductor",
+    factor_style: "semiconductor_inverse",
+    suitable_horizons: ["1-10D", "10-30D", "30-60D risk review"],
+    benchmark_tickers: ["SMH", "SOXX", "QQQ"],
+    underlying_proxy: "SMH/SOXX",
+    relative_strength_benchmarks: ["QQQ", "SPY", "SMH"],
   },
 };
 const DEV_MODE = ["localhost", "127.0.0.1"].includes(window.location.hostname) || window.location.protocol === "file:";
@@ -2038,7 +2118,13 @@ function buildClassificationProfile(row, tagAudit, fallbackCategory, missing = [
   const known = knownClassificationForTicker(row.ticker);
   const marketType = schemaMarketTypeForTicker(row);
   const source = known ? "manual_mapping" : "rule_based";
-  const tags = (known?.tags || tagAudit.top_tags || []).slice(0, 6);
+  const cashCowEvidence = tagAudit.tag_evidence?.CashCow?.cash_cow_evidence || null;
+  let tags = (known?.tags || tagAudit.top_tags || []).slice(0, 6);
+  if (tags.includes("CashCow") && cashCowEvidence?.qualified !== true) {
+    tags = tags.filter((tag) => tag !== "CashCow");
+    const replacement = (tagAudit.top_tags || []).find((tag) => tag !== "CashCow" && !tags.includes(tag));
+    if (replacement && tags.length < 6) tags.push(replacement);
+  }
   const category = known?.category || fallbackCategory || selectPrimaryCategory(tags);
   const scoringProfile = known?.scoring_profile || inferScoringProfile(tags, category, marketType);
   const scoringWeights = JSON.parse(JSON.stringify(SCORING_PROFILE_WEIGHTS[scoringProfile] || SCORING_PROFILE_WEIGHTS.generic));
@@ -3457,6 +3543,8 @@ let symbolSearchRequestToken = 0;
 let symbolSearchDebounce = null;
 let refreshRequestInFlight = false;
 let refreshQueued = false;
+let latestMarketRequestId = 0;
+let marketDataState = null;
 
 function syncTickerRows() {
   const previousRows = new Map(tickerRows.map((row) => [row.ticker, row]));
@@ -3638,12 +3726,84 @@ function normalizedRefreshStatus(snapshot) {
     stale_cache_count: staleCacheCount,
     is_partial: typeof status.is_partial === "boolean" ? status.is_partial : (successCount > 0 && successCount < totalTickers),
     is_loading_live_data: typeof status.is_loading_live_data === "boolean" ? status.is_loading_live_data : (successCount > 0 && successCount < totalTickers && failedCount === 0),
+	  };
+	}
+
+function snapshotUpdatedAt(snapshot) {
+  return snapshot?.refresh_status?.last_dashboard_refresh
+    || snapshot?.refresh_status?.last_successful_cache_update_at
+    || snapshot?.refresh_status?.last_any_successful_ticker_refresh_at
+    || snapshot?.updatedAt
+    || snapshot?.fetchedAt
+    || null;
+}
+
+function snapshotTimestampMs(snapshot) {
+  const value = snapshotUpdatedAt(snapshot);
+  if (!value) return null;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildMarketDataState(snapshot, options = {}) {
+  const updatedAt = snapshotUpdatedAt(snapshot);
+  const updatedMs = updatedAt ? new Date(updatedAt).getTime() : null;
+  const cacheAgeMinutes = Number.isFinite(updatedMs) ? Math.max(0, Math.round((Date.now() - updatedMs) / 60000)) : null;
+  const source = options.source || (snapshot?.refresh_status?.is_cache_only ? "server_cache" : "live");
+  const isLocalCache = source === "local_cache";
+  const crossedTradingDay = Number.isFinite(updatedMs)
+    ? new Date(updatedMs).toDateString() !== new Date().toDateString()
+    : false;
+  const stale = cacheAgeMinutes == null || cacheAgeMinutes > 60 || crossedTradingDay;
+  const provisional = typeof options.isProvisional === "boolean"
+    ? options.isProvisional
+    : isLocalCache;
+  return {
+    source,
+    is_provisional: provisional,
+    is_refreshing: Boolean(options.isRefreshing),
+    is_stale: stale,
+    cache_age_minutes: cacheAgeMinutes,
+    snapshot_updated_at: updatedAt,
+    applied_at: new Date().toISOString(),
+    request_id: Number.isFinite(options.requestId) ? options.requestId : null,
+    warning: options.warning || (provisional
+      ? (currentLanguage === "zh" ? "正在更新最新市场数据，当前推荐暂不显示。" : "Refreshing latest market data; formal recommendations are hidden.")
+      : stale
+        ? (currentLanguage === "zh" ? "市场数据可能过期。" : "Market data may be stale.")
+        : null),
   };
 }
 
+function updateMarketDataState(snapshot, options = {}) {
+  marketDataState = buildMarketDataState(snapshot, options);
+  if (typeof window !== "undefined") {
+    window.__STOCK_DASHBOARD_DEBUG__ = {
+      APP_BUILD_VERSION,
+      DECISION_MODEL_VERSION,
+      snapshot_source: marketDataState.source,
+      snapshot_updated_at: marketDataState.snapshot_updated_at,
+      decision_applied_at: marketDataState.applied_at,
+      request_id: marketDataState.request_id,
+      decision_build_path: "applied_snapshot",
+    };
+  }
+  return marketDataState;
+}
+
+function shouldHideFormalActionsForState(state = marketDataState) {
+  return Boolean(state?.is_provisional && state?.source === "local_cache");
+}
+
 function refreshChipText(snapshot, fallbackText = t("refresh")) {
-  if (!snapshot) return fallbackText;
-  const status = normalizedRefreshStatus(snapshot);
+	  if (!snapshot) return fallbackText;
+	  if (shouldHideFormalActionsForState()) {
+	    const age = Number.isFinite(marketDataState?.cache_age_minutes) ? `${marketDataState.cache_age_minutes}m` : "—";
+	    return currentLanguage === "zh"
+	      ? `正在更新最新市场数据，当前推荐暂不显示 • 本地缓存 ${age}`
+	      : `Refreshing latest market data; recommendations hidden • local cache ${age}`;
+	  }
+	  const status = normalizedRefreshStatus(snapshot);
   if (!status) return fallbackText;
   const lastRefresh = formatRefreshDateTime(status.last_dashboard_refresh);
   const nextRefresh = status.is_refresh_due
@@ -5744,6 +5904,127 @@ function buildCompanyRiskState({ fundamentalHealth, guidanceState, valuationStat
     company_specific_risk: riskFactors.length >= 2 || guidanceState.direction === "lowered" || fundamentalHealth.regime === "weak",
     falling_knife_risk: volumeState.distribution_risk && guidanceState.direction !== "raised",
     risk_factors: riskFactors,
+	  };
+	}
+
+function buildGapDownRiskModel({
+  row,
+  supportResistance,
+  technical,
+  marketContext,
+  tradeContext,
+  companyProfile,
+}) {
+  const price = finiteNumberOrNull(row?.price);
+  const previousClose = finiteNumberOrNull(row?.previousClose);
+  const atr = finiteNumberOrNull(row?.technicals?.atr14);
+  const dayChangePct = finiteNumberOrNull(row?.changePercent);
+  const dayChangeAmount = Number.isFinite(price) && Number.isFinite(previousClose) ? price - previousClose : null;
+  const dropInAtr = Number.isFinite(dayChangeAmount) && Number.isFinite(atr) && atr > 0 ? Math.abs(dayChangeAmount) / atr : null;
+  const overnightGapPct = null;
+  const tags = decisionTagSet(companyProfile, companyProfile?.decision_profile || {});
+  const volatileProfile = hasAnyTag(tags, ["HighVolatility", "Speculative", "Meme", "NewlyListed", "IPO"]);
+  const defensiveProfile = hasAnyTag(tags, ["MegaCap", "Defensive", "Healthcare", "HealthInsurance", "HealthcareServices"]);
+  const pctTrigger = volatileProfile ? -7 : defensiveProfile ? -5.8 : -5;
+  const active = (Number.isFinite(dayChangePct) && dayChangePct <= pctTrigger)
+    || (Number.isFinite(overnightGapPct) && overnightGapPct <= -4)
+    || (Number.isFinite(dropInAtr) && dropInAtr >= 1.5);
+  const volume = technical?.volume_confirmation || tradeContext?.volume_state || {};
+  const closeLocation = finiteNumberOrNull(volume.close_location_pct ?? row?.technicals?.closePosition * 100);
+  const volumeRatio = finiteNumberOrNull(volume.relative_volume_20d ?? row?.technicals?.volumeRatio);
+  const supports = supportResistance?.supports || [];
+  const ma20 = finiteNumberOrNull(row?.technicals?.ma20);
+  const ma50 = finiteNumberOrNull(row?.technicals?.ma50);
+  const brokeSupport = Number.isFinite(price) && Number.isFinite(previousClose)
+    ? supports.slice(0, 2).some((level) => Number.isFinite(level?.price) && previousClose >= level.price && price < level.price)
+    : false;
+  const brokeMa20 = Number.isFinite(price) && Number.isFinite(previousClose) && Number.isFinite(ma20) ? previousClose >= ma20 && price < ma20 : false;
+  const brokeMa50 = Number.isFinite(price) && Number.isFinite(previousClose) && Number.isFinite(ma50) ? previousClose >= ma50 && price < ma50 : false;
+  const obvTrend = volume.obv_trend_20d || tradeContext?.volume_state?.obv_trend_20d || "neutral";
+  const obvConfirmation = obvTrend !== "falling";
+  const relativeStrengthShock = [
+    tradeContext?.relative_strength_state?.vs_spy_20d,
+    tradeContext?.relative_strength_state?.vs_qqq_20d,
+  ].some((value) => Number.isFinite(value) && value <= -4);
+  const guidanceRisk = tradeContext?.guidance_state?.direction === "lowered";
+  const earningsDays = finiteNumberOrNull(marketContext?.earnings_event_risk?.days_to_earnings ?? row?.metadata?.daysToEarnings);
+  const earningsEventProximity = Number.isFinite(earningsDays) && Math.abs(earningsDays) <= 3;
+  const newsItems = Array.isArray(row?.companyNews)
+    ? row.companyNews
+    : row?.companyNews && typeof row.companyNews === "object"
+      ? Object.values(row.companyNews)
+      : [];
+  const newsBlob = newsItems.map((item) => `${item?.title || ""} ${item?.summary || ""}`).join(" ").toLowerCase();
+  const companySpecificNewsRisk = /guidance|earnings miss|downgrade|investigation|lawsuit|regulator|sec\b|fraud|probe|cut forecast|weak forecast|slashed/i.test(newsBlob);
+  const marketRegime = marketRegimeFromContext(marketContext);
+  const marketWideSelloff = ["risk_off", "panic"].includes(marketRegime)
+    || (marketContext?.enhanced_context?.spy_trend?.change_5d_pct ?? 0) <= -3
+    || (marketContext?.enhanced_context?.qqq_trend?.change_5d_pct ?? 0) <= -3;
+  const closeStrong = Number.isFinite(closeLocation) && closeLocation >= 62;
+  const supportHeld = active && !brokeSupport && !brokeMa50;
+  const intradayRecoveryPct = Number.isFinite(closeLocation) ? closeLocation : null;
+  let riskScore = 0;
+  if (active) riskScore += 25;
+  if (Number.isFinite(volumeRatio) && volumeRatio >= 1.5) riskScore += 12;
+  if (Number.isFinite(closeLocation) && closeLocation < 35) riskScore += 14;
+  if (brokeSupport) riskScore += 16;
+  if (brokeMa20) riskScore += 8;
+  if (brokeMa50) riskScore += 12;
+  if (!obvConfirmation) riskScore += 10;
+  if (relativeStrengthShock) riskScore += 10;
+  if (guidanceRisk) riskScore += 18;
+  if (earningsEventProximity) riskScore += 8;
+  if (companySpecificNewsRisk) riskScore += 18;
+  if (marketWideSelloff && !companySpecificNewsRisk && !guidanceRisk) riskScore -= 10;
+  if (closeStrong) riskScore -= 10;
+  if (supportHeld) riskScore -= 8;
+  riskScore = clamp(Math.round(riskScore), 0, 100);
+  let classification = "normal_pullback";
+  if (!active) classification = "normal_pullback";
+  else if (!Number.isFinite(dayChangePct) && !Number.isFinite(dropInAtr)) classification = "data_insufficient";
+  else if ((guidanceRisk || companySpecificNewsRisk) && (brokeSupport || brokeMa50 || riskScore >= 65)) classification = "company_specific_breakdown";
+  else if (riskScore >= 72 && (brokeSupport || !obvConfirmation) && !closeStrong) classification = "falling_knife";
+  else if (guidanceRisk || companySpecificNewsRisk || earningsEventProximity) classification = "event_driven_gap_down";
+  else if (marketWideSelloff && supportHeld) classification = "market_driven_selloff";
+  else if (closeStrong && supportHeld && riskScore < 58) classification = "capitulation_with_recovery";
+  const followThroughRequired = ["event_driven_gap_down", "company_specific_breakdown", "falling_knife"].includes(classification);
+  const followThroughConfirmed = !followThroughRequired && (closeStrong || supportHeld) && obvConfirmation;
+  return {
+    active,
+    gap_pct: overnightGapPct,
+    day_change_pct: dayChangePct,
+    overnight_gap_pct: overnightGapPct,
+    drop_in_atr: Number.isFinite(dropInAtr) ? Number(dropInAtr.toFixed(2)) : null,
+    abnormal_volume_ratio: volumeRatio,
+    close_location: closeLocation,
+    intraday_recovery_pct: intradayRecoveryPct,
+    broke_support: brokeSupport,
+    broke_ma20: brokeMa20,
+    broke_ma50: brokeMa50,
+    obv_confirmation: obvConfirmation,
+    relative_strength_shock: relativeStrengthShock,
+    event_risk: earningsEventProximity || guidanceRisk || companySpecificNewsRisk,
+    earnings_event_proximity: earningsEventProximity,
+    guidance_risk: guidanceRisk,
+    company_specific_news_risk: companySpecificNewsRisk,
+    market_wide_selloff: marketWideSelloff,
+    stabilization_state: followThroughConfirmed ? "confirmed" : supportHeld || closeStrong ? "early" : active ? "unconfirmed" : "not_required",
+    risk_score: riskScore,
+    classification,
+    follow_through_confirmation: {
+      required: followThroughRequired,
+      confirmed: followThroughConfirmed,
+      days_required: followThroughRequired ? 2 : 0,
+      reclaim_level: Number.isFinite(ma20) ? ma20 : supports[0]?.price ?? null,
+      volume_requirement: followThroughRequired ? "no further high-volume downside expansion" : null,
+      obv_requirement: followThroughRequired ? "OBV stops deteriorating" : null,
+      reason: followThroughRequired
+        ? (currentLanguage === "zh" ? "事件型急跌或破位需要 1-2 个交易日确认止稳。" : "Event-driven gap-down or breakdown needs 1-2 sessions of follow-through stabilization.")
+        : null,
+    },
+    explanation: active
+      ? (currentLanguage === "zh" ? `急跌分类：${classification}，风险分 ${riskScore}/100。` : `Gap-down classification: ${classification}, risk ${riskScore}/100.`)
+      : (currentLanguage === "zh" ? "未触发单日急跌风险模型。" : "Gap-down risk model was not triggered."),
   };
 }
 
@@ -5862,22 +6143,192 @@ function listingAgeDaysFromMetadata(row) {
   return null;
 }
 
-function hasReliableEtfMetadata(row) {
+function normalizeInstrumentMetadata(raw) {
+  const row = raw?.metadata ? raw : { metadata: raw || {} };
   const metadata = row?.metadata || {};
-  const values = [
-    metadata.quoteType,
-    metadata.instrumentType,
-    metadata.securityType,
-    metadata.type,
-    metadata.fundType,
-    metadata.assetClass,
-  ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean);
-  return values.some((value) => (
-    value === "etf"
-    || value === "exchange traded fund"
-    || value === "exchange-traded fund"
-    || value === "exchange_traded_fund"
-  ));
+  const ticker = normalizeTickerInput(row?.ticker || row?.symbol || metadata.symbol || metadata.underlyingSymbol || "");
+  const supportedEtfMetadata = SUPPORTED_ETF_METADATA[ticker] || null;
+  const read = (keys) => {
+    for (const key of keys) {
+      const value = metadata[key] ?? row?.[key];
+      if (value != null && String(value).trim()) return String(value).trim();
+    }
+    return "";
+  };
+  const quoteType = read(["quoteType", "quote_type"]);
+  const instrumentType = read(["instrumentType", "instrument_type"]);
+  const securityType = read(["securityType", "security_type"]);
+  const type = read(["type", "fundType", "assetClass"]);
+  const exchange = read(["exchange", "fullExchangeName"]) || row?.exchangeName || "";
+  const currency = read(["currency", "financialCurrency"]) || row?.currencyCode || "";
+  const values = [quoteType, instrumentType, securityType, type].map((value) => value.toLowerCase()).filter(Boolean);
+  const exactEtf = values.some((value) => ["etf", "exchange traded fund", "exchange-traded fund", "exchange_traded_fund"].includes(value)) || Boolean(supportedEtfMetadata);
+  const exactEtn = values.some((value) => ["etn", "exchange traded note", "exchange-traded note", "exchange_traded_note"].includes(value));
+  const exactFund = values.some((value) => ["mutualfund", "mutual fund", "fund", "closed end fund", "closed-end fund"].includes(value));
+  const exactEquity = values.some((value) => ["equity", "common stock", "commonstock", "stock", "ordinary share"].includes(value));
+  const adr = values.some((value) => /\badr\b|\bads\b|depositary/i.test(value))
+    || /\badr\b|\bads\b|depositary/i.test(`${metadata.longName || ""} ${metadata.shortName || ""}`);
+  const explicitSignals = [quoteType, instrumentType, securityType].filter(Boolean).length;
+  const conflicting = (exactEtf || exactEtn || exactFund) && exactEquity;
+  let status = "unavailable";
+  if (conflicting) status = "conflicting";
+  else if (explicitSignals >= 1) status = "verified";
+  else if (type || exchange || currency) status = "partial";
+  if (supportedEtfMetadata) status = "verified";
+  const confidence = supportedEtfMetadata
+    ? 96
+    : status === "verified"
+    ? (exactEtf || exactEtn || exactFund || exactEquity ? 92 : 76)
+    : status === "conflicting" ? 35 : status === "partial" ? 52 : 20;
+  return {
+    instrument_type: instrumentType || null,
+    quote_type: quoteType || null,
+    security_type: supportedEtfMetadata ? "ETF" : securityType || type || null,
+    exchange: exchange || null,
+    currency: currency || null,
+    is_equity: !supportedEtfMetadata && (exactEquity || (!exactEtf && !exactEtn && !exactFund && status === "verified")),
+    is_etf: exactEtf,
+    is_etn: exactEtn,
+    is_fund: exactFund,
+    is_adr: adr,
+    is_common_stock: exactEquity,
+    metadata_confidence: confidence,
+    metadata_source: supportedEtfMetadata ? "supported_etf_metadata" : explicitSignals ? "quote_metadata" : status === "partial" ? "partial_metadata" : "unavailable",
+    metadata_status: status,
+    instrument_metadata_status: status,
+    metadata_warning: status === "conflicting"
+      ? "instrument metadata is conflicting"
+      : status === "partial" || status === "unavailable"
+        ? "security type needs verified quote metadata"
+        : null,
+  };
+}
+
+function buildETFProfile(instrumentMetadata = {}, tickerMetadata = {}) {
+  const ticker = normalizeTickerInput(tickerMetadata.ticker || tickerMetadata.symbol || tickerMetadata.metadata?.symbol || "");
+  const metadata = SUPPORTED_ETF_METADATA[ticker] || null;
+  if (!metadata) return null;
+  const leveraged = Math.abs(metadata.leverage_multiple || 1) > 1 || metadata.daily_reset;
+  const inverse = metadata.direction === "inverse";
+  return {
+    instrument_type: "ETF",
+    etf_type: metadata.etf_type,
+    benchmark: metadata.benchmark,
+    direction: metadata.direction,
+    leverage_multiple: metadata.leverage_multiple,
+    daily_reset: metadata.daily_reset,
+    sector: metadata.sector || null,
+    factor_style: metadata.factor_style || null,
+    suitable_horizons: metadata.suitable_horizons,
+    benchmark_tickers: metadata.benchmark_tickers || [],
+    underlying_proxy: metadata.underlying_proxy || metadata.benchmark_tickers?.[0] || null,
+    relative_strength_benchmarks: metadata.relative_strength_benchmarks || [],
+    decay_risk: leveraged ? (Math.abs(metadata.leverage_multiple) >= 3 ? "high" : "elevated") : "low",
+    path_dependency_risk: leveraged ? "high" : "low",
+    inverse_risk: inverse ? "high" : "none",
+    concentration_risk: metadata.etf_type === "broad_index" || /technology|semiconductor/i.test(metadata.sector || "") ? "elevated" : "normal",
+    liquidity_risk: "unknown",
+    options_behavior: leveraged
+      ? "tactical_options_only"
+      : "standard_etf_options",
+    confidence: instrumentMetadata?.is_etf || instrumentMetadata?.metadata_source === "supported_etf_metadata" ? 96 : 88,
+    holding_horizon_warning: leveraged
+      ? (currentLanguage === "zh"
+        ? "该 ETF 采用每日杠杆和每日再平衡，不适合作为普通长期核心仓位。长期表现可能因波动和路径依赖偏离标的累计收益的简单倍数。"
+        : "This ETF uses daily leverage and daily rebalancing. It is not a normal long-term core holding; volatility and path dependency can make long-run returns diverge from a simple multiple of the underlying.")
+      : null,
+  };
+}
+
+function hasReliableEtfMetadata(row) {
+  const metadata = normalizeInstrumentMetadata(row);
+  return (metadata.is_etf || metadata.is_etn) && metadata.metadata_confidence >= 80;
+}
+
+function buildCashCowEvidence(row, metrics = {}) {
+  const metadata = row?.metadata || {};
+  const revenue = finiteNumberOrNull(metrics.revenue ?? metadata.totalRevenue ?? metadata.revenue);
+  const freeCashFlow = finiteNumberOrNull(metrics.freeCashFlow ?? metadata.freeCashflow ?? metadata.freeCashFlow);
+  const operatingCashFlow = finiteNumberOrNull(metrics.operatingCashFlow ?? metadata.operatingCashflow ?? metadata.operatingCashFlow ?? metadata.totalCashFromOperatingActivities);
+  const netIncome = finiteNumberOrNull(metrics.netIncome ?? metadata.netIncomeToCommon ?? metadata.netIncome);
+  const profitMargin = finiteNumberOrNull(metrics.profitMargin ?? metadata.profitMargins ?? metadata.profitMargin);
+  const operatingMargin = finiteNumberOrNull(metrics.operatingMargin ?? metadata.operatingMargins);
+  const freeCashFlowMargin = Number.isFinite(freeCashFlow) && Number.isFinite(revenue) && revenue > 0 ? freeCashFlow / revenue : null;
+  const debtRatio = finiteNumberOrNull(metrics.debtRatio ?? (Number.isFinite(metadata.debtToEquity) ? metadata.debtToEquity / 100 : null));
+  const currentRatio = finiteNumberOrNull(metrics.cashReserve ?? metadata.currentRatio);
+  const revenueGrowth = normalizeRatioPercent(metrics.revenueGrowth ?? metadata.revenueGrowth);
+  const positiveFcf = Number.isFinite(freeCashFlow) && freeCashFlow > 0;
+  const positiveOperatingCashFlow = Number.isFinite(operatingCashFlow) && operatingCashFlow > 0;
+  const positiveNetIncome = Number.isFinite(netIncome) && netIncome > 0;
+  const stableMargin = (Number.isFinite(profitMargin) && profitMargin > 0.08) || (Number.isFinite(operatingMargin) && operatingMargin > 0.12);
+  const fcfMarginScore = Number.isFinite(freeCashFlowMargin) ? clamp(Math.round(50 + freeCashFlowMargin * 220), 0, 100) : null;
+  const balanceSheetQuality = Number.isFinite(debtRatio)
+    ? (debtRatio <= 0.45 ? 78 : debtRatio <= 0.7 ? 58 : 34)
+    : Number.isFinite(currentRatio) ? (currentRatio >= 1.5 ? 72 : currentRatio >= 1 ? 54 : 36) : null;
+  const debtRisk = Number.isFinite(debtRatio) ? (debtRatio > 0.7 ? "high" : debtRatio > 0.45 ? "moderate" : "low") : "unavailable";
+  const revenueNotDeteriorating = !Number.isFinite(revenueGrowth) || revenueGrowth > -8;
+  const evidence = {
+    positive_fcf: positiveFcf,
+    positive_operating_cash_flow: positiveOperatingCashFlow,
+    positive_net_income: positiveNetIncome,
+    stable_margin: stableMargin,
+    fcf_margin_score: fcfMarginScore,
+    balance_sheet_quality: balanceSheetQuality,
+    debt_risk: debtRisk,
+    revenue_not_deteriorating: revenueNotDeteriorating,
+  };
+  const fields = [freeCashFlow, operatingCashFlow, netIncome, profitMargin ?? operatingMargin, freeCashFlowMargin, balanceSheetQuality, revenueGrowth];
+  const dataCompleteness = Math.round((fields.filter((item) => item != null && Number.isFinite(item)).length / fields.length) * 100);
+  const evidenceCount = [
+    positiveFcf,
+    positiveOperatingCashFlow,
+    positiveNetIncome,
+    stableMargin,
+    Number.isFinite(fcfMarginScore) && fcfMarginScore >= 55,
+    Number.isFinite(balanceSheetQuality) && balanceSheetQuality >= 55,
+    debtRisk !== "high",
+    revenueNotDeteriorating,
+  ].filter(Boolean).length;
+  const blockingReasons = [
+    !positiveFcf ? "free cash flow is not positive or unavailable" : null,
+    (!positiveOperatingCashFlow && !positiveNetIncome) ? "operating cash flow or net income is not positive or unavailable" : null,
+    Number.isFinite(profitMargin) && profitMargin <= 0 ? "profit margin is not positive" : null,
+    dataCompleteness < 55 ? "financial data completeness below CashCow minimum" : null,
+    debtRisk === "high" ? "debt risk is high" : null,
+    !stableMargin ? "profit / operating margin is not stable enough" : null,
+    positiveFcf === false && positiveOperatingCashFlow === false ? "cash burn evidence" : null,
+  ].filter(Boolean);
+  const qualified = blockingReasons.length === 0
+    && evidenceCount >= 5
+    && dataCompleteness >= 55
+    && positiveFcf
+    && (positiveOperatingCashFlow || positiveNetIncome)
+    && stableMargin;
+  return {
+    qualified,
+    evidence,
+    missing_fields: [
+      Number.isFinite(freeCashFlow) ? null : "free_cash_flow",
+      Number.isFinite(operatingCashFlow) ? null : "operating_cash_flow",
+      Number.isFinite(netIncome) ? null : "net_income",
+      Number.isFinite(profitMargin) || Number.isFinite(operatingMargin) ? null : "margin",
+      Number.isFinite(balanceSheetQuality) ? null : "balance_sheet_quality",
+    ].filter(Boolean),
+    rejected_reason: qualified ? null : blockingReasons.join("; ") || "insufficient CashCow evidence",
+    evidence_count: evidenceCount,
+    data_completeness: dataCompleteness,
+    free_cash_flow: freeCashFlow,
+    operating_cash_flow: operatingCashFlow,
+    net_income: netIncome,
+    profit_margin: profitMargin,
+    operating_margin: operatingMargin,
+    free_cash_flow_margin: freeCashFlowMargin,
+    balance_sheet_quality: balanceSheetQuality,
+    debt_risk: debtRisk,
+    explanation: qualified
+      ? (currentLanguage === "zh" ? "CashCow 标签由正自由现金流、经营现金流、盈利、利润率和资产负债表共同确认。" : "CashCow is supported by FCF, operating cash flow, earnings, margins, and balance-sheet evidence.")
+      : (currentLanguage === "zh" ? "CashCow 证据不足，已避免用默认标签推断。" : "CashCow evidence is insufficient, so the tag is not inferred by default."),
+  };
 }
 
 function pushProfileTag(tagSet, reasons, tag, reason) {
@@ -5990,13 +6441,16 @@ function buildProfileTagAudit(row, rawTags, context) {
     });
     delete evidenceMap[tag];
   };
-  const {
-    marketCap,
-    revenueGrowth,
-    freeCashFlow,
-    operatingMargin,
-    grossMargin,
-    debtRatio,
+	  const {
+	    marketCap,
+	    revenueGrowth,
+	    freeCashFlow,
+	    operatingCashFlow,
+	    netIncome,
+	    profitMargin,
+	    operatingMargin,
+	    grossMargin,
+	    debtRatio,
     forwardPe,
     pe,
     psRatio,
@@ -6008,14 +6462,17 @@ function buildProfileTagAudit(row, rawTags, context) {
     relativeVolume,
     nearHigh,
     likelyIPO,
-    reitLike,
-    listingAgeDays,
-  } = context;
+	    reitLike,
+	    listingAgeDays,
+	    cashCowEvidence: contextCashCowEvidence,
+	    instrumentMetadata: contextInstrumentMetadata,
+	  } = context;
   const dividendYield = normalizeDividendYield(rawDividendYield);
   const country = String(row.metadata?.country || "").toLowerCase();
   const exchangeName = String(row.exchangeName || row.metadata?.exchange || "").toLowerCase();
   const quoteType = String(row.metadata?.quoteType || "").toLowerCase();
-  const etfIdentity = hasReliableEtfMetadata(row);
+	  const instrumentMetadata = contextInstrumentMetadata || normalizeInstrumentMetadata(row);
+	  const etfIdentity = (instrumentMetadata.is_etf || instrumentMetadata.is_etn) && instrumentMetadata.metadata_confidence >= 80;
   const isUsListed = !isCnAShare(row) && /nasdaq|nyse|amex|nms|ngm|ncm|nyq|ase|nas/i.test(exchangeName);
   const directChinaCountry = /china|hong kong|prc/i.test(country);
   const caymanWithChinaBusiness = /cayman islands/i.test(country)
@@ -6131,7 +6588,17 @@ function buildProfileTagAudit(row, rawTags, context) {
     addEvidence("Defense", 84, "description indicates defense / aerospace exposure", "description");
   }
 
-  if ((freeCashFlow ?? 0) > 0 && (operatingMargin ?? 0) >= 0.15 && (grossMargin ?? 0) >= 0.35) addEvidence("CashCow", 84, "positive free cash flow and strong margins", "financial");
+	  const cashCowEvidence = contextCashCowEvidence || buildCashCowEvidence(row, {
+	    revenueGrowth,
+	    freeCashFlow,
+	    operatingCashFlow,
+	    netIncome,
+	    profitMargin,
+	    operatingMargin,
+	    grossMargin,
+	    debtRatio,
+	  });
+	  if (cashCowEvidence.qualified) addEvidence("CashCow", 84, "objective CashCow evidence: positive FCF / cash flow / earnings / margins / balance sheet", "financial");
   if ((revenueGrowth ?? 0) >= 0.25 && (freeCashFlow ?? 0) > 0) addEvidence("HighGrowth", 80, "revenue growth >= 25% with positive cash flow", "financial");
   else if ((revenueGrowth ?? 0) >= 0.1) addEvidence("Growth", 76, "revenue growth >= 10%", "financial");
   if ((revenueGrowth ?? 0) >= 0.1 && (freeCashFlow ?? 0) > 0) addEvidence("ProfitableGrowth", 78, "growth supported by positive free cash flow", "financial");
@@ -6198,7 +6665,22 @@ function buildProfileTagAudit(row, rawTags, context) {
     if ((evidenceMap[tag]?.confidence ?? 0) < 60) rejectTag(tag, "confidence below display threshold");
   });
 
-  const fullTags = Object.keys(evidenceMap).filter((tag) => evidenceMap[tag].confidence >= 60);
+	  const cashCowTagEvidence = cashCowEvidence.qualified
+	    ? {
+	      ...(evidenceMap.CashCow || { confidence: 84, evidence: [], source_types: ["financial"] }),
+	      qualified: true,
+	      cash_cow_evidence: cashCowEvidence,
+	    }
+	    : {
+	      confidence: 0,
+	      evidence: [],
+	      source_types: ["financial"],
+	      qualified: false,
+	      cash_cow_evidence: cashCowEvidence,
+	      rejected_reason: cashCowEvidence.rejected_reason,
+	      missing_fields: cashCowEvidence.missing_fields,
+	    };
+	  const fullTags = Object.keys(evidenceMap).filter((tag) => evidenceMap[tag].confidence >= 60);
   const groupOrder = {
     size: ["MegaCap", "LargeCap", "MidCap", "SmallCap", "MicroCap"],
     core: ["ETF", "Software", "Cloud", "Semiconductor", "MemoryStorage", "PowerSemiconductor", "PCB", "OpticalCommunication", "AIInfrastructure", "SocialMedia", "DigitalAds", "EV", "AutoManufacturer", "Ecommerce", "Consumer", "REIT", "Banking", "Fintech", "Energy", "Healthcare", "HealthInsurance", "HealthcareServices", "Biotech", "Crypto", "Industrial", "Defense", "RealEstate", "AI"],
@@ -6245,7 +6727,7 @@ function buildProfileTagAudit(row, rawTags, context) {
     exposure_tags: Object.keys(exposureMap).filter((tag) => exposureMap[tag].confidence >= 40)
       .sort((a, b) => exposureMap[b].confidence - exposureMap[a].confidence),
     rejected_tags: rejected,
-    tag_evidence: evidenceMap,
+	    tag_evidence: { ...evidenceMap, CashCow: cashCowTagEvidence },
     exposure_evidence: exposureMap,
   };
 }
@@ -6259,10 +6741,13 @@ function buildCompanyProfile(row, research) {
   const marketCap = row.marketCap ?? null;
   const beta = row.metadata?.beta ?? null;
   const revenueGrowth = metrics.revenueGrowth ?? null;
-  const epsGrowth = metrics.epsGrowth ?? null;
-  const fcfGrowth = metrics.fcfGrowth ?? null;
-  const freeCashFlow = metrics.freeCashFlow ?? row.metadata?.freeCashflow ?? null;
-  const netIncomeProxy = Number.isFinite(metrics.epsGrowth) ? metrics.epsGrowth : null;
+	  const epsGrowth = metrics.epsGrowth ?? null;
+	  const fcfGrowth = metrics.fcfGrowth ?? null;
+	  const freeCashFlow = metrics.freeCashFlow ?? row.metadata?.freeCashflow ?? null;
+	  const operatingCashFlow = metrics.operatingCashFlow ?? row.metadata?.operatingCashflow ?? row.metadata?.operatingCashFlow ?? null;
+	  const netIncome = metrics.netIncome ?? row.metadata?.netIncomeToCommon ?? row.metadata?.netIncome ?? null;
+	  const profitMargin = metrics.profitMargin ?? row.metadata?.profitMargins ?? null;
+	  const netIncomeProxy = Number.isFinite(netIncome) ? netIncome : Number.isFinite(metrics.epsGrowth) ? metrics.epsGrowth : null;
   const operatingMargin = metrics.operatingMargin ?? row.metadata?.operatingMargins ?? null;
   const grossMargin = metrics.grossMargin ?? row.metadata?.grossMargins ?? null;
   const roe = metrics.roe ?? row.metadata?.returnOnEquity ?? null;
@@ -6301,8 +6786,9 @@ function buildCompanyProfile(row, research) {
     businessSummary,
     /\bhospital\b|\btelehealth\b|\bpharma(?:ceutical)?\b|\bbiotech\b|\bmedical device\b|\bclinical\b|\bdrug\b/gi,
   );
-  const quoteType = String(row.metadata?.quoteType || "").toLowerCase();
-  const etfLike = hasReliableEtfMetadata(row);
+	  const quoteType = String(row.metadata?.quoteType || "").toLowerCase();
+	  const instrumentMetadata = normalizeInstrumentMetadata(row);
+	  const etfLike = hasReliableEtfMetadata(row);
   const evKeywordCount = countRegexMatches(
     textBlob,
     /\belectric vehicle(?:s)?\b|\bev manufacturer\b|\bev maker\b|\bbattery electric vehicle\b|\bvehicle deliveries\b|\bautomaker\b|\bauto manufacturing\b|\bvehicle manufacturing\b/gi,
@@ -6349,10 +6835,21 @@ function buildCompanyProfile(row, research) {
     }
   }
 
-  const hasPositiveIncomeProxy = (netIncomeProxy ?? -1) > 0;
-  if ((freeCashFlow ?? 0) > 0 && (operatingMargin ?? 0) >= 0.15 && (grossMargin ?? 0) >= 0.35 && (revenueGrowth ?? 0) >= 0) {
-    pushProfileTag(tagSet, reasons, "CashCow", currentLanguage === "zh" ? "自由现金流和利润率较强" : "Free cash flow and margins are strong");
-  }
+	  const hasPositiveIncomeProxy = (netIncomeProxy ?? -1) > 0;
+	  const cashCowEvidence = buildCashCowEvidence(row, {
+	    revenueGrowth,
+	    freeCashFlow,
+	    operatingCashFlow,
+	    netIncome,
+	    profitMargin,
+	    operatingMargin,
+	    grossMargin,
+	    debtRatio,
+	    cashReserve: cashRatio,
+	  });
+	  if (cashCowEvidence.qualified) {
+	    pushProfileTag(tagSet, reasons, "CashCow", currentLanguage === "zh" ? "现金牛标签由自由现金流、经营现金流、盈利、利润率和资产负债表共同确认。" : "CashCow is confirmed by FCF, operating cash flow, earnings, margins, and balance sheet.");
+	  }
   if ((revenueGrowth ?? 0) >= 0.1 && hasPositiveIncomeProxy && (freeCashFlow ?? 0) > 0) {
     pushProfileTag(tagSet, reasons, "ProfitableGrowth", currentLanguage === "zh" ? "成长和盈利兼具" : "Growth is supported by profits and free cash flow");
   }
@@ -6430,11 +6927,14 @@ function buildCompanyProfile(row, research) {
 
   const rawTags = Array.from(tagSet);
   const tagAudit = buildProfileTagAudit(row, rawTags, {
-    marketCap,
-    revenueGrowth,
-    freeCashFlow,
-    operatingMargin,
-    grossMargin,
+	    marketCap,
+	    revenueGrowth,
+	    freeCashFlow,
+	    operatingCashFlow,
+	    netIncome,
+	    profitMargin,
+	    operatingMargin,
+	    grossMargin,
     debtRatio,
     forwardPe,
     pe,
@@ -6447,9 +6947,11 @@ function buildCompanyProfile(row, research) {
     relativeVolume,
     nearHigh,
     likelyIPO,
-    listingAgeDays,
-    reitLike,
-  });
+	    listingAgeDays,
+	    reitLike,
+	    cashCowEvidence,
+	    instrumentMetadata,
+	  });
   if (isCnAShare(row) && !tagAudit.top_tags.includes("AShare")) {
     tagAudit.top_tags.unshift("AShare");
     tagAudit.top_tags = [...new Set(tagAudit.top_tags)].slice(0, 6);
@@ -6494,12 +6996,15 @@ function buildCompanyProfile(row, research) {
     exposure_tags: tagAudit.exposure_tags,
     exposure_tags_label: tagAudit.exposure_tags.map(localizedProfileTag),
     rejected_tags: tagAudit.rejected_tags,
-    tag_evidence: classificationProfile.tag_evidence,
-    exposure_evidence: tagAudit.exposure_evidence,
+	    tag_evidence: classificationProfile.tag_evidence,
+	    cash_cow_evidence: cashCowEvidence,
+	    exposure_evidence: tagAudit.exposure_evidence,
     classification_confidence: classificationConfidence,
     classification_reasons: [...new Set(classificationReasons.length ? classificationReasons : reasons)].slice(0, 5),
     missing_classification_data: missing,
-    listing_age_days: Number.isFinite(listingAgeDays) ? Math.round(listingAgeDays) : null,
+	    listing_age_days: Number.isFinite(listingAgeDays) ? Math.round(listingAgeDays) : null,
+	    instrument_metadata: instrumentMetadata,
+	    instrument_metadata_status: instrumentMetadata.instrument_metadata_status,
     ipo_evidence: {
       likely_ipo: likelyIPO,
       listing_age_days: Number.isFinite(listingAgeDays) ? Math.round(listingAgeDays) : null,
@@ -9364,7 +9869,11 @@ function buildOptionsStrategies(row, optionsRead, idealBuyZone, supportResistanc
   const optionsAvailable = Boolean(optionsRead?.available);
   const buyZones = decisionHints.buyZones || {};
   const buyPlan = decisionHints.buyPlan || null;
-  const primaryZone = buyPlan?.mid_term_buy_range || buyPlan?.short_term_buy_range || buyZones.primary_buy_zone || idealBuyZone;
+  const primaryZone = buyPlan?.mid_term_buy_range || buyPlan?.short_term_buy_range || buyZones.primary_buy_zone || idealBuyZone || {
+    low: Number.isFinite(price) && Number.isFinite(row.technicals?.atr14) ? Math.max(0.01, price - row.technicals.atr14) : null,
+    high: Number.isFinite(price) ? price : null,
+    status: "fallback",
+  };
   const deepZone = buyPlan?.long_term_buy_range || buyZones.deep_pullback_zone || {};
   const momentumZone = buyPlan?.short_term_buy_range || buyZones.momentum_entry_zone || {};
   const atr = Number.isFinite(row.technicals?.atr14) ? row.technicals.atr14 : Math.max(price * 0.035, 0.5);
@@ -9697,8 +10206,12 @@ function buildUnifiedOptionsStrategyPlan({
   const tags = companyProfile?.tags || [];
   const optionsAvailable = optionsModule?.status === "available";
   const optionsDataStatus = optionsAvailable ? "available" : "fallback";
-  const optionsState = tradeContext?.options_state || buildOptionsState(row, optionsModule?.expected_move || optionsModule?.options_expected_move || {}, optionsModule);
-  const gammaFlip = Number.isFinite(optionsModule?.net_gex) && Number.isFinite(optionsModule?.gamma_flip) ? optionsModule.gamma_flip : null;
+	  const optionsState = tradeContext?.options_state || buildOptionsState(row, optionsModule?.expected_move || optionsModule?.options_expected_move || {}, optionsModule);
+	  const gapDownRisk = tradeContext?.gap_down_risk || {};
+	  const gapDownPutRisk = gapDownRisk.active
+	    && ["event_driven_gap_down", "company_specific_breakdown", "falling_knife"].includes(gapDownRisk.classification)
+	    && gapDownRisk.follow_through_confirmation?.confirmed !== true;
+	  const gammaFlip = Number.isFinite(optionsModule?.net_gex) && Number.isFinite(optionsModule?.gamma_flip) ? optionsModule.gamma_flip : null;
   const validPutWall = optionsAvailable && Number.isFinite(optionsModule?.put_wall) ? optionsModule.put_wall : null;
   const validCallWall = optionsAvailable && Number.isFinite(optionsModule?.call_wall) ? optionsModule.call_wall : null;
   const ivRank = optionsModule?.iv_rank ?? null;
@@ -9773,13 +10286,14 @@ function buildUnifiedOptionsStrategyPlan({
   const putAvoidConditions = [
     marketRegime === "panic" ? (currentLanguage === "zh" ? "市场仍处恐慌状态，Sell Put 只考虑极低价或回避。" : "Market panic: use only very low strikes or avoid sell puts.") : null,
     marketRiskRising ? (currentLanguage === "zh" ? "VIX 快速上升或市场风险继续释放。" : "VIX / market risk is rising quickly.") : null,
-    volumeRisk ? (currentLanguage === "zh" ? "OBV 或量价结构偏弱，存在接飞刀风险。" : "OBV / price-volume structure is weak.") : null,
-    companyRisk ? (currentLanguage === "zh" ? "个股基本面或资产负债表风险偏高。" : "Company-specific fundamental or balance-sheet risk is elevated.") : null,
+	    volumeRisk ? (currentLanguage === "zh" ? "OBV 或量价结构偏弱，存在接飞刀风险。" : "OBV / price-volume structure is weak.") : null,
+	    gapDownPutRisk ? (currentLanguage === "zh" ? "单日急跌尚未确认止稳，不能因为 IV / 权利金高而激进 Sell Put。" : "Sharp gap-down has not stabilized; do not sell puts aggressively just because IV / premium is high.") : null,
+	    companyRisk ? (currentLanguage === "zh" ? "个股基本面或资产负债表风险偏高。" : "Company-specific fundamental or balance-sheet risk is elevated.") : null,
     dividendUnsafe ? (currentLanguage === "zh" ? "高股息伴随分红安全或债务风险，不能因股息率直接卖 Put。" : "High yield comes with dividend safety or debt risk.") : null,
 	    (!entryIsConstructive || ["trim_reduce", "take_profit", "avoid"].includes(overallAction)) ? (currentLanguage === "zh" ? "买入 / 加仓视角未支持积极建仓，Sell Put 不宜激进。" : "Entry view does not support aggressive accumulation; sell puts should not be aggressive.") : null,
 	  ].filter(Boolean);
 	  let sellPutRecommendation = "Neutral";
-	  if (putAvoidConditions.length >= 2 || overallAction === "avoid" || marketRegime === "panic") sellPutRecommendation = "Avoid";
+		  if (gapDownPutRisk || putAvoidConditions.length >= 2 || overallAction === "avoid" || marketRegime === "panic") sellPutRecommendation = "Avoid";
 	  else if (entryIsConstructive && !companyRisk && !volumeRisk) sellPutRecommendation = highIv || marketRecovering ? "Recommended" : "Conservative";
 	  else if (positionIsExit) sellPutRecommendation = "Avoid";
   else if (lowIv) sellPutRecommendation = "Neutral";
@@ -11365,6 +11879,33 @@ function applyDecisionSummaryToRow(row) {
   row.dominant = actionClass(row.action);
 }
 
+function applyProvisionalDecisionSummaryToRow(row, state = marketDataState) {
+  if (!row || !shouldHideFormalActionsForState(state)) return;
+  const updatingLabel = currentLanguage === "zh" ? "更新中" : "Updating";
+  const updatingCompact = currentLanguage === "zh" ? "更新中" : "Updating";
+  row.isDecisionProvisional = true;
+  row.market_data_state = state;
+  row.action = "hold_watch";
+  row.actionLabel = updatingLabel;
+  row.actionCompactLabel = updatingCompact;
+  row.currentAction = "hold_watch";
+  row.midTermRating = "hold_watch";
+  row.midTermActionLabel = updatingLabel;
+  row.midTermCompactLabel = updatingCompact;
+  row.longTermRating = "hold_watch";
+  row.longTermActionLabel = updatingLabel;
+  row.longTermCompactLabel = updatingCompact;
+  row.shortTermActionScore = null;
+  row.midTermActionScore = null;
+  row.longTermActionScore = null;
+  row.score = null;
+  row.overallAction = "hold_watch";
+  row.overallActionLabel = updatingLabel;
+  row.note = state?.warning || updatingLabel;
+  row.summary = `${row.ticker} ${updatingLabel}`;
+  row.dominant = "hold";
+}
+
 function rangeIsAvailable(range) {
   return range?.status === "available" && Number.isFinite(range.low) && Number.isFinite(range.high);
 }
@@ -11734,8 +12275,9 @@ function buildActionSignals({ row, horizon, buyRange, sellRange, stop, supportRe
   const debtRiskScore = tradeContext?.fundamental_health?.debt_risk_score ?? profileFundamental.components?.debt_risk ?? 55;
   const regulatoryRiskScore = profileFundamental.components?.regulatory_risk ?? 55;
   const cashFlowScore = profileFundamental.components?.free_cash_flow ?? profileFundamental.components?.ffo_affo_proxy ?? tradeContext?.fundamental_health?.score ?? 55;
-  const marketRegime = marketRegimeFromContext(marketContext);
-  const enhancedMarket = marketContext?.enhanced_context || {};
+	  const marketRegime = marketRegimeFromContext(marketContext);
+	  const enhancedMarket = marketContext?.enhanced_context || {};
+	  const gapDownRisk = tradeContext?.gap_down_risk || {};
   const vixChange5d = enhancedMarket.vix?.change_5d_pct ?? 0;
   const closeLocation = tradeContext?.volume_state?.close_location_pct ?? volume.close_location_pct ?? (row.technicals?.closePosition != null ? row.technicals.closePosition * 100 : 50);
   const relativeVolume = tradeContext?.volume_state?.relative_volume_20d ?? volume.relative_volume_20d ?? volume.relative_volume_5d ?? row.technicals?.volumeRatio ?? 1;
@@ -11752,16 +12294,22 @@ function buildActionSignals({ row, horizon, buyRange, sellRange, stop, supportRe
     ...(decisionProfile?.tags || []),
   ];
 
-  const volumeSupport = ["strong_accumulation", "early_accumulation", "healthy_pullback"].includes(volume.behavior_key)
-    || (obvTrend !== "falling" && closeLocation >= 50 && relativeVolume >= 0.9);
-  const strongVolumeConfirmation = obvTrend !== "falling" && closeLocation >= 60 && relativeVolume >= 1.15;
+  const gapBlocksSupport = gapDownRisk.active
+    && ["event_driven_gap_down", "company_specific_breakdown", "falling_knife"].includes(gapDownRisk.classification)
+    && gapDownRisk.follow_through_confirmation?.confirmed !== true;
+  const volumeSupport = !gapBlocksSupport && (
+    ["strong_accumulation", "early_accumulation", "healthy_pullback"].includes(volume.behavior_key)
+    || (obvTrend !== "falling" && closeLocation >= 50 && relativeVolume >= 0.9)
+  );
+  const strongVolumeConfirmation = !gapBlocksSupport && obvTrend !== "falling" && closeLocation >= 60 && relativeVolume >= 1.15;
   const distributionRisk = ["distribution_risk", "panic_selling", "weak_breakout"].includes(volume.behavior_key)
     || (obvTrend === "falling" && closeLocation < 42 && relativeVolume >= 1.25);
   const persistentObvDecline = ["falling", "down"].includes(obvTrend) && (volume.obv_trend_60d === "falling" || relativeVolume >= 1.1);
   const fundamentalHealthy = fundamentalScore >= 58 && cashFlowScore >= 40 && !profileFundamental.high_dividend_debt_risk;
   const fundamentalStrong = fundamentalScore >= 72 && cashFlowScore >= 55;
   const companySpecificRisk = Boolean(tradeContext?.company_risk?.company_specific_risk)
-    || fundamentalScore < 35
+    || gapDownRisk.classification === "company_specific_breakdown"
+	    || fundamentalScore < 35
     || profileFundamental.high_dividend_debt_risk
     || cashFlowScore < 28
     || debtRiskScore < 30
@@ -11806,7 +12354,7 @@ function buildActionSignals({ row, horizon, buyRange, sellRange, stop, supportRe
     guidanceSupportScore(tradeContext?.guidance_state || {}),
   ]) ?? 50), 0, 100);
 
-  return {
+	  return {
     fundamentalScore,
     valuationRiskScore,
     marketRegime,
@@ -11830,7 +12378,9 @@ function buildActionSignals({ row, horizon, buyRange, sellRange, stop, supportRe
     resistanceQuality,
     technicalConfirmation,
     technicalWeak,
-    supportBreakdown,
+	    supportBreakdown,
+	    gapDownRisk,
+	    gapBlocksSupport,
     sellEvidence,
     buyEvidence,
     highRiskTags: hasAnyTag(tags, ["Speculative", "Meme", "CashBurn", "HighDebtRisk", "HighVolatility"]),
@@ -11903,11 +12453,16 @@ function buildOpportunityScores({ row, horizon, buyRange, sellRange, pricePositi
   let fallingKnifeRisk = 0;
   if (tradeContext?.guidance_state?.direction === "lowered") fallingKnifeRisk += 22;
   if (tradeContext?.relative_strength_state?.deteriorating) fallingKnifeRisk += 16;
-  if (signals.companySpecificRisk) fallingKnifeRisk += 24;
-  if (signals.persistentObvDecline || signals.distributionRisk) fallingKnifeRisk += 18;
-  if (pricePosition.status === "below_stop") fallingKnifeRisk += 18;
-  if (signals.marketRiskRising) fallingKnifeRisk += 10;
-  fallingKnifeRisk = clamp(fallingKnifeRisk, 0, 100);
+	  if (signals.companySpecificRisk) fallingKnifeRisk += 24;
+	  if (signals.persistentObvDecline || signals.distributionRisk) fallingKnifeRisk += 18;
+	  if (pricePosition.status === "below_stop") fallingKnifeRisk += 18;
+	  if (signals.marketRiskRising) fallingKnifeRisk += 10;
+	  const gapDownRisk = tradeContext?.gap_down_risk || {};
+	  if (gapDownRisk.classification === "event_driven_gap_down") fallingKnifeRisk += 18;
+	  if (gapDownRisk.classification === "company_specific_breakdown") fallingKnifeRisk += 28;
+	  if (gapDownRisk.classification === "falling_knife") fallingKnifeRisk += 32;
+	  if (gapDownRisk.follow_through_confirmation?.required && !gapDownRisk.follow_through_confirmation?.confirmed) fallingKnifeRisk += 10;
+	  fallingKnifeRisk = clamp(fallingKnifeRisk, 0, 100);
   const companySpecificRisk = signals.companySpecificRisk ? clamp(70 + (tradeContext?.company_risk?.risk_factors?.length || 0) * 6, 70, 96) : 0;
   return {
     left_side_opportunity_score: leftSideOpportunityScore,
@@ -13804,13 +14359,20 @@ function annotateBuyRangeSegments({
   const volume = technical?.volume_confirmation || {};
   const fundamentalHealthy = !preliminaryRecommendation?.action_evidence?.risk_filters?.company_specific_risk
     && (tradeContext?.fundamental_health?.regime === "healthy" || tradeContext?.fundamental_health?.score >= 58);
-  const companySpecificRisk = Boolean(tradeContext?.company_risk?.company_specific_risk);
-  const fallingKnifeRisk = opportunity.falling_knife_risk ?? evidence.risk_filters?.falling_knife_risk ?? 0;
-  const fallingKnifeLimit = thresholds.falling_knife_limit ?? 55;
-  const allocationHint = range.allocation_hint || allocationHintForRange(companyProfile, horizonRangeKeys(horizonKey).label);
-  const segments = [];
-  const tolerance = Number.isFinite(atr) ? atr * activeEntryToleranceAtr(companyProfile) : 0;
-  if (rangeContainsPrice(base, price, tolerance)) {
+	  const companySpecificRisk = Boolean(tradeContext?.company_risk?.company_specific_risk);
+	  const fallingKnifeRisk = opportunity.falling_knife_risk ?? evidence.risk_filters?.falling_knife_risk ?? 0;
+	  const fallingKnifeLimit = thresholds.falling_knife_limit ?? 55;
+	  const gapDownRisk = tradeContext?.gap_down_risk || {};
+	  const gapBlocksEntry = gapDownRisk.active
+	    && ["event_driven_gap_down", "company_specific_breakdown", "falling_knife"].includes(gapDownRisk.classification)
+	    && gapDownRisk.follow_through_confirmation?.confirmed !== true;
+	  const gapInvalidatesSupport = gapDownRisk.active
+	    && gapDownRisk.broke_support
+	    && !["market_driven_selloff", "capitulation_with_recovery"].includes(gapDownRisk.classification);
+	  const allocationHint = range.allocation_hint || allocationHintForRange(companyProfile, horizonRangeKeys(horizonKey).label);
+	  const segments = [];
+	  const tolerance = Number.isFinite(atr) ? atr * activeEntryToleranceAtr(companyProfile) : 0;
+	  if (!gapInvalidatesSupport && rangeContainsPrice(base, price, tolerance)) {
     segments.push(makeActiveSegment({
       mode: "pullback",
       low: base.low,
@@ -13838,9 +14400,11 @@ function annotateBuyRangeSegments({
     ...(base?.based_on || []).slice(0, 2),
   ].filter(Boolean);
   const leftAllowed = leftScore >= leftThreshold
-    && fundamentalHealthy
-    && !companySpecificRisk
-    && fallingKnifeRisk < fallingKnifeLimit
+	    && fundamentalHealthy
+	    && !companySpecificRisk
+	    && !gapBlocksEntry
+	    && !gapInvalidatesSupport
+	    && fallingKnifeRisk < fallingKnifeLimit
     && Number.isFinite(leftAnchorPrice)
     && Number.isFinite(distanceAboveBaseAtr)
     && distanceAboveBaseAtr <= leftDistanceLimitAtr;
@@ -13945,15 +14509,17 @@ function annotateBuyRangeSegments({
     right_side_entry: activeSegments.find((segment) => segment.mode === "right_side") || null,
     trend_entry: activeSegments.find((segment) => segment.mode === "trend") || null,
   };
-  range.segments = [
-    ...(base?.status === "available" ? [{
-      mode: "pullback",
+	  range.segments = [
+	    ...(base?.status === "available" ? [{
+	      mode: "pullback",
       low: base.low,
       high: base.high,
       midpoint: base.midpoint,
       allocation_hint: allocationHint,
-      active: rangeContainsPrice(base, price, tolerance),
-      reason: currentLanguage === "zh" ? "基础回调低吸区。" : "Base pullback zone.",
+	      active: !gapInvalidatesSupport && rangeContainsPrice(base, price, tolerance),
+	      reason: gapInvalidatesSupport
+	        ? (currentLanguage === "zh" ? "基础回调区因急跌跌破支撑暂时失效。" : "Base pullback zone is temporarily invalidated by a gap/support break.")
+	        : (currentLanguage === "zh" ? "基础回调低吸区。" : "Base pullback zone."),
       anchor_sources: base.based_on || [],
       anchor_prices: [base.low, base.high].filter(Number.isFinite),
       evidence_score: evidence.combined_buy_after_cap,
@@ -13965,7 +14531,8 @@ function annotateBuyRangeSegments({
   range.active_segment = activeSegment;
   range.current_price_in_range = Boolean(activeSegment);
   range.current_price_segment = activeSegment ? currentPriceSegment(activeSegment, price) : "outside";
-  range.reward_risk_ratio = rewardRiskRatioForRange(price, activeSegment || base, sellRange, null);
+	  range.reward_risk_ratio = rewardRiskRatioForRange(price, activeSegment || base, sellRange, null);
+	  range.gap_down_risk = gapDownRisk;
   range.action_consistency = {
     checked: true,
     current_price_in_active_segment: Boolean(activeSegment),
@@ -14577,6 +15144,1274 @@ function validateNoMissingCriticalFields(decision = {}) {
   return {
     passed: missing.length === 0,
     missing,
+	  };
+	}
+
+function computeTrendEfficiency(closes = [], lookback = 20) {
+  const values = closes.filter(Number.isFinite);
+  if (values.length < 3) {
+    return {
+      net_return: null,
+      path_length: null,
+      efficiency_ratio: null,
+      direction_changes: null,
+      realized_volatility: null,
+      choppiness_score: null,
+      trend_persistence_score: null,
+    };
+  }
+  const slice = values.slice(Math.max(0, values.length - lookback - 1));
+  if (slice.length < 3) return computeTrendEfficiency(values, slice.length - 1);
+  const returns = [];
+  let pathLength = 0;
+  let directionChanges = 0;
+  let lastDirection = 0;
+  for (let index = 1; index < slice.length; index += 1) {
+    const previous = slice[index - 1];
+    const current = slice[index];
+    if (!Number.isFinite(previous) || previous <= 0 || !Number.isFinite(current)) continue;
+    const pct = ((current - previous) / previous) * 100;
+    returns.push(pct);
+    pathLength += Math.abs(pct);
+    const direction = Math.sign(pct);
+    if (direction && lastDirection && direction !== lastDirection) directionChanges += 1;
+    if (direction) lastDirection = direction;
+  }
+  const start = slice[0];
+  const end = slice[slice.length - 1];
+  const netReturn = Number.isFinite(start) && start > 0 && Number.isFinite(end) ? ((end - start) / start) * 100 : null;
+  const efficiencyRatio = Number.isFinite(netReturn) && pathLength > 0 ? Math.abs(netReturn) / pathLength : null;
+  const realizedVolatility = returns.length > 1 ? stdDev(returns) * Math.sqrt(252) : null;
+  const choppinessScore = Number.isFinite(efficiencyRatio) ? clamp(Math.round(100 - efficiencyRatio * 100), 0, 100) : null;
+  const trendPersistenceScore = Number.isFinite(efficiencyRatio)
+    ? clamp(Math.round(efficiencyRatio * 100 - directionChanges * 2 + 20), 0, 100)
+    : null;
+  return {
+    net_return: Number.isFinite(netReturn) ? Number(netReturn.toFixed(2)) : null,
+    path_length: Number.isFinite(pathLength) ? Number(pathLength.toFixed(2)) : null,
+    efficiency_ratio: Number.isFinite(efficiencyRatio) ? Number(efficiencyRatio.toFixed(3)) : null,
+    direction_changes: directionChanges,
+    realized_volatility: Number.isFinite(realizedVolatility) ? Number(realizedVolatility.toFixed(2)) : null,
+    choppiness_score: choppinessScore,
+    trend_persistence_score: trendPersistenceScore,
+  };
+}
+
+function etfRangeFromAnchors({ label, englishLabel, price, atr, primaryAnchor, fallbackOffsetAtr, widthAtr, basedOn = [] }) {
+  const anchor = Number.isFinite(primaryAnchor)
+    ? primaryAnchor
+    : Number.isFinite(price) && Number.isFinite(atr)
+      ? price + atr * fallbackOffsetAtr
+      : null;
+  if (!Number.isFinite(anchor) || !Number.isFinite(atr) || atr <= 0) {
+    return {
+      label,
+      english_label: englishLabel,
+      low: null,
+      high: null,
+      midpoint: null,
+      status: "unavailable",
+      based_on: basedOn,
+    };
+  }
+  const low = Math.max(0.01, anchor - atr * widthAtr * 0.5);
+  const high = Math.max(low + 0.01, anchor + atr * widthAtr * 0.5);
+  return {
+    label,
+    english_label: englishLabel,
+    low: Number(low.toFixed(2)),
+    high: Number(high.toFixed(2)),
+    midpoint: Number(((low + high) / 2).toFixed(2)),
+    confidence: 70,
+    status: "available",
+    based_on: uniqueText(basedOn),
+    segments: [],
+    active_segment: null,
+    active_entry_mode: null,
+    active_exit_mode: null,
+    current_price_in_range: false,
+  };
+}
+
+function buildETFBenchmarkContext(row, etfProfile, marketContext = {}) {
+  const qqqTrend = marketContext?.enhanced_context?.qqq_trend || marketContext?.market_engine?.equity_trend?.qqq || {};
+  const spyTrend = marketContext?.enhanced_context?.spy_trend || marketContext?.market_engine?.equity_trend?.spy || {};
+  const ownTrend = row.technicals || {};
+  const qqqTrendLabel = qqqTrend.trend || "neutral";
+  const ownTrendLabel = Number.isFinite(row.price) && Number.isFinite(ownTrend.ma20) && Number.isFinite(ownTrend.ma50)
+    ? row.price > ownTrend.ma20 && ownTrend.ma20 >= ownTrend.ma50 ? "bullish" : row.price < ownTrend.ma20 && ownTrend.ma20 <= ownTrend.ma50 ? "bearish" : "neutral"
+    : "neutral";
+  const benchmarkTrend = /Nasdaq/i.test(etfProfile.benchmark || "")
+    ? qqqTrendLabel
+    : /Semiconductor/i.test(etfProfile.benchmark || "")
+      ? ownTrendLabel
+      : spyTrend.trend || ownTrendLabel;
+  const bullish = ["bullish", "risk_on"].includes(benchmarkTrend);
+  const bearish = ["bearish", "risk_off", "panic"].includes(benchmarkTrend);
+  const underlyingRegime = bullish ? "bullish" : bearish ? "bearish" : "neutral";
+  return {
+    benchmark: etfProfile.benchmark,
+    underlying_proxy: etfProfile.underlying_proxy || etfProfile.benchmark_tickers?.[0] || null,
+    underlying_regime: underlyingRegime,
+    benchmark_trend: benchmarkTrend,
+    qqq_trend: qqqTrendLabel,
+    spy_trend: spyTrend.trend || "neutral",
+    qqq_change_20d_pct: qqqTrend.change_20d_pct ?? null,
+    spy_change_20d_pct: spyTrend.change_20d_pct ?? null,
+    explanation: currentLanguage === "zh"
+      ? `ETF 标的参考 ${etfProfile.underlying_proxy || etfProfile.benchmark}，当前 underlying regime: ${underlyingRegime}。`
+      : `ETF benchmark proxy is ${etfProfile.underlying_proxy || etfProfile.benchmark}; underlying regime: ${underlyingRegime}.`,
+  };
+}
+
+function etfHorizonMeta(etfProfile, horizonKey) {
+  const leveraged = Boolean(etfProfile?.daily_reset || Math.abs(etfProfile?.leverage_multiple || 1) > 1);
+  if (!leveraged) {
+    return {
+      label: horizonKey === "short_term" ? (currentLanguage === "zh" ? "短期" : "Short-Term") : horizonKey === "mid_term" ? (currentLanguage === "zh" ? "中期" : "Mid-Term") : (currentLanguage === "zh" ? "长期" : "Long-Term"),
+      horizon: horizonKey === "short_term" ? "1-30 days" : horizonKey === "mid_term" ? "30-90 days" : "90-180 days",
+      ui_label: horizonKey === "short_term" ? "短期" : horizonKey === "mid_term" ? "中期" : "长期",
+    };
+  }
+  if (horizonKey === "short_term") {
+    return { label: currentLanguage === "zh" ? "短线战术" : "Tactical", horizon: "1-10 trading days", ui_label: "短线战术" };
+  }
+  if (horizonKey === "mid_term") {
+    return { label: currentLanguage === "zh" ? "波段持有" : "Swing", horizon: "10-30 trading days", ui_label: "波段持有" };
+  }
+  return { label: currentLanguage === "zh" ? "延长持有风险" : "Extended-Holding Risk", horizon: "30-60 day risk review", ui_label: "延长持有风险" };
+}
+
+function buildETFUnderlyingContext(row, etfProfile, marketContext = {}, trendEfficiency = null, relativeStrength = {}) {
+  const marketEngine = marketContext?.market_engine || {};
+  const equityTrend = marketEngine.equity_trend || {};
+  const enhanced = marketContext?.enhanced_context || {};
+  const proxy = etfProfile.underlying_proxy || etfProfile.benchmark_tickers?.[0] || etfProfile.benchmark || null;
+  const proxyKey = /QQQ|Nasdaq/i.test(proxy || etfProfile.benchmark || "") ? "qqq" : /SPY|S&P/i.test(proxy || etfProfile.benchmark || "") ? "spy" : null;
+  const trendPayload = proxyKey ? (enhanced[`${proxyKey}_trend`] || equityTrend[proxyKey] || {}) : {};
+  const ownCanProxy = !etfProfile.daily_reset && (row.ticker === proxy || (!proxyKey && etfProfile.direction === "long"));
+  const ownTech = row.technicals || {};
+  const price = ownCanProxy ? finiteNumberOrNull(row.price) : finiteNumberOrNull(trendPayload.price ?? trendPayload.value);
+  const ma20 = ownCanProxy ? finiteNumberOrNull(ownTech.ma20) : finiteNumberOrNull(trendPayload.ma20);
+  const ma50 = ownCanProxy ? finiteNumberOrNull(ownTech.ma50) : finiteNumberOrNull(trendPayload.ma50);
+  const ma100 = ownCanProxy ? finiteNumberOrNull(ownTech.ma100) : finiteNumberOrNull(trendPayload.ma100);
+  const ma200 = ownCanProxy ? finiteNumberOrNull(ownTech.ma200) : finiteNumberOrNull(trendPayload.ma200);
+  const trend = trendPayload.trend || (Number.isFinite(price) && Number.isFinite(ma20) && Number.isFinite(ma50)
+    ? price > ma20 && ma20 >= ma50 ? "bullish" : price < ma20 && ma20 <= ma50 ? "bearish" : "neutral"
+    : null);
+  const dataStatus = proxyKey || ownCanProxy ? "partial" : "unavailable";
+  const direction = etfProfile.direction === "inverse" ? -1 : 1;
+  const trendScore = trend === "bullish" ? (direction > 0 ? 74 : 28) : trend === "bearish" ? (direction > 0 ? 28 : 74) : trend === "neutral" ? 50 : null;
+  const rsScore = scoreFromPercentSignal(
+    relativeStrength.stock_vs_spy_20d ?? relativeStrength.stock_vs_qqq_20d,
+    10
+  );
+  const score = dataStatus === "unavailable" ? null : clamp(Math.round(mean([trendScore, rsScore].filter(Number.isFinite)) ?? trendScore ?? 50), 0, 100);
+  const rawRegime = trend === "bullish" || trend === "bearish" || trend === "neutral" ? trend : "unavailable";
+  return {
+    ticker_or_index: proxy,
+    data_status: dataStatus,
+    price,
+    return_1d: finiteNumberOrNull(trendPayload.change_1d_pct ?? trendPayload.return_1d),
+    return_5d: finiteNumberOrNull(trendPayload.change_5d_pct ?? trendPayload.return_5d),
+    return_20d: finiteNumberOrNull(trendPayload.change_20d_pct ?? trendPayload.return_20d),
+    return_60d: finiteNumberOrNull(trendPayload.change_60d_pct ?? trendPayload.return_60d),
+    return_120d: finiteNumberOrNull(trendPayload.change_120d_pct ?? trendPayload.return_120d),
+    ma20,
+    ma50,
+    ma100,
+    ma200,
+    trend: trend || "unavailable",
+    support_break: trend === "bearish",
+    resistance_break: trend === "bullish",
+    obv_state: ownCanProxy ? (row.technicals?.obvTrend || null) : null,
+    volume_state: ownCanProxy ? (row.technicals?.volumeRatio ?? null) : null,
+    relative_strength_vs_spy: relativeStrength.stock_vs_spy_20d ?? null,
+    relative_strength_vs_qqq: relativeStrength.stock_vs_qqq_20d ?? null,
+    trend_efficiency: ownCanProxy ? trendEfficiency : null,
+    choppiness: ownCanProxy ? trendEfficiency?.choppiness_score ?? null : null,
+    breadth: null,
+    breadth_status: "unavailable",
+    regime: rawRegime,
+    directional_regime: score == null ? "unavailable" : score >= 65 ? "favorable" : score <= 35 ? "unfavorable" : "neutral",
+    score,
+    used_in_action: score != null,
+    used_weight: score != null ? null : 0,
+    explanation: score == null
+      ? (currentLanguage === "zh" ? "缺少可靠 underlying proxy 数据，ETF 方向性评分会移除该模块。" : "Reliable underlying proxy data is unavailable; this module is removed from ETF directional scoring.")
+      : (currentLanguage === "zh" ? `Underlying ${proxy} 以趋势与相对强度进入评分。` : `Underlying ${proxy} enters scoring through trend and relative strength.`),
+  };
+}
+
+function buildETFBreadthContext(etfProfile, marketContext = {}) {
+  const breadthSource = marketContext?.breadth || marketContext?.market_breadth || marketContext?.enhanced_context?.breadth || {};
+  const key = /Semiconductor/i.test(etfProfile?.benchmark || "") ? "semiconductor" : /Nasdaq/i.test(etfProfile?.benchmark || "") ? "nasdaq100" : "market";
+  const payload = breadthSource[key] || breadthSource;
+  const pctAboveMa20 = finiteNumberOrNull(payload?.pct_above_ma20);
+  const pctAboveMa50 = finiteNumberOrNull(payload?.pct_above_ma50);
+  const pctAboveMa200 = finiteNumberOrNull(payload?.pct_above_ma200);
+  const values = [pctAboveMa20, pctAboveMa50, pctAboveMa200].filter(Number.isFinite);
+  const available = values.length > 0;
+  const breadthScore = available ? clamp(Math.round(mean(values)), 0, 100) : null;
+  return {
+    status: available ? (values.length >= 2 ? "available" : "partial") : "unavailable",
+    pct_above_ma20: pctAboveMa20,
+    pct_above_ma50: pctAboveMa50,
+    pct_above_ma200: pctAboveMa200,
+    advance_decline: finiteNumberOrNull(payload?.advance_decline),
+    new_high_new_low: finiteNumberOrNull(payload?.new_high_new_low),
+    equal_weight_confirmation: payload?.equal_weight_confirmation ?? null,
+    breadth_score: breadthScore,
+    source: available ? (payload?.source || "market_context") : null,
+    stale: Boolean(payload?.stale),
+    used_weight: available ? null : 0,
+    explanation: available
+      ? (currentLanguage === "zh" ? "Breadth 数据进入 ETF 评分。" : "Breadth data is included in ETF scoring.")
+      : (currentLanguage === "zh" ? "Breadth 数据不可用，已从 ETF 权重中移除，并降低数据质量。" : "Breadth data is unavailable, removed from ETF scoring weights, and reflected in data quality."),
+  };
+}
+
+function scoreETFModules(moduleScores, baseWeights) {
+  const used = [];
+  const missing = [];
+  Object.entries(baseWeights || {}).forEach(([key, weight]) => {
+    const score = moduleScores[key];
+    if (Number.isFinite(score) && weight > 0) {
+      used.push({ key, score, weight });
+    } else if (weight > 0) {
+      missing.push(key);
+    }
+  });
+  const totalWeight = used.reduce((sum, item) => sum + item.weight, 0);
+  const originalWeight = Object.values(baseWeights || {}).reduce((sum, item) => sum + (Number.isFinite(item) ? item : 0), 0);
+  const usedWeights = {};
+  const rawModuleScores = {};
+  used.forEach((item) => {
+    usedWeights[item.key] = totalWeight > 0 ? Number((item.weight / totalWeight).toFixed(3)) : 0;
+    rawModuleScores[item.key] = item.score;
+  });
+  return {
+    score: totalWeight > 0 ? clamp(Math.round(used.reduce((sum, item) => sum + item.score * (item.weight / totalWeight), 0)), 0, 100) : null,
+    used_modules: used.map((item) => item.key),
+    used_weights: usedWeights,
+    missing_modules: missing,
+    stale_modules: [],
+    raw_module_scores: rawModuleScores,
+    missing_weight_pct: originalWeight > 0 ? Number((((originalWeight - totalWeight) / originalWeight) * 100).toFixed(1)) : 100,
+  };
+}
+
+function etfExecutableWidthLimit(etfProfile, price, atr, kind = "entry") {
+  if (!Number.isFinite(price) || !Number.isFinite(atr) || atr <= 0) return null;
+  if (!etfProfile?.daily_reset && Math.abs(etfProfile?.leverage_multiple || 1) <= 1) return null;
+  const inverse = etfProfile.direction === "inverse";
+  const semis = /Semiconductor/i.test(etfProfile.benchmark || "");
+  const atrMultiple = semis ? (inverse ? 1.0 : 1.3) : (inverse ? 1.0 : 1.2);
+  const pctOfPrice = semis ? (inverse ? 0.04 : 0.06) : (inverse ? 0.04 : 0.05);
+  const appliedLimit = Math.min(atr * atrMultiple, price * pctOfPrice);
+  return {
+    atr_multiple: atrMultiple,
+    pct_of_price: Number((pctOfPrice * 100).toFixed(2)),
+    applied_limit: Number(appliedLimit.toFixed(2)),
+    kind,
+  };
+}
+
+function applyETFRangeWidthLimit(range, { price, atr, etfProfile, anchor, kind }) {
+  const limit = etfExecutableWidthLimit(etfProfile, price, atr, kind);
+  if (!range || !Number.isFinite(range.low) || !Number.isFinite(range.high) || !limit) return range;
+  const originalWidth = range.high - range.low;
+  if (originalWidth <= limit.applied_limit) {
+    range.max_executable_range_width = {
+      ...limit,
+      original_width: Number(originalWidth.toFixed(2)),
+      normalized_width: Number(originalWidth.toFixed(2)),
+      adjustment_reason: "within_limit",
+    };
+    return range;
+  }
+  const center = Number.isFinite(anchor) ? clamp(anchor, range.low, range.high) : range.midpoint;
+  const half = limit.applied_limit / 2;
+  const low = Math.max(0.01, center - half);
+  const high = Math.max(low + 0.01, center + half);
+  range.original_range = range.original_range || { low: range.low, high: range.high, midpoint: range.midpoint };
+  range.low = Number(low.toFixed(2));
+  range.high = Number(high.toFixed(2));
+  range.midpoint = Number(((range.low + range.high) / 2).toFixed(2));
+  range.max_executable_range_width = {
+    ...limit,
+    original_width: Number(originalWidth.toFixed(2)),
+    normalized_width: Number((range.high - range.low).toFixed(2)),
+    adjustment_reason: currentLanguage === "zh"
+      ? "杠杆 ETF 可执行区间按战术锚点和更保守的 ATR / 价格百分比上限缩窄。"
+      : "Leveraged ETF executable range narrowed around the tactical anchor using the stricter ATR / price-percent limit.",
+  };
+  return range;
+}
+
+function separateETFBuySellRanges(buyRange, sellRange, { price, atr, leveraged }) {
+  if (!rangeIsAvailable(buyRange) || !rangeIsAvailable(sellRange)) {
+    return {
+      buy_range: buyRange,
+      sell_range: sellRange,
+      neutral_hold_zone: null,
+      separation_status: "unavailable",
+      overlap_amount: 0,
+      overlap_pct: 0,
+      resolution: "not_required",
+    };
+  }
+  const overlap = Math.max(0, Math.min(buyRange.high, sellRange.high) - Math.max(buyRange.low, sellRange.low));
+  if (buyRange.high < sellRange.low && overlap <= 0) {
+    return {
+      buy_range: buyRange,
+      sell_range: sellRange,
+      neutral_hold_zone: buyRange.high < sellRange.low ? {
+        low: buyRange.high,
+        high: sellRange.low,
+        reason: currentLanguage === "zh" ? "买入区与卖出区之间保留观望区。" : "Neutral hold zone between executable buy and sell ranges.",
+      } : null,
+      separation_status: "separated",
+      overlap_amount: 0,
+      overlap_pct: 0,
+      resolution: "already_separated",
+    };
+  }
+  const oldBuy = { low: buyRange.low, high: buyRange.high, midpoint: buyRange.midpoint };
+  const oldSell = { low: sellRange.low, high: sellRange.high, midpoint: sellRange.midpoint };
+  const buffer = Number.isFinite(atr) && Number.isFinite(price)
+    ? Math.max(atr * (leveraged ? 0.12 : 0.08), price * (leveraged ? 0.004 : 0.0025))
+    : 0.01;
+  const boundary = Number.isFinite(price)
+    ? clamp(price, Math.min(buyRange.low, sellRange.low), Math.max(buyRange.high, sellRange.high))
+    : (buyRange.high + sellRange.low) / 2;
+  let newBuyHigh = Math.min(buyRange.high, boundary - buffer);
+  let newSellLow = Math.max(sellRange.low, boundary + buffer);
+  if (newBuyHigh <= buyRange.low) newBuyHigh = Math.max(buyRange.low + 0.01, Math.min(buyRange.high, sellRange.low - buffer));
+  if (newSellLow >= sellRange.high) newSellLow = Math.min(sellRange.high - 0.01, Math.max(sellRange.low, buyRange.high + buffer));
+  buyRange.original_range = buyRange.original_range || oldBuy;
+  sellRange.original_range = sellRange.original_range || oldSell;
+  buyRange.high = Number(Math.max(buyRange.low + 0.01, newBuyHigh).toFixed(2));
+  buyRange.midpoint = Number(((buyRange.low + buyRange.high) / 2).toFixed(2));
+  sellRange.low = Number(Math.min(sellRange.high - 0.01, newSellLow).toFixed(2));
+  sellRange.midpoint = Number(((sellRange.low + sellRange.high) / 2).toFixed(2));
+  const neutral = buyRange.high < sellRange.low ? {
+    low: buyRange.high,
+    high: sellRange.low,
+    reason: currentLanguage === "zh"
+      ? "原始 ETF 买卖区重叠，重叠部分不再作为可执行买入或卖出，改为观望区。"
+      : "Original ETF buy/sell ranges overlapped; overlap is removed from executable ranges and treated as neutral hold.",
+  } : null;
+  return {
+    buy_range: buyRange,
+    sell_range: sellRange,
+    neutral_hold_zone: neutral,
+    separation_status: buyRange.high < sellRange.low ? "separated_with_neutral_zone" : "unresolved",
+    overlap_amount: Number(overlap.toFixed(2)),
+    overlap_pct: Number((overlap / Math.max(0.01, sellRange.high - buyRange.low) * 100).toFixed(1)),
+    resolution: neutral ? "carved_overlap_into_neutral_hold_zone" : "deactivated_if_needed",
+  };
+}
+
+function validateETFBuySellRangeSeparation(buyPlan = {}, sellPlan = {}) {
+  const conflicts = [];
+  ["short_term", "mid_term", "long_term"].forEach((horizonKey) => {
+    const buy = buyPlan[`${horizonKey}_buy_range`];
+    const sell = sellPlan[`${horizonKey}_sell_range`];
+    if (!rangeIsAvailable(buy) || !rangeIsAvailable(sell)) return;
+    const overlapAmount = Math.max(0, Math.min(buy.high, sell.high) - Math.max(buy.low, sell.low));
+    if (buy.high >= sell.low || overlapAmount > 0) {
+      conflicts.push({
+        horizon: horizonKey,
+        buy_range: { low: buy.low, high: buy.high },
+        sell_range: { low: sell.low, high: sell.high },
+        overlap_amount: Number(overlapAmount.toFixed(2)),
+        overlap_pct: Number((overlapAmount / Math.max(0.01, sell.high - buy.low) * 100).toFixed(1)),
+        separation_status: "conflict",
+      });
+    }
+  });
+  return { passed: conflicts.length === 0, conflicts };
+}
+
+function buildLeveragedETFRisk(row, etfProfile, trendEfficiency, benchmarkContext, marketContext = {}, gapDownRisk = {}) {
+  if (!etfProfile?.daily_reset && Math.abs(etfProfile?.leverage_multiple || 1) <= 1) return null;
+  const closes = row.technicals?.history?.closes || [];
+  const realized5 = computeTrendEfficiency(closes, 5).realized_volatility;
+  const realized20 = computeTrendEfficiency(closes, 20).realized_volatility;
+  const realized60 = computeTrendEfficiency(closes, 60).realized_volatility;
+  const choppy = trendEfficiency.choppiness_score ?? 55;
+  const vix = marketContext?.enhanced_context?.vix || {};
+  const vixRisk = Number.isFinite(vix.value) && vix.value >= 25 ? 18 : Number.isFinite(vix.change_5d_pct) && vix.change_5d_pct > 15 ? 14 : 0;
+  const volatilityDrag = clamp(Math.round((realized20 ?? 45) * 0.45 + choppy * 0.35), 0, 100);
+  const pathRisk = clamp(Math.round(choppy * 0.75 + Math.abs(etfProfile.leverage_multiple) * 5), 0, 100);
+  const gapRisk = gapDownRisk.active ? Math.max(55, gapDownRisk.risk_score ?? 55) : 35;
+  const riskScore = clamp(Math.round(volatilityDrag * 0.35 + pathRisk * 0.25 + gapRisk * 0.15 + vixRisk + 12), 0, 100);
+  const maxHoldingDays = Math.abs(etfProfile.leverage_multiple) >= 3 ? 10 : 20;
+  return {
+    leverage_multiple: etfProfile.leverage_multiple,
+    daily_reset: etfProfile.daily_reset,
+    realized_volatility_5d: realized5,
+    realized_volatility_20d: realized20,
+    realized_volatility_60d: realized60,
+    underlying_trend: benchmarkContext.underlying_regime,
+    underlying_choppiness: choppy,
+    volatility_drag_risk: volatilityDrag,
+    path_dependency_risk: pathRisk,
+    gap_risk: gapRisk,
+    decay_risk: riskScore >= 70 ? "high" : riskScore >= 50 ? "elevated" : "moderate",
+    rebalance_risk: "daily_reset",
+    max_holding_days: maxHoldingDays,
+    recommended_holding_period: etfProfile.direction === "inverse" ? "tactical hedge / short swing" : "tactical swing",
+    position_size_cap: etfProfile.direction === "inverse"
+      ? (riskScore >= 70 ? "0%-1%" : "0.5%-2.5%")
+      : (riskScore >= 70 ? "1%-3%" : "2%-5%"),
+    stop_required: true,
+    overnight_risk: riskScore >= 65 ? "high" : "elevated",
+    event_risk: gapDownRisk.active || vixRisk > 0,
+    risk_score: riskScore,
+    explanation: currentLanguage === "zh"
+      ? "杠杆 ETF 风险综合每日再平衡、波动磨损、路径依赖、VIX、gap risk 和趋势效率。"
+      : "Leveraged ETF risk blends daily reset, volatility drag, path dependency, VIX, gap risk, and trend efficiency.",
+  };
+}
+
+function buildETFOpportunityScores({ row, horizonKey, etfProfile, benchmarkContext, underlyingContext, breadthContext, relativeStrength, trendEfficiency, supportResistance, marketContext, optionsState, leveragedRisk }) {
+  const price = finiteNumberOrNull(row.price);
+  const tech = row.technicals || {};
+  const ma20 = finiteNumberOrNull(tech.ma20);
+  const ma50 = finiteNumberOrNull(tech.ma50);
+  const rsShort = relativeStrength.stock_vs_spy_20d ?? relativeStrength.stock_vs_qqq_20d ?? 0;
+  const rsMid = relativeStrength.stock_vs_spy_60d ?? relativeStrength.stock_vs_qqq_60d ?? rsShort;
+  const rsLong = relativeStrength.stock_vs_spy_120d ?? relativeStrength.stock_vs_qqq_120d ?? rsMid;
+  const rsValue = horizonKey === "short_term" ? rsShort : horizonKey === "mid_term" ? rsMid : rsLong;
+  const relativeStrengthScore = scoreFromPercentSignal(rsValue, horizonKey === "short_term" ? 8 : horizonKey === "mid_term" ? 12 : 16) ?? 50;
+  const trendStructure = Number.isFinite(price) && Number.isFinite(ma20) && Number.isFinite(ma50)
+    ? price > ma20 && ma20 >= ma50 ? 76 : price > ma20 ? 62 : price < ma20 && ma20 <= ma50 ? 32 : 50
+    : 50;
+  const marketRegime = marketRegimeFromContext(marketContext);
+  const marketRegimeScore = marketRegime === "risk_on" ? 76 : marketRegime === "neutral" ? 58 : marketRegime === "overheated" ? 48 : marketRegime === "risk_off" ? 36 : 24;
+  const volume = row.technicals?.volumeRatio ?? 1;
+  const moneyFlowVolume = (row.technicals?.obvTrend === "up" || row.technicals?.closePosition >= 0.6 ? 64 : 50) + (volume >= 1.2 ? 8 : volume < 0.8 ? -6 : 0);
+  const efficiencyScore = trendEfficiency.trend_persistence_score ?? 50;
+  const choppinessScore = Number.isFinite(trendEfficiency.choppiness_score) ? clamp(100 - trendEfficiency.choppiness_score, 0, 100) : null;
+  const inverse = etfProfile.direction === "inverse";
+  const underlyingBull = benchmarkContext.underlying_regime === "bullish";
+  const underlyingBear = benchmarkContext.underlying_regime === "bearish";
+  let directionalEvidence = inverse
+    ? (underlyingBear ? 76 : underlyingBull ? 24 : 45)
+    : (underlyingBull ? 76 : underlyingBear ? 28 : 52);
+  if (etfProfile.daily_reset) directionalEvidence = Math.round(directionalEvidence * 0.65 + efficiencyScore * 0.35);
+  const optionsContext = optionsState?.iv_regime?.combined_state === "extreme" || optionsState?.term_structure === "backwardation" ? 38 : 55;
+  const breadthScore = Number.isFinite(breadthContext?.breadth_score) ? breadthContext.breadth_score : null;
+  const valuationContextScore = null;
+  const flowScore = null;
+  const riskScore = leveragedRisk?.risk_score ?? (marketRegime === "panic" ? 70 : 42);
+  const technicalStructure = trendStructure;
+  const volatilityDragScore = leveragedRisk ? clamp(100 - (leveragedRisk.volatility_drag_risk ?? 60), 0, 100) : null;
+  const baseWeights = etfProfile.daily_reset
+    ? {
+      technical_structure: horizonKey === "short_term" ? 0.2 : 0.16,
+      money_flow_volume: 0.12,
+      relative_strength: 0.14,
+      underlying_context: 0.24,
+      breadth: 0.1,
+      market_regime: 0.08,
+      options_context: 0.04,
+      trend_efficiency: 0.12,
+      volatility_drag: 0.1,
+      choppiness: 0.06,
+    }
+    : horizonKey === "short_term"
+      ? {
+        technical_structure: 0.3,
+        money_flow_volume: 0.2,
+        relative_strength: 0.2,
+        underlying_context: 0.1,
+        breadth: 0.1,
+        market_regime: 0.15,
+        options_context: 0.05,
+      }
+      : horizonKey === "mid_term"
+        ? {
+          technical_structure: 0.25,
+          money_flow_volume: 0.1,
+          relative_strength: 0.25,
+          underlying_context: 0.1,
+          breadth: 0.15,
+          market_regime: 0.15,
+          flow: 0.1,
+          valuation_context: 0.1,
+        }
+        : {
+          technical_structure: 0.25,
+          relative_strength: 0.2,
+          underlying_context: 0.15,
+          breadth: 0.15,
+          valuation_context: 0.15,
+          market_regime: 0.15,
+          trend_efficiency: 0.1,
+        };
+  const moduleAggregate = scoreETFModules({
+    technical_structure: technicalStructure,
+    money_flow_volume: clamp(Math.round(moneyFlowVolume), 0, 100),
+    relative_strength: relativeStrengthScore,
+    underlying_context: underlyingContext?.score,
+    breadth: breadthScore,
+    market_regime: marketRegimeScore,
+    options_context: optionsContext,
+    trend_efficiency: efficiencyScore,
+    volatility_drag: volatilityDragScore,
+    choppiness: choppinessScore,
+    valuation_context: valuationContextScore,
+    flow: flowScore,
+  }, baseWeights);
+  const aggregateScore = moduleAggregate.score ?? 50;
+  const pullbackEntryScore = clamp(Math.round(mean([
+    supportScoreForHorizon(supportResistance, horizonKey),
+    marketRegimeScore,
+    100 - Math.min(80, riskScore),
+    directionalEvidence,
+    aggregateScore,
+  ].filter(Number.isFinite)) ?? 50), 0, 100);
+  const rightSideConfirmationScore = clamp(Math.round(mean([
+    trendStructure,
+    moneyFlowVolume,
+    relativeStrengthScore,
+    marketRegimeScore,
+    underlyingContext?.score,
+    breadthScore,
+  ].filter(Number.isFinite)) ?? 50), 0, 100);
+  const trendLeadershipScore = clamp(Math.round(mean([
+    trendStructure,
+    relativeStrengthScore,
+    efficiencyScore,
+    directionalEvidence,
+    marketRegimeScore,
+    underlyingContext?.score,
+    breadthScore,
+  ].filter(Number.isFinite)) ?? 50), 0, 100);
+  const overextensionExitScore = clamp(Math.round(mean([
+    Number.isFinite(tech.rsi14) ? metricScore(tech.rsi14, 60, 78) : 50,
+    resistanceScoreForHorizon(supportResistance, horizonKey),
+    marketRegime === "overheated" ? 78 : 45,
+    riskScore >= 70 ? 72 : 42,
+    choppinessScore != null ? 100 - choppinessScore : null,
+  ]) ?? 50), 0, 100);
+  const holdReasonType = moduleAggregate.missing_weight_pct >= 35
+    ? "insufficient_data"
+    : leveragedRisk?.risk_score >= 70
+      ? "leveraged_decay_risk"
+      : (trendEfficiency.choppiness_score ?? 0) >= 75
+        ? "high_choppiness"
+        : benchmarkContext.underlying_regime === "neutral"
+          ? "neutral_market"
+          : "conflicting_signals";
+  return {
+    pullback_entry_score: pullbackEntryScore,
+    right_side_confirmation_score: rightSideConfirmationScore,
+    trend_leadership_score: trendLeadershipScore,
+    overextension_exit_score: overextensionExitScore,
+    relative_strength_score: relativeStrengthScore,
+    breadth_score: breadthScore,
+    market_regime_score: marketRegimeScore,
+    valuation_context_score: valuationContextScore,
+    flow_score: flowScore,
+    risk_score: riskScore,
+    directional_evidence_score: directionalEvidence,
+    options_context_score: optionsContext,
+    technical_structure_score: technicalStructure,
+    money_flow_volume_score: clamp(Math.round(moneyFlowVolume), 0, 100),
+    trend_efficiency_score: efficiencyScore,
+    volatility_drag_score: volatilityDragScore,
+    choppiness_score: choppinessScore,
+    module_aggregate_score: aggregateScore,
+    used_modules: moduleAggregate.used_modules,
+    used_weights: moduleAggregate.used_weights,
+    missing_modules: moduleAggregate.missing_modules,
+    stale_modules: moduleAggregate.stale_modules,
+    raw_module_scores: moduleAggregate.raw_module_scores,
+    missing_weight_pct: moduleAggregate.missing_weight_pct,
+    data_quality: moduleAggregate.missing_weight_pct >= 35 ? "limited" : moduleAggregate.missing_weight_pct > 0 ? "partial" : "complete",
+    hold_reason_type: holdReasonType,
+  };
+}
+
+function makeETFActionBlock({ horizonKey, etfProfile, finalAction, score, buyRange, sellRange, stop, pricePosition, opportunityScores, reason, positiveFactors = [], riskFactors = [] }) {
+  const normalized = normalizeSixAction(finalAction);
+  const horizonMeta = etfHorizonMeta(etfProfile, horizonKey);
+  return {
+    horizon: horizonMeta.horizon,
+    horizon_label: horizonMeta.label,
+    ui_label: horizonMeta.ui_label,
+    final_action: normalized,
+    action: normalized,
+    final_action_label: actionLabel(normalized),
+    action_label: actionLabel(normalized),
+    action_recommendation_score: clamp(Math.round(score ?? 50), 0, 100),
+    score: clamp(Math.round(score ?? 50), 0, 100),
+    buy_range: buyRange,
+    sell_range: sellRange,
+    stop,
+    current_price: pricePosition?.current_price ?? null,
+    price_position: pricePosition,
+    opportunity_scores: opportunityScores,
+    reason,
+    positive_factors: positiveFactors,
+    risk_factors: riskFactors,
+    recommendation_confidence: null,
+    deprecated_confidence_fields: true,
+  };
+}
+
+function buildETFPlansAndActions({ row, etfProfile, supportResistance, technical, marketContext, optionsState, relativeStrength, trendEfficiency, leveragedRisk, benchmarkContext, underlyingContext, breadthContext, gapDownRisk }) {
+  const price = finiteNumberOrNull(row.price);
+  const atr = finiteNumberOrNull(row.technicals?.atr14) ?? (Number.isFinite(price) ? price * 0.035 : null);
+  const supports = supportResistance.supports || [];
+  const resistances = supportResistance.resistances || [];
+  const leveraged = Boolean(etfProfile.daily_reset || Math.abs(etfProfile.leverage_multiple || 1) > 1);
+  const horizonConfig = {
+    short_term: leveraged
+      ? { label: "短线战术买入区间", sell: "短线战术退出区间", supportIndex: 0, resistanceIndex: 0, buyOffset: -0.65, sellOffset: 1.05, width: 0.55, sellWidth: 0.55 }
+      : { label: "短期回调买入区间", sell: "短期止盈区间", supportIndex: 0, resistanceIndex: 0, buyOffset: -1.0, sellOffset: 1.2, width: 0.8, sellWidth: 0.8 },
+    mid_term: leveraged
+      ? { label: "波段确认买入区间", sell: "波段退出区间", supportIndex: 1, resistanceIndex: 1, buyOffset: -1.0, sellOffset: 1.7, width: 0.65, sellWidth: 0.65 }
+      : { label: "中期分批加仓区间", sell: "中期减仓区间", supportIndex: 1, resistanceIndex: 1, buyOffset: -1.5, sellOffset: 2.0, width: 1.0, sellWidth: 1.0 },
+    long_term: leveraged
+      ? { label: "延长持有风险参考区间", sell: "延长持有风险退出区间", supportIndex: 2, resistanceIndex: 2, buyOffset: -1.8, sellOffset: 2.4, width: 0.7, sellWidth: 0.7 }
+      : { label: "长期核心布局区间", sell: "长期估值止盈区间", supportIndex: 2, resistanceIndex: 2, buyOffset: -2.1, sellOffset: 2.8, width: 1.2, sellWidth: 1.2 },
+  };
+  const buyPlan = { explanation: currentLanguage === "zh" ? "ETF 买入计划使用 ETF 市场结构、benchmark 趋势、相对强度、量价和波动状态。" : "ETF buy plan uses market structure, benchmark trend, relative strength, price-volume, and volatility." };
+  const sellPlan = { explanation: currentLanguage === "zh" ? "ETF 卖出计划使用周期独立压力、趋势衰竭、过热和杠杆磨损风险。" : "ETF sell plan uses horizon-specific resistance, trend exhaustion, overextension, and leverage decay risk." };
+  const stopLossPlan = {};
+  const actionPlan = {};
+  const entryAction = {};
+  const positionAction = {};
+  const primaryAction = {};
+  const conflict = {};
+
+  ["short_term", "mid_term", "long_term"].forEach((horizonKey) => {
+    const cfg = horizonConfig[horizonKey];
+    const horizonMeta = etfHorizonMeta(etfProfile, horizonKey);
+    const support = supports[cfg.supportIndex]?.price;
+    const resistance = resistances[cfg.resistanceIndex]?.price;
+    const buyRange = etfRangeFromAnchors({
+      label: cfg.label,
+      englishLabel: cfg.label,
+      price,
+      atr,
+      primaryAnchor: support,
+      fallbackOffsetAtr: cfg.buyOffset,
+      widthAtr: cfg.width,
+      basedOn: [supports[cfg.supportIndex]?.id || `S${cfg.supportIndex + 1}`, leveraged ? "leveraged ETF tactical support" : "ETF support", etfProfile.benchmark],
+    });
+    const sellRange = etfRangeFromAnchors({
+      label: cfg.sell,
+      englishLabel: cfg.sell,
+      price,
+      atr,
+      primaryAnchor: resistance,
+      fallbackOffsetAtr: cfg.sellOffset,
+      widthAtr: cfg.sellWidth,
+      basedOn: [resistances[cfg.resistanceIndex]?.id || `R${cfg.resistanceIndex + 1}`, leveraged ? "leveraged ETF tactical resistance" : "ETF resistance", etfProfile.benchmark],
+    });
+    applyETFRangeWidthLimit(buyRange, { price, atr, etfProfile, anchor: support, kind: "entry" });
+    applyETFRangeWidthLimit(sellRange, { price, atr, etfProfile, anchor: resistance, kind: "exit" });
+    const separation = separateETFBuySellRanges(buyRange, sellRange, { price, atr, leveraged });
+    buyRange.neutral_hold_zone = separation.neutral_hold_zone;
+    sellRange.neutral_hold_zone = separation.neutral_hold_zone;
+    buyRange.buy_sell_separation = {
+      separation_status: separation.separation_status,
+      overlap_amount: separation.overlap_amount,
+      overlap_pct: separation.overlap_pct,
+      resolution: separation.resolution,
+    };
+    sellRange.buy_sell_separation = buyRange.buy_sell_separation;
+
+    const scores = buildETFOpportunityScores({ row, horizonKey, etfProfile, benchmarkContext, underlyingContext, breadthContext, relativeStrength, trendEfficiency, supportResistance, marketContext, optionsState, leveragedRisk });
+    const bestBuyScore = Math.max(scores.pullback_entry_score, scores.right_side_confirmation_score, scores.trend_leadership_score);
+    const buyThreshold = leveraged ? (horizonKey === "long_term" ? 82 : 74) : 68;
+    const strongThreshold = leveraged ? 88 : 84;
+    const sellThreshold = leveraged ? 66 : 68;
+    const underlyingBlocked = leveraged && underlyingContext?.used_in_action !== true;
+    const riskTooHigh = (leveragedRisk?.risk_score ?? scores.risk_score) >= (leveraged ? 78 : 82) || gapDownRisk?.classification === "falling_knife";
+    const longLeveragedRiskReview = leveraged && horizonKey === "long_term";
+    let activeBuySegment = null;
+    if (!longLeveragedRiskReview && !riskTooHigh && !underlyingBlocked && bestBuyScore >= buyThreshold && Number.isFinite(price) && Number.isFinite(atr) && buyRange.high < sellRange.low) {
+      const mode = scores.trend_leadership_score >= scores.pullback_entry_score && scores.trend_leadership_score >= scores.right_side_confirmation_score
+        ? "trend"
+        : scores.right_side_confirmation_score >= scores.pullback_entry_score ? "right_side" : "pullback";
+      const anchor = mode === "pullback" ? (support ?? price - atr * 0.5) : row.technicals?.ma20 ?? price;
+      activeBuySegment = makeActiveSegment({
+        mode,
+        low: Math.max(0.01, Math.min(price, anchor) - atr * (leveraged ? 0.18 : 0.35)),
+        high: Math.max(price, anchor) + atr * (leveraged ? 0.22 : 0.55),
+        price,
+        atr,
+        evidenceScore: bestBuyScore,
+        activationThreshold: buyThreshold,
+        allocationHint: leveraged ? (leveragedRisk?.position_size_cap || "1%-3%") : "10%-25%",
+        anchorSources: [mode, "ETF benchmark / underlying confirmation", etfProfile.benchmark, underlyingContext?.ticker_or_index].filter(Boolean),
+        anchorPrices: [anchor, price].filter(Number.isFinite),
+        reason: currentLanguage === "zh" ? "ETF 当前买入区由 benchmark / underlying 确认、趋势/相对强度和战术锚点共同激活。" : "ETF active entry is activated by benchmark / underlying confirmation, trend/relative strength, and tactical anchors.",
+      });
+      applyETFRangeWidthLimit(activeBuySegment, { price, atr, etfProfile, anchor, kind: "active_entry" });
+      if (activeBuySegment.high >= sellRange.low) {
+        activeBuySegment.active = false;
+        activeBuySegment.invalidation_reason = "active_entry_overlaps_sell_range";
+      }
+    }
+    if (activeBuySegment?.active) {
+      buyRange.active_segment = activeBuySegment;
+      buyRange.segments = [activeBuySegment];
+      buyRange.active_entry_mode = activeBuySegment.mode;
+      buyRange.current_price_in_range = true;
+      buyRange.low = activeBuySegment.low;
+      buyRange.high = activeBuySegment.high;
+      buyRange.midpoint = activeBuySegment.midpoint;
+    }
+    if (leveraged) {
+      buyRange.leveraged_buy_plan = {
+        tactical_pullback_entry: horizonKey === "short_term" ? {
+          active: Boolean(activeBuySegment?.active),
+          low: buyRange.low,
+          high: buyRange.high,
+          anchors: buyRange.based_on,
+          RR: null,
+          stop: null,
+        } : null,
+        confirmation_entry: horizonKey !== "long_term" ? {
+          active: Boolean(activeBuySegment?.active && ["right_side", "trend"].includes(activeBuySegment.mode)),
+          low: activeBuySegment?.low ?? null,
+          high: activeBuySegment?.high ?? null,
+          anchors: activeBuySegment?.anchor_sources || ["MA20 / breakout retest", underlyingContext?.ticker_or_index].filter(Boolean),
+          breakout_or_retest: activeBuySegment?.mode || null,
+          RR: null,
+          stop: null,
+        } : null,
+        deep_risk_reference: {
+          low: buyRange.original_range?.low ?? buyRange.low,
+          high: buyRange.original_range?.high ?? buyRange.high,
+          active_for_buy: false,
+          explanation: currentLanguage === "zh" ? "该区间仅表示杠杆 ETF 深度风险参考，不作为自动买入区。" : "This is only a deep-risk reference for a leveraged ETF, not an executable buy zone.",
+        },
+        active_entry_segment: activeBuySegment?.active ? activeBuySegment : null,
+        neutral_hold_zone: separation.neutral_hold_zone,
+      };
+    }
+
+    let activeSellSegment = null;
+    if (scores.overextension_exit_score >= sellThreshold && Number.isFinite(price) && Number.isFinite(atr) && buyRange.high < sellRange.low) {
+      activeSellSegment = makeActiveSegment({
+        mode: leveraged ? (horizonKey === "short_term" ? "short_tactical_exit" : horizonKey === "mid_term" ? "swing_exit" : "emergency_exit_reference") : activeSellModeForHorizon(horizonKey),
+        low: sellRange.low,
+        high: sellRange.high,
+        price,
+        atr,
+        evidenceScore: scores.overextension_exit_score,
+        activationThreshold: sellThreshold,
+        allocationHint: leveraged ? "25%-50%" : "10%-35%",
+        anchorSources: ["ETF resistance / overextension", etfProfile.benchmark, underlyingContext?.ticker_or_index].filter(Boolean),
+        anchorPrices: [resistance, price].filter(Number.isFinite),
+        reason: currentLanguage === "zh" ? "ETF 当前卖出区由压力位、过热或杠杆风险激活。" : "ETF active exit is activated by resistance, overextension, or leverage risk.",
+      });
+      applyETFRangeWidthLimit(activeSellSegment, { price, atr, etfProfile, anchor: resistance, kind: "active_exit" });
+    }
+    if (activeSellSegment?.active) {
+      sellRange.active_segment = activeSellSegment;
+      sellRange.segments = [activeSellSegment];
+      sellRange.active_exit_mode = activeSellSegment.mode;
+      sellRange.current_price_in_range = true;
+      sellRange.suggested_reduction_pct = leveraged ? "25%-50%" : "10%-35%";
+    }
+    if (leveraged) {
+      const leveragedSellSnapshot = {
+        active: Boolean(activeSellSegment?.active),
+        low: sellRange.low,
+        high: sellRange.high,
+        mode: activeSellSegment?.mode || (horizonKey === "short_term" ? "short_tactical_exit" : horizonKey === "mid_term" ? "swing_exit" : "emergency_exit"),
+        anchors: sellRange.based_on,
+        evidence_score: scores.overextension_exit_score,
+      };
+      sellRange.leveraged_sell_plan = {
+        short_tactical_exit: horizonKey === "short_term" ? leveragedSellSnapshot : null,
+        swing_exit: horizonKey === "mid_term" ? leveragedSellSnapshot : null,
+        emergency_exit: horizonKey === "long_term" ? {
+          active: false,
+          low: null,
+          high: null,
+          reason: currentLanguage === "zh" ? "延长持有风险层主要看 time stop、underlying invalidation 和磨损风险。" : "Extended-holding risk layer focuses on time stop, underlying invalidation, and decay risk.",
+        } : null,
+        active_exit_segment: activeSellSegment?.active ? activeSellSegment : null,
+        neutral_hold_zone: separation.neutral_hold_zone,
+      };
+    }
+
+    const stopBuffer = leveraged ? 0.9 : 1.25;
+    const stopPrice = activeBuySegment?.active && Number.isFinite(atr)
+      ? Number(Math.max(0.01, activeBuySegment.low - atr * stopBuffer).toFixed(2))
+      : Number.isFinite(support) && Number.isFinite(atr)
+        ? Number(Math.max(0.01, support - atr * stopBuffer).toFixed(2))
+        : null;
+    const stop = {
+      price: stopPrice,
+      applies_to: horizonKey,
+      based_on: leveraged ? ["hard tactical stop", "underlying invalidation", "ATR"] : ["ETF support", "ATR"],
+      linked_entry_mode: activeBuySegment?.mode || null,
+      linked_entry_range: activeBuySegment?.active ? activeBuySegment : null,
+      action_if_triggered: currentLanguage === "zh" ? "退出该 ETF 战术计划并重新评估 underlying。" : "Exit the ETF tactical plan and reassess the underlying.",
+      confidence: Number.isFinite(stopPrice) ? 72 : 40,
+      time_stop: leveraged ? {
+        max_holding_days: leveragedRisk?.max_holding_days || 10,
+        reassessment_days: 2,
+        exit_if_no_follow_through: true,
+      } : null,
+    };
+    if (leveraged && horizonKey === "long_term") {
+      stop.extended_holding_risk = {
+        current_action: "hold_watch",
+        risk_score: leveragedRisk?.risk_score ?? scores.risk_score,
+        holding_period_warning: etfProfile.holding_horizon_warning,
+        decay_risk: leveragedRisk?.decay_risk || etfProfile.decay_risk,
+        volatility_drag: leveragedRisk?.volatility_drag_risk ?? null,
+        choppiness: trendEfficiency.choppiness_score ?? null,
+        trend_efficiency: trendEfficiency.efficiency_ratio ?? null,
+        underlying_regime: underlyingContext?.regime || benchmarkContext.underlying_regime,
+        time_stop: stop.time_stop,
+        recommended_max_holding_days: leveragedRisk?.max_holding_days || 10,
+        exit_conditions: ["time stop", "underlying invalidation", "volatility drag spike", "trend efficiency deterioration"],
+        explanation: currentLanguage === "zh" ? "第三层为延长持有风险评估，不是普通长期核心买入建议。" : "The third layer is an extended-holding risk review, not a normal long-term core allocation signal.",
+      };
+    }
+
+    const pricePosition = buildPricePosition(price, buyRange, sellRange, stop);
+    let entryFinal = "hold_watch";
+    let entryScore = bestBuyScore;
+    if (riskTooHigh || underlyingBlocked) {
+      entryFinal = leveraged && riskTooHigh ? "avoid" : "hold_watch";
+      entryScore = underlyingBlocked ? Math.max(55, scores.module_aggregate_score ?? 50) : Math.max(60, scores.risk_score);
+    } else if (activeBuySegment?.active && bestBuyScore >= strongThreshold && !leveragedRisk?.event_risk) {
+      entryFinal = "strong_buy";
+    } else if (activeBuySegment?.active && bestBuyScore >= buyThreshold) {
+      entryFinal = "accumulate";
+    }
+    let positionFinal = "hold_watch";
+    let positionScore = Math.max(52, 90 - Math.abs((scores.overextension_exit_score ?? 50) - 50));
+    if (activeSellSegment?.active && scores.overextension_exit_score >= 82) {
+      positionFinal = "take_profit";
+      positionScore = scores.overextension_exit_score;
+    } else if (activeSellSegment?.active && scores.overextension_exit_score >= sellThreshold) {
+      positionFinal = "trim_reduce";
+      positionScore = scores.overextension_exit_score;
+    }
+    const entryBlock = makeETFActionBlock({
+      horizonKey,
+      etfProfile,
+      finalAction: entryFinal,
+      score: entryScore,
+      buyRange,
+      sellRange,
+      stop,
+      pricePosition,
+      opportunityScores: scores,
+      reason: entryFinal === "accumulate" || entryFinal === "strong_buy"
+        ? (currentLanguage === "zh" ? "ETF 买入视角由 active buy segment 与 benchmark / underlying / 趋势证据支持。" : "ETF entry view is supported by an active buy segment and benchmark / underlying / trend evidence.")
+        : riskTooHigh
+          ? (currentLanguage === "zh" ? "ETF 杠杆、gap 或波动磨损风险偏高，暂不主动买入。" : "ETF leverage, gap, or volatility-drag risk is elevated; avoid active entry.")
+          : underlyingBlocked
+            ? (currentLanguage === "zh" ? "缺少可靠 underlying 确认，杠杆 ETF 不输出方向性买入。" : "Reliable underlying confirmation is missing; leveraged ETF directional entry is blocked.")
+            : (currentLanguage === "zh" ? "ETF 买入证据不足，先观望。" : "ETF entry evidence is not strong enough; hold/watch."),
+    });
+    const positionBlock = makeETFActionBlock({
+      horizonKey,
+      etfProfile,
+      finalAction: positionFinal,
+      score: positionScore,
+      buyRange,
+      sellRange,
+      stop,
+      pricePosition,
+      opportunityScores: scores,
+      reason: positionFinal === "trim_reduce" || positionFinal === "take_profit"
+        ? (currentLanguage === "zh" ? "ETF 持仓管理视角进入 active sell segment，适合战术减仓或止盈。" : "ETF position-management view is inside an active sell segment; tactical trimming is supported.")
+        : (currentLanguage === "zh" ? "ETF 持仓管理视角暂无明确减仓触发。" : "ETF position-management view has no clear exit trigger."),
+    });
+    let primary = entryBlock;
+    let conflictExists = false;
+    if (["trim_reduce", "take_profit"].includes(positionBlock.final_action) && ["strong_buy", "accumulate"].includes(entryBlock.final_action)) {
+      conflictExists = true;
+      primary = Math.abs(positionBlock.action_recommendation_score - entryBlock.action_recommendation_score) < 8
+        ? makeETFActionBlock({ horizonKey, etfProfile, finalAction: "hold_watch", score: 62, buyRange, sellRange, stop, pricePosition, opportunityScores: scores, reason: currentLanguage === "zh" ? "ETF 买入与减仓证据冲突，主操作降级为观望。" : "ETF entry and exit evidence conflict; primary action is hold/watch." })
+        : positionBlock.action_recommendation_score > entryBlock.action_recommendation_score ? positionBlock : entryBlock;
+    } else if (["trim_reduce", "take_profit"].includes(positionBlock.final_action)) {
+      primary = positionBlock;
+    } else if (entryBlock.final_action === "avoid") {
+      primary = entryBlock;
+    }
+    primary.action_conflict = {
+      exists: conflictExists,
+      buy_evidence: entryBlock.action_recommendation_score,
+      sell_evidence: positionBlock.action_recommendation_score,
+      evidence_gap: Math.abs((entryBlock.action_recommendation_score ?? 0) - (positionBlock.action_recommendation_score ?? 0)),
+      resolution: primary.final_action,
+      explanation: conflictExists
+        ? (currentLanguage === "zh" ? "ETF 买入与持仓管理信号方向冲突，按证据差距解决。" : "ETF entry and position-management signals conflict; resolved by evidence gap.")
+        : null,
+    };
+    const holdReason = ["hold_watch"].includes(primary.final_action) ? {
+      neutral_market: scores.hold_reason_type === "neutral_market",
+      conflicting_signals: scores.hold_reason_type === "conflicting_signals",
+      insufficient_data: scores.hold_reason_type === "insufficient_data",
+      high_choppiness: scores.hold_reason_type === "high_choppiness",
+      leveraged_decay_risk: scores.hold_reason_type === "leveraged_decay_risk",
+      no_executable_range: !activeBuySegment?.active && !activeSellSegment?.active,
+      underlying_unconfirmed: underlyingBlocked || !["bullish", "bearish"].includes(underlyingContext?.regime),
+      inverse_entry_blocked: etfProfile.direction === "inverse" && benchmarkContext.underlying_regime !== "bearish",
+    } : null;
+    primary.hold_reason_type = holdReason;
+    entryBlock.hold_reason_type = holdReason;
+    positionBlock.hold_reason_type = holdReason;
+    primary.horizon_label = horizonMeta.label;
+    buyPlan[`${horizonKey}_buy_range`] = buyRange;
+    sellPlan[`${horizonKey}_sell_range`] = sellRange;
+    stopLossPlan[`${horizonKey}_stop`] = stop;
+    entryAction[horizonKey] = entryBlock;
+    positionAction[horizonKey] = positionBlock;
+    primaryAction[horizonKey] = primary;
+    conflict[horizonKey] = primary.action_conflict;
+    actionPlan[horizonKey] = primary;
+  });
+  stopLossPlan.fundamental_stop = {
+    applies_to: "ETF",
+    triggers: leveraged
+      ? ["underlying trend invalidation", "time stop", "volatility drag spike", "gap risk"]
+      : ["benchmark trend invalidation", "market breadth deterioration", "liquidity / tracking issue"],
+    note: currentLanguage === "zh" ? "ETF 不使用公司基本面止损。" : "ETF does not use company-specific fundamental stops.",
+  };
+  actionPlan.entry_action = entryAction;
+  actionPlan.position_management_action = positionAction;
+  actionPlan.primary_action = primaryAction;
+  actionPlan.action_conflict = conflict;
+  actionPlan.plan_recommendations = primaryAction;
+  actionPlan.overall_action = buildOverallAction(primaryAction.short_term, primaryAction.mid_term, primaryAction.long_term);
+  return { buyPlan, sellPlan, stopLossPlan, actionPlan };
+}
+
+function validatePairedETFConsistency(decision, pairedRows = null) {
+  const profile = decision?.etf_decision?.etf_profile || decision?.etf_profile;
+  if (!profile) return { passed: true, conflicts: [], pair: null };
+  const pair = profile.underlying_proxy === "QQQ"
+    ? "TQQQ/SQQQ"
+    : /SMH|SOXX|Semiconductor/i.test(profile.underlying_proxy || profile.benchmark || "")
+      ? "SOXL/SOXS"
+      : null;
+  return {
+    passed: true,
+    conflicts: [],
+    pair,
+    underlying_regime: decision?.etf_decision?.benchmark_context?.underlying_regime || null,
+    explanation: pair
+      ? (currentLanguage === "zh" ? `${pair} 使用同一 underlying regime；跨 ETF 冲突需在列表级验证。` : `${pair} uses the same underlying regime; cross-ETF conflict is validated at the list level.`)
+      : null,
+  };
+}
+
+function buildETFDecisionModel(row, research, companyProfile, etfProfile) {
+  const marketType = schemaMarketTypeForTicker(row);
+  const supportResistance = buildSupportResistanceSchema(row, companyProfile, null);
+  const technical = buildTechnicalModule(row, supportResistance, companyProfile);
+  const marketContext = buildMarketContextModule(row, companyProfile);
+  const optionsModule = buildOptionsModule(row, supportResistance, null, {
+    shortTermRating: "Hold-Watch",
+    midTermRating: "Hold-Watch",
+    longTermRating: "Hold-Watch",
+    technical,
+    companyProfile,
+  });
+  const optionsExpectedMove = buildOptionsExpectedMoveModule(row, optionsModule);
+  const relativeStrength = buildRelativeStrengthModule(row, marketContext, companyProfile);
+  const optionsState = buildOptionsState(row, optionsExpectedMove, optionsModule);
+  const benchmarkContext = buildETFBenchmarkContext(row, etfProfile, marketContext);
+  const trendEfficiency = computeTrendEfficiency(row.technicals?.history?.closes || [], 20);
+  const underlyingContext = buildETFUnderlyingContext(row, etfProfile, marketContext, trendEfficiency, relativeStrength);
+  const breadthContext = buildETFBreadthContext(etfProfile, marketContext);
+  const etfFundamental = {
+    status: "not_applicable",
+    fundamental_score: null,
+    profile_fundamental: {
+      score: 60,
+      components: {},
+      etf_not_applicable: true,
+      high_dividend_debt_risk: false,
+    },
+    growth: {},
+    valuation: {
+      status: "not_applicable",
+      note: currentLanguage === "zh" ? "ETF 不使用单一公司估值。" : "ETF does not use single-company valuation.",
+    },
+  };
+  const dataQuality = {
+    missing_fields: [
+      ...(underlyingContext.data_status === "unavailable" ? ["underlying_context"] : []),
+      ...(breadthContext.status === "unavailable" ? ["breadth"] : []),
+    ],
+    warnings: [
+      currentLanguage === "zh" ? "ETF 模型不使用公司级 FCF / Revenue / Margin / Guidance。" : "ETF model excludes company-level FCF / revenue / margin / guidance.",
+      ...(underlyingContext.data_status === "unavailable" ? [currentLanguage === "zh" ? "缺少可靠 ETF underlying 数据，方向性评分移除该模块。" : "Reliable ETF underlying data is missing; that module is removed from scoring."] : []),
+      ...(breadthContext.status === "unavailable" ? [currentLanguage === "zh" ? "Breadth 数据不可用，已从 ETF 权重中移除。" : "Breadth is unavailable and removed from ETF scoring weights."] : []),
+    ],
+    stale_fields: [],
+  };
+  const tradeContext = {
+    decision_profile: {
+      base_profile: "etf_profile",
+      final_weights: SCORING_PROFILE_WEIGHTS.etf_profile || SCORING_PROFILE_WEIGHTS.generic,
+      tags: ["ETF"],
+      all_tags: ["ETF", etfProfile.etf_type],
+    },
+    data_quality: dataQuality,
+    market_context: marketContext,
+    fundamental_health: { score: null, regime: "not_applicable", explanation: "ETF model excludes company fundamentals." },
+    guidance_state: { direction: "not_applicable", score: null, explanation: "ETF model excludes company guidance." },
+    valuation_state: { score: null, regime: "unavailable", explanation: "ETF valuation context unavailable; not scored as zero." },
+    trend_state: buildTrendState(row, technical),
+    relative_strength_state: buildRelativeStrengthState(relativeStrength, companyProfile),
+    volume_state: buildVolumeState(technical),
+    options_state: optionsState,
+    underlying_context: underlyingContext,
+    breadth_context: breadthContext,
+    cycle_state: { profile: "etf", score: null, regime: "not_applicable" },
+    company_risk: { company_specific_risk: false, falling_knife_risk: false, risk_factors: [] },
+    structural_levels: {
+      supports: supportResistance.supports,
+      resistances: supportResistance.resistances,
+      cluster_threshold: supportResistance.cluster_threshold,
+    },
+  };
+  tradeContext.gap_down_risk = buildGapDownRiskModel({ row, supportResistance, technical, marketContext, tradeContext, companyProfile });
+  const leveragedRisk = buildLeveragedETFRisk(row, etfProfile, trendEfficiency, benchmarkContext, marketContext, tradeContext.gap_down_risk);
+  const plans = buildETFPlansAndActions({
+    row,
+    etfProfile,
+    supportResistance,
+    technical,
+    marketContext,
+    optionsState,
+    relativeStrength,
+    trendEfficiency,
+    leveragedRisk,
+    benchmarkContext,
+    underlyingContext,
+    breadthContext,
+    gapDownRisk: tradeContext.gap_down_risk,
+  });
+  underlyingContext.used_weight = {
+    short_term: plans.actionPlan.short_term?.opportunity_scores?.used_weights?.underlying_context ?? 0,
+    mid_term: plans.actionPlan.mid_term?.opportunity_scores?.used_weights?.underlying_context ?? 0,
+    long_term: plans.actionPlan.long_term?.opportunity_scores?.used_weights?.underlying_context ?? 0,
+  };
+  breadthContext.used_weight = {
+    short_term: plans.actionPlan.short_term?.opportunity_scores?.used_weights?.breadth ?? 0,
+    mid_term: plans.actionPlan.mid_term?.opportunity_scores?.used_weights?.breadth ?? 0,
+    long_term: plans.actionPlan.long_term?.opportunity_scores?.used_weights?.breadth ?? 0,
+  };
+  const aiDecision = {
+    short_term: {
+      horizon: plans.actionPlan.short_term.horizon,
+      horizon_label: plans.actionPlan.short_term.horizon_label,
+      score: plans.actionPlan.short_term.action_recommendation_score,
+      rating: plans.actionPlan.short_term.final_action_label,
+      final_action: plans.actionPlan.short_term.final_action,
+      final_action_label: plans.actionPlan.short_term.final_action_label,
+      action_recommendation_score: plans.actionPlan.short_term.action_recommendation_score,
+      score_breakdown: {
+        score: plans.actionPlan.short_term.action_recommendation_score,
+        action_recommendation_score: plans.actionPlan.short_term.action_recommendation_score,
+        final_action: plans.actionPlan.short_term.final_action,
+        final_action_label: plans.actionPlan.short_term.final_action_label,
+        rating: plans.actionPlan.short_term.final_action_label,
+      },
+    },
+    mid_term: {
+      horizon: plans.actionPlan.mid_term.horizon,
+      horizon_label: plans.actionPlan.mid_term.horizon_label,
+      score: plans.actionPlan.mid_term.action_recommendation_score,
+      rating: plans.actionPlan.mid_term.final_action_label,
+      final_action: plans.actionPlan.mid_term.final_action,
+      final_action_label: plans.actionPlan.mid_term.final_action_label,
+      action_recommendation_score: plans.actionPlan.mid_term.action_recommendation_score,
+      score_breakdown: {
+        score: plans.actionPlan.mid_term.action_recommendation_score,
+        action_recommendation_score: plans.actionPlan.mid_term.action_recommendation_score,
+        final_action: plans.actionPlan.mid_term.final_action,
+        final_action_label: plans.actionPlan.mid_term.final_action_label,
+        rating: plans.actionPlan.mid_term.final_action_label,
+      },
+    },
+    long_term: {
+      horizon: plans.actionPlan.long_term.horizon,
+      horizon_label: plans.actionPlan.long_term.horizon_label,
+      score: plans.actionPlan.long_term.action_recommendation_score,
+      rating: plans.actionPlan.long_term.final_action_label,
+      final_action: plans.actionPlan.long_term.final_action,
+      final_action_label: plans.actionPlan.long_term.final_action_label,
+      action_recommendation_score: plans.actionPlan.long_term.action_recommendation_score,
+      score_breakdown: {
+        score: plans.actionPlan.long_term.action_recommendation_score,
+        action_recommendation_score: plans.actionPlan.long_term.action_recommendation_score,
+        final_action: plans.actionPlan.long_term.final_action,
+        final_action_label: plans.actionPlan.long_term.final_action_label,
+        rating: plans.actionPlan.long_term.final_action_label,
+      },
+    },
+    bullish_reasons: [benchmarkContext.explanation],
+    risk_reasons: [etfProfile.holding_horizon_warning, leveragedRisk?.explanation].filter(Boolean),
+    deprecated_composite_score: true,
+  };
+  aiDecision.overall_action = plans.actionPlan.overall_action;
+  let optionsStrategyPlan = buildUnifiedOptionsStrategyPlan({
+    row,
+    optionsModule,
+    supportResistance,
+    buyPlan: plans.buyPlan,
+    sellPlan: plans.sellPlan,
+    stopLossPlan: plans.stopLossPlan,
+    actionPlan: plans.actionPlan,
+    technical,
+    fundamental: etfFundamental,
+    marketContext,
+    companyProfile,
+    tradeContext,
+  });
+  if (etfProfile.daily_reset || etfProfile.direction === "inverse") {
+    optionsStrategyPlan = {
+      ...optionsStrategyPlan,
+      sell_put_plan: {
+        ...optionsStrategyPlan.sell_put_plan,
+        recommendation: "Avoid",
+        suitability: "Avoid",
+        recommendation_label: optionPlanRecommendationLabel("Avoid"),
+        risk_level: "high",
+        avoid_conditions: uniqueText([
+          ...(optionsStrategyPlan.sell_put_plan?.avoid_conditions || []),
+          currentLanguage === "zh" ? "杠杆 / 反向 ETF 默认不推荐激进 Sell Put。" : "Leveraged / inverse ETFs default to avoiding aggressive sell puts.",
+        ]),
+      },
+    };
+  }
+  const validation = {
+    action_consistency: validateActionConsistency(plans.actionPlan),
+    action_range_consistency: validateActionRangeConsistency(plans.actionPlan),
+    sell_horizon_separation: validateSellRangeHorizonSeparation(plans.sellPlan),
+    options_consistency: validateOptionsConsistency(plans.actionPlan, optionsStrategyPlan),
+    paired_etf_consistency: validatePairedETFConsistency({ etf_decision: { etf_profile: etfProfile, benchmark_context: benchmarkContext } }),
+    etf_buy_sell_separation: validateETFBuySellRangeSeparation(plans.buyPlan, plans.sellPlan),
+    critical_fields: validateNoMissingCriticalFields({
+      action_plan: plans.actionPlan,
+      buy_plan: plans.buyPlan,
+      sell_plan: plans.sellPlan,
+      stop_loss_plan: plans.stopLossPlan,
+      support_resistance: supportResistance,
+      options_strategy_plan: optionsStrategyPlan,
+    }),
+  };
+  const etfDecision = {
+    etf_profile: etfProfile,
+    benchmark_context: benchmarkContext,
+    underlying_context: underlyingContext,
+    relative_strength: relativeStrength,
+    breadth: breadthContext,
+    trend_efficiency: trendEfficiency,
+    leveraged_etf_risk: leveragedRisk,
+    paired_etf_consistency: validation.paired_etf_consistency,
+    buy_plan: plans.buyPlan,
+    sell_plan: plans.sellPlan,
+    stop_loss_plan: plans.stopLossPlan,
+    entry_action: plans.actionPlan.entry_action,
+    position_management_action: plans.actionPlan.position_management_action,
+    primary_action: plans.actionPlan.primary_action,
+    recommended_holding_period: leveragedRisk?.recommended_holding_period || "standard ETF horizon",
+    suggested_max_position_pct: leveragedRisk?.position_size_cap || "5%-15%",
+    time_stop: leveragedRisk ? {
+      max_holding_days: leveragedRisk.max_holding_days,
+      reassessment_days: 2,
+      exit_if_no_follow_through: true,
+    } : null,
+    warnings: [etfProfile.holding_horizon_warning, leveragedRisk?.explanation].filter(Boolean),
+  };
+  return {
+    ticker: row.ticker,
+    market_type: marketType,
+    company_name: companyNameForTicker(row.ticker, row),
+    current_price: row.price ?? null,
+    today_change_pct: row.changePercent ?? null,
+    market_data_state: row.market_data_state || marketDataState,
+    app_build_version: APP_BUILD_VERSION,
+    decision_model_version: DECISION_MODEL_VERSION,
+    company_profile: {
+      ...companyProfile,
+      primary_category: "ETF",
+      primary_category_label: "ETF",
+      category: "ETF",
+      category_key: "etf",
+      tags: uniqueText(["ETF", etfProfile.etf_type, etfProfile.direction, etfProfile.daily_reset ? "DailyReset" : null].filter(Boolean)),
+      top_tags: uniqueText(["ETF", etfProfile.etf_type, etfProfile.leverage_multiple !== 1 ? `${etfProfile.leverage_multiple}x` : null].filter(Boolean)),
+      full_tags: uniqueText(["ETF", etfProfile.etf_type, etfProfile.benchmark, etfProfile.direction, etfProfile.daily_reset ? "DailyReset" : null].filter(Boolean)),
+      scoring_profile: "etf_profile",
+      scoring_profile_label: scoringProfileLabel("etf_profile"),
+      etf_profile: etfProfile,
+      cash_cow_evidence: { qualified: false, rejected_reason: "ETF model excludes CashCow tag." },
+    },
+    classification: {
+      tags: ["ETF", etfProfile.etf_type],
+      category: "ETF",
+      scoring_profile: "etf_profile",
+      etf_profile: etfProfile,
+    },
+    decision_profile: tradeContext.decision_profile,
+    etf_decision: etfDecision,
+    trade_context: tradeContext,
+    trade_plan: {
+      trade_context: tradeContext,
+      support_resistance: supportResistance,
+      buy_plan: plans.buyPlan,
+      sell_plan: plans.sellPlan,
+      stop_loss_plan: plans.stopLossPlan,
+      options_strategy_plan: optionsStrategyPlan,
+      action_plan: plans.actionPlan,
+      entry_action: plans.actionPlan.entry_action,
+      position_management_action: plans.actionPlan.position_management_action,
+      primary_action: plans.actionPlan.primary_action,
+      action_conflict: plans.actionPlan.action_conflict,
+    },
+    ai_decision: aiDecision,
+    action_plan: plans.actionPlan,
+    entry_action: plans.actionPlan.entry_action,
+    position_management_action: plans.actionPlan.position_management_action,
+    primary_action: plans.actionPlan.primary_action,
+    overall_action: plans.actionPlan.overall_action,
+    buy_plan: plans.buyPlan,
+    recommended_buy_plan: plans.buyPlan,
+    sell_plan: plans.sellPlan,
+    stop_loss_plan: plans.stopLossPlan,
+    support_resistance: supportResistance,
+    support_levels: supportResistance.supports,
+    resistance_levels: supportResistance.resistances,
+    technical,
+    fundamental: etfFundamental,
+    options: { ...optionsModule, expected_move: optionsExpectedMove, options_strategy_plan: optionsStrategyPlan },
+    options_strategy_plan: optionsStrategyPlan,
+    market_context: marketContext,
+    relative_strength: relativeStrength,
+    data_quality: dataQuality,
+    validation,
+    score_breakdown: {
+      short: aiDecision.short_term.score_breakdown,
+      mid: aiDecision.mid_term.score_breakdown,
+      long: aiDecision.long_term.score_breakdown,
+      deprecated_composite_score: true,
+      action_plan: plans.actionPlan,
+    },
   };
 }
 
@@ -15319,6 +17154,16 @@ function buildDecisionModel(row) {
   const marketType = schemaMarketTypeForTicker(row);
   const research = row.research || buildLongTermResearch(row);
   const companyProfile = buildCompanyProfile(row, research);
+  const etfProfile = marketType === "US"
+    ? buildETFProfile(companyProfile.instrument_metadata, {
+      ticker: row.ticker,
+      symbol: row.symbol,
+      metadata: row.metadata,
+    })
+    : null;
+  if (etfProfile) {
+    return buildETFDecisionModel(row, research, companyProfile, etfProfile);
+  }
   let supportResistance = buildSupportResistanceSchema(row, companyProfile);
   let buyZones = buildBuyZones(row, supportResistance, companyProfile);
   let idealBuyZone = buyZones.primary_buy_zone;
@@ -15387,11 +17232,19 @@ function buildDecisionModel(row) {
   supportResistance = buildSupportResistanceSchema(row, companyProfile, tradeContext);
   buyZones = buildBuyZones(row, supportResistance, companyProfile);
   idealBuyZone = buyZones.primary_buy_zone;
-  tradeContext.structural_levels = {
-    supports: supportResistance.supports,
-    resistances: supportResistance.resistances,
-    cluster_threshold: supportResistance.cluster_threshold,
-  };
+	  tradeContext.structural_levels = {
+	    supports: supportResistance.supports,
+	    resistances: supportResistance.resistances,
+	    cluster_threshold: supportResistance.cluster_threshold,
+	  };
+	  tradeContext.gap_down_risk = buildGapDownRiskModel({
+	    row,
+	    supportResistance,
+	    technical,
+	    marketContext,
+	    tradeContext,
+	    companyProfile,
+	  });
   const shortSetupCandidates = [
     buildShortSetup(row, companyProfile, refreshedModules, supportResistance, idealBuyZone, "short"),
     buildShortSetup(row, companyProfile, refreshedModules, supportResistance, idealBuyZone, "mid"),
@@ -15566,8 +17419,11 @@ function buildDecisionModel(row) {
     ticker: row.ticker,
     market_type: marketType,
     company_name: companyNameForTicker(row.ticker, row),
-    current_price: row.price ?? null,
-    today_change_pct: row.changePercent ?? null,
+	    current_price: row.price ?? null,
+	    today_change_pct: row.changePercent ?? null,
+	    market_data_state: row.market_data_state || marketDataState,
+	    app_build_version: APP_BUILD_VERSION,
+	    decision_model_version: DECISION_MODEL_VERSION,
     company_profile: companyProfile,
     classification: {
       ...companyProfile.classification,
@@ -15736,14 +17592,76 @@ function renderDetailModal(row) {
   const displayValue = (value, formatter, fallback = t("dataUnavailable")) => (
     value == null || (typeof value === "number" && !Number.isFinite(value)) ? fallback : formatter(value)
   );
-  const renderReasonBullets = (items, tone = "") => (
-    items?.length
-      ? items.map((item) => `<div class="decision-bullet ${tone}">${tone === "warning" ? "⚠" : tone === "positive" ? "✓" : "•"} ${localizedDashboardText(item)}</div>`).join("")
-      : `<div class="decision-bullet muted">${t("dataUnavailable")}</div>`
-  );
-  const renderTags = (tags) => (
-    tags?.length
-      ? tags.map((tag) => `<span>${tag}</span>`).join("")
+	  const renderReasonBullets = (items, tone = "") => (
+	    items?.length
+	      ? items.map((item) => `<div class="decision-bullet ${tone}">${tone === "warning" ? "⚠" : tone === "positive" ? "✓" : "•"} ${localizedDashboardText(item)}</div>`).join("")
+	      : `<div class="decision-bullet muted">${t("dataUnavailable")}</div>`
+	  );
+	  const renderGapDownRiskCard = (gapRisk) => {
+	    if (!gapRisk) return "";
+	    const follow = gapRisk.follow_through_confirmation || {};
+	    return `
+	      <section class="detail-section-card">
+	        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "急跌风险" : "Gap-Down Risk"}</h3></div>
+	        <div class="decision-summary-grid">
+	          <div class="decision-list-card">
+	            <div class="decision-list-title">${currentLanguage === "zh" ? "急跌类型" : "Classification"}</div>
+	            <div class="detail-line-label">${localizedDashboardText(gapRisk.classification || t("dataUnavailable"))}</div>
+	            <div class="detail-line-note">${currentLanguage === "zh" ? "风险分" : "Risk Score"}: ${gapRisk.risk_score ?? "—"}/100 · ${currentLanguage === "zh" ? "单日涨跌" : "Day Change"}: ${formatChangePercent(gapRisk.day_change_pct)}</div>
+	            <div class="detail-line-note">${localizedDashboardText(gapRisk.explanation || "")}</div>
+	          </div>
+	          <div class="decision-list-card">
+	            <div class="decision-list-title">${currentLanguage === "zh" ? "确认要求" : "Follow-Through"}</div>
+	            <div class="detail-line-note">${currentLanguage === "zh" ? "需要确认" : "Required"}: ${follow.required ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")} · ${currentLanguage === "zh" ? "已确认" : "Confirmed"}: ${follow.confirmed ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")}</div>
+	            <div class="detail-line-note">${currentLanguage === "zh" ? "支撑跌破" : "Support Break"}: ${gapRisk.broke_support ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")} · MA20: ${gapRisk.broke_ma20 ? (currentLanguage === "zh" ? "跌破" : "Broken") : "—"} · MA50: ${gapRisk.broke_ma50 ? (currentLanguage === "zh" ? "跌破" : "Broken") : "—"}</div>
+	            ${follow.reason ? `<div class="detail-line-note">${localizedDashboardText(follow.reason)}</div>` : ""}
+	          </div>
+	        </div>
+	      </section>
+	    `;
+	  };
+	  const renderETFDecisionCard = (etfDecision) => {
+	    if (!etfDecision?.etf_profile) return "";
+	    const etfProfile = etfDecision.etf_profile;
+	    const leveragedRisk = etfDecision.leveraged_etf_risk || {};
+	    const trendEfficiency = etfDecision.trend_efficiency || {};
+	    const benchmark = etfDecision.benchmark_context || {};
+	    const underlying = etfDecision.underlying_context || {};
+	    const breadth = etfDecision.breadth || {};
+	    const shortModules = etfDecision.primary_action?.short_term?.opportunity_scores || {};
+	    return `
+	      <section class="detail-section-card">
+	        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "ETF 产品结构" : "ETF Product Structure"}</h3></div>
+	        <div class="decision-summary-grid">
+	          <div class="decision-list-card">
+	            <div class="decision-list-title">${currentLanguage === "zh" ? "产品类型" : "ETF Type"}</div>
+	            <div class="detail-line-label">${localizedDashboardText(etfProfile.etf_type || "ETF")}</div>
+	            <div class="detail-line-note">${currentLanguage === "zh" ? "标的" : "Benchmark"}: ${localizedDashboardText(etfProfile.benchmark || t("dataUnavailable"))}</div>
+	            <div class="detail-line-note">${currentLanguage === "zh" ? "方向" : "Direction"}: ${localizedDashboardText(etfProfile.direction || t("dataUnavailable"))} · ${currentLanguage === "zh" ? "杠杆" : "Leverage"}: ${etfProfile.leverage_multiple ?? 1}x · ${currentLanguage === "zh" ? "每日再平衡" : "Daily Reset"}: ${etfProfile.daily_reset ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")}</div>
+	          </div>
+	          <div class="decision-list-card">
+	            <div class="decision-list-title">${currentLanguage === "zh" ? "Underlying 与磨损" : "Underlying & Decay"}</div>
+	            <div class="detail-line-note">${currentLanguage === "zh" ? "Underlying" : "Underlying"}: ${localizedDashboardText(underlying.ticker_or_index || benchmark.underlying_proxy || t("dataUnavailable"))} · ${currentLanguage === "zh" ? "状态" : "Status"}: ${localizedDashboardText(underlying.data_status || t("dataUnavailable"))}</div>
+	            <div class="detail-line-note">${currentLanguage === "zh" ? "Underlying Regime" : "Underlying Regime"}: ${localizedDashboardText(underlying.regime || benchmark.underlying_regime || t("dataUnavailable"))} · ${currentLanguage === "zh" ? "用于评分" : "Used"}: ${underlying.used_in_action ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")}</div>
+	            <div class="detail-line-note">${currentLanguage === "zh" ? "趋势效率" : "Trend Efficiency"}: ${trendEfficiency.efficiency_ratio ?? "—"} · ${currentLanguage === "zh" ? "震荡分" : "Choppiness"}: ${trendEfficiency.choppiness_score ?? "—"}/100</div>
+	            <div class="detail-line-note">${currentLanguage === "zh" ? "磨损风险" : "Decay Risk"}: ${localizedDashboardText(leveragedRisk.decay_risk || etfProfile.decay_risk || t("dataUnavailable"))}</div>
+	          </div>
+	          <div class="decision-list-card">
+	            <div class="decision-list-title">${currentLanguage === "zh" ? "持有与仓位" : "Holding & Position"}</div>
+	            <div class="detail-line-note">${currentLanguage === "zh" ? "建议持有" : "Recommended Holding"}: ${localizedDashboardText(etfDecision.recommended_holding_period || t("dataUnavailable"))}</div>
+	            <div class="detail-line-note">${currentLanguage === "zh" ? "最大建议仓位" : "Suggested Max Position"}: ${etfDecision.suggested_max_position_pct || t("dataUnavailable")}</div>
+	            <div class="detail-line-note">${currentLanguage === "zh" ? "Breadth" : "Breadth"}: ${localizedDashboardText(breadth.status || t("dataUnavailable"))} · ${currentLanguage === "zh" ? "用于权重" : "Weight"}: ${shortModules.used_weights?.breadth ?? 0}</div>
+	            <div class="detail-line-note">${currentLanguage === "zh" ? "缺失模块" : "Missing Modules"}: ${(shortModules.missing_modules || []).join(", ") || t("dataUnavailable")}</div>
+	            ${etfDecision.time_stop ? `<div class="detail-line-note">${currentLanguage === "zh" ? "Time Stop" : "Time Stop"}: ${etfDecision.time_stop.max_holding_days ?? "—"} ${currentLanguage === "zh" ? "天，" : "days, "}${currentLanguage === "zh" ? "每" : "reassess every"} ${etfDecision.time_stop.reassessment_days ?? "—"} ${currentLanguage === "zh" ? "天复核" : "days"}</div>` : ""}
+	          </div>
+	        </div>
+	        ${(etfDecision.warnings || []).length ? `<div class="decision-bullets">${renderReasonBullets(etfDecision.warnings, "warning")}</div>` : ""}
+	      </section>
+	    `;
+	  };
+	  const renderTags = (tags) => (
+	    tags?.length
+	      ? tags.map((tag) => `<span>${tag}</span>`).join("")
       : `<span>${t("dataUnavailable")}</span>`
   );
   const renderSourceInfo = (info) => {
@@ -16223,9 +18141,9 @@ function renderDetailModal(row) {
   const summaryPanel = `
     <section class="detail-tab-section">
       <div class="decision-core-grid">
-        ${renderHorizonCard(`${t("shortTerm")} · 1-30D`, ai.short_term)}
-        ${renderHorizonCard(`${t("midTerm")} · 30-90D`, ai.mid_term)}
-        ${renderHorizonCard(`${t("longTerm")} · 90-180D`, ai.long_term)}
+        ${renderHorizonCard(`${decision.action_plan?.short_term?.horizon_label || t("shortTerm")} · ${decision.action_plan?.short_term?.horizon || "1-30D"}`, decision.action_plan?.short_term || ai.short_term)}
+        ${renderHorizonCard(`${decision.action_plan?.mid_term?.horizon_label || t("midTerm")} · ${decision.action_plan?.mid_term?.horizon || "30-90D"}`, decision.action_plan?.mid_term || ai.mid_term)}
+        ${renderHorizonCard(`${decision.action_plan?.long_term?.horizon_label || t("longTerm")} · ${decision.action_plan?.long_term?.horizon || "90-180D"}`, decision.action_plan?.long_term || ai.long_term)}
       </div>
       <section class="detail-card detail-overview-card">
         <div class="detail-overview-grid">
@@ -16253,10 +18171,12 @@ function renderDetailModal(row) {
                 <div class="decision-bullets">${renderReasonBullets(decision.conflict_warning.reasons || [], "warning")}</div>
               </div>
             ` : ""}
-          </div>
-        </div>
-      </section>
-      <section class="detail-section-card">
+	          </div>
+	        </div>
+	      </section>
+	      ${renderGapDownRiskCard(decision.trade_context?.gap_down_risk)}
+	      ${renderETFDecisionCard(decision.etf_decision)}
+	      <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "推荐买入计划" : "Recommended Buy Plan"}</h3></div>
         <div class="detail-line-note">
           ${currentLanguage === "zh" ? "机会类型" : "Opportunity Type"}: ${localizedDashboardText(decision.buy_plan?.opportunity_type || t("dataUnavailable"))}
@@ -16366,11 +18286,21 @@ function renderDetailModal(row) {
             <div class="detail-profile-label">${currentLanguage === "zh" ? "分类置信度" : "Classification Confidence"}</div>
             <div class="detail-profile-value">${profile.classification_confidence ?? 0}%</div>
           </article>
-          <article class="detail-profile-item">
-            <div class="detail-profile-label">${currentLanguage === "zh" ? "评分模型" : "Scoring Profile"}</div>
-            <div class="detail-profile-value">${profile.scoring_profile_label || scoringProfileLabel(profile.scoring_profile) || t("dataUnavailable")}</div>
-          </article>
-          <article class="detail-profile-item detail-profile-item-wide">
+	          <article class="detail-profile-item">
+	            <div class="detail-profile-label">${currentLanguage === "zh" ? "评分模型" : "Scoring Profile"}</div>
+	            <div class="detail-profile-value">${profile.scoring_profile_label || scoringProfileLabel(profile.scoring_profile) || t("dataUnavailable")}</div>
+	          </article>
+	          <article class="detail-profile-item">
+	            <div class="detail-profile-label">${currentLanguage === "zh" ? "证券类型" : "Security Type"}</div>
+	            <div class="detail-profile-value">${profile.instrument_metadata?.security_type || profile.instrument_metadata?.quote_type || (currentLanguage === "zh" ? "待确认" : "Pending")}</div>
+	            <div class="detail-line-note">${currentLanguage === "zh" ? "状态" : "Status"}: ${localizedDashboardText(profile.instrument_metadata_status || "unavailable")}${profile.instrument_metadata?.metadata_warning ? ` · ${localizedDashboardText(profile.instrument_metadata.metadata_warning)}` : ""}</div>
+	          </article>
+	          <article class="detail-profile-item">
+	            <div class="detail-profile-label">CashCow</div>
+	            <div class="detail-profile-value">${profile.cash_cow_evidence?.qualified ? (currentLanguage === "zh" ? "证据通过" : "Qualified") : (currentLanguage === "zh" ? "证据不足" : "Not Qualified")}</div>
+	            <div class="detail-line-note">${profile.cash_cow_evidence?.qualified ? localizedDashboardText(profile.cash_cow_evidence?.explanation) : localizedDashboardText(profile.cash_cow_evidence?.rejected_reason || profile.cash_cow_evidence?.explanation || "")}</div>
+	          </article>
+	          <article class="detail-profile-item detail-profile-item-wide">
             <div class="detail-profile-label">${currentLanguage === "zh" ? "标签" : "Tags"}</div>
             <div class="detail-consensus-mini detail-profile-tags">${renderTags(profile.top_tags_label || profile.tags_label)}</div>
           </article>
@@ -17034,10 +18964,12 @@ function render() {
   applyLanguage();
   tickerRows.forEach((row) => {
     if (!row.technicals && !row.indicatorMap) return;
-    row.research = buildLongTermResearch(row);
-    row.decisionModel = buildDecisionModel(row);
-    applyDecisionSummaryToRow(row);
-  });
+	    row.research = buildLongTermResearch(row);
+	    row.decisionModel = buildDecisionModel(row);
+	    applyDecisionSummaryToRow(row);
+	    row.isDecisionProvisional = shouldHideFormalActionsForState(row.market_data_state || marketDataState);
+	    applyProvisionalDecisionSummaryToRow(row);
+	  });
   const current = selectedRow();
   renderStockList();
   renderDetailModal(current);
@@ -17054,7 +18986,13 @@ function loadCachedSnapshot() {
   try {
     const cached = JSON.parse(localStorage.getItem(PRICE_CACHE_KEY) || "null");
     if (!cached?.snapshot) return false;
-    applySnapshot(cached.snapshot, false);
+    applySnapshot(cached.snapshot, false, {
+      source: "local_cache",
+      isProvisional: true,
+      isRefreshing: true,
+      requestId: latestMarketRequestId,
+      warning: currentLanguage === "zh" ? "正在更新最新市场数据，当前推荐暂不显示。" : "Refreshing latest market data; formal recommendations are hidden.",
+    });
     const chipText = refreshChipText(cached.snapshot);
     if (chipText) {
       setRefreshChip(chipText);
@@ -17094,9 +19032,19 @@ function snapshotNeedsHydration(snapshot) {
   });
 }
 
-function applySnapshot(snapshot, shouldPersist = true) {
-  currentSnapshot = snapshot;
-  const invalidCustomTickers = [];
+function applySnapshot(snapshot, shouldPersist = true, options = {}) {
+  if (Number.isFinite(options.requestId) && options.requestId < latestMarketRequestId && options.source !== "local_cache") {
+    return;
+  }
+  const incomingMs = snapshotTimestampMs(snapshot);
+  const appliedMs = marketDataState?.snapshot_updated_at ? new Date(marketDataState.snapshot_updated_at).getTime() : null;
+  if (!options.forceApply && options.source !== "local_cache" && Number.isFinite(incomingMs) && Number.isFinite(appliedMs) && incomingMs < appliedMs) {
+    console.warn("Ignored older market snapshot", { incoming: snapshotUpdatedAt(snapshot), applied: marketDataState.snapshot_updated_at });
+    return;
+  }
+	  currentSnapshot = snapshot;
+  const state = updateMarketDataState(snapshot, options);
+	  const invalidCustomTickers = [];
 
   tickerRows.forEach((row) => {
     const metrics = computeIndicators(row.ticker, snapshot.quotes, row.profile);
@@ -17127,11 +19075,14 @@ function applySnapshot(snapshot, shouldPersist = true) {
     row.indicatorMap = metrics.indicatorMap;
     row.technicals = metrics.technicals;
     row.noData = metrics.noData || false;
-    row.research = buildLongTermResearch(row);
-    row.decisionModel = buildDecisionModel(row);
-    row.decisionModel.decision_build_path = "applied_snapshot";
-    row.decision_build_path = "applied_snapshot";
-    applyDecisionSummaryToRow(row);
+	    row.research = buildLongTermResearch(row);
+	    row.decisionModel = buildDecisionModel(row);
+	    row.decisionModel.decision_build_path = "applied_snapshot";
+	    row.decision_build_path = "applied_snapshot";
+	    row.market_data_state = state;
+	    row.isDecisionProvisional = shouldHideFormalActionsForState(state);
+	    applyDecisionSummaryToRow(row);
+	    applyProvisionalDecisionSummaryToRow(row, state);
 
     if (snapshot?.source === "yahoo-chart" && row.noData && !DEFAULT_WATCHLIST.includes(row.ticker)) {
       invalidCustomTickers.push(row.ticker);
@@ -17161,7 +19112,13 @@ function buildDecisionFromSnapshot(snapshot, options = {}) {
     watchlistItems = normalizeWatchlistItems(normalizedTickers);
     syncTickerRows();
   }
-  applySnapshot(snapshot, options.shouldPersist === true);
+  applySnapshot(snapshot, options.shouldPersist === true, {
+    source: options.source || "server_cache",
+    isProvisional: false,
+    isRefreshing: false,
+    forceApply: true,
+    requestId: Number.isFinite(options.requestId) ? options.requestId : latestMarketRequestId,
+  });
   const selectedSet = new Set(normalizedTickers);
   const rows = tickerRows.filter((row) => !selectedSet.size || selectedSet.has(row.ticker));
   const warnings = [];
@@ -17215,10 +19172,11 @@ async function refreshSnapshot({ force = false, autoRefresh = false, mode = null
   const refreshOrder = (shouldForce || shouldAutoRefresh)
     ? [...missingTickers, ...availableTickers]
     : requestedTickers;
-  const batches = (shouldForce || shouldAutoRefresh)
-    ? buildLiveRefreshBatches(refreshOrder)
-    : chunkArray(refreshOrder, MARKET_DATA_BATCH_SIZE);
-  refreshRequestInFlight = true;
+	  const batches = (shouldForce || shouldAutoRefresh)
+	    ? buildLiveRefreshBatches(refreshOrder)
+	    : chunkArray(refreshOrder, MARKET_DATA_BATCH_SIZE);
+	  const requestId = ++latestMarketRequestId;
+	  refreshRequestInFlight = true;
   if (shouldForce || shouldAutoRefresh) {
     setRefreshChipForAttempt({ stale: Boolean(currentSnapshot), message: shouldForce ? t("refreshing") : (currentLanguage === "zh" ? "正在刷新行情…" : "Refreshing quotes...") });
   }
@@ -17243,8 +19201,12 @@ async function refreshSnapshot({ force = false, autoRefresh = false, mode = null
       try {
         const response = await fetch(url, { cache: "no-store" });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const snapshot = await response.json();
-        if (!snapshot?.quotes) throw new Error("Missing quote payload");
+	        const snapshot = await response.json();
+	        if (!snapshot?.quotes) throw new Error("Missing quote payload");
+	        if (requestId !== latestMarketRequestId) {
+	          console.warn("Ignored stale market-data response", { requestId, latestMarketRequestId });
+	          return;
+	        }
         if (shouldForce) {
           console.info("Dashboard force refresh batch response:", {
             batch,
@@ -17255,7 +19217,12 @@ async function refreshSnapshot({ force = false, autoRefresh = false, mode = null
           });
         }
         mergedSnapshot = mergeMarketSnapshots(mergedSnapshot, snapshot, requestedTickers);
-        applySnapshot(mergedSnapshot, true);
+	        applySnapshot(mergedSnapshot, true, {
+	          source: snapshot?.refresh_status?.is_cache_only ? "server_cache" : "live",
+	          isProvisional: false,
+	          isRefreshing: false,
+	          requestId,
+	        });
       } catch (batchError) {
         batchErrors.push(batchError);
         console.warn("Price refresh batch failed:", batch, batchError);
@@ -17275,7 +19242,12 @@ async function refreshSnapshot({ force = false, autoRefresh = false, mode = null
           error: "No market data",
         };
       });
-      applySnapshot(fallbackSnapshot, false);
+	      applySnapshot(fallbackSnapshot, false, {
+	        source: "server_cache",
+	        isProvisional: false,
+	        isRefreshing: false,
+	        requestId,
+	      });
       setRefreshChipForAttempt({ stale: true, message: t("unavailableRefresh") });
     } else {
       markCurrentSnapshotRefreshAttemptFailed();
