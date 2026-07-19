@@ -1406,7 +1406,9 @@ function normalizeDividendYield(value) {
   if (numeric == null || numeric <= 0) return null;
   // Providers are inconsistent: yfinance often returns 0.032 while some
   // cached/fund feeds return 3.2 for 3.2%. Tags should use one decimal scale.
-  return numeric > 1 ? numeric / 100 : numeric;
+  // Yahoo snapshots may also return 0.92 to mean 0.92%, so anything above
+  // 25% is treated as a percent-style value rather than a decimal yield.
+  return numeric > 0.25 ? numeric / 100 : numeric;
 }
 
 function averageLast(values, period) {
@@ -1768,14 +1770,14 @@ function inferScoringProfile(tags = [], category = "", marketType = "US") {
   const tagSet = new Set(tags);
   if (marketType === "CN_A_SHARE" || tagSet.has("AShare")) return "china_a_share";
   if (tagSet.has("ETF")) return "etf_profile";
-  if (tagSet.has("REIT") || tagSet.has("Dividend")) return "reit_dividend";
+  if (tagSet.has("REIT") || tagSet.has("RealEstate")) return "reit_dividend";
   if (tagSet.has("MemoryStorage") || tagSet.has("DRAMNAND") || tagSet.has("NAND")) return "memory_cycle";
-  if (tagSet.has("AIInfrastructure") || tagSet.has("GPU") || tagSet.has("DataCenter")) return "ai_infrastructure";
+  if (tagSet.has("Semiconductor") && (tagSet.has("AIInfrastructure") || tagSet.has("GPU") || tagSet.has("DataCenter"))) return "ai_infrastructure";
   if (tagSet.has("SocialMedia") || tagSet.has("DigitalAds") || ["SocialMediaAds", "DigitalAdsCloud"].includes(category)) return "platform_ads";
-  if (tagSet.has("ChinaADR") || tagSet.has("ChinaInternet")) return "china_adr";
-  if (tagSet.has("HealthInsurance") || tagSet.has("HealthcareServices") || category === "HealthcareInsurance") return "healthcare_defensive";
-  if (tagSet.has("EV") || tagSet.has("AutoManufacturer")) return "high_growth_cyclical";
   if (tagSet.has("Software") || tagSet.has("Cloud") || ["SoftwareCloud", "EcommerceCloud"].includes(category)) return "software_cloud";
+  if (tagSet.has("HealthInsurance") || tagSet.has("HealthcareServices") || category === "HealthcareInsurance") return "healthcare_defensive";
+  if (tagSet.has("EV") || tagSet.has("AutoManufacturer") || (tagSet.has("HighGrowth") && !tagSet.has("CashCow"))) return "high_growth_cyclical";
+  if (tagSet.has("ChinaADR") || tagSet.has("ChinaInternet") || tagSet.has("ChinaConsumer")) return "china_adr";
   return "generic";
 }
 
@@ -1814,9 +1816,11 @@ function buildDecisionProfile(classification = {}, marketType = "US") {
   const exposureTags = classification.exposure_tags || [];
   const tagSet = new Set([...fullTags, ...topTags]);
   const exposureSet = new Set(exposureTags);
+  const preferredProfile = classification.scoring_profile;
+  const inferredProfile = inferScoringProfile([...tagSet], classification.category, marketType);
   const baseProfile = marketType === "CN_A_SHARE"
     ? "china_a_share"
-    : inferScoringProfile([...tagSet], classification.category, marketType);
+    : SCORING_PROFILE_WEIGHTS[preferredProfile] ? preferredProfile : inferredProfile;
   const finalWeights = cloneProfileWeights(SCORING_PROFILE_WEIGHTS[baseProfile] || SCORING_PROFILE_WEIGHTS.generic);
   const technicalWeights = cloneProfileWeights(TECHNICAL_PROFILE_WEIGHTS[baseProfile] || TECHNICAL_PROFILE_WEIGHTS.generic);
   const fundamentalBase = {
@@ -5104,6 +5108,94 @@ function normalizeRatioPercent(value) {
   return Math.abs(numeric) <= 2 ? numeric * 100 : numeric;
 }
 
+function normalizeExpectedMove(raw = {}, currentPrice = null) {
+  const price = finiteNumberOrNull(currentPrice);
+  const warnings = [];
+  const sourceUnits = {};
+  const readFirst = (keys) => {
+    for (const key of keys) {
+      const value = raw?.[key];
+      if (value != null && Number.isFinite(Number(value))) return Number(value);
+    }
+    return null;
+  };
+  const normalizeOne = (horizon, pctKeys, priceKeys) => {
+    const rawPct = readFirst(pctKeys);
+    const rawPrice = readFirst(priceKeys);
+    let decimalFromPct = null;
+    let pctUnit = null;
+    if (Number.isFinite(rawPct)) {
+      if (Math.abs(rawPct) > 100) {
+        pctUnit = "suspicious_pct";
+        warnings.push(`${horizon}_pct_suspicious`);
+      } else if (Math.abs(rawPct) > 1) {
+        decimalFromPct = rawPct / 100;
+        pctUnit = "pct";
+      } else {
+        decimalFromPct = rawPct;
+        pctUnit = "decimal";
+      }
+    }
+    let decimalFromPrice = null;
+    let priceUnit = null;
+    if (Number.isFinite(rawPrice) && rawPrice >= 0 && Number.isFinite(price) && price > 0) {
+      decimalFromPrice = rawPrice / price;
+      priceUnit = "price";
+      if (decimalFromPrice > 1) {
+        warnings.push(`${horizon}_price_suspicious`);
+      }
+    }
+    let selectedDecimal = decimalFromPct;
+    let selectedUnit = pctUnit;
+    if (Number.isFinite(decimalFromPrice)) {
+      if (Number.isFinite(decimalFromPct)) {
+        const tolerance = Math.max(0.005, Math.abs(decimalFromPct) * 0.35);
+        if (Math.abs(decimalFromPrice - decimalFromPct) > tolerance) {
+          warnings.push(`${horizon}_unit_conflict`);
+          selectedDecimal = decimalFromPrice;
+          selectedUnit = "price";
+        }
+      } else {
+        selectedDecimal = decimalFromPrice;
+        selectedUnit = "price";
+      }
+    }
+    if (!Number.isFinite(selectedDecimal) || selectedDecimal < 0 || selectedDecimal > 1) {
+      selectedDecimal = null;
+      selectedUnit = selectedUnit || "unavailable";
+    }
+    const movePrice = Number.isFinite(selectedDecimal) && Number.isFinite(price) && price > 0 ? selectedDecimal * price : null;
+    sourceUnits[horizon] = {
+      pct: pctUnit || "unavailable",
+      price: priceUnit || "unavailable",
+      selected: selectedUnit || "unavailable",
+    };
+    return {
+      decimal: Number.isFinite(selectedDecimal) ? Number(selectedDecimal.toFixed(6)) : null,
+      pct: Number.isFinite(selectedDecimal) ? Number((selectedDecimal * 100).toFixed(2)) : null,
+      price: Number.isFinite(movePrice) ? Number(movePrice.toFixed(2)) : null,
+      lower: Number.isFinite(price) && Number.isFinite(movePrice) ? Number(Math.max(0.01, price - movePrice).toFixed(2)) : null,
+      upper: Number.isFinite(price) && Number.isFinite(movePrice) ? Number((price + movePrice).toFixed(2)) : null,
+    };
+  };
+  const move7 = normalizeOne("7d", ["move_7d_pct", "expected_move_7d_pct", "sevenDayMovePct"], ["move_7d_price", "expected_move_7d", "sevenDayMove"]);
+  const move30 = normalizeOne("30d", ["move_30d_pct", "expected_move_30d_pct", "thirtyDayMovePct"], ["move_30d_price", "expected_move_30d", "thirtyDayMove"]);
+  return {
+    move_7d_decimal: move7.decimal,
+    move_7d_pct: move7.pct,
+    move_7d_price: move7.price,
+    lower_7d: move7.lower,
+    upper_7d: move7.upper,
+    move_30d_decimal: move30.decimal,
+    move_30d_pct: move30.pct,
+    move_30d_price: move30.price,
+    lower_30d: move30.lower,
+    upper_30d: move30.upper,
+    source_units: sourceUnits,
+    normalization_warning: warnings.length ? [...new Set(warnings)] : null,
+  };
+}
+
 function formatUnavailableReason(sourceName) {
   return currentLanguage === "zh"
     ? `${sourceName} 暂不可用；需要历史分析师预期快照或外部数据源。`
@@ -5144,7 +5236,7 @@ function buildOptionsExpectedMoveModule(row, options = {}) {
   const fallback30 = estimateExpectedMoveFromIv(row.price, iv, 30);
   const sevenDayMovePct = rawExpectedMove.sevenDayMovePct ?? fallback7.move_pct;
   const thirtyDayMovePct = rawExpectedMove.thirtyDayMovePct ?? fallback30.move_pct;
-  return {
+  const rawOutput = {
     atm_straddle_implied_move: rawExpectedMove.atmStraddleMove ?? null,
     atm_straddle_implied_move_pct: rawExpectedMove.atmStraddleMovePct ?? null,
     expected_move_7d: rawExpectedMove.sevenDayMove ?? fallback7.move,
@@ -5159,6 +5251,21 @@ function buildOptionsExpectedMoveModule(row, options = {}) {
     term_structure_slope: rawTermStructure.slope ?? null,
     term_structure_regime: rawTermStructure.regime ?? null,
     source: rawExpectedMove.source || fallback30.source || null,
+  };
+  const normalized = normalizeExpectedMove(rawOutput, row.price);
+  return {
+    ...rawOutput,
+    raw_expected_move_7d: rawOutput.expected_move_7d,
+    raw_expected_move_7d_pct: rawOutput.expected_move_7d_pct,
+    raw_expected_move_30d: rawOutput.expected_move_30d,
+    raw_expected_move_30d_pct: rawOutput.expected_move_30d_pct,
+    expected_move_7d: normalized.move_7d_price,
+    expected_move_7d_pct: normalized.move_7d_pct,
+    expected_move_30d: normalized.move_30d_price,
+    expected_move_30d_pct: normalized.move_30d_pct,
+    expected_move: normalized,
+    source_units: normalized.source_units,
+    normalization_warning: normalized.normalization_warning,
   };
 }
 
@@ -5549,23 +5656,9 @@ function buildVolumeState(technical = {}) {
 }
 
 function normalizeExpectedMovePayload(row, optionsExpectedMove = {}) {
-  const price = finiteNumberOrNull(row.price);
-  const move7Pct = normalizeRatioPercent(optionsExpectedMove.expected_move_7d_pct);
-  const move30Pct = normalizeRatioPercent(optionsExpectedMove.expected_move_30d_pct);
-  const move7Price = finiteNumberOrNull(optionsExpectedMove.expected_move_7d)
-    ?? (Number.isFinite(price) && Number.isFinite(move7Pct) ? price * move7Pct / 100 : null);
-  const move30Price = finiteNumberOrNull(optionsExpectedMove.expected_move_30d)
-    ?? (Number.isFinite(price) && Number.isFinite(move30Pct) ? price * move30Pct / 100 : null);
-  return {
-    move_7d_pct: move7Pct == null ? null : Number(move7Pct.toFixed(1)),
-    move_7d_price: move7Price == null ? null : Number(move7Price.toFixed(2)),
-    lower_7d: Number.isFinite(price) && Number.isFinite(move7Price) ? Number(Math.max(0.01, price - move7Price).toFixed(2)) : null,
-    upper_7d: Number.isFinite(price) && Number.isFinite(move7Price) ? Number((price + move7Price).toFixed(2)) : null,
-    move_30d_pct: move30Pct == null ? null : Number(move30Pct.toFixed(1)),
-    move_30d_price: move30Price == null ? null : Number(move30Price.toFixed(2)),
-    lower_30d: Number.isFinite(price) && Number.isFinite(move30Price) ? Number(Math.max(0.01, price - move30Price).toFixed(2)) : null,
-    upper_30d: Number.isFinite(price) && Number.isFinite(move30Price) ? Number((price + move30Price).toFixed(2)) : null,
-  };
+  return optionsExpectedMove.expected_move?.source_units
+    ? optionsExpectedMove.expected_move
+    : normalizeExpectedMove(optionsExpectedMove, row.price);
 }
 
 function buildOptionsState(row, optionsExpectedMove = {}, optionsModule = {}) {
@@ -5581,8 +5674,10 @@ function buildOptionsState(row, optionsExpectedMove = {}, optionsModule = {}) {
   const termRegime = optionsExpectedMove.term_structure_regime || optionsExpectedMove.term_structure?.regime || "unavailable";
   const skew = finiteNumberOrNull(optionsExpectedMove.skew);
   return {
-    expected_move_7d: optionsExpectedMove.expected_move_7d ?? null,
-    expected_move_30d: optionsExpectedMove.expected_move_30d ?? null,
+    expected_move_7d: expectedMove.move_7d_price,
+    expected_move_7d_pct: expectedMove.move_7d_pct,
+    expected_move_30d: expectedMove.move_30d_price,
+    expected_move_30d_pct: expectedMove.move_30d_pct,
     iv_percentile: ivPercentile,
     iv_rank: ivRank,
     skew,
@@ -5598,6 +5693,8 @@ function buildOptionsState(row, optionsExpectedMove = {}, optionsModule = {}) {
       conflict: ivConflict,
     },
     options_risk_regime: termRegime === "backwardation" ? "event_risk" : combinedState,
+    source_units: expectedMove.source_units,
+    normalization_warning: expectedMove.normalization_warning,
     explanation: currentLanguage === "zh"
       ? "期权状态用于可达性、止损宽度和期权 strike 校验，不替代结构性支撑压力。"
       : "Options state informs reachability, stop width, and option strike checks, without replacing structural levels.",
@@ -5607,7 +5704,7 @@ function buildOptionsState(row, optionsExpectedMove = {}, optionsModule = {}) {
 function buildCycleState(row, companyProfile = {}, fundamental = {}) {
   const tags = companyProfile?.tags || [];
   const isMemory = hasAnyTag(tags, ["MemoryStorage", "DRAMNAND", "NAND"]);
-  const isReit = hasAnyTag(tags, ["REIT", "Dividend", "InterestRateSensitive"]);
+  const isReit = hasAnyTag(tags, ["REIT", "RealEstate", "HealthcareRealEstate"]);
   const score = isMemory
     ? averageAvailableScores([
       fundamental.profile_fundamental?.components?.gross_margin_trend,
@@ -5734,6 +5831,55 @@ function yearsSinceIsoDate(value) {
   return (Date.now() - parsed.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
 }
 
+function daysSinceTimestamp(value) {
+  if (value == null || value === "") return null;
+  const numeric = Number(value);
+  let parsedMs = null;
+  if (Number.isFinite(numeric)) {
+    parsedMs = numeric > 10_000_000_000 ? numeric : numeric * 1000;
+  } else {
+    const parsed = new Date(value);
+    parsedMs = Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+  }
+  if (!Number.isFinite(parsedMs)) return null;
+  const ageMs = Date.now() - parsedMs;
+  return ageMs >= 0 ? ageMs / (24 * 60 * 60 * 1000) : null;
+}
+
+function listingAgeDaysFromMetadata(row) {
+  const metadata = row?.metadata || {};
+  const candidates = [
+    metadata.ipoDate,
+    metadata.listingDate,
+    metadata.firstTradeDate,
+    metadata.firstTradeDateEpochUtc,
+    metadata.firstTradeDateMilliseconds,
+  ];
+  for (const candidate of candidates) {
+    const ageDays = daysSinceTimestamp(candidate);
+    if (Number.isFinite(ageDays)) return ageDays;
+  }
+  return null;
+}
+
+function hasReliableEtfMetadata(row) {
+  const metadata = row?.metadata || {};
+  const values = [
+    metadata.quoteType,
+    metadata.instrumentType,
+    metadata.securityType,
+    metadata.type,
+    metadata.fundType,
+    metadata.assetClass,
+  ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean);
+  return values.some((value) => (
+    value === "etf"
+    || value === "exchange traded fund"
+    || value === "exchange-traded fund"
+    || value === "exchange_traded_fund"
+  ));
+}
+
 function pushProfileTag(tagSet, reasons, tag, reason) {
   if (!tagSet.has(tag)) tagSet.add(tag);
   if (reason) reasons.push(reason);
@@ -5741,8 +5887,8 @@ function pushProfileTag(tagSet, reasons, tag, reason) {
 
 function selectPrimaryCategory(tags) {
   const set = new Set(tags);
-  if (set.has("REIT")) return "REIT";
   if (set.has("ETF")) return "ETF";
+  if (set.has("REIT")) return "REIT";
   if (set.has("Dividend")) return "Dividend";
   if (set.has("IPO")) return "IPO";
   if (set.has("NewlyListed")) return "NewlyListed";
@@ -5863,12 +6009,13 @@ function buildProfileTagAudit(row, rawTags, context) {
     nearHigh,
     likelyIPO,
     reitLike,
+    listingAgeDays,
   } = context;
   const dividendYield = normalizeDividendYield(rawDividendYield);
   const country = String(row.metadata?.country || "").toLowerCase();
   const exchangeName = String(row.exchangeName || row.metadata?.exchange || "").toLowerCase();
   const quoteType = String(row.metadata?.quoteType || "").toLowerCase();
-  const etfIdentity = /\betf\b|exchange traded fund|fund\b/i.test(`${quoteType} ${sectorIndustryBlob} ${description} ${nameBlob}`);
+  const etfIdentity = hasReliableEtfMetadata(row);
   const isUsListed = !isCnAShare(row) && /nasdaq|nyse|amex|nms|ngm|ncm|nyq|ase|nas/i.test(exchangeName);
   const directChinaCountry = /china|hong kong|prc/i.test(country);
   const caymanWithChinaBusiness = /cayman islands/i.test(country)
@@ -5912,7 +6059,7 @@ function buildProfileTagAudit(row, rawTags, context) {
     addExposure("USListed", 86, "US exchange listing", "market");
   }
   if (etfIdentity) {
-    addEvidence("ETF", 94, "quote type / description indicates exchange-traded fund", "market");
+    addEvidence("ETF", 94, "reliable instrument metadata indicates exchange-traded fund", "market");
   }
   if (chinaIdentity && adrIdentity && !isCnAShare(row)) {
     addEvidence("ChinaADR", 88, "company identity indicates China-based ADR / ADS listing", "market");
@@ -5988,8 +6135,8 @@ function buildProfileTagAudit(row, rawTags, context) {
   if ((revenueGrowth ?? 0) >= 0.25 && (freeCashFlow ?? 0) > 0) addEvidence("HighGrowth", 80, "revenue growth >= 25% with positive cash flow", "financial");
   else if ((revenueGrowth ?? 0) >= 0.1) addEvidence("Growth", 76, "revenue growth >= 10%", "financial");
   if ((revenueGrowth ?? 0) >= 0.1 && (freeCashFlow ?? 0) > 0) addEvidence("ProfitableGrowth", 78, "growth supported by positive free cash flow", "financial");
-  if (likelyIPO) addEvidence("NewlyListed", 82, "listing / trading history is short", "history");
-  if (likelyIPO) addEvidence("IPO", 72, "recent IPO / limited public history", "history");
+  if (likelyIPO) addEvidence("NewlyListed", 82, `verified listing age ${Math.round(listingAgeDays)} days`, "metadata");
+  if (likelyIPO) addEvidence("IPO", 72, `verified listing age ${Math.round(listingAgeDays)} days`, "metadata");
   if ((freeCashFlow ?? 0) < 0) addEvidence("CashBurn", 78, "free cash flow is negative", "financial");
   if ((volatility30 ?? 0) >= 55) addEvidence("HighVolatility", 78, "30D annualized volatility is elevated", "technical");
   if ((debtRatio ?? 0) > 0.7) addEvidence("HighDebtRisk", 82, "debt ratio is elevated", "financial");
@@ -6129,7 +6276,8 @@ function buildCompanyProfile(row, research) {
   const evSales = row.metadata?.enterpriseToRevenue ?? null;
   const dividendYield = normalizeDividendYield(row.metadata?.dividendYield);
   const payoutRatio = row.metadata?.payoutRatio ?? null;
-  const ipoAgeYears = yearsSinceIsoDate(row.metadata?.ipoDate);
+  const listingAgeDays = listingAgeDaysFromMetadata(row);
+  const ipoAgeYears = Number.isFinite(listingAgeDays) ? listingAgeDays / 365.25 : null;
   const return30 = computeReturnPct(closes, 30);
   const return90 = computeReturnPct(closes, 90);
   const volatility30 = computeAnnualizedVolatility(closes, 30);
@@ -6154,7 +6302,7 @@ function buildCompanyProfile(row, research) {
     /\bhospital\b|\btelehealth\b|\bpharma(?:ceutical)?\b|\bbiotech\b|\bmedical device\b|\bclinical\b|\bdrug\b/gi,
   );
   const quoteType = String(row.metadata?.quoteType || "").toLowerCase();
-  const etfLike = /\betf\b|exchange traded fund|fund\b/i.test(`${quoteType} ${sectorBlob} ${businessSummary} ${row.shortName || ""} ${row.longName || ""}`);
+  const etfLike = hasReliableEtfMetadata(row);
   const evKeywordCount = countRegexMatches(
     textBlob,
     /\belectric vehicle(?:s)?\b|\bev manufacturer\b|\bev maker\b|\bbattery electric vehicle\b|\bvehicle deliveries\b|\bautomaker\b|\bauto manufacturing\b|\bvehicle manufacturing\b/gi,
@@ -6215,12 +6363,10 @@ function buildCompanyProfile(row, research) {
     pushProfileTag(tagSet, reasons, "CashBurn", currentLanguage === "zh" ? "自由现金流和盈利都偏弱" : "Free cash flow and earnings both look weak");
   }
 
-  const likelyIPO = ipoAgeYears != null
-    ? ipoAgeYears < 1
-    : (!isCnAShare(row) && closes.length > 0 && closes.length < 252);
+  const likelyIPO = Number.isFinite(listingAgeDays) && listingAgeDays < 730;
   if (likelyIPO) {
-    pushProfileTag(tagSet, reasons, "IPO", currentLanguage === "zh" ? "上市时间不足 1 年或交易历史不足 1 年" : "Listing or trading history is shorter than roughly one year");
-    pushProfileTag(tagSet, reasons, "NewlyListed", currentLanguage === "zh" ? "财务历史仍然较短" : "Financial history is still relatively short");
+    pushProfileTag(tagSet, reasons, "IPO", currentLanguage === "zh" ? "可验证上市时间不足 2 年" : "Verified listing age is under two years");
+    pushProfileTag(tagSet, reasons, "NewlyListed", currentLanguage === "zh" ? "可验证上市历史仍然较短" : "Verified public listing history is still relatively short");
   }
 
   const speculativeBase = (
@@ -6301,6 +6447,7 @@ function buildCompanyProfile(row, research) {
     relativeVolume,
     nearHigh,
     likelyIPO,
+    listingAgeDays,
     reitLike,
   });
   if (isCnAShare(row) && !tagAudit.top_tags.includes("AShare")) {
@@ -6352,6 +6499,13 @@ function buildCompanyProfile(row, research) {
     classification_confidence: classificationConfidence,
     classification_reasons: [...new Set(classificationReasons.length ? classificationReasons : reasons)].slice(0, 5),
     missing_classification_data: missing,
+    listing_age_days: Number.isFinite(listingAgeDays) ? Math.round(listingAgeDays) : null,
+    ipo_evidence: {
+      likely_ipo: likelyIPO,
+      listing_age_days: Number.isFinite(listingAgeDays) ? Math.round(listingAgeDays) : null,
+      source: Number.isFinite(listingAgeDays) ? "listing_metadata" : "unavailable",
+      rule: "IPO/NewlyListed only when verified listing_age_days < 730",
+    },
     penalty_profile_weights: penaltyWeights,
     scoring_impact: scoringImpact,
     classification: classificationProfile,
@@ -15327,6 +15481,8 @@ function applySnapshot(snapshot, shouldPersist = true) {
     row.noData = metrics.noData || false;
     row.research = buildLongTermResearch(row);
     row.decisionModel = buildDecisionModel(row);
+    row.decisionModel.decision_build_path = "applied_snapshot";
+    row.decision_build_path = "applied_snapshot";
     applyDecisionSummaryToRow(row);
 
     if (snapshot?.source === "yahoo-chart" && row.noData && !DEFAULT_WATCHLIST.includes(row.ticker)) {
@@ -15345,6 +15501,43 @@ function applySnapshot(snapshot, shouldPersist = true) {
   render();
 
   setRefreshChip(refreshChipText(snapshot));
+}
+
+function buildDecisionFromSnapshot(snapshot, options = {}) {
+  const snapshotTickers = Array.isArray(options.tickers) && options.tickers.length
+    ? options.tickers
+    : Object.keys(snapshot?.quotes || {});
+  const normalizedTickers = normalizeWatchlist(snapshotTickers);
+  if (normalizedTickers.length) {
+    watchlistTickers = normalizedTickers;
+    watchlistItems = normalizeWatchlistItems(normalizedTickers);
+    syncTickerRows();
+  }
+  applySnapshot(snapshot, options.shouldPersist === true);
+  const selectedSet = new Set(normalizedTickers);
+  const rows = tickerRows.filter((row) => !selectedSet.size || selectedSet.has(row.ticker));
+  const warnings = [];
+  rows.forEach((row) => {
+    const historyCount = (row.technicals?.history?.closes || []).filter(Number.isFinite).length;
+    if (!row.decisionModel) {
+      row.decisionModel = buildDecisionModel(row);
+      applyDecisionSummaryToRow(row);
+    }
+    row.decisionModel.decision_build_path = "applied_snapshot";
+    row.decision_build_path = "applied_snapshot";
+    if (!Number.isFinite(row.price) || historyCount < 2) {
+      warnings.push(`${row.ticker}: enrichment incomplete`);
+    }
+  });
+  if (options.requireEnrichment && warnings.length) {
+    throw new Error(`Decision snapshot enrichment incomplete: ${warnings.join("; ")}`);
+  }
+  return {
+    decision_build_path: "applied_snapshot",
+    warnings,
+    rows,
+    decisions: rows.map((row) => row.decisionModel),
+  };
 }
 
 async function refreshSnapshot({ force = false, autoRefresh = false, mode = null } = {}) {
