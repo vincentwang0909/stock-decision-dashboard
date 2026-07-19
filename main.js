@@ -9343,6 +9343,18 @@ function choosePlanStrike(candidates, target, side, currentPrice) {
   };
 }
 
+function closestPlanRangeKey(strike, ranges = []) {
+  if (!Number.isFinite(strike)) return null;
+  let best = null;
+  ranges.forEach(({ key, range }) => {
+    if (!rangeIsAvailable(range)) return;
+    const midpoint = Number.isFinite(range.midpoint) ? range.midpoint : (range.low + range.high) / 2;
+    const distance = strike >= range.low && strike <= range.high ? 0 : Math.abs(strike - midpoint);
+    if (!best || distance < best.distance) best = { key, distance };
+  });
+  return best?.key || null;
+}
+
 function buildOptionsStrategies(row, optionsRead, idealBuyZone, supportResistance, decisionHints = {}) {
   const shortTermRating = decisionHints.shortTermRating || "Hold";
   const longTermRating = decisionHints.longTermRating || "Hold";
@@ -9697,8 +9709,17 @@ function buildUnifiedOptionsStrategyPlan({
     : (currentLanguage === "zh" ? "期权链暂不可用，策略使用技术位 fallback，置信度降低。" : "Option chain unavailable; strategy uses technical-level fallback with lower confidence.");
 
   const overallAction = actionPlan?.overall_action?.final_action || "hold_watch";
-  const shortAction = actionPlan?.short_term?.final_action || "hold_watch";
-  const longAction = actionPlan?.long_term?.final_action || "hold_watch";
+  const entryShortAction = actionPlan?.entry_action?.short_term?.final_action || actionPlan?.short_term?.final_action || "hold_watch";
+  const entryMidAction = actionPlan?.entry_action?.mid_term?.final_action || actionPlan?.mid_term?.final_action || "hold_watch";
+  const entryLongAction = actionPlan?.entry_action?.long_term?.final_action || actionPlan?.long_term?.final_action || "hold_watch";
+  const positionShortAction = actionPlan?.position_management_action?.short_term?.final_action || actionPlan?.short_term?.final_action || "hold_watch";
+  const positionMidAction = actionPlan?.position_management_action?.mid_term?.final_action || actionPlan?.mid_term?.final_action || "hold_watch";
+  const positionLongAction = actionPlan?.position_management_action?.long_term?.final_action || actionPlan?.long_term?.final_action || "hold_watch";
+  const entryActions = [entryShortAction, entryMidAction, entryLongAction];
+  const positionActions = [positionShortAction, positionMidAction, positionLongAction];
+  const entryIsConstructive = entryActions.some((action) => ["strong_buy", "accumulate"].includes(action));
+  const positionIsExit = positionActions.some((action) => ["trim_reduce", "take_profit"].includes(action));
+  const strongestPositionExit = positionActions.includes("take_profit") ? "take_profit" : positionActions.includes("trim_reduce") ? "trim_reduce" : "hold_watch";
   const volumeRisk = ["distribution_risk", "panic_selling", "weak_breakout"].includes(volume.behavior_key)
     || (volume.obv_trend_20d === "falling" && (volume.close_location_pct ?? 50) < 45);
   const strongBreakout = ["strong_accumulation", "breakout_confirmation"].includes(volume.behavior_key)
@@ -9721,21 +9742,23 @@ function buildUnifiedOptionsStrategyPlan({
   const resistanceLevels = supportResistance?.resistances || [];
   const midRange = buyPlan?.mid_term_buy_range || {};
   const longRange = buyPlan?.long_term_buy_range || {};
+  const midPutRange = midRange.base_pullback_range || midRange;
+  const longPutRange = longRange.base_pullback_range || longRange;
   const shortSell = sellPlan?.short_term_sell_range || {};
   const midSell = sellPlan?.mid_term_sell_range || {};
   const longSell = sellPlan?.long_term_sell_range || {};
 
   const putTargetByMarket = (() => {
     if (!Number.isFinite(price) || !Number.isFinite(atr)) return null;
-    if (marketRegime === "panic") return Math.min(longRange.low ?? price - atr * 2.2, supportLevels[4]?.price ?? price - atr * 2.3, price - atr * 2.3);
-    if (marketRegime === "risk_off") return Math.min(longRange.high ?? price - atr * 1.7, supportLevels[3]?.price ?? price - atr * 1.8, price - atr * 1.7);
-    if (marketRegime === "risk_on") return Math.min(midRange.low ?? price - atr, supportLevels[1]?.price ?? price - atr, price - atr);
-    return Math.min(midRange.low ?? price - atr * 1.25, supportLevels[2]?.price ?? price - atr * 1.25, price - atr * 1.25);
+    if (marketRegime === "panic") return Math.min(longPutRange.low ?? price - atr * 2.2, supportLevels[4]?.price ?? price - atr * 2.3, price - atr * 2.3);
+    if (marketRegime === "risk_off") return Math.min(longPutRange.high ?? price - atr * 1.7, supportLevels[3]?.price ?? price - atr * 1.8, price - atr * 1.7);
+    if (marketRegime === "risk_on") return Math.min(midPutRange.low ?? price - atr, supportLevels[1]?.price ?? price - atr, price - atr);
+    return Math.min(midPutRange.low ?? price - atr * 1.25, supportLevels[2]?.price ?? price - atr * 1.25, price - atr * 1.25);
   })();
   const putCandidates = [
     { price: putTargetByMarket, sources: [currentLanguage === "zh" ? "市场环境调整目标" : "Market-adjusted target"] },
-    { price: midRange.low, sources: [currentLanguage === "zh" ? "中期分批加仓区间下沿" : "Mid-term accumulation low"] },
-    { price: longRange.high, sources: [currentLanguage === "zh" ? "长期核心布局区间上沿" : "Long-term core range high"] },
+    { price: midPutRange.low, sources: [currentLanguage === "zh" ? "中期基础回调区间下沿" : "Mid-term base pullback low"] },
+    { price: longPutRange.high, sources: [currentLanguage === "zh" ? "长期基础核心区间上沿" : "Long-term base core range high"] },
     { price: supportLevels[1]?.price, sources: ["S2", ...(supportLevels[1]?.sources || [])] },
     { price: supportLevels[2]?.price, sources: ["S3", ...(supportLevels[2]?.sources || [])] },
     { price: supportLevels[3]?.price, sources: ["S4", ...(supportLevels[3]?.sources || [])] },
@@ -9753,12 +9776,12 @@ function buildUnifiedOptionsStrategyPlan({
     volumeRisk ? (currentLanguage === "zh" ? "OBV 或量价结构偏弱，存在接飞刀风险。" : "OBV / price-volume structure is weak.") : null,
     companyRisk ? (currentLanguage === "zh" ? "个股基本面或资产负债表风险偏高。" : "Company-specific fundamental or balance-sheet risk is elevated.") : null,
     dividendUnsafe ? (currentLanguage === "zh" ? "高股息伴随分红安全或债务风险，不能因股息率直接卖 Put。" : "High yield comes with dividend safety or debt risk.") : null,
-    ["trim_reduce", "take_profit", "avoid"].includes(overallAction) ? (currentLanguage === "zh" ? "当前主操作不是建仓，Sell Put 不宜激进。" : "Current action is not accumulation; sell puts should not be aggressive.") : null,
-  ].filter(Boolean);
-  let sellPutRecommendation = "Neutral";
-  if (putAvoidConditions.length >= 2 || overallAction === "avoid" || marketRegime === "panic") sellPutRecommendation = "Avoid";
-  else if (["strong_buy", "accumulate"].includes(overallAction) && !companyRisk && !volumeRisk) sellPutRecommendation = highIv || marketRecovering ? "Recommended" : "Conservative";
-  else if (["trim_reduce", "take_profit"].includes(overallAction)) sellPutRecommendation = "Avoid";
+	    (!entryIsConstructive || ["trim_reduce", "take_profit", "avoid"].includes(overallAction)) ? (currentLanguage === "zh" ? "买入 / 加仓视角未支持积极建仓，Sell Put 不宜激进。" : "Entry view does not support aggressive accumulation; sell puts should not be aggressive.") : null,
+	  ].filter(Boolean);
+	  let sellPutRecommendation = "Neutral";
+	  if (putAvoidConditions.length >= 2 || overallAction === "avoid" || marketRegime === "panic") sellPutRecommendation = "Avoid";
+	  else if (entryIsConstructive && !companyRisk && !volumeRisk) sellPutRecommendation = highIv || marketRecovering ? "Recommended" : "Conservative";
+	  else if (positionIsExit) sellPutRecommendation = "Avoid";
   else if (lowIv) sellPutRecommendation = "Neutral";
   const putRisk = sellPutRecommendation === "Avoid" || marketRegime === "panic" || speculative || companyRisk
     ? "high"
@@ -9769,7 +9792,7 @@ function buildUnifiedOptionsStrategyPlan({
     (optionsAvailable ? 72 : 54)
     + (putChoice ? 8 : -8)
     + (highIv ? 5 : lowIv ? -7 : 0)
-    + (["strong_buy", "accumulate"].includes(overallAction) ? 5 : 0)
+	    + (entryIsConstructive ? 5 : 0)
     - (putAvoidConditions.length * 6)
     - (speculative ? 5 : 0)
     - (chinaAdr ? 4 : 0)
@@ -9810,7 +9833,7 @@ function buildUnifiedOptionsStrategyPlan({
       marketRegime,
       highIv ? "IV Rank high" : lowIv ? "IV Rank low" : null,
       profileFundamental.score != null ? `Fundamental ${Math.round(profileFundamental.score)}/100` : null,
-      overallAction,
+	      `entry:${entryActions.join("/")}`,
       optionFallbackNote,
     ]),
     avoid_conditions: putAvoidConditions,
@@ -9824,7 +9847,7 @@ function buildUnifiedOptionsStrategyPlan({
     plans: [30, 45].map((dte, index) => {
       const dteTarget = index === 0
         ? putPreferred
-        : Math.min(putPreferred ?? price, longRange.high ?? supportLevels[3]?.price ?? (Number.isFinite(price) && Number.isFinite(atr) ? price - atr * 1.5 : putPreferred));
+        : Math.min(putPreferred ?? price, longPutRange.high ?? supportLevels[3]?.price ?? (Number.isFinite(price) && Number.isFinite(atr) ? price - atr * 1.5 : putPreferred));
       const strike = Number.isFinite(dteTarget) ? snapToOptionStrike(dteTarget, price) : null;
       return {
         dte,
@@ -9841,12 +9864,15 @@ function buildUnifiedOptionsStrategyPlan({
     }),
   };
 
-  const callTargetByAction = (() => {
-    if (!Number.isFinite(price) || !Number.isFinite(atr)) return null;
-    if (["trim_reduce", "take_profit"].includes(overallAction)) return Math.min(midSell.low ?? price + atr * 1.1, resistanceLevels[1]?.price ?? price + atr * 1.2);
-    if (highGrowthAi && (strongBreakout || longAction === "strong_buy")) return Math.max(longSell.high ?? price + atr * 2.3, price + atr * 2.0);
-    return Math.min(shortSell.low ?? price + atr * 1.2, midSell.low ?? price + atr * 1.5, price + atr * 1.35);
-  })();
+	  const callTargetByAction = (() => {
+	    if (!Number.isFinite(price) || !Number.isFinite(atr)) return null;
+	    if (positionIsExit) {
+	      const linkedRange = strongestPositionExit === "take_profit" ? longSell : positionMidAction === "trim_reduce" ? midSell : shortSell;
+	      return Math.min(linkedRange.low ?? price + atr * 1.1, resistanceLevels[1]?.price ?? price + atr * 1.2);
+	    }
+	    if (highGrowthAi && (strongBreakout || entryLongAction === "strong_buy")) return Math.max(longSell.high ?? price + atr * 2.3, price + atr * 2.0);
+	    return Math.min(shortSell.low ?? price + atr * 1.2, midSell.low ?? price + atr * 1.5, price + atr * 1.35);
+	  })();
   const callCandidates = [
     { price: callTargetByAction, sources: [currentLanguage === "zh" ? "操作方向调整目标" : "Action-adjusted target"] },
     { price: shortSell.low, sources: [currentLanguage === "zh" ? "短期止盈区间下沿" : "Short-term sell range low"] },
@@ -9860,19 +9886,26 @@ function buildUnifiedOptionsStrategyPlan({
     { price: Number.isFinite(price) && Number.isFinite(atr) ? price + atr * 1.0 : null, sources: ["ATR 1.0"] },
     { price: Number.isFinite(price) && Number.isFinite(atr) ? price + atr * 1.5 : null, sources: ["ATR 1.5"] },
   ];
-  const callChoice = choosePlanStrike(callCandidates, callTargetByAction, "call", price);
-  const callPreferred = callChoice?.strike ?? null;
-  const callStrikeRange = optionStrikeRangeAround(callPreferred, atr, "call", price);
+	  const callChoice = choosePlanStrike(callCandidates, callTargetByAction, "call", price);
+	  const callPreferred = callChoice?.strike ?? null;
+	  const callStrikeRange = optionStrikeRangeAround(callPreferred, atr, "call", price);
+	  const preferredCoveredCallLinkedSellRange = positionLongAction === "take_profit" || positionLongAction === "trim_reduce"
+	    ? "long_term_sell_range"
+	    : positionMidAction === "take_profit" || positionMidAction === "trim_reduce"
+	      ? "mid_term_sell_range"
+	      : positionShortAction === "take_profit" || positionShortAction === "trim_reduce"
+	        ? "short_term_sell_range"
+	        : null;
   const callAvoidConditions = [
-    overallAction === "strong_buy" ? (currentLanguage === "zh" ? "当前主操作为强烈买入，不应卖近价 Covered Call 压制上行。" : "Overall action is strong buy; avoid near-the-money covered calls.") : null,
+	    entryActions.includes("strong_buy") ? (currentLanguage === "zh" ? "买入 / 加仓视角为强烈买入，不应卖近价 Covered Call 压制上行。" : "Entry view is strong buy; avoid near-the-money covered calls.") : null,
     highGrowthAi && strongBreakout ? (currentLanguage === "zh" ? "AI / 高成长放量突破，Covered Call 需上移或回避。" : "AI / high-growth volume breakout: move covered call farther out or avoid.") : null,
     ["inside_buy_range", "below_buy_range"].includes(actionPlan?.short_term?.price_position?.status) ? (currentLanguage === "zh" ? "价格仍在买入区附近，不适合过早卖出上涨空间。" : "Price is near the buy range; avoid capping upside too early.") : null,
     reitDividend ? (currentLanguage === "zh" ? "分红股需注意除息日前被行权风险。" : "Dividend stocks require ex-dividend assignment-risk awareness.") : null,
   ].filter(Boolean);
   let coveredCallRecommendation = "Neutral";
-  if (overallAction === "strong_buy" || (highGrowthAi && strongBreakout)) coveredCallRecommendation = "Avoid";
-  else if (["trim_reduce", "take_profit"].includes(overallAction) || marketRegime === "overheated" || qqqOverextended) coveredCallRecommendation = "Recommended";
-  else if (longAction === "strong_buy" || (rangeIsAvailable(longSell) && Number.isFinite(price) && price < longSell.low * 0.92)) coveredCallRecommendation = "Conservative";
+	  if (entryActions.includes("strong_buy") || (highGrowthAi && strongBreakout)) coveredCallRecommendation = "Avoid";
+	  else if (positionIsExit || marketRegime === "overheated" || qqqOverextended) coveredCallRecommendation = "Recommended";
+	  else if (entryLongAction === "strong_buy" || (rangeIsAvailable(longSell) && Number.isFinite(price) && price < longSell.low * 0.92)) coveredCallRecommendation = "Conservative";
   const callRisk = coveredCallRecommendation === "Avoid"
     ? "high"
     : highGrowthAi || strongBreakout || reitDividend
@@ -9881,10 +9914,10 @@ function buildUnifiedOptionsStrategyPlan({
   const callConfidence = clamp(Math.round(
     (optionsAvailable ? 72 : 54)
     + (callChoice ? 8 : -8)
-    + (["trim_reduce", "take_profit"].includes(overallAction) ? 8 : 0)
+	    + (positionIsExit ? 8 : 0)
     + (marketRegime === "overheated" ? 5 : 0)
     - (callAvoidConditions.length * 5)
-    - (longAction === "strong_buy" ? 6 : 0)
+	    - (entryLongAction === "strong_buy" ? 6 : 0)
   ), 20, 92);
   const coveredCallPlan = {
     status: optionsDataStatus,
@@ -9894,7 +9927,11 @@ function buildUnifiedOptionsStrategyPlan({
     expiration_days: [30, 45],
     strike_range: callStrikeRange,
     preferred_strike: callPreferred,
-    linked_sell_range: ["trim_reduce", "take_profit"].includes(overallAction) ? "mid_term_sell_range" : "long_term_sell_range",
+	    linked_sell_range: preferredCoveredCallLinkedSellRange || closestPlanRangeKey(callPreferred, [
+	      { key: "short_term_sell_range", range: shortSell },
+	      { key: "mid_term_sell_range", range: midSell },
+	      { key: "long_term_sell_range", range: longSell },
+	    ]) || (positionLongAction === "take_profit" ? "long_term_sell_range" : positionMidAction === "trim_reduce" ? "mid_term_sell_range" : positionShortAction === "trim_reduce" ? "short_term_sell_range" : "long_term_sell_range"),
     expected_move_context: optionsState.expected_move || {},
     iv_context: optionsState.iv_regime || {},
     skew_context: {
@@ -9911,7 +9948,7 @@ function buildUnifiedOptionsStrategyPlan({
     upside_sacrifice: coveredCallRecommendation === "Recommended"
       ? (currentLanguage === "zh" ? "用部分上行空间换取权利金或利润保护。" : "Trades some upside for premium / profit protection.")
       : (currentLanguage === "zh" ? "当前不宜牺牲太多上行空间。" : "Do not sacrifice too much upside here."),
-    breakout_risk: highGrowthAi || strongBreakout || longAction === "strong_buy"
+	    breakout_risk: highGrowthAi || strongBreakout || entryLongAction === "strong_buy"
       ? (currentLanguage === "zh" ? "突破风险较高，近价 Covered Call 容易限制上涨。" : "Breakout risk is elevated; near-strike covered calls can cap upside.")
       : (currentLanguage === "zh" ? "突破风险中性。" : "Breakout risk is neutral."),
     risk_level: callRisk,
@@ -9922,7 +9959,7 @@ function buildUnifiedOptionsStrategyPlan({
       marketRegime,
       qqqOverextended ? "QQQ overextended" : null,
       highGrowthAi ? "AI / High Growth" : null,
-      overallAction,
+	      `position:${positionActions.join("/")}`,
       optionFallbackNote,
     ]),
     avoid_conditions: callAvoidConditions,
@@ -12775,8 +12812,10 @@ function buildHorizonRecommendation({
         : finalAction === "take_profit"
           ? takeProfitRawCorePassed && topEvidencePresent
           : true,
-      downgrade_reason: downgradeReason,
-      risk_filters: actionEvidence.risk_filters,
+	      downgrade_reason: downgradeReason,
+	      reward_risk_analysis: buyRange?.reward_risk_analysis || null,
+	      exit_tradeoff_analysis: sellRange?.exit_tradeoff_analysis || null,
+	      risk_filters: actionEvidence.risk_filters,
       position_modifiers: actionEvidence.position_modifiers,
     },
     right_side_confirmation: mergedRightSide,
@@ -12870,9 +12909,1483 @@ function buildOverallAction(shortTerm, midTerm, longTerm) {
   };
 }
 
+function actionScoreForView(recommendation, action) {
+  if (!recommendation) return null;
+  if (["strong_buy", "accumulate"].includes(action)) {
+    return recommendation.action_evidence?.combined_buy_evidence_score
+      ?? recommendation.action_evidence?.combined_buy_after_cap
+      ?? recommendation.action_recommendation_score
+      ?? null;
+  }
+  if (["trim_reduce", "take_profit"].includes(action)) {
+    return recommendation.action_evidence?.combined_sell_evidence_score
+      ?? recommendation.action_evidence?.combined_sell_after_cap
+      ?? recommendation.action_recommendation_score
+      ?? null;
+  }
+  if (action === "avoid") {
+    return recommendation.action_evidence?.avoid_evidence_score
+      ?? recommendation.action_recommendation_score
+      ?? null;
+  }
+  return recommendation.action_evidence?.hold_evidence_score
+    ?? recommendation.action_recommendation_score
+    ?? null;
+}
+
+function buildActionView(recommendation, action, fields = {}) {
+  const normalized = normalizeSixAction(action);
+  const score = clamp(Math.round(actionScoreForView(recommendation, normalized) ?? recommendation?.action_recommendation_score ?? 50), 0, 100);
+  return {
+    ...(recommendation || {}),
+    action: normalized,
+    action_label: actionLabel(normalized),
+    final_action: normalized,
+    final_action_label: actionLabel(normalized),
+    rating: actionLabel(normalized),
+    score,
+    action_recommendation_score: score,
+    reason: fields.reason || recommendation?.reason || "",
+    ...fields,
+  };
+}
+
+function buildEntryAction(recommendation, tradeContext = {}) {
+  const companyRisk = Boolean(tradeContext?.company_risk?.company_specific_risk)
+    || (recommendation?.opportunity_scores?.company_specific_risk ?? 0) >= 70;
+  if (companyRisk || recommendation?.final_action === "avoid") {
+    return buildActionView(recommendation, "avoid", {
+      linked_buy_segment: null,
+      allocation_hint: "0%",
+      reason: currentLanguage === "zh"
+        ? "无仓位 / 加仓视角：公司或基本面风险优先，暂不新建仓。"
+        : "Entry view: company / fundamental risk takes priority, so do not initiate.",
+      based_on: "company_risk_override",
+    });
+  }
+  const buyAction = ["strong_buy", "accumulate"].includes(recommendation?.final_action)
+    && recommendation?.buy_range?.current_price_in_range
+    && recommendation?.buy_range?.active_segment;
+  if (buyAction) {
+    return buildActionView(recommendation, recommendation.final_action, {
+      linked_buy_segment: recommendation.buy_range.active_segment,
+      allocation_hint: recommendation.buy_range.active_segment.allocation_hint || recommendation.buy_range.allocation_hint || null,
+      reason: currentLanguage === "zh"
+        ? `无仓位 / 加仓视角：当前价格位于 ${recommendation.buy_range.active_segment.mode} 可执行买入段内。`
+        : `Entry view: current price is inside the executable ${recommendation.buy_range.active_segment.mode} buy segment.`,
+      based_on: "active_buy_segment",
+    });
+  }
+  return buildActionView(recommendation, "hold_watch", {
+    linked_buy_segment: null,
+    allocation_hint: "0%",
+    reason: currentLanguage === "zh"
+      ? "无仓位 / 加仓视角：当前价格不在有效买入段内，暂不主动建仓。"
+      : "Entry view: current price is not inside an active buy segment, so do not initiate.",
+    based_on: "no_active_buy_segment",
+  });
+}
+
+function buildPositionManagementAction(recommendation, tradeContext = {}) {
+  const companyRisk = Boolean(tradeContext?.company_risk?.company_specific_risk)
+    || (recommendation?.opportunity_scores?.company_specific_risk ?? 0) >= 70;
+  const sellEvidence = recommendation?.action_evidence?.combined_sell_evidence_score
+    ?? recommendation?.action_evidence?.combined_sell_after_cap
+    ?? 0;
+  const trimThreshold = recommendation?.action_thresholds?.trim_execution_threshold ?? 55;
+  const takeProfitThreshold = recommendation?.action_thresholds?.take_profit_execution_threshold ?? 75;
+  const activeSell = recommendation?.sell_range?.current_price_in_range && recommendation?.sell_range?.active_segment;
+  const sellAction = (["trim_reduce", "take_profit"].includes(recommendation?.final_action) && (activeSell || companyRisk))
+    || (companyRisk && activeSell && sellEvidence >= trimThreshold);
+  if (sellAction) {
+    const action = ["trim_reduce", "take_profit"].includes(recommendation?.final_action)
+      ? recommendation.final_action
+      : sellEvidence >= takeProfitThreshold
+        ? "take_profit"
+        : "trim_reduce";
+    return buildActionView(recommendation, action, {
+      linked_sell_segment: recommendation.sell_range?.active_segment || null,
+      suggested_reduction_pct: recommendation.sell_range?.suggested_reduction_pct || recommendation.sell_range?.active_segment?.allocation_hint || null,
+      reason: companyRisk && !recommendation.sell_range?.active_segment
+        ? (currentLanguage === "zh"
+          ? "持仓 / 减仓视角：公司风险触发非价格退出 override。"
+          : "Position view: company risk triggers a non-price exit override.")
+        : (currentLanguage === "zh"
+          ? `持仓 / 减仓视角：当前价格位于 ${recommendation.sell_range.active_segment.mode} 可执行卖出段内。`
+          : `Position view: current price is inside the executable ${recommendation.sell_range.active_segment.mode} sell segment.`),
+      based_on: companyRisk && !recommendation.sell_range?.active_segment ? "company_risk_override" : "active_sell_segment",
+    });
+  }
+  if (companyRisk || recommendation?.final_action === "avoid") {
+    return buildActionView(recommendation, "avoid", {
+      linked_sell_segment: recommendation?.sell_range?.active_segment || null,
+      suggested_reduction_pct: recommendation?.sell_range?.suggested_reduction_pct || "risk-control",
+      reason: currentLanguage === "zh"
+        ? "持仓 / 减仓视角：公司或基本面风险偏高，优先控制风险。"
+        : "Position view: company / fundamental risk is elevated, so prioritize risk control.",
+      based_on: "company_risk_override",
+    });
+  }
+  return buildActionView(recommendation, "hold_watch", {
+    linked_sell_segment: null,
+    suggested_reduction_pct: "0%",
+    reason: currentLanguage === "zh"
+      ? "持仓 / 减仓视角：当前价格不在该周期有效卖出段内，继续观察。"
+      : "Position view: current price is not inside this horizon's active sell segment, so hold/watch.",
+    based_on: "no_active_sell_segment",
+  });
+}
+
+function buildPrimaryAction(entryAction, positionAction, recommendation, tradeContext = {}) {
+  const buyEvidence = recommendation?.action_evidence?.combined_buy_evidence_score ?? 0;
+  const sellEvidence = recommendation?.action_evidence?.combined_sell_evidence_score ?? 0;
+  const evidenceGap = Number((buyEvidence - sellEvidence).toFixed(1));
+  const severeRisk = entryAction?.final_action === "avoid" && positionAction?.final_action === "avoid";
+  const strongExit = positionAction?.final_action === "take_profit"
+    && (positionAction.action_recommendation_score ?? 0) >= (recommendation?.action_thresholds?.take_profit_execution_threshold ?? 75);
+  let selected = "hold_watch";
+  let resolution = "balanced_or_insufficient_evidence";
+  if (severeRisk || Boolean(tradeContext?.company_risk?.company_specific_risk)) {
+    selected = "avoid";
+    resolution = "company_risk_override";
+  } else if (strongExit) {
+    selected = "take_profit";
+    resolution = "strong_position_exit";
+  } else if (entryAction?.final_action === "strong_buy" && entryAction?.linked_buy_segment) {
+    selected = "strong_buy";
+    resolution = "entry_strong_buy";
+  } else if (positionAction?.final_action === "trim_reduce" && sellEvidence >= buyEvidence + 6) {
+    selected = "trim_reduce";
+    resolution = "sell_evidence_dominates";
+  } else if (entryAction?.final_action === "accumulate" && buyEvidence >= sellEvidence + 6) {
+    selected = "accumulate";
+    resolution = "buy_evidence_dominates";
+  }
+  const source = selected === "strong_buy" || selected === "accumulate"
+    ? entryAction
+    : selected === "trim_reduce" || selected === "take_profit"
+      ? positionAction
+      : recommendation;
+  const conflictExists = ["strong_buy", "accumulate"].includes(entryAction?.final_action)
+    && ["trim_reduce", "take_profit"].includes(positionAction?.final_action);
+  const primary = buildActionView(recommendation, selected, {
+    score: selected === "hold_watch"
+      ? clamp(Math.round(recommendation?.action_evidence?.hold_evidence_score ?? 60), 0, 100)
+      : source?.action_recommendation_score,
+    linked_buy_segment: entryAction?.linked_buy_segment || null,
+    linked_sell_segment: positionAction?.linked_sell_segment || null,
+    reason: currentLanguage === "zh"
+      ? `主操作汇总：${actionLabel(selected)}。${resolution === "balanced_or_insufficient_evidence" ? "买入和卖出证据未形成明显优势。" : "由买入 / 卖出计划汇总得出。"}`
+      : `Primary action: ${actionLabel(selected)}. ${resolution === "balanced_or_insufficient_evidence" ? "Neither buy nor sell evidence dominates." : "Summarized from the entry and position-management plans."}`,
+    based_on: resolution,
+    action_conflict: {
+      exists: conflictExists,
+      buy_evidence: buyEvidence,
+      sell_evidence: sellEvidence,
+      evidence_gap: evidenceGap,
+      resolution,
+      explanation: conflictExists
+        ? (currentLanguage === "zh"
+          ? "买入 / 加仓视角和持仓 / 减仓视角同时有信号，主操作按证据差距和风险优先级解决。"
+          : "Entry and position-management views both have signals; primary action resolves them by evidence gap and risk priority.")
+        : (currentLanguage === "zh"
+          ? "买入 / 卖出视角没有直接冲突。"
+          : "No direct conflict between entry and position-management views."),
+    },
+  });
+  primary.action_recommendation_score = primary.score;
+  return primary;
+}
+
+function horizonRangeKeys(horizonKey) {
+  if (horizonKey === "short_term") {
+    return {
+      buy: "short_term_buy_range",
+      sell: "short_term_sell_range",
+      stop: "short_term_stop",
+      label: "short",
+      buyMode: "short_term",
+    };
+  }
+  if (horizonKey === "long_term") {
+    return {
+      buy: "long_term_buy_range",
+      sell: "long_term_sell_range",
+      stop: "long_term_stop",
+      label: "long",
+      buyMode: "long_term",
+    };
+  }
+  return {
+    buy: "mid_term_buy_range",
+    sell: "mid_term_sell_range",
+    stop: "mid_term_stop",
+    label: "mid",
+    buyMode: "mid_term",
+  };
+}
+
+function cloneRangeSummary(range) {
+  if (!range) return null;
+  return {
+    label: range.label,
+    english_label: range.english_label,
+    low: Number.isFinite(range.low) ? range.low : null,
+    high: Number.isFinite(range.high) ? range.high : null,
+    midpoint: Number.isFinite(range.midpoint) ? range.midpoint : null,
+    confidence: range.confidence ?? null,
+    status: range.status || (Number.isFinite(range.low) && Number.isFinite(range.high) ? "available" : "unavailable"),
+    based_on: [...(range.based_on || range.sources || [])],
+    reachability: range.reachability || null,
+    expected_move_validation: range.expected_move_validation || null,
+    structural_anchor_weight: range.structural_anchor_weight ?? null,
+    dynamic_anchor_weight: range.dynamic_anchor_weight ?? null,
+  };
+}
+
+function rangeContainsPrice(range, price, tolerance = 0) {
+  return Boolean(
+    range
+    && Number.isFinite(price)
+    && Number.isFinite(range.low)
+    && Number.isFinite(range.high)
+    && price >= range.low - tolerance
+    && price <= range.high + tolerance
+  );
+}
+
+function distancePctFromPrice(price, level) {
+  return Number.isFinite(price) && Number.isFinite(level) && price > 0
+    ? Number((((level - price) / price) * 100).toFixed(2))
+    : null;
+}
+
+function distanceAtrFromPrice(price, level, atr) {
+  return Number.isFinite(price) && Number.isFinite(level) && Number.isFinite(atr) && atr > 0
+    ? Number(((level - price) / atr).toFixed(2))
+    : null;
+}
+
+function activeEntryDistanceLimitAtr(companyProfile = {}, mode = "left_side") {
+  const tags = decisionTagSet(companyProfile, companyProfile?.decision_profile || {});
+  if (hasAnyTag(tags, ["Speculative", "Meme", "NewlyListed", "IPO", "CashBurn"])) return mode === "left_side" ? 0.35 : 0.45;
+  if (hasAnyTag(tags, ["HighVolatility"])) return mode === "left_side" ? 0.45 : 0.55;
+  if (hasAnyTag(tags, ["AIInfrastructure", "HighGrowth", "GPU", "DataCenter"])) return mode === "left_side" ? 0.55 : 0.65;
+  if (hasAnyTag(tags, ["MegaCap", "CashCow"])) return mode === "left_side" ? 1.1 : 0.9;
+  if (hasAnyTag(tags, ["LargeCap", "ProfitableGrowth"])) return mode === "left_side" ? 0.8 : 0.75;
+  if (hasAnyTag(tags, ["REIT", "HighDebtRisk"])) return mode === "left_side" ? 0.55 : 0.5;
+  return mode === "left_side" ? 0.7 : 0.65;
+}
+
+function activeEntryToleranceAtr(companyProfile = {}) {
+  const tags = decisionTagSet(companyProfile, companyProfile?.decision_profile || {});
+  return hasAnyTag(tags, ["HighVolatility", "Speculative", "Meme", "NewlyListed"]) ? 0.1 : 0.15;
+}
+
+function minimumEntryRewardRisk(companyProfile = {}, entryMode = "pullback") {
+  const tags = decisionTagSet(companyProfile, companyProfile?.decision_profile || {});
+  const baseByMode = {
+    left_side: 0.95,
+    pullback: 1.15,
+    right_side: 1.30,
+    trend: 1.35,
+  };
+  let minimum = baseByMode[entryMode] ?? 1.15;
+  if (hasAnyTag(tags, ["MegaCap", "CashCow"]) && entryMode === "left_side") minimum -= 0.10;
+  if (hasAnyTag(tags, ["Healthcare", "Defensive"]) && entryMode === "left_side") minimum -= 0.05;
+  if (hasAnyTag(tags, ["AIInfrastructure", "HighGrowth", "HighMultiple"]) && ["right_side", "trend"].includes(entryMode)) minimum += 0.10;
+  if (hasAnyTag(tags, ["HighVolatility", "Speculative", "Meme", "NewlyListed", "IPO"])) minimum += 0.15;
+  if (hasAnyTag(tags, ["ChinaADR", "RegulatoryRisk"])) minimum += 0.07;
+  if (hasAnyTag(tags, ["REIT", "HighDebtRisk"])) minimum += 0.10;
+  if (hasAnyTag(tags, ["MemoryStorage", "DRAMNAND", "NAND", "Cyclical"])) {
+    const cycleRegime = companyProfile?.trade_context?.cycle_state?.regime;
+    if (cycleRegime === "deteriorating") minimum += 0.10;
+  }
+  const floor = entryMode === "left_side" && hasAnyTag(tags, ["MegaCap", "CashCow"]) ? 0.75 : 0.80;
+  return Number(clamp(minimum, floor, 1.65).toFixed(2));
+}
+
+function activeEntryStopBufferAtr(entryMode = "pullback") {
+  if (entryMode === "left_side") return 0.45;
+  if (entryMode === "right_side") return 0.55;
+  if (entryMode === "trend") return 0.65;
+  return 0.85;
+}
+
+function targetWeightNormalize(targets) {
+  const weighted = targets.filter((item) => item && Number.isFinite(item.price) && Number.isFinite(item.weight));
+  const totalWeight = weighted.reduce((sum, item) => sum + item.weight, 0);
+  if (!weighted.length || totalWeight <= 0) return null;
+  return Number((weighted.reduce((sum, item) => sum + item.price * item.weight, 0) / totalWeight).toFixed(2));
+}
+
+function sortedUniquePriceAnchors(anchors = []) {
+  const seen = new Set();
+  return anchors
+    .filter((item) => Number.isFinite(item?.price))
+    .map((item) => ({ ...item, price: Number(item.price.toFixed(2)) }))
+    .filter((item) => {
+      const key = `${item.price}:${item.source || ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => a.price - b.price);
+}
+
+function buildModeSpecificEntryStops({
+  row,
+  activeSegment,
+  stop,
+  supportResistance,
+}) {
+  const price = finiteNumberOrNull(row.price);
+  const atr = finiteNumberOrNull(row.technicals?.atr14) ?? (Number.isFinite(price) ? price * 0.035 : null);
+  const entryMode = activeSegment?.mode || "pullback";
+  const bufferAtr = activeEntryStopBufferAtr(entryMode);
+  const supports = supportResistance?.supports || [];
+  const ma20 = finiteNumberOrNull(row.technicals?.ma20);
+  const ma50 = finiteNumberOrNull(row.technicals?.ma50);
+  const activeLow = finiteNumberOrNull(activeSegment?.low);
+  const structuralStopPrice = finiteNumberOrNull(stop?.structural_stop?.price) ?? finiteNumberOrNull(stop?.price);
+  const stopCandidates = [
+    {
+      price: Number.isFinite(activeLow) && Number.isFinite(atr) ? activeLow - atr * bufferAtr : null,
+      source: `${entryMode} range low - ${bufferAtr} ATR`,
+    },
+    ...supports.slice(0, 3).map((level) => ({
+      price: Number.isFinite(level?.price) && Number.isFinite(atr) ? level.price - atr * 0.45 : null,
+      source: `${level.id || level.level || "support"} tactical failure`,
+    })),
+    {
+      price: Number.isFinite(ma20) && Number.isFinite(atr) ? ma20 - atr * 0.45 : null,
+      source: "MA20 tactical failure",
+    },
+    {
+      price: Number.isFinite(ma50) && Number.isFinite(atr) ? ma50 - atr * 0.55 : null,
+      source: "MA50 tactical failure",
+    },
+  ];
+  const validTactical = stopCandidates
+    .filter((candidate) => Number.isFinite(candidate.price) && Number.isFinite(price) && candidate.price < price)
+    .sort((a, b) => b.price - a.price);
+  const tactical = validTactical[0] || null;
+  return {
+    tactical_stop: tactical ? {
+      price: Number(Math.max(0.01, tactical.price).toFixed(2)),
+      source: tactical.source,
+      buffer_atr: bufferAtr,
+    } : null,
+    structural_stop: Number.isFinite(structuralStopPrice) ? {
+      price: Number(structuralStopPrice.toFixed(2)),
+      source: stop?.invalidation_reason || stop?.based_on?.join(" / ") || "existing structural stop",
+    } : null,
+    stop_candidates: validTactical.slice(0, 5).map((candidate) => ({
+      price: Number(candidate.price.toFixed(2)),
+      source: candidate.source,
+    })),
+  };
+}
+
+function buildModeSpecificEntryTargets({
+  row,
+  horizonKey,
+  entryMode,
+  sellRange,
+  sellPlan,
+  supportResistance,
+  tradeContext,
+}) {
+  const price = finiteNumberOrNull(row.price);
+  const atr = finiteNumberOrNull(row.technicals?.atr14) ?? (Number.isFinite(price) ? price * 0.035 : null);
+  const resistances = supportResistance?.resistances || [];
+  const expectedMove = tradeContext?.options_state?.expected_move || {};
+  const nextSellKey = horizonKey === "short_term" ? "mid_term_sell_range" : horizonKey === "mid_term" ? "long_term_sell_range" : null;
+  const nextSell = nextSellKey ? sellPlan?.[nextSellKey] : null;
+  const resistanceStart = horizonKey === "short_term" ? 0 : horizonKey === "mid_term" ? 1 : 2;
+  const minTargetGap = ["right_side", "trend"].includes(entryMode) && Number.isFinite(atr) ? atr * 0.35 : 0;
+  const anchors = sortedUniquePriceAnchors([
+    { price: sellRange?.low, source: `${horizonKey} sell range low`, tier: "first" },
+    { price: sellRange?.midpoint, source: `${horizonKey} sell range midpoint`, tier: "second" },
+    { price: sellRange?.high, source: `${horizonKey} sell range high`, tier: "stretch" },
+    { price: nextSell?.low, source: `${nextSellKey} low`, tier: "stretch" },
+    { price: expectedMove.upper_7d, source: "7D expected move upper", tier: "second" },
+    { price: expectedMove.upper_30d, source: "30D expected move upper", tier: "second" },
+    ...resistances.slice(resistanceStart, resistanceStart + 4).map((level, index) => ({
+      price: level?.price,
+      source: level?.id || level?.level || `R${resistanceStart + index + 1}`,
+      tier: index <= 1 ? "second" : "stretch",
+    })),
+  ]);
+  const validAbove = anchors.filter((item) => Number.isFinite(price) && item.price > price + minTargetGap);
+  const firstTarget = validAbove[0] || null;
+  const secondTarget = validAbove.find((item) => item.price > (firstTarget?.price ?? price) + (Number.isFinite(atr) ? atr * 0.20 : 0)) || validAbove[1] || firstTarget;
+  const stretchTarget = [...validAbove].reverse().find((item) => item.price >= (secondTarget?.price ?? price)) || secondTarget;
+  const weightedTarget = targetWeightNormalize([
+    firstTarget ? { price: firstTarget.price, weight: 0.35 } : null,
+    secondTarget ? { price: secondTarget.price, weight: 0.45 } : null,
+    stretchTarget ? { price: stretchTarget.price, weight: 0.20 } : null,
+  ]);
+  return {
+    first_target: firstTarget ? { price: firstTarget.price, source: firstTarget.source } : null,
+    second_target: secondTarget ? { price: secondTarget.price, source: secondTarget.source } : null,
+    stretch_target: stretchTarget ? { price: stretchTarget.price, source: stretchTarget.source } : null,
+    weighted_target: Number.isFinite(weightedTarget) ? {
+      price: weightedTarget,
+      source: "weighted first / second / stretch target",
+    } : null,
+    target_anchors: validAbove,
+    skipped_near_targets: anchors.filter((item) => Number.isFinite(price) && item.price > price && item.price <= price + minTargetGap),
+  };
+}
+
+function positionSizeAdjustmentForRewardRisk(entryMode, rrWeighted, minimumRR) {
+  if (!Number.isFinite(rrWeighted)) {
+    return {
+      adjustment: "avoid_new_entry",
+      suggested_allocation: "0%",
+      factor: 0,
+      reason: currentLanguage === "zh" ? "RR 数据不足，不应主动建仓。" : "Reward/risk data is unavailable, so do not initiate.",
+    };
+  }
+  if (entryMode === "left_side") {
+    if (rrWeighted < minimumRR) {
+      return {
+        adjustment: "hold_watch",
+        suggested_allocation: "0%",
+        factor: 0,
+        reason: currentLanguage === "zh" ? "左侧 RR 未达最低要求，等待更好结构。" : "Left-side RR is below the minimum requirement.",
+      };
+    }
+    if (rrWeighted < 1.0) {
+      return {
+        adjustment: "small_starter",
+        suggested_allocation: "10-15%",
+        factor: 0.45,
+        reason: currentLanguage === "zh" ? "左侧 RR 只适合小仓试探。" : "Left-side RR only supports a small starter tranche.",
+      };
+    }
+    if (rrWeighted < 1.3) {
+      return {
+        adjustment: "reduced",
+        suggested_allocation: "15-25%",
+        factor: 0.7,
+        reason: currentLanguage === "zh" ? "左侧 RR 合格但不够宽，仓位降低。" : "Left-side RR is acceptable but not wide, so size is reduced.",
+      };
+    }
+    return {
+      adjustment: "normal",
+      suggested_allocation: "20-35%",
+      factor: 1,
+      reason: currentLanguage === "zh" ? "左侧 RR 充足，可使用正常左侧分批仓位。" : "Left-side RR is sufficient for a normal staged allocation.",
+    };
+  }
+  if (rrWeighted < minimumRR) {
+    return {
+      adjustment: "hold_watch",
+      suggested_allocation: "0%",
+      factor: 0,
+      reason: currentLanguage === "zh" ? "右侧 / 趋势 RR 未达最低要求，不追。" : "Right-side / trend RR is below minimum; do not chase.",
+    };
+  }
+  return {
+    adjustment: rrWeighted < minimumRR + 0.25 ? "reduced" : "normal",
+    suggested_allocation: rrWeighted < minimumRR + 0.25 ? "10-20%" : "20-35%",
+    factor: rrWeighted < minimumRR + 0.25 ? 0.65 : 1,
+    reason: rrWeighted < minimumRR + 0.25
+      ? (currentLanguage === "zh" ? "RR 刚达标，仓位降低。" : "RR barely clears the gate, so size is reduced.")
+      : (currentLanguage === "zh" ? "RR 达标，可按计划执行。" : "RR clears the gate."),
+  };
+}
+
+function buildRewardRiskAnalysis({
+  row,
+  horizonKey,
+  buyRange,
+  sellRange,
+  sellPlan,
+  stop,
+  supportResistance,
+  companyProfile,
+  tradeContext,
+}) {
+  const price = finiteNumberOrNull(row.price);
+  const activeSegment = buyRange?.active_segment || null;
+  const entryMode = activeSegment?.mode || (rangeContainsPrice(buyRange?.base_pullback_range || buyRange, price) ? "pullback" : null);
+  if (!entryMode || !Number.isFinite(price)) return null;
+  const stopAnalysis = buildModeSpecificEntryStops({ row, activeSegment: activeSegment || buyRange, stop, supportResistance });
+  const targetAnalysis = buildModeSpecificEntryTargets({
+    row,
+    horizonKey,
+    entryMode,
+    sellRange,
+    sellPlan,
+    supportResistance,
+    tradeContext,
+  });
+  const tacticalStop = stopAnalysis.tactical_stop?.price ?? finiteNumberOrNull(stop?.price);
+  const structuralStop = stopAnalysis.structural_stop?.price ?? finiteNumberOrNull(stop?.price);
+  const firstTarget = targetAnalysis.first_target?.price ?? null;
+  const secondTarget = targetAnalysis.second_target?.price ?? null;
+  const weightedTarget = targetAnalysis.weighted_target?.price ?? null;
+  const riskTactical = Number.isFinite(tacticalStop) ? price - tacticalStop : null;
+  const riskStructural = Number.isFinite(structuralStop) ? price - structuralStop : null;
+  const rewardFirst = Number.isFinite(firstTarget) ? firstTarget - price : null;
+  const rewardSecond = Number.isFinite(secondTarget) ? secondTarget - price : null;
+  const rewardWeighted = Number.isFinite(weightedTarget) ? weightedTarget - price : null;
+  const rrFirst = Number.isFinite(rewardFirst) && Number.isFinite(riskTactical) && riskTactical > 0 ? rewardFirst / riskTactical : null;
+  const rrSecond = Number.isFinite(rewardSecond) && Number.isFinite(riskTactical) && riskTactical > 0 ? rewardSecond / riskTactical : null;
+  const rrWeighted = Number.isFinite(rewardWeighted) && Number.isFinite(riskTactical) && riskTactical > 0 ? rewardWeighted / riskTactical : null;
+  const minimumRR = minimumEntryRewardRisk(companyProfile, entryMode);
+  const positionAdjustment = positionSizeAdjustmentForRewardRisk(entryMode, rrWeighted, minimumRR);
+  const gatePassed = Number.isFinite(rrWeighted)
+    && rrWeighted >= minimumRR
+    && Number.isFinite(rrFirst)
+    && rrFirst > 0
+    && positionAdjustment.factor > 0;
+  return {
+    entry_mode: entryMode,
+    entry_reference_price: price,
+    tactical_stop: stopAnalysis.tactical_stop,
+    structural_stop: stopAnalysis.structural_stop,
+    stop_candidates: stopAnalysis.stop_candidates,
+    first_target: targetAnalysis.first_target,
+    second_target: targetAnalysis.second_target,
+    stretch_target: targetAnalysis.stretch_target,
+    weighted_target: targetAnalysis.weighted_target,
+    target_anchors: targetAnalysis.target_anchors,
+    skipped_near_targets: targetAnalysis.skipped_near_targets,
+    risk_to_tactical_stop: Number.isFinite(riskTactical) ? Number(riskTactical.toFixed(2)) : null,
+    risk_to_structural_stop: Number.isFinite(riskStructural) ? Number(riskStructural.toFixed(2)) : null,
+    reward_to_first_target: Number.isFinite(rewardFirst) ? Number(rewardFirst.toFixed(2)) : null,
+    reward_to_second_target: Number.isFinite(rewardSecond) ? Number(rewardSecond.toFixed(2)) : null,
+    reward_to_weighted_target: Number.isFinite(rewardWeighted) ? Number(rewardWeighted.toFixed(2)) : null,
+    rr_first: Number.isFinite(rrFirst) ? Number(rrFirst.toFixed(2)) : null,
+    rr_second: Number.isFinite(rrSecond) ? Number(rrSecond.toFixed(2)) : null,
+    rr_weighted: Number.isFinite(rrWeighted) ? Number(rrWeighted.toFixed(2)) : null,
+    minimum_required_rr: minimumRR,
+    position_size_adjustment: positionAdjustment,
+    gate_passed: gatePassed,
+    explanation: gatePassed
+      ? (currentLanguage === "zh" ? "RR 使用战术止损和多目标加权收益，已通过当前 entry mode 要求。" : "RR uses tactical stop and weighted targets and passes this entry mode's gate.")
+      : (currentLanguage === "zh" ? "RR 未通过当前 entry mode 要求，或第一目标没有正收益。" : "RR does not pass this entry mode's gate, or first target has no positive reward."),
+  };
+}
+
+function suggestedReductionPctForExit(evidenceScore, pressureCount, opportunityCostScore) {
+  if (opportunityCostScore >= 70 && pressureCount < 2) return "0-10%";
+  if (evidenceScore >= 78 || pressureCount >= 4) return "35-50%";
+  if (evidenceScore >= 68 || pressureCount >= 3) return "20-35%";
+  return "10-20%";
+}
+
+function buildExitTradeoffAnalysis({
+  row,
+  horizonKey,
+  sellRange,
+  buyRange,
+  supportResistance,
+  tradeContext,
+  technical,
+  preliminaryRecommendation,
+}) {
+  const price = finiteNumberOrNull(row.price);
+  const activeSell = sellRange?.active_segment || null;
+  if (!activeSell || !Number.isFinite(price)) return null;
+  const volume = technical?.volume_confirmation || {};
+  const nearestSupport = nearestAnchorBelowPrice(supportResistance?.supports || [], price);
+  const expectedMove = tradeContext?.options_state?.expected_move || {};
+  const horizonAnchors = selectHorizonExitAnchors({
+    horizonKey,
+    resistanceLevels: supportResistance?.resistances || [],
+    baseSellRange: sellRange?.base_sell_range || sellRange,
+    expectedMove,
+    row,
+    technical,
+    tradeContext,
+  });
+  const nextResistance = horizonAnchors.find((level) => Number.isFinite(level?.price) && level.price > activeSell.high)
+    || nearestAnchorAbovePrice((supportResistance?.resistances || []).filter((level) => Number.isFinite(level?.price) && level.price > activeSell.high), price);
+  const remainingTarget = [
+    activeSell.next_target?.price,
+    activeSell.high,
+    sellRange?.base_sell_range?.high,
+    nextResistance?.price,
+  ].filter(Number.isFinite).sort((a, b) => b - a)[0] ?? activeSell.high;
+  const downsideReference = nearestSupport?.price ?? buyRange?.high ?? buyRange?.base_pullback_range?.high;
+  const remainingUpside = Number.isFinite(remainingTarget) ? Math.max(0, remainingTarget - price) : null;
+  const downsideRisk = Number.isFinite(downsideReference) ? Math.max(0, price - downsideReference) : null;
+  const remainingUpsidePct = Number.isFinite(remainingUpside) && price > 0
+    ? (remainingUpside / price) * 100
+    : null;
+  const downsideRiskPct = Number.isFinite(downsideRisk) && price > 0
+    ? (downsideRisk / price) * 100
+    : null;
+  const relativeStrengthImproving = Boolean(tradeContext?.relative_strength_state?.improving);
+  const relativeStrengthDeteriorating = Boolean(tradeContext?.relative_strength_state?.deteriorating);
+  const guidanceRaised = tradeContext?.guidance_state?.direction === "raised";
+  const guidanceLowered = tradeContext?.guidance_state?.direction === "lowered";
+  const strongBreakout = ["strong_accumulation", "breakout_confirmation"].includes(volume.behavior_key)
+    || ((volume.relative_volume_20d ?? 1) >= 1.25 && (volume.close_location_pct ?? 0) >= 68 && volume.obv_trend_20d !== "falling");
+  const distribution = ["distribution_risk", "panic_selling"].includes(volume.behavior_key)
+    || volume.obv_trend_20d === "falling";
+  const valuationRisk = ["expensive", "extreme"].includes(tradeContext?.valuation_state?.regime);
+  const cycleRisk = tradeContext?.cycle_state?.regime === "deteriorating";
+  const pressureFlags = [
+    distribution,
+    relativeStrengthDeteriorating,
+    valuationRisk,
+    guidanceLowered,
+    cycleRisk,
+  ].filter(Boolean).length;
+  const breakoutProbabilityProxy = clamp(Math.round(
+    45
+    + (strongBreakout ? 20 : 0)
+    + (relativeStrengthImproving ? 14 : 0)
+    + (guidanceRaised ? 10 : 0)
+    - (distribution ? 18 : 0)
+    - (relativeStrengthDeteriorating ? 12 : 0)
+    - (guidanceLowered ? 12 : 0)
+    - (cycleRisk ? 8 : 0)
+  ), 0, 100);
+  const upsideVsRisk = Number.isFinite(remainingUpside) && Number.isFinite(downsideRisk) && downsideRisk > 0
+    ? remainingUpside / downsideRisk
+    : null;
+  const opportunityCostScore = clamp(Math.round(
+    breakoutProbabilityProxy
+    + (Number.isFinite(upsideVsRisk) && upsideVsRisk > 1.2 ? 12 : 0)
+    - pressureFlags * 10
+  ), 0, 100);
+  const sellEvidence = preliminaryRecommendation?.action_evidence?.combined_sell_after_cap
+    ?? preliminaryRecommendation?.action_evidence?.combined_sell_evidence_score
+    ?? activeSell.evidence_score
+    ?? 0;
+  const exitGatePassed = pressureFlags >= 2
+    || sellEvidence >= 72
+    || opportunityCostScore < 68;
+  const suggestedReductionPct = suggestedReductionPctForExit(sellEvidence, pressureFlags, opportunityCostScore);
+  return {
+    current_price: price,
+    active_sell_range: {
+      low: activeSell.low,
+      high: activeSell.high,
+      mode: activeSell.mode,
+      horizon: horizonKey,
+    },
+    remaining_target: Number.isFinite(remainingTarget) ? Number(remainingTarget.toFixed(2)) : null,
+    downside_reference: Number.isFinite(downsideReference) ? Number(downsideReference.toFixed(2)) : null,
+    downside_risk_if_hold: Number.isFinite(downsideRisk) ? Number(downsideRisk.toFixed(2)) : null,
+    remaining_upside_if_hold: Number.isFinite(remainingUpside) ? Number(remainingUpside.toFixed(2)) : null,
+    downside_risk_pct: Number.isFinite(downsideRiskPct) ? Number(downsideRiskPct.toFixed(2)) : null,
+    remaining_upside_pct: Number.isFinite(remainingUpsidePct) ? Number(remainingUpsidePct.toFixed(2)) : null,
+    upside_downside_ratio: Number.isFinite(upsideVsRisk) ? Number(upsideVsRisk.toFixed(2)) : null,
+    breakout_probability_proxy: breakoutProbabilityProxy,
+    relative_strength_context: tradeContext?.relative_strength_state?.regime || (relativeStrengthImproving ? "improving" : relativeStrengthDeteriorating ? "deteriorating" : "neutral"),
+    guidance_context: tradeContext?.guidance_state?.direction || "unavailable",
+    trend_context: strongBreakout ? "breakout_confirmation" : volume.behavior_key || "neutral",
+    opportunity_cost_score: opportunityCostScore,
+    hold_upside_opportunity_score: opportunityCostScore,
+    sell_pressure_count: pressureFlags,
+    exit_gate_passed: exitGatePassed,
+    suggested_reduction_pct: suggestedReductionPct,
+    explanation: exitGatePassed
+      ? (currentLanguage === "zh" ? "卖出证据足以覆盖继续持有的机会成本。" : "Exit evidence is strong enough to offset the opportunity cost of holding.")
+      : (currentLanguage === "zh" ? "趋势 / 相对强度或上方空间显示过早减仓的机会成本偏高。" : "Trend / relative strength or remaining upside makes trimming too costly here."),
+  };
+}
+
+function nearestAnchorBelowPrice(levels = [], price) {
+  if (!Number.isFinite(price)) return null;
+  return (levels || [])
+    .filter((level) => Number.isFinite(level?.price) && level.price <= price * 1.01)
+    .sort((a, b) => Math.abs(price - a.price) - Math.abs(price - b.price))[0] || null;
+}
+
+function nearestAnchorAbovePrice(levels = [], price) {
+  if (!Number.isFinite(price)) return null;
+  return (levels || [])
+    .filter((level) => Number.isFinite(level?.price) && level.price >= price * 0.99)
+    .sort((a, b) => Math.abs(price - a.price) - Math.abs(price - b.price))[0] || null;
+}
+
+function selectHorizonExitAnchors({
+  horizonKey,
+  resistanceLevels = [],
+  baseSellRange = {},
+  expectedMove = {},
+  row = {},
+  technical = {},
+  tradeContext = {},
+}) {
+  const addAnchor = (items, price, source, type = "structural", horizon = horizonKey) => {
+    if (!Number.isFinite(price)) return;
+    items.push({
+      price: Number(price.toFixed(2)),
+      source,
+      type,
+      horizon,
+    });
+  };
+  const levels = (resistanceLevels || []).filter((level) => Number.isFinite(level?.price));
+  const anchors = [];
+  if (horizonKey === "short_term") {
+    levels.slice(0, 2).forEach((level, index) => addAnchor(
+      anchors,
+      level.price,
+      level.id || level.level || `R${index + 1}`,
+      "resistance",
+      "short_term",
+    ));
+    addAnchor(anchors, baseSellRange?.low, "short_term_base_sell_low", "base_range", "short_term");
+    addAnchor(anchors, baseSellRange?.midpoint, "short_term_base_sell_midpoint", "base_range", "short_term");
+    addAnchor(anchors, row.technicals?.upperBand, "Bollinger Upper", "technical", "short_term");
+    addAnchor(anchors, expectedMove?.upper_7d, "7D Expected Move Upper", "expected_move", "short_term");
+    addAnchor(anchors, expectedMove?.upper_30d, "30D Expected Move Upper", "expected_move", "short_term");
+  } else if (horizonKey === "mid_term") {
+    levels.slice(1, 3).forEach((level, index) => addAnchor(
+      anchors,
+      level.price,
+      level.id || level.level || `R${index + 2}`,
+      "resistance",
+      "mid_term",
+    ));
+    addAnchor(anchors, baseSellRange?.midpoint, "mid_term_base_sell_midpoint", "base_range", "mid_term");
+    addAnchor(anchors, baseSellRange?.high, "mid_term_base_sell_high", "base_range", "mid_term");
+    addAnchor(anchors, expectedMove?.upper_30d, "30D Expected Move Upper", "expected_move", "mid_term");
+    if (tradeContext?.relative_strength_state?.deteriorating) {
+      addAnchor(anchors, baseSellRange?.low, "mid_term_relative_strength_deterioration_zone", "relative_strength", "mid_term");
+    }
+  } else {
+    levels.slice(2, 5).forEach((level, index) => addAnchor(
+      anchors,
+      level.price,
+      level.id || level.level || `R${index + 3}`,
+      "resistance",
+      "long_term",
+    ));
+    addAnchor(anchors, baseSellRange?.low, "long_term_base_sell_low", "base_range", "long_term");
+    addAnchor(anchors, baseSellRange?.midpoint, "long_term_base_sell_midpoint", "base_range", "long_term");
+    addAnchor(anchors, baseSellRange?.high, "long_term_base_sell_high", "base_range", "long_term");
+    if (tradeContext?.valuation_state?.regime === "extreme" || tradeContext?.cycle_state?.regime === "deteriorating") {
+      addAnchor(anchors, baseSellRange?.low, "long_term_valuation_or_cycle_exit_zone", "valuation_cycle", "long_term");
+    }
+  }
+  return sortedUniquePriceAnchors(anchors)
+    .filter((anchor) => Number.isFinite(anchor.price))
+    .sort((a, b) => a.price - b.price);
+}
+
+function activeSellModeForHorizon(horizonKey) {
+  if (horizonKey === "short_term") return "short_resistance_exit";
+  if (horizonKey === "long_term") return "long_term_valuation_exit";
+  return "mid_term_reduction";
+}
+
+function activeSellBandForHorizon(horizonKey, atr) {
+  const fallbackAtr = Number.isFinite(atr) ? atr : 0;
+  if (horizonKey === "short_term") return { lowBuffer: fallbackAtr * 0.45, highBuffer: fallbackAtr * 0.75 };
+  if (horizonKey === "mid_term") return { lowBuffer: fallbackAtr * 0.35, highBuffer: fallbackAtr * 0.95 };
+  return { lowBuffer: fallbackAtr * 0.25, highBuffer: fallbackAtr * 1.15 };
+}
+
+function makeActiveSegment({
+  mode,
+  low,
+  high,
+  price,
+  atr,
+  evidenceScore,
+  activationThreshold,
+  allocationHint,
+  anchorSources = [],
+  anchorPrices = [],
+  reason,
+}) {
+  if (![low, high, price].every(Number.isFinite) || low <= 0 || high <= 0) return null;
+  const normalizedLow = Number(Math.min(low, high).toFixed(2));
+  const normalizedHigh = Number(Math.max(low, high).toFixed(2));
+  const midpoint = Number(((normalizedLow + normalizedHigh) / 2).toFixed(2));
+  return {
+    mode,
+    low: normalizedLow,
+    high: normalizedHigh,
+    midpoint,
+    allocation_hint: allocationHint,
+    active: rangeContainsPrice({ low: normalizedLow, high: normalizedHigh }, price),
+    reason,
+    anchor_sources: [...new Set(anchorSources.filter(Boolean))],
+    anchor_prices: anchorPrices.filter(Number.isFinite).map((value) => Number(value.toFixed(2))),
+    distance_from_current_pct: distancePctFromPrice(price, midpoint),
+    distance_in_atr: distanceAtrFromPrice(price, midpoint, atr),
+    evidence_score: evidenceScore,
+    activation_threshold: activationThreshold,
+  };
+}
+
+function currentPriceSegment(range, price) {
+  if (!rangeContainsPrice(range, price)) return "outside";
+  const width = Math.max(0.01, range.high - range.low);
+  const ratio = (price - range.low) / width;
+  if (ratio <= 0.33) return "lower";
+  if (ratio >= 0.67) return "upper";
+  return "middle";
+}
+
+function applyExecutableRange(range, segment, price) {
+  if (!range || !segment) return;
+  range.low = segment.low;
+  range.high = segment.high;
+  range.midpoint = segment.midpoint;
+  range.final_executable_range = {
+    low: segment.low,
+    high: segment.high,
+    midpoint: segment.midpoint,
+    mode: segment.mode,
+  };
+  range.active_segment = segment;
+  range.active_entry_mode = segment.mode;
+  range.current_price_in_range = rangeContainsPrice(segment, price);
+  range.current_price_segment = currentPriceSegment(segment, price);
+  range.based_on = [...new Set([...(range.based_on || []), ...(segment.anchor_sources || [])])].slice(0, 10);
+  range.sources = [...new Set([...(range.sources || []), ...(segment.anchor_sources || [])])].slice(0, 10);
+}
+
+function deactivateExecutableBuyRange(range, reason) {
+  if (!range) return;
+  const candidate = range.active_segment || null;
+  if (candidate) {
+    candidate.active = false;
+    candidate.executable = false;
+    candidate.deactivation_reason = reason;
+  }
+  range.deactivated_active_segment = candidate;
+  range.active_segment = null;
+  range.active_entry_mode = null;
+  range.current_price_in_range = false;
+  range.current_price_segment = "outside";
+  if (range.base_pullback_range) {
+    range.low = range.base_pullback_range.low;
+    range.high = range.base_pullback_range.high;
+    range.midpoint = range.base_pullback_range.midpoint;
+    range.final_executable_range = cloneRangeSummary(range.base_pullback_range);
+  }
+  range.action_consistency = {
+    ...(range.action_consistency || {}),
+    current_price_in_active_segment: false,
+    deactivation_reason: reason,
+  };
+}
+
+function annotateBuyRangeSegments({
+  row,
+  horizonKey,
+  range,
+  sellRange,
+  supportResistance,
+  tradeContext,
+  technical,
+  companyProfile,
+  preliminaryRecommendation,
+}) {
+  if (!range) return;
+  const price = finiteNumberOrNull(row.price);
+  const atr = finiteNumberOrNull(row.technicals?.atr14) ?? (Number.isFinite(price) ? price * 0.035 : null);
+  range.base_pullback_range = range.base_pullback_range || cloneRangeSummary(range);
+  const base = range.base_pullback_range;
+  const evidence = preliminaryRecommendation?.action_evidence || {};
+  const rightSide = preliminaryRecommendation?.right_side_confirmation || preliminaryRecommendation?.right_side_confirmation_model || {};
+  const trendEntry = preliminaryRecommendation?.trend_entry || {};
+  const thresholds = preliminaryRecommendation?.action_thresholds || {};
+  const opportunity = preliminaryRecommendation?.opportunity_scores || {};
+  const support = nearestAnchorBelowPrice(supportResistance?.supports || [], price);
+  const resistance = nearestAnchorAbovePrice(supportResistance?.resistances || [], price);
+  const ma20 = finiteNumberOrNull(row.technicals?.ma20);
+  const ma50 = finiteNumberOrNull(row.technicals?.ma50);
+  const volume = technical?.volume_confirmation || {};
+  const fundamentalHealthy = !preliminaryRecommendation?.action_evidence?.risk_filters?.company_specific_risk
+    && (tradeContext?.fundamental_health?.regime === "healthy" || tradeContext?.fundamental_health?.score >= 58);
+  const companySpecificRisk = Boolean(tradeContext?.company_risk?.company_specific_risk);
+  const fallingKnifeRisk = opportunity.falling_knife_risk ?? evidence.risk_filters?.falling_knife_risk ?? 0;
+  const fallingKnifeLimit = thresholds.falling_knife_limit ?? 55;
+  const allocationHint = range.allocation_hint || allocationHintForRange(companyProfile, horizonRangeKeys(horizonKey).label);
+  const segments = [];
+  const tolerance = Number.isFinite(atr) ? atr * activeEntryToleranceAtr(companyProfile) : 0;
+  if (rangeContainsPrice(base, price, tolerance)) {
+    segments.push(makeActiveSegment({
+      mode: "pullback",
+      low: base.low,
+      high: base.high,
+      price,
+      atr,
+      evidenceScore: evidence.combined_buy_after_cap,
+      activationThreshold: thresholds.accumulate_execution_threshold,
+      allocationHint,
+      anchorSources: base.based_on || [],
+      anchorPrices: [base.low, base.high],
+      reason: currentLanguage === "zh" ? "当前价格位于基础回调低吸区。" : "Current price is inside the base pullback range.",
+    }));
+  }
+  const leftScore = evidence.raw_left_score ?? opportunity.left_side_opportunity_score ?? 0;
+  const leftThreshold = thresholds.accumulate_left_threshold ?? thresholds.accumulate_execution_threshold ?? 68;
+  const leftDistanceLimitAtr = activeEntryDistanceLimitAtr(companyProfile, "left_side");
+  const distanceAboveBaseAtr = Number.isFinite(price) && Number.isFinite(base?.high) && Number.isFinite(atr) && atr > 0
+    ? (price - base.high) / atr
+    : null;
+  const leftAnchorPrice = support?.price ?? ma20 ?? base?.high;
+  const leftAnchorSources = [
+    support?.id || support?.level || "S1",
+    Number.isFinite(ma20) ? "MA20" : null,
+    ...(base?.based_on || []).slice(0, 2),
+  ].filter(Boolean);
+  const leftAllowed = leftScore >= leftThreshold
+    && fundamentalHealthy
+    && !companySpecificRisk
+    && fallingKnifeRisk < fallingKnifeLimit
+    && Number.isFinite(leftAnchorPrice)
+    && Number.isFinite(distanceAboveBaseAtr)
+    && distanceAboveBaseAtr <= leftDistanceLimitAtr;
+  if (leftAllowed && Number.isFinite(atr)) {
+    const high = leftAnchorPrice + atr * leftDistanceLimitAtr;
+    const low = Math.max(0.01, Math.min(base?.high ?? leftAnchorPrice, leftAnchorPrice - atr * 0.25));
+    const segment = makeActiveSegment({
+      mode: "left_side",
+      low,
+      high,
+      price,
+      atr,
+      evidenceScore: leftScore,
+      activationThreshold: leftThreshold,
+      allocationHint,
+      anchorSources: leftAnchorSources,
+      anchorPrices: [leftAnchorPrice, base?.high],
+      reason: currentLanguage === "zh"
+        ? "左侧提前布局：价格虽高于基础低吸区，但仍在强支撑 / MA20 附近允许距离内。"
+        : "Left-side entry: price is above the base pullback range but still within the allowed distance from support / MA20.",
+    });
+    if (segment?.active) segments.push(segment);
+  }
+  const rightScore = evidence.raw_right_score ?? opportunity.right_side_confirmation_score ?? 0;
+  const rightThreshold = thresholds.accumulate_right_threshold ?? thresholds.accumulate_execution_threshold ?? 68;
+  const rightConfirmed = ["confirmed", "strong"].includes(rightSide.level)
+    || (rightSide.level === "early" && Math.max(leftScore, evidence.raw_trend_score ?? 0) >= rightThreshold - 2);
+  const rightAnchorPrice = [resistance?.price, ma20, ma50].filter(Number.isFinite).sort((a, b) => Math.abs(price - a) - Math.abs(price - b))[0];
+  const rightDistanceLimitAtr = activeEntryDistanceLimitAtr(companyProfile, "right_side");
+  const rightAllowed = rightConfirmed
+    && rightScore >= rightThreshold - 4
+    && !companySpecificRisk
+    && Number.isFinite(rightAnchorPrice)
+    && Number.isFinite(atr)
+    && price <= rightAnchorPrice + atr * rightDistanceLimitAtr;
+  if (rightAllowed) {
+    const segment = makeActiveSegment({
+      mode: "right_side",
+      low: Math.max(0.01, rightAnchorPrice - atr * 0.25),
+      high: rightAnchorPrice + atr * rightDistanceLimitAtr,
+      price,
+      atr,
+      evidenceScore: rightScore,
+      activationThreshold: rightThreshold,
+      allocationHint,
+      anchorSources: [
+        resistance?.id || resistance?.level || "R1 / retest",
+        Number.isFinite(ma20) ? "MA20 reclaim" : null,
+        Number.isFinite(ma50) ? "MA50 reclaim" : null,
+        volume.behavior_key ? `Volume: ${volume.behavior_key}` : null,
+      ].filter(Boolean),
+      anchorPrices: [rightAnchorPrice, resistance?.price, ma20, ma50],
+      reason: currentLanguage === "zh"
+        ? "右侧确认：价格围绕突破 / 均线收复锚点，且确认分数达标。"
+        : "Right-side entry: price is near a breakout / reclaim anchor and confirmation score qualifies.",
+    });
+    if (segment?.active) segments.push(segment);
+  }
+  const trendScore = evidence.raw_trend_score ?? opportunity.trend_continuation_score ?? trendEntry.score ?? 0;
+  const trendThreshold = thresholds.accumulate_trend_threshold ?? thresholds.accumulate_execution_threshold ?? 70;
+  const sellLow = finiteNumberOrNull(sellRange?.low);
+  const remainingUpsidePct = Number.isFinite(price) && Number.isFinite(sellLow)
+    ? ((sellLow - price) / Math.max(price, 1)) * 100
+    : null;
+  const decisionTags = decisionTagSet(companyProfile, companyProfile?.decision_profile || {});
+  const minUpside = hasAnyTag(decisionTags, ["HighVolatility", "HighMultiple", "AIInfrastructure", "HighGrowth"]) ? 4 : 3;
+  const trendAnchorPrice = [ma20, resistance?.price, ma50].filter(Number.isFinite).sort((a, b) => Math.abs(price - a) - Math.abs(price - b))[0];
+  const trendDistanceLimitAtr = activeEntryDistanceLimitAtr(companyProfile, "trend");
+  const trendAllowed = trendScore >= trendThreshold
+    && Number.isFinite(remainingUpsidePct)
+    && remainingUpsidePct >= minUpside
+    && tradeContext?.valuation_state?.regime !== "extreme"
+    && Number.isFinite(trendAnchorPrice)
+    && Number.isFinite(atr)
+    && price <= trendAnchorPrice + atr * trendDistanceLimitAtr;
+  if (trendAllowed) {
+    const segment = makeActiveSegment({
+      mode: "trend",
+      low: Math.max(0.01, trendAnchorPrice - atr * 0.2),
+      high: Math.min(sellLow - atr * 0.15, trendAnchorPrice + atr * trendDistanceLimitAtr),
+      price,
+      atr,
+      evidenceScore: trendScore,
+      activationThreshold: trendThreshold,
+      allocationHint,
+      anchorSources: [
+        Number.isFinite(ma20) ? "MA20 trend anchor" : null,
+        resistance?.id || resistance?.level || "R1 reclaim",
+        "relative strength / trend continuation",
+      ].filter(Boolean),
+      anchorPrices: [trendAnchorPrice, sellLow],
+      reason: currentLanguage === "zh"
+        ? "强势趋势买入：趋势延续分数达标，且距离卖出区仍保留上行空间。"
+        : "Trend entry: continuation score qualifies and there is still upside room before the sell range.",
+    });
+    if (segment?.active) segments.push(segment);
+  }
+  const activeSegments = segments.filter(Boolean);
+  const activeSegment = activeSegments.find((segment) => rangeContainsPrice(segment, price, tolerance)) || null;
+  range.active_entry_ranges = {
+    left_side_entry: activeSegments.find((segment) => segment.mode === "left_side") || null,
+    right_side_entry: activeSegments.find((segment) => segment.mode === "right_side") || null,
+    trend_entry: activeSegments.find((segment) => segment.mode === "trend") || null,
+  };
+  range.segments = [
+    ...(base?.status === "available" ? [{
+      mode: "pullback",
+      low: base.low,
+      high: base.high,
+      midpoint: base.midpoint,
+      allocation_hint: allocationHint,
+      active: rangeContainsPrice(base, price, tolerance),
+      reason: currentLanguage === "zh" ? "基础回调低吸区。" : "Base pullback zone.",
+      anchor_sources: base.based_on || [],
+      anchor_prices: [base.low, base.high].filter(Number.isFinite),
+      evidence_score: evidence.combined_buy_after_cap,
+      activation_threshold: thresholds.accumulate_execution_threshold,
+    }] : []),
+    ...activeSegments.filter((segment) => segment.mode !== "pullback"),
+  ];
+  range.secondary_ranges = range.segments.filter((segment) => segment !== activeSegment);
+  range.active_segment = activeSegment;
+  range.current_price_in_range = Boolean(activeSegment);
+  range.current_price_segment = activeSegment ? currentPriceSegment(activeSegment, price) : "outside";
+  range.reward_risk_ratio = rewardRiskRatioForRange(price, activeSegment || base, sellRange, null);
+  range.action_consistency = {
+    checked: true,
+    current_price_in_active_segment: Boolean(activeSegment),
+    tolerance_buffer_atr: activeEntryToleranceAtr(companyProfile),
+  };
+  if (activeSegment) {
+    applyExecutableRange(range, activeSegment, price);
+  } else {
+    range.final_executable_range = cloneRangeSummary(base);
+    range.active_entry_mode = null;
+  }
+}
+
+function annotateSellRangeSegments({
+  row,
+  horizonKey,
+  range,
+  buyRange,
+  supportResistance,
+  tradeContext,
+  technical,
+  companyProfile,
+  preliminaryRecommendation,
+}) {
+  if (!range) return;
+  const price = finiteNumberOrNull(row.price);
+  const atr = finiteNumberOrNull(row.technicals?.atr14) ?? (Number.isFinite(price) ? price * 0.035 : null);
+  range.base_sell_range = range.base_sell_range || cloneRangeSummary(range);
+  const base = range.base_sell_range;
+  const evidence = preliminaryRecommendation?.action_evidence || {};
+  const thresholds = preliminaryRecommendation?.action_thresholds || {};
+  const volume = technical?.volume_confirmation || {};
+  const segments = [];
+  const tolerance = Number.isFinite(atr) ? atr * activeEntryToleranceAtr(companyProfile) : 0;
+  if (rangeContainsPrice(base, price, tolerance)) {
+    segments.push(makeActiveSegment({
+      mode: activeSellModeForHorizon(horizonKey),
+      low: base.low,
+      high: base.high,
+      price,
+      atr,
+      evidenceScore: evidence.combined_sell_after_cap,
+      activationThreshold: thresholds.trim_execution_threshold,
+      allocationHint: range.suggested_reduction_pct || "20-35%",
+      anchorSources: base.based_on || [],
+      anchorPrices: [base.low, base.high],
+      reason: currentLanguage === "zh" ? "当前价格位于该周期基础卖出 / 减仓区。" : "Current price is inside this horizon's base sell / trim range.",
+    }));
+  }
+  const sellScore = evidence.raw_sell_score ?? 0;
+  const trimThreshold = thresholds.trim_execution_threshold ?? 55;
+  const expectedMove = tradeContext?.options_state?.expected_move || {};
+  const horizonAnchors = selectHorizonExitAnchors({
+    horizonKey,
+    resistanceLevels: supportResistance?.resistances || [],
+    baseSellRange: base,
+    expectedMove,
+    row,
+    technical,
+    tradeContext,
+  });
+  const horizonAnchor = horizonAnchors
+    .filter((anchor) => Number.isFinite(anchor.price) && anchor.price >= price - atr * 0.2)
+    .sort((a, b) => Math.abs(price - a.price) - Math.abs(price - b.price))[0] || null;
+  const nextHorizonAnchor = horizonAnchors.find((anchor) => Number.isFinite(anchor.price) && horizonAnchor && anchor.price > horizonAnchor.price + atr * 0.2) || null;
+  const topEvidence = Boolean(
+    volume.behavior_key === "distribution_risk"
+    || volume.obv_trend_20d === "falling"
+    || tradeContext?.relative_strength_state?.deteriorating
+    || tradeContext?.valuation_state?.regime === "expensive"
+    || tradeContext?.valuation_state?.regime === "extreme"
+    || tradeContext?.cycle_state?.regime === "deteriorating"
+  );
+  const exitAnchor = horizonAnchor?.price ?? null;
+  const horizonMode = activeSellModeForHorizon(horizonKey);
+  const activeBand = activeSellBandForHorizon(horizonKey, atr);
+  const nearExitAllowed = sellScore >= (thresholds.trim_reduce_threshold ?? 55)
+    && evidence.combined_sell_after_cap >= trimThreshold
+    && Number.isFinite(exitAnchor)
+    && Number.isFinite(atr)
+    && price >= exitAnchor - activeBand.lowBuffer
+    && topEvidence;
+  if (nearExitAllowed) {
+    const segment = makeActiveSegment({
+      mode: horizonMode,
+      low: Math.max(0.01, exitAnchor - activeBand.lowBuffer),
+      high: exitAnchor + activeBand.highBuffer,
+      price,
+      atr,
+      evidenceScore: sellScore,
+      activationThreshold: thresholds.trim_reduce_threshold ?? trimThreshold,
+      allocationHint: range.suggested_reduction_pct || "20-35%",
+      anchorSources: [
+        horizonAnchor?.source || horizonAnchor?.id || horizonAnchor?.level,
+        volume.behavior_key ? `Volume: ${volume.behavior_key}` : null,
+        tradeContext?.cycle_state?.regime === "deteriorating" ? "cycle deterioration" : null,
+      ].filter(Boolean),
+      anchorPrices: [exitAnchor, base?.low, base?.midpoint, nextHorizonAnchor?.price],
+      reason: currentLanguage === "zh"
+        ? `${horizonKey === "short_term" ? "短期压力减仓区" : horizonKey === "mid_term" ? "中期系统性减仓区" : "长期估值 / 周期退出区"}：价格接近该周期卖出锚点，且卖出风险证据达标。`
+        : `${horizonKey === "short_term" ? "Short-term resistance exit" : horizonKey === "mid_term" ? "Mid-term reduction zone" : "Long-term valuation / cycle exit"}: price is near this horizon's exit anchor and sell-risk evidence qualifies.`,
+    });
+    if (segment) {
+      segment.next_target = nextHorizonAnchor ? { price: nextHorizonAnchor.price, source: nextHorizonAnchor.source } : null;
+      segment.horizon = horizonKey;
+    }
+    if (segment?.active) segments.push(segment);
+  }
+  const activeSegment = segments.filter(Boolean).find((segment) => rangeContainsPrice(segment, price, tolerance)) || null;
+  range.active_segment = activeSegment;
+  const exitTradeoffAnalysis = activeSegment ? buildExitTradeoffAnalysis({
+    row,
+    horizonKey,
+    sellRange: range,
+    buyRange,
+    supportResistance,
+    tradeContext,
+    technical,
+    preliminaryRecommendation,
+  }) : null;
+  if (activeSegment && exitTradeoffAnalysis) {
+    activeSegment.exit_tradeoff_analysis = exitTradeoffAnalysis;
+    activeSegment.allocation_hint = exitTradeoffAnalysis.suggested_reduction_pct;
+    range.suggested_reduction_pct = exitTradeoffAnalysis.suggested_reduction_pct;
+  }
+  range.anchor_sources = horizonAnchors.map((anchor) => anchor.source).filter(Boolean).slice(0, 8);
+  range.horizon_exit_anchors = horizonAnchors;
+  range.active_exit_ranges = {
+    short_term_active_sell: activeSegment?.mode === "short_resistance_exit" ? activeSegment : null,
+    mid_term_active_sell: activeSegment?.mode === "mid_term_reduction" ? activeSegment : null,
+    long_term_active_sell: activeSegment?.mode === "long_term_valuation_exit" ? activeSegment : null,
+    resistance_rejection_exit: activeSegment?.mode === "short_resistance_exit" ? activeSegment : null,
+    overextension_exit: activeSegment?.mode === "overextension" ? activeSegment : null,
+    cycle_peak_exit: tradeContext?.cycle_state?.regime === "deteriorating" ? activeSegment : null,
+    fundamental_exit_range: tradeContext?.company_risk?.company_specific_risk ? activeSegment : null,
+  };
+  range.segments = [
+    ...(base?.status === "available" ? [{
+      mode: "base_sell",
+      low: base.low,
+      high: base.high,
+      midpoint: base.midpoint,
+      active: rangeContainsPrice(base, price, tolerance),
+      reason: currentLanguage === "zh" ? "基础卖出 / 减仓区。" : "Base sell / trim range.",
+      anchor_sources: base.based_on || [],
+      anchor_prices: [base.low, base.high].filter(Number.isFinite),
+      evidence_score: evidence.combined_sell_after_cap,
+      activation_threshold: thresholds.trim_execution_threshold,
+    }] : []),
+    ...segments.filter((segment) => segment.mode !== "base_sell"),
+  ];
+  range.active_segment = activeSegment;
+  range.current_price_in_range = Boolean(activeSegment);
+  range.active_exit_mode = activeSegment?.mode || null;
+  range.exit_tradeoff_analysis = exitTradeoffAnalysis;
+  range.current_price_segment = activeSegment ? currentPriceSegment(activeSegment, price) : "outside";
+  range.action_consistency = {
+    checked: true,
+    current_price_in_active_segment: Boolean(activeSegment),
+    tolerance_buffer_atr: activeEntryToleranceAtr(companyProfile),
+  };
+  if (activeSegment) {
+    range.low = activeSegment.low;
+    range.high = activeSegment.high;
+    range.midpoint = activeSegment.midpoint;
+    range.final_executable_range = {
+      low: activeSegment.low,
+      high: activeSegment.high,
+      midpoint: activeSegment.midpoint,
+      mode: activeSegment.mode,
+    };
+    range.based_on = [...new Set([...(range.based_on || []), ...(activeSegment.anchor_sources || [])])].slice(0, 10);
+  } else {
+    range.final_executable_range = cloneRangeSummary(base);
+  }
+}
+
+function rewardRiskRatioForRange(price, buyRange, sellRange, stop) {
+  const entry = Number.isFinite(price) ? price : buyRange?.midpoint;
+  const sellTarget = Number.isFinite(sellRange?.low) ? sellRange.low : null;
+  const stopPrice = Number.isFinite(stop?.price) ? stop.price : null;
+  if (![entry, sellTarget, stopPrice].every(Number.isFinite)) return null;
+  const reward = sellTarget - entry;
+  const risk = entry - stopPrice;
+  if (reward <= 0 || risk <= 0) return null;
+  return Number((reward / risk).toFixed(2));
+}
+
+function bindStopsToActiveEntries(stopLossPlan, buyPlan, row, companyProfile, supportResistance) {
+  const price = finiteNumberOrNull(row.price);
+  const atr = finiteNumberOrNull(row.technicals?.atr14) ?? (Number.isFinite(price) ? price * 0.035 : null);
+  ["short_term", "mid_term", "long_term"].forEach((horizonKey) => {
+    const keys = horizonRangeKeys(horizonKey);
+    const stop = stopLossPlan?.[keys.stop];
+    const range = buyPlan?.[keys.buy];
+    const activeRange = range?.active_segment;
+    if (!stop || !activeRange) return;
+    const originalStopPrice = finiteNumberOrNull(stop.structural_stop?.price) ?? finiteNumberOrNull(stop.price);
+    const stopAnalysis = buildModeSpecificEntryStops({
+      row,
+      activeSegment: activeRange,
+      stop: {
+        ...stop,
+        structural_stop: Number.isFinite(originalStopPrice)
+          ? { price: originalStopPrice, source: stop.invalidation_reason || (stop.based_on || []).join(" / ") }
+          : stop.structural_stop,
+      },
+      supportResistance,
+    });
+    if (stopAnalysis.structural_stop) stop.structural_stop = stopAnalysis.structural_stop;
+    if (stopAnalysis.tactical_stop) {
+      stop.tactical_stop = stopAnalysis.tactical_stop;
+      stop.price = stopAnalysis.tactical_stop.price;
+    }
+    stop.secondary_structural_stop = stopAnalysis.structural_stop || null;
+    stop.stop_candidates = stopAnalysis.stop_candidates || [];
+    stop.linked_entry_mode = activeRange.mode;
+    stop.linked_entry_range = {
+      low: activeRange.low,
+      high: activeRange.high,
+      midpoint: activeRange.midpoint,
+    };
+    stop.invalidation_reason = currentLanguage === "zh"
+      ? `战术止损绑定 ${activeRange.mode} 可执行买入区；跌破战术止损表示该入场逻辑失效，结构止损单独保留。`
+      : `The tactical stop is linked to the ${activeRange.mode} executable entry segment; a break invalidates that entry logic while the structural stop is retained separately.`;
+  });
+}
+
+function applyActiveTradeRanges({
+  row,
+  buyPlan,
+  sellPlan,
+  stopLossPlan,
+  supportResistance,
+  technical,
+  companyProfile,
+  tradeContext,
+  preliminaryActionPlan,
+}) {
+  ["short_term", "mid_term", "long_term"].forEach((horizonKey) => {
+    const keys = horizonRangeKeys(horizonKey);
+    annotateBuyRangeSegments({
+      row,
+      horizonKey,
+      range: buyPlan?.[keys.buy],
+      sellRange: sellPlan?.[keys.sell],
+      supportResistance,
+      tradeContext,
+      technical,
+      companyProfile,
+      preliminaryRecommendation: preliminaryActionPlan?.[horizonKey],
+    });
+    annotateSellRangeSegments({
+      row,
+      horizonKey,
+      range: sellPlan?.[keys.sell],
+      buyRange: buyPlan?.[keys.buy],
+      supportResistance,
+      tradeContext,
+      technical,
+      companyProfile,
+      preliminaryRecommendation: preliminaryActionPlan?.[horizonKey],
+    });
+  });
+  bindStopsToActiveEntries(stopLossPlan, buyPlan, row, companyProfile, supportResistance);
+  ["short_term", "mid_term", "long_term"].forEach((horizonKey) => {
+    const keys = horizonRangeKeys(horizonKey);
+    const buyRange = buyPlan?.[keys.buy];
+    const sellRange = sellPlan?.[keys.sell];
+    const stop = stopLossPlan?.[keys.stop];
+    if (buyRange) {
+      buyRange.reward_risk_analysis = buildRewardRiskAnalysis({
+        row,
+        horizonKey,
+        buyRange,
+        sellRange,
+        sellPlan,
+        stop,
+        supportResistance,
+        companyProfile,
+        tradeContext,
+      });
+      buyRange.reward_risk_ratio = buyRange.reward_risk_analysis?.rr_weighted ?? rewardRiskRatioForRange(row.price, buyRange.active_segment || buyRange, sellRange, stop);
+      if (buyRange.active_segment && buyRange.reward_risk_analysis?.position_size_adjustment?.suggested_allocation) {
+        buyRange.active_segment.position_size_adjustment = buyRange.reward_risk_analysis.position_size_adjustment;
+        buyRange.active_segment.allocation_hint = buyRange.reward_risk_analysis.position_size_adjustment.suggested_allocation;
+        buyRange.allocation_hint = buyRange.reward_risk_analysis.position_size_adjustment.suggested_allocation;
+      }
+    }
+  });
+  buyPlan.short_term = buyPlan.short_term_buy_range;
+  buyPlan.mid_term = buyPlan.mid_term_buy_range;
+  buyPlan.long_term = buyPlan.long_term_buy_range;
+  sellPlan.short_term = sellPlan.short_term_sell_range;
+  sellPlan.mid_term = sellPlan.mid_term_sell_range;
+  sellPlan.long_term = sellPlan.long_term_sell_range;
+  return { buyPlan, sellPlan, stopLossPlan };
+}
+
+function enforceActionRangeConsistency(recommendation, companyProfile = {}, tradeContext = {}) {
+  if (!recommendation) return recommendation;
+  const price = finiteNumberOrNull(recommendation.current_price);
+  const atr = finiteNumberOrNull(tradeContext?.trend_state?.atr) || null;
+  const tolerance = Number.isFinite(atr) ? atr * activeEntryToleranceAtr(companyProfile) : 0;
+  const buyAction = ["strong_buy", "accumulate"].includes(recommendation.final_action);
+  const sellAction = ["trim_reduce", "take_profit"].includes(recommendation.final_action);
+  const buyOk = recommendation.buy_range?.current_price_in_range
+    || rangeContainsPrice(recommendation.buy_range?.active_segment, price, tolerance);
+  const sellOk = recommendation.sell_range?.current_price_in_range
+    || rangeContainsPrice(recommendation.sell_range?.active_segment, price, tolerance);
+  const overrideExit = recommendation.final_action === "avoid"
+    || Boolean(tradeContext?.company_risk?.company_specific_risk);
+  if (buyAction && !buyOk) {
+    recommendation.final_action = "hold_watch";
+    recommendation.final_action_label = actionLabel("hold_watch");
+    recommendation.rating = recommendation.final_action_label;
+    recommendation.action_recommendation_score = recommendation.action_evidence?.hold_evidence_score || Math.min(70, recommendation.action_recommendation_score || 70);
+    recommendation.action_evidence.downgrade_reason = recommendation.action_evidence.downgrade_reason || "active_buy_range_consistency_failed";
+    recommendation.action_evidence.trigger_type = "range_consistency_fallback";
+    recommendation.reason = currentLanguage === "zh"
+      ? "买入证据存在，但当前价格不在任何有结构依据的可执行买入区间内，降级为持有 / 观望。"
+      : "Buy evidence exists, but current price is not inside any structurally supported executable buy segment, so action is downgraded to hold/watch.";
+  }
+  const rewardRiskAnalysis = recommendation.buy_range?.reward_risk_analysis || null;
+  const rewardRiskRatio = rewardRiskAnalysis?.rr_weighted ?? recommendation.buy_range?.reward_risk_ratio;
+  const minimumRewardRisk = rewardRiskAnalysis?.minimum_required_rr
+    ?? minimumEntryRewardRisk(companyProfile, recommendation.buy_range?.active_entry_mode || recommendation.buy_range?.active_segment?.mode || "pullback");
+	  if (
+	    ["strong_buy", "accumulate"].includes(recommendation.final_action)
+	    && rewardRiskAnalysis
+	    && !rewardRiskAnalysis.gate_passed
+  ) {
+    deactivateExecutableBuyRange(recommendation.buy_range, "reward_risk_ratio_too_low");
+    recommendation.final_action = "hold_watch";
+    recommendation.final_action_label = actionLabel("hold_watch");
+    recommendation.rating = recommendation.final_action_label;
+    recommendation.action_recommendation_score = Math.min(
+      recommendation.action_evidence?.hold_evidence_score || 70,
+      recommendation.action_recommendation_score || 70,
+    );
+    recommendation.action_evidence.downgrade_reason = recommendation.action_evidence.downgrade_reason || "reward_risk_ratio_too_low";
+    recommendation.action_evidence.trigger_type = "range_consistency_fallback";
+    recommendation.action_evidence.reward_risk_analysis = rewardRiskAnalysis;
+	    recommendation.reason = currentLanguage === "zh"
+	      ? `当前价格虽在可执行买入区间内，但加权 RR 约 ${rewardRiskRatio}，低于 ${rewardRiskAnalysis.entry_mode} 模式最低要求 ${minimumRewardRisk}，降级为持有 / 观望。`
+	      : `Current price is inside an executable buy segment, but weighted RR is about ${rewardRiskRatio}, below the ${rewardRiskAnalysis.entry_mode} minimum ${minimumRewardRisk}; action is downgraded to hold/watch.`;
+	    recommendation.price_position = buildPricePosition(price, recommendation.buy_range, recommendation.sell_range, recommendation.stop);
+	  }
+	  if (
+	    recommendation.final_action === "strong_buy"
+	    && rewardRiskAnalysis?.gate_passed
+	    && (rewardRiskAnalysis.position_size_adjustment?.factor ?? 1) < 0.75
+	  ) {
+	    recommendation.final_action = "accumulate";
+	    recommendation.final_action_label = actionLabel("accumulate");
+	    recommendation.rating = recommendation.final_action_label;
+	    recommendation.action_evidence.downgrade_reason = recommendation.action_evidence.downgrade_reason || "reward_risk_position_size_caps_strong_buy";
+	    recommendation.action_evidence.trigger_type = "combined_buy_evidence";
+	    recommendation.reason = currentLanguage === "zh"
+	      ? "买入证据较强，但 RR 只支持小仓试探，因此从强烈买入降级为分批加仓。"
+	      : "Buy evidence is strong, but RR only supports a small starter position, so strong buy is downgraded to accumulation.";
+	  }
+	  if (sellAction && !sellOk && !overrideExit) {
+	    recommendation.final_action = "hold_watch";
+    recommendation.final_action_label = actionLabel("hold_watch");
+    recommendation.rating = recommendation.final_action_label;
+    recommendation.action_recommendation_score = recommendation.action_evidence?.hold_evidence_score || Math.min(70, recommendation.action_recommendation_score || 70);
+    recommendation.action_evidence.downgrade_reason = recommendation.action_evidence.downgrade_reason || "active_sell_range_consistency_failed";
+    recommendation.action_evidence.trigger_type = "range_consistency_fallback";
+    recommendation.reason = currentLanguage === "zh"
+      ? "卖出证据存在，但当前价格不在可执行卖出区间内，且没有基本面退出 override，降级为持有 / 观望。"
+	      : "Sell evidence exists, but current price is not inside an executable sell segment and there is no fundamental exit override, so action is downgraded to hold/watch.";
+	  }
+	  const exitTradeoffAnalysis = recommendation.sell_range?.exit_tradeoff_analysis || null;
+	  if (sellAction && exitTradeoffAnalysis && !exitTradeoffAnalysis.exit_gate_passed && !overrideExit) {
+	    recommendation.final_action = "hold_watch";
+	    recommendation.final_action_label = actionLabel("hold_watch");
+	    recommendation.rating = recommendation.final_action_label;
+	    recommendation.action_recommendation_score = Math.min(
+	      recommendation.action_evidence?.hold_evidence_score || 70,
+	      recommendation.action_recommendation_score || 70,
+	    );
+	    recommendation.action_evidence.downgrade_reason = recommendation.action_evidence.downgrade_reason || "sell_opportunity_cost_gate_failed";
+	    recommendation.action_evidence.trigger_type = "range_consistency_fallback";
+	    recommendation.action_evidence.exit_tradeoff_analysis = exitTradeoffAnalysis;
+	    recommendation.reason = currentLanguage === "zh"
+	      ? "价格虽处于可执行卖出区，但趋势 / 相对强度或上方空间显示过早减仓的机会成本偏高，降级为持有 / 观望。"
+	      : "Price is inside an executable sell segment, but trend / relative strength or remaining upside makes trimming too costly, so action is downgraded to hold/watch.";
+	  }
+	  recommendation.action_consistency = {
+	    buy_action_inside_active_buy_range: buyAction ? Boolean(buyOk) : null,
+	    sell_action_inside_active_sell_range: sellAction ? Boolean(sellOk || overrideExit) : null,
+    checked: true,
+  };
+  return recommendation;
+}
+
+function validateActionRangeConsistency(actionPlan = {}) {
+  const conflicts = [];
+  ["short_term", "mid_term", "long_term"].forEach((key) => {
+    const item = actionPlan[key];
+    if (!item) return;
+    const isBuyAction = ["strong_buy", "accumulate"].includes(item.final_action);
+    const isSellAction = ["trim_reduce", "take_profit"].includes(item.final_action);
+    const buyOk = Boolean(item.buy_range?.current_price_in_range);
+    const sellOk = Boolean(item.sell_range?.current_price_in_range);
+    const overrideExit = item.final_action === "avoid" || Boolean(item.opportunity_scores?.company_specific_risk);
+    if (isBuyAction && !buyOk) conflicts.push(`${key}: ${item.final_action} without active buy segment covering current price`);
+    if (isSellAction && !sellOk && !overrideExit) conflicts.push(`${key}: ${item.final_action} without active sell segment covering current price`);
+    if (isBuyAction && !item.stop?.linked_entry_range) conflicts.push(`${key}: buy action stop is not linked to active entry range`);
+  });
+  return {
+    passed: conflicts.length === 0,
+    conflicts,
+  };
+}
+
 function buildActionPlan(row, aiDecision, buyPlan, sellPlan, stopLossPlan, supportResistance, technical, fundamental, marketContext, companyProfile, tradeContext = null) {
   const decisionProfile = companyProfile?.decision_profile || {};
-  const shortTerm = buildHorizonRecommendation({
+  let shortTerm = buildHorizonRecommendation({
     row,
     horizon: "short_term",
     horizonBlock: aiDecision.short_term,
@@ -12888,7 +14401,7 @@ function buildActionPlan(row, aiDecision, buyPlan, sellPlan, stopLossPlan, suppo
     rightSideConfirmation: buyPlan.right_side_confirmation_entry,
     tradeContext,
   });
-  const midTerm = buildHorizonRecommendation({
+  let midTerm = buildHorizonRecommendation({
     row,
     horizon: "mid_term",
     horizonBlock: aiDecision.mid_term,
@@ -12904,7 +14417,7 @@ function buildActionPlan(row, aiDecision, buyPlan, sellPlan, stopLossPlan, suppo
     rightSideConfirmation: buyPlan.right_side_confirmation_entry,
     tradeContext,
   });
-  const longTerm = buildHorizonRecommendation({
+  let longTerm = buildHorizonRecommendation({
     row,
     horizon: "long_term",
     horizonBlock: aiDecision.long_term,
@@ -12920,11 +14433,83 @@ function buildActionPlan(row, aiDecision, buyPlan, sellPlan, stopLossPlan, suppo
     rightSideConfirmation: buyPlan.right_side_confirmation_entry,
     tradeContext,
   });
+  shortTerm = enforceActionRangeConsistency(shortTerm, companyProfile, tradeContext);
+  midTerm = enforceActionRangeConsistency(midTerm, companyProfile, tradeContext);
+  longTerm = enforceActionRangeConsistency(longTerm, companyProfile, tradeContext);
+  const entryAction = {
+    short_term: buildEntryAction(shortTerm, tradeContext),
+    mid_term: buildEntryAction(midTerm, tradeContext),
+    long_term: buildEntryAction(longTerm, tradeContext),
+  };
+  const positionManagementAction = {
+    short_term: buildPositionManagementAction(shortTerm, tradeContext),
+    mid_term: buildPositionManagementAction(midTerm, tradeContext),
+    long_term: buildPositionManagementAction(longTerm, tradeContext),
+  };
+  const primaryAction = {
+    short_term: buildPrimaryAction(entryAction.short_term, positionManagementAction.short_term, shortTerm, tradeContext),
+    mid_term: buildPrimaryAction(entryAction.mid_term, positionManagementAction.mid_term, midTerm, tradeContext),
+    long_term: buildPrimaryAction(entryAction.long_term, positionManagementAction.long_term, longTerm, tradeContext),
+  };
+  const actionConflict = {
+    short_term: primaryAction.short_term.action_conflict,
+    mid_term: primaryAction.mid_term.action_conflict,
+    long_term: primaryAction.long_term.action_conflict,
+  };
   return {
-    short_term: shortTerm,
-    mid_term: midTerm,
-    long_term: longTerm,
-    overall_action: buildOverallAction(shortTerm, midTerm, longTerm),
+    short_term: primaryAction.short_term,
+    mid_term: primaryAction.mid_term,
+    long_term: primaryAction.long_term,
+    entry_action: entryAction,
+    position_management_action: positionManagementAction,
+    primary_action: primaryAction,
+    action_conflict: actionConflict,
+    plan_recommendations: {
+      short_term: shortTerm,
+      mid_term: midTerm,
+      long_term: longTerm,
+    },
+    overall_action: buildOverallAction(primaryAction.short_term, primaryAction.mid_term, primaryAction.long_term),
+  };
+}
+
+function validateSellRangeHorizonSeparation(sellPlan = {}) {
+  const ranges = [
+    ["short_term", sellPlan.short_term_sell_range],
+    ["mid_term", sellPlan.mid_term_sell_range],
+    ["long_term", sellPlan.long_term_sell_range],
+  ];
+  const active = ranges.map(([key, range]) => ({
+    key,
+    segment: range?.active_segment || null,
+    mode: range?.active_exit_mode || null,
+    fallback_reason: range?.active_segment ? null : "no_active_horizon_sell_segment",
+  }));
+  const conflicts = [];
+  for (let index = 0; index < active.length - 1; index += 1) {
+    const current = active[index];
+    const next = active[index + 1];
+    if (!current.segment || !next.segment) continue;
+    const same = current.segment.low === next.segment.low && current.segment.high === next.segment.high;
+    const overlap = current.segment.high >= next.segment.low;
+    if (same) conflicts.push(`${current.key}/${next.key}: same active sell segment reused`);
+    if (overlap && !same) conflicts.push(`${current.key}/${next.key}: active sell segments overlap`);
+    const expectedMode = activeSellModeForHorizon(next.key);
+    if (next.mode && next.mode !== expectedMode && next.mode !== "base_sell") {
+      conflicts.push(`${next.key}: active sell mode ${next.mode} does not match ${expectedMode}`);
+    }
+  }
+  return {
+    passed: conflicts.length === 0,
+    conflicts,
+    overlap: conflicts.some((item) => item.includes("overlap")),
+    same_segment_reused: conflicts.some((item) => item.includes("same active sell segment")),
+    anchor_horizon_mismatch: conflicts.some((item) => item.includes("does not match")),
+    details: active.map((item) => ({
+      horizon: item.key,
+      active_segment: item.segment ? { low: item.segment.low, high: item.segment.high, mode: item.segment.mode } : null,
+      fallback_reason: item.fallback_reason,
+    })),
   };
 }
 
@@ -13866,18 +15451,31 @@ function buildDecisionModel(row) {
   const accumulationPlan = buildAccumulationPlan(row, companyProfile, recommendedBuyPlan, consistency.aiDecision, marketContext, technical);
   const positionSizing = buildPositionSizing(row, companyProfile, marketContext);
   const decisionTriggers = buildDecisionTriggers(row, supportResistance, technical, marketContext, fundamental);
-  const doNotBuyReasons = buildDoNotBuyReasons(row, recommendedBuyPlan, technical, fundamental, finalOptions, marketContext, supportResistance);
+  let doNotBuyReasons = buildDoNotBuyReasons(row, recommendedBuyPlan, technical, fundamental, finalOptions, marketContext, supportResistance);
   dataQuality = buildDataQuality(row, finalOptions, marketContext, idealBuyZone, companyProfile);
   tradeContext.data_quality = dataQuality;
   if (consistency.conflict_warning) dataQuality.warnings.unshift(consistency.conflict_warning.message);
   const confidenceProfile = buildConfidenceProfile(row, consistency.aiDecision, recommendedBuyPlan, { technical, fundamental, options: finalOptions, market_context: marketContext }, moduleQuality, dataQuality);
   applyHorizonConfidenceProfiles(row, consistency.aiDecision, confidenceProfile, recommendedBuyPlan, { technical, fundamental, options: finalOptions, market_context: marketContext });
+  const preliminaryActionPlan = buildActionPlan(row, consistency.aiDecision, recommendedBuyPlan, sellPlan, stopLossPlan, supportResistance, technical, fundamental, marketContext, companyProfile, tradeContext);
+  applyActiveTradeRanges({
+    row,
+    buyPlan: recommendedBuyPlan,
+    sellPlan,
+    stopLossPlan,
+    supportResistance,
+    technical,
+    companyProfile,
+    tradeContext,
+    preliminaryActionPlan,
+  });
+  doNotBuyReasons = buildDoNotBuyReasons(row, recommendedBuyPlan, technical, fundamental, finalOptions, marketContext, supportResistance);
   const actionPlan = buildActionPlan(row, consistency.aiDecision, recommendedBuyPlan, sellPlan, stopLossPlan, supportResistance, technical, fundamental, marketContext, companyProfile, tradeContext);
   [
-    ["short_term", actionPlan.short_term, recommendedBuyPlan.short_term_buy_range],
-    ["mid_term", actionPlan.mid_term, recommendedBuyPlan.mid_term_buy_range],
-    ["long_term", actionPlan.long_term, recommendedBuyPlan.long_term_buy_range],
-  ].forEach(([key, recommendation, range]) => {
+    ["short_term", actionPlan.short_term, recommendedBuyPlan.short_term_buy_range, sellPlan.short_term_sell_range],
+    ["mid_term", actionPlan.mid_term, recommendedBuyPlan.mid_term_buy_range, sellPlan.mid_term_sell_range],
+    ["long_term", actionPlan.long_term, recommendedBuyPlan.long_term_buy_range, sellPlan.long_term_sell_range],
+  ].forEach(([key, recommendation, buyRange, sellRange]) => {
     if (consistency.aiDecision[key]) {
       consistency.aiDecision[key].action_recommendation_score = recommendation.action_recommendation_score;
       consistency.aiDecision[key].recommendation_confidence = recommendation.recommendation_confidence;
@@ -13900,7 +15498,8 @@ function buildDecisionModel(row) {
         consistency.aiDecision[key].score_breakdown.price_position = recommendation.price_position;
       }
     }
-    if (range) range.horizon_recommendation = recommendation;
+    if (buyRange) buyRange.horizon_recommendation = actionPlan.entry_action?.[key] || recommendation;
+    if (sellRange) sellRange.horizon_recommendation = actionPlan.position_management_action?.[key] || recommendation;
   });
   consistency.aiDecision.overall_confidence = confidenceProfile.recommendation_confidence;
   consistency.aiDecision.confidence = confidenceProfile;
@@ -13936,9 +15535,11 @@ function buildDecisionModel(row) {
   tradeContext.options_state = buildOptionsState(row, optionsExpectedMove, finalOptions);
   tradeContext.field_mapping = buildTradeContextFieldMapping(row, tradeContext);
   optionsStrategyPlan.options_state = tradeContext.options_state;
-  const validation = {
-    action_consistency: validateActionConsistency(actionPlan),
-    options_consistency: validateOptionsConsistency(actionPlan, optionsStrategyPlan),
+		  const validation = {
+		    action_consistency: validateActionConsistency(actionPlan),
+		    action_range_consistency: validateActionRangeConsistency(actionPlan),
+		    sell_horizon_separation: validateSellRangeHorizonSeparation(sellPlan),
+		    options_consistency: validateOptionsConsistency(actionPlan, optionsStrategyPlan),
     critical_fields: validateNoMissingCriticalFields({
       action_plan: actionPlan,
       buy_plan: recommendedBuyPlan,
@@ -13993,10 +15594,18 @@ function buildDecisionModel(row) {
         gamma_flip: optionsStrategyPlan.gamma_flip,
       },
       action_plan: actionPlan,
+      entry_action: actionPlan.entry_action,
+      position_management_action: actionPlan.position_management_action,
+      primary_action: actionPlan.primary_action,
+      action_conflict: actionPlan.action_conflict,
     },
     ai_decision: consistency.aiDecision,
     confidence: confidenceProfile,
     action_plan: actionPlan,
+    entry_action: actionPlan.entry_action,
+    position_management_action: actionPlan.position_management_action,
+    primary_action: actionPlan.primary_action,
+    action_conflict: actionPlan.action_conflict,
     overall_action: actionPlan.overall_action,
     ideal_buy_zone: idealBuyZone,
     primary_buy_zone: buyZones.primary_buy_zone,
@@ -14190,8 +15799,32 @@ function renderDetailModal(row) {
         <small>${reason}</small>
       </article>
     `;
-  };
-  const renderBuyZoneCard = (title, zone, { hideUnavailable = false } = {}) => {
+	  };
+	  const entryModeLabel = (mode) => {
+	    const labels = {
+	      left_side: currentLanguage === "zh" ? "左侧提前布局" : "Left-Side Early Entry",
+	      pullback: currentLanguage === "zh" ? "回调低吸" : "Pullback Entry",
+	      right_side: currentLanguage === "zh" ? "右侧确认" : "Right-Side Confirmation",
+		      trend: currentLanguage === "zh" ? "强势趋势买入" : "Trend Continuation Entry",
+		      resistance_rejection: currentLanguage === "zh" ? "压力拒绝 / 主动减仓" : "Resistance Rejection Exit",
+		      short_resistance_exit: currentLanguage === "zh" ? "短期压力减仓" : "Short-Term Resistance Exit",
+		      mid_term_reduction: currentLanguage === "zh" ? "中期系统性减仓" : "Mid-Term Reduction",
+		      long_term_valuation_exit: currentLanguage === "zh" ? "长期估值止盈" : "Long-Term Valuation Exit",
+		      overextension: currentLanguage === "zh" ? "过热减仓" : "Overextension Exit",
+		      base_sell: currentLanguage === "zh" ? "基础卖出区" : "Base Sell Range",
+		    };
+	    return labels[mode] || localizedDashboardText(mode || t("dataUnavailable"));
+	  };
+	  const renderSegmentList = (segments = [], activeMode = null) => {
+	    const visible = (segments || []).filter((segment) => rangeIsAvailable(segment)).slice(0, 4);
+	    if (!visible.length) return "";
+	    return `
+	      <div class="detail-line-note">${currentLanguage === "zh" ? "可执行分段" : "Executable Segments"}:
+	        ${visible.map((segment) => `${entryModeLabel(segment.mode)} ${formatCurrency(segment.low, currencyCode)}-${formatCurrency(segment.high, currencyCode)}${segment.mode === activeMode ? (currentLanguage === "zh" ? "（当前激活）" : " (active)") : ""}`).join(" / ")}
+	      </div>
+	    `;
+	  };
+	  const renderBuyZoneCard = (title, zone, { hideUnavailable = false } = {}) => {
     const zoneLow = zone?.low ?? zone?.zone?.low ?? null;
     const zoneHigh = zone?.high ?? zone?.zone?.high ?? null;
     const available = ["available", "triggered"].includes(zone?.status) && zoneLow != null && zoneHigh != null;
@@ -14238,9 +15871,14 @@ function renderDetailModal(row) {
         ${zone?.purpose ? `<div class="detail-line-note">${currentLanguage === "zh" ? "用途" : "Purpose"}: ${localizedDashboardText(zone.purpose)}</div>` : ""}
         ${zone?.trigger_price ? `<div class="detail-line-note">${currentLanguage === "zh" ? "触发价" : "Trigger Price"}: ${formatCurrency(zone.trigger_price, currencyCode)}</div>` : ""}
         ${zone?.meaning ? `<div class="detail-line-note">${currentLanguage === "zh" ? "含义" : "Meaning"}: ${localizedDashboardText(zone.meaning)}</div>` : ""}
-        ${zone?.allocation_hint ? `<div class="detail-line-note">${currentLanguage === "zh" ? "建议分批比例" : "Allocation Hint"}: ${zone.allocation_hint}</div>` : ""}
-        ${renderReachabilityNote(zone)}
-        ${zone?.horizon_recommendation ? `<div class="detail-line-note">${currentLanguage === "zh" ? "当前价格" : "Current Price"}: ${formatCurrentPrice(zone.horizon_recommendation.current_price, currencyCode)} · ${currentLanguage === "zh" ? "当前推荐" : "Current Action"}: ${zone.horizon_recommendation.final_action_label}</div>` : ""}
+	        ${zone?.allocation_hint ? `<div class="detail-line-note">${currentLanguage === "zh" ? "建议分批比例" : "Allocation Hint"}: ${zone.allocation_hint}</div>` : ""}
+	        ${zone?.active_entry_mode ? `<div class="detail-line-note">${currentLanguage === "zh" ? "当前激活模式" : "Active Mode"}: ${entryModeLabel(zone.active_entry_mode)}</div>` : ""}
+	        ${zone?.base_pullback_range ? `<div class="detail-line-note">${currentLanguage === "zh" ? "基础低吸区" : "Base Pullback Range"}: ${formatCurrency(zone.base_pullback_range.low, currencyCode)} - ${formatCurrency(zone.base_pullback_range.high, currencyCode)}</div>` : ""}
+	        ${zone?.final_executable_range ? `<div class="detail-line-note">${currentLanguage === "zh" ? "当前可执行区间" : "Current Executable Range"}: ${formatCurrency(zone.final_executable_range.low, currencyCode)} - ${formatCurrency(zone.final_executable_range.high, currencyCode)}</div>` : ""}
+	        ${renderSegmentList(zone?.segments || [], zone?.active_entry_mode)}
+	        ${zone?.reward_risk_ratio != null ? `<div class="detail-line-note">${currentLanguage === "zh" ? "风险收益比" : "Reward / Risk"}: ${zone.reward_risk_ratio}</div>` : ""}
+	        ${renderReachabilityNote(zone)}
+        ${zone?.horizon_recommendation ? `<div class="detail-line-note">${currentLanguage === "zh" ? "买入 / 加仓视角" : "Entry / Add View"}: ${formatCurrentPrice(zone.horizon_recommendation.current_price, currencyCode)} · ${zone.horizon_recommendation.final_action_label}</div>` : ""}
         ${zone?.horizon_recommendation?.sell_range ? `<div class="detail-line-note">${currentLanguage === "zh" ? "对应卖出区间" : "Related Sell Range"}: ${rangeIsAvailable(zone.horizon_recommendation.sell_range) ? `${formatCurrency(zone.horizon_recommendation.sell_range.low, currencyCode)} - ${formatCurrency(zone.horizon_recommendation.sell_range.high, currencyCode)}` : t("dataUnavailable")}</div>` : ""}
         ${zone?.horizon_recommendation?.stop ? `<div class="detail-line-note">${currentLanguage === "zh" ? "对应止损位" : "Related Stop"}: ${zone.horizon_recommendation.stop.price == null ? t("dataUnavailable") : formatCurrency(zone.horizon_recommendation.stop.price, currencyCode)}</div>` : ""}
         ${zone?.horizon_recommendation?.action_recommendation_score != null ? `<div class="detail-line-note">${currentLanguage === "zh" ? "操作推荐评分" : "Action Score"}: ${zone.horizon_recommendation.action_recommendation_score}/100</div>` : ""}
@@ -14270,11 +15908,13 @@ function renderDetailModal(row) {
     if (!plan || (!plan.short_term_stop && !plan.mid_term_stop && !plan.long_term_stop)) {
       return `<div class="decision-bullet muted">${t("dataUnavailable")}</div>`;
     }
-    const renderStopCard = (title, stop) => `
-      <article class="decision-list-card">
-        <div class="decision-list-title">${title}</div>
-        <div class="detail-line-label">${stop.price == null ? t("dataUnavailable") : formatCurrency(stop.price, currencyCode)}</div>
-        <div class="detail-line-note">${currentLanguage === "zh" ? "适用于" : "Applies To"}: ${localizedDashboardText(stop.applies_to || stop.applies_to_zone || t("dataUnavailable"))}</div>
+	    const renderStopCard = (title, stop) => `
+	      <article class="decision-list-card">
+	        <div class="decision-list-title">${title}</div>
+	        <div class="detail-line-label">${stop.price == null ? t("dataUnavailable") : formatCurrency(stop.price, currencyCode)}</div>
+	        ${stop.linked_entry_mode ? `<div class="detail-line-note">${currentLanguage === "zh" ? "绑定入场模式" : "Linked Entry Mode"}: ${entryModeLabel(stop.linked_entry_mode)}</div>` : ""}
+	        ${stop.linked_entry_range ? `<div class="detail-line-note">${currentLanguage === "zh" ? "绑定入场区间" : "Linked Entry Range"}: ${formatCurrency(stop.linked_entry_range.low, currencyCode)} - ${formatCurrency(stop.linked_entry_range.high, currencyCode)}</div>` : ""}
+	        <div class="detail-line-note">${currentLanguage === "zh" ? "适用于" : "Applies To"}: ${localizedDashboardText(stop.applies_to || stop.applies_to_zone || t("dataUnavailable"))}</div>
         <div class="detail-line-note">${currentLanguage === "zh" ? "含义" : "Meaning"}: ${localizedDashboardText(stop.invalidation_reason || t("dataUnavailable"))}</div>
         <div class="detail-line-note">${currentLanguage === "zh" ? "动作" : "Action"}: ${localizedDashboardText(stop.action_if_triggered || t("dataUnavailable"))}</div>
         <div class="detail-line-note">${currentLanguage === "zh" ? "类型" : "Type"}: ${localizedDashboardText(stop.stop_type || t("dataUnavailable"))} · ${currentLanguage === "zh" ? "风险" : "Risk"}: ${localizedDashboardText(stop.risk_level || t("dataUnavailable"))}</div>
@@ -14308,11 +15948,18 @@ function renderDetailModal(row) {
     const renderSellCard = (title, range, action) => `
       <article class="decision-list-card">
         <div class="decision-list-title">${title}</div>
-        <div class="detail-line-label">${rangeIsAvailable(range) ? `${formatCurrency(range.low, currencyCode)} - ${formatCurrency(range.high, currencyCode)}` : t("dataUnavailable")}</div>
-        <div class="detail-line-note">${currentLanguage === "zh" ? "当前价格" : "Current Price"}: ${formatCurrentPrice(action?.current_price ?? row.price, currencyCode)}</div>
-        ${renderReachabilityNote(range)}
-        <div class="detail-line-note">${currentLanguage === "zh" ? "推荐操作" : "Recommended Action"}: ${action?.final_action_label || t("dataUnavailable")}</div>
-        <div class="detail-line-note">${currentLanguage === "zh" ? "操作推荐评分" : "Action Score"}: ${action?.action_recommendation_score ?? "—"}/100</div>
+	        <div class="detail-line-label">${rangeIsAvailable(range) ? `${formatCurrency(range.low, currencyCode)} - ${formatCurrency(range.high, currencyCode)}` : t("dataUnavailable")}</div>
+	        <div class="detail-line-note">${currentLanguage === "zh" ? "当前价格" : "Current Price"}: ${formatCurrentPrice(action?.current_price ?? row.price, currencyCode)}</div>
+	        ${range?.active_exit_mode ? `<div class="detail-line-note">${currentLanguage === "zh" ? "当前激活模式" : "Active Mode"}: ${entryModeLabel(range.active_exit_mode)}</div>` : ""}
+	        ${range?.base_sell_range ? `<div class="detail-line-note">${currentLanguage === "zh" ? "基础卖出区" : "Base Sell Range"}: ${formatCurrency(range.base_sell_range.low, currencyCode)} - ${formatCurrency(range.base_sell_range.high, currencyCode)}</div>` : ""}
+	        ${range?.final_executable_range ? `<div class="detail-line-note">${currentLanguage === "zh" ? "当前可执行卖出区" : "Current Executable Sell Range"}: ${formatCurrency(range.final_executable_range.low, currencyCode)} - ${formatCurrency(range.final_executable_range.high, currencyCode)}</div>` : ""}
+	        ${renderSegmentList(range?.segments || [], range?.active_exit_mode)}
+	        ${renderReachabilityNote(range)}
+	        <div class="detail-line-note">${currentLanguage === "zh" ? "持仓 / 减仓视角" : "Position / Exit View"}: ${action?.final_action_label || t("dataUnavailable")}</div>
+	        <div class="detail-line-note">${currentLanguage === "zh" ? "操作推荐评分" : "Action Score"}: ${action?.action_recommendation_score ?? "—"}/100</div>
+	        ${range?.suggested_reduction_pct ? `<div class="detail-line-note">${currentLanguage === "zh" ? "建议减仓比例" : "Suggested Reduction"}: ${range.suggested_reduction_pct}</div>` : ""}
+	        ${range?.exit_tradeoff_analysis ? `<div class="detail-line-note">${currentLanguage === "zh" ? "继续持有上行空间" : "Remaining Upside If Held"}: ${range.exit_tradeoff_analysis.remaining_upside_if_hold ?? "—"} (${range.exit_tradeoff_analysis.remaining_upside_pct ?? "—"}%) · ${currentLanguage === "zh" ? "下行风险" : "Downside Risk"}: ${range.exit_tradeoff_analysis.downside_risk_if_hold ?? "—"} (${range.exit_tradeoff_analysis.downside_risk_pct ?? "—"}%) · ${currentLanguage === "zh" ? "上行/下行比" : "Upside/Downside"}: ${range.exit_tradeoff_analysis.upside_downside_ratio ?? "—"}</div>` : ""}
+	        ${range?.exit_tradeoff_analysis ? `<div class="detail-line-note">${currentLanguage === "zh" ? "继续持有机会分" : "Hold Upside Opportunity Score"}: ${range.exit_tradeoff_analysis.hold_upside_opportunity_score ?? range.exit_tradeoff_analysis.opportunity_cost_score ?? "—"}/100</div>` : ""}
         <div class="detail-line-note">${currentLanguage === "zh" ? "弱势冲高时动作" : "Weak Rejection Action"}: ${localizedDashboardText(range?.action_on_weak_rejection || t("dataUnavailable"))}</div>
         <div class="detail-line-note">${currentLanguage === "zh" ? "强势突破时动作" : "Strong Breakout Action"}: ${localizedDashboardText(range?.action_on_strong_breakout || t("dataUnavailable"))}</div>
         <div class="detail-line-note">${currentLanguage === "zh" ? "主要依据" : "Based On"}: ${(range?.based_on || range?.sources || []).map(localizedDashboardText).join(" / ") || t("dataUnavailable")}</div>
@@ -14592,12 +16239,13 @@ function renderDetailModal(row) {
             <div class="detail-overview-value">${formatCurrentPrice(decision.current_price, currencyCode)}</div>
             <p class="detail-overview-reason">${t("dayMove")}: <span class="${changeTone}">${formatChangePercent(decision.today_change_pct)}</span></p>
           </div>
-          <div>
-            <div class="detail-overview-label">${currentLanguage === "zh" ? "当前操作摘要" : "Current Action Summary"}</div>
-            <div class="detail-overview-value">${decision.action_plan?.short_term?.final_action_label || ai.short_term.final_action_label || t("dataUnavailable")}</div>
-            <p class="detail-overview-reason">${currentLanguage === "zh" ? "短期" : "Short"}: ${decision.action_plan?.short_term?.final_action_label || t("dataUnavailable")} · ${currentLanguage === "zh" ? "操作推荐评分" : "Action Score"} ${decision.action_plan?.short_term?.action_recommendation_score ?? "—"}/100</p>
-            <p class="detail-overview-reason">${currentLanguage === "zh" ? "中期" : "Mid"}: ${decision.action_plan?.mid_term?.final_action_label || t("dataUnavailable")} · ${currentLanguage === "zh" ? "操作推荐评分" : "Action Score"} ${decision.action_plan?.mid_term?.action_recommendation_score ?? "—"}/100</p>
-            <p class="detail-overview-reason">${currentLanguage === "zh" ? "长期" : "Long"}: ${decision.action_plan?.long_term?.final_action_label || t("dataUnavailable")} · ${currentLanguage === "zh" ? "操作推荐评分" : "Action Score"} ${decision.action_plan?.long_term?.action_recommendation_score ?? "—"}/100</p>
+	          <div>
+	            <div class="detail-overview-label">${currentLanguage === "zh" ? "当前操作摘要" : "Current Action Summary"}</div>
+	            <div class="detail-overview-value">${decision.action_plan?.short_term?.final_action_label || ai.short_term.final_action_label || t("dataUnavailable")}</div>
+	            <p class="detail-overview-reason">${currentLanguage === "zh" ? "短期" : "Short"}: ${decision.action_plan?.short_term?.final_action_label || t("dataUnavailable")} · ${currentLanguage === "zh" ? "操作推荐评分" : "Action Score"} ${decision.action_plan?.short_term?.action_recommendation_score ?? "—"}/100</p>
+	            <p class="detail-overview-reason">${currentLanguage === "zh" ? "中期" : "Mid"}: ${decision.action_plan?.mid_term?.final_action_label || t("dataUnavailable")} · ${currentLanguage === "zh" ? "操作推荐评分" : "Action Score"} ${decision.action_plan?.mid_term?.action_recommendation_score ?? "—"}/100</p>
+	            <p class="detail-overview-reason">${currentLanguage === "zh" ? "长期" : "Long"}: ${decision.action_plan?.long_term?.final_action_label || t("dataUnavailable")} · ${currentLanguage === "zh" ? "操作推荐评分" : "Action Score"} ${decision.action_plan?.long_term?.action_recommendation_score ?? "—"}/100</p>
+	            <p class="detail-overview-reason">${currentLanguage === "zh" ? "无仓位 / 加仓视角" : "Entry View"}: ${decision.action_plan?.entry_action?.short_term?.final_action_label || t("dataUnavailable")} · ${currentLanguage === "zh" ? "持仓 / 减仓视角" : "Position View"}: ${decision.action_plan?.position_management_action?.short_term?.final_action_label || t("dataUnavailable")}</p>
             ${decision.conflict_warning ? `
               <div class="decision-warning-banner">
                 <strong>${currentLanguage === "zh" ? "冲突提示" : "Conflict Warning"}</strong>
@@ -14645,7 +16293,7 @@ function renderDetailModal(row) {
       </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "推荐卖出计划" : "Recommended Sell Plan"}</h3></div>
-        ${renderSellPlan(decision.sell_plan, decision.action_plan)}
+        ${renderSellPlan(decision.sell_plan, decision.action_plan?.position_management_action || decision.action_plan)}
       </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "止损计划" : "Stop Loss Plan"}</h3></div>
