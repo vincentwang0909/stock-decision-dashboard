@@ -11902,6 +11902,317 @@ function buildRecommendationReason(action, pricePosition, buyRange, sellRange, s
   return "当前价格处在买入区间和卖出区间之间，买卖信号都不够清晰，观望是更可靠的操作。";
 }
 
+function decisionTagSet(companyProfile = {}, decisionProfile = {}) {
+  return [
+    ...(companyProfile.tags || []),
+    ...(companyProfile.full_tags || []),
+    ...(companyProfile.exposure_tags || []),
+    ...(decisionProfile.all_tags || []),
+    ...(decisionProfile.tags || []),
+  ].filter(Boolean);
+}
+
+function hasDecisionTag(tags, names = []) {
+  return hasAnyTag(tags, names);
+}
+
+function profileAdjustedActionThresholds(companyProfile = {}, decisionProfile = {}, signals = {}, tradeContext = {}) {
+  const tags = decisionTagSet(companyProfile, decisionProfile);
+  const baseThresholds = {
+    accumulate_left_threshold: 68,
+    accumulate_right_threshold: 68,
+    accumulate_trend_threshold: 70,
+    strong_buy_threshold: 82,
+    trim_reduce_threshold: 55,
+    take_profit_threshold: 75,
+    falling_knife_limit: 55,
+    severe_falling_knife_limit: 72,
+  };
+  const thresholds = { ...baseThresholds };
+
+  const adjustBuy = (delta) => {
+    thresholds.accumulate_left_threshold += delta;
+    thresholds.accumulate_right_threshold += delta;
+    thresholds.accumulate_trend_threshold += delta;
+  };
+
+  if (hasDecisionTag(tags, ["MegaCap", "CashCow"])) {
+    thresholds.accumulate_left_threshold -= 3;
+    thresholds.strong_buy_threshold -= 2;
+  }
+  if (hasDecisionTag(tags, ["Healthcare", "HealthInsurance", "HealthcareServices", "Defensive"])) {
+    thresholds.accumulate_left_threshold -= 2;
+  }
+  if (hasDecisionTag(tags, ["HighGrowth", "AIInfrastructure", "GPU", "DataCenter"])) {
+    thresholds.accumulate_right_threshold += 3;
+    thresholds.accumulate_trend_threshold += 3;
+    thresholds.strong_buy_threshold += 2;
+  }
+  if (hasDecisionTag(tags, ["HighVolatility"])) {
+    adjustBuy(5);
+    thresholds.strong_buy_threshold += 4;
+    thresholds.trim_reduce_threshold -= 3;
+    thresholds.take_profit_threshold -= 2;
+  }
+  if (hasDecisionTag(tags, ["Speculative", "Meme", "NewlyListed", "IPO", "CashBurn"])) {
+    adjustBuy(8);
+    thresholds.strong_buy_threshold += 6;
+    thresholds.falling_knife_limit -= 8;
+  }
+  if (hasDecisionTag(tags, ["REIT", "HighDebtRisk"])) {
+    thresholds.accumulate_left_threshold += 4;
+    thresholds.strong_buy_threshold += 4;
+    if (signals.marketRiskRising || tradeContext?.fundamental_health?.debt_risk_score < 45) {
+      thresholds.trim_reduce_threshold -= 2;
+    }
+  }
+  if (hasDecisionTag(tags, ["MemoryStorage", "DRAMNAND", "NAND", "Cyclical"])) {
+    if (tradeContext?.cycle_state?.regime === "deteriorating") {
+      adjustBuy(3);
+      thresholds.trim_reduce_threshold -= 5;
+      thresholds.take_profit_threshold -= 4;
+    } else if (tradeContext?.cycle_state?.regime === "improving") {
+      thresholds.accumulate_left_threshold -= 2;
+      thresholds.accumulate_trend_threshold -= 2;
+    }
+  }
+  if (hasDecisionTag(tags, ["ChinaADR", "ChinaInternet", "ChinaConsumer"])) {
+    adjustBuy(3);
+    thresholds.strong_buy_threshold += 3;
+    thresholds.falling_knife_limit -= 4;
+  }
+
+  ["accumulate_left_threshold", "accumulate_right_threshold", "accumulate_trend_threshold"].forEach((key) => {
+    thresholds[key] = clamp(thresholds[key], baseThresholds[key] - 5, baseThresholds[key] + 5);
+  });
+  thresholds.trim_reduce_threshold = clamp(thresholds.trim_reduce_threshold, baseThresholds.trim_reduce_threshold - 5, baseThresholds.trim_reduce_threshold + 5);
+  thresholds.strong_buy_threshold = clamp(thresholds.strong_buy_threshold, baseThresholds.strong_buy_threshold - 4, baseThresholds.strong_buy_threshold + 4);
+  thresholds.take_profit_threshold = clamp(thresholds.take_profit_threshold, baseThresholds.take_profit_threshold - 4, baseThresholds.take_profit_threshold + 4);
+
+  Object.keys(thresholds).forEach((key) => {
+    thresholds[key] = clamp(Math.round(thresholds[key]), 35, 95);
+  });
+  thresholds.accumulate_execution_threshold = clamp(Math.round(mean([
+    thresholds.accumulate_left_threshold,
+    thresholds.accumulate_right_threshold,
+    thresholds.accumulate_trend_threshold,
+  ]) ?? 68), 64, 90);
+  thresholds.strong_buy_execution_threshold = clamp(thresholds.strong_buy_threshold, 78, 94);
+  thresholds.trim_execution_threshold = clamp(thresholds.trim_reduce_threshold, 52, 82);
+  thresholds.take_profit_execution_threshold = clamp(thresholds.take_profit_threshold, 70, 90);
+  thresholds.avoid_execution_threshold = 70;
+  return thresholds;
+}
+
+function profileAdjustedRawCoreMinimums(companyProfile = {}, decisionProfile = {}, signals = {}, tradeContext = {}) {
+  const tags = decisionTagSet(companyProfile, decisionProfile);
+  let accumulateRawMinimum = 67;
+  let trimRawMinimum = 55;
+
+  if (hasDecisionTag(tags, ["MegaCap", "CashCow", "Healthcare", "HealthInsurance", "HealthcareServices", "Defensive"])) {
+    accumulateRawMinimum = Math.min(accumulateRawMinimum, 65);
+  }
+  if (hasDecisionTag(tags, ["HighGrowth", "AIInfrastructure", "GPU", "DataCenter"])) {
+    accumulateRawMinimum = Math.max(accumulateRawMinimum, 70);
+  }
+  if (hasDecisionTag(tags, ["HighVolatility"])) {
+    accumulateRawMinimum = Math.max(accumulateRawMinimum, 72);
+    trimRawMinimum = Math.max(trimRawMinimum, 55);
+  }
+  if (hasDecisionTag(tags, ["Speculative", "Meme", "NewlyListed", "IPO", "CashBurn"])) {
+    accumulateRawMinimum = Math.max(accumulateRawMinimum, 75);
+    trimRawMinimum = Math.max(trimRawMinimum, 58);
+  }
+  if (hasDecisionTag(tags, ["REIT", "HighDebtRisk"])) {
+    accumulateRawMinimum = Math.max(accumulateRawMinimum, 72);
+    const debtRateOrDividendRiskConfirmed = Boolean(
+      signals.marketRiskRising
+      || tradeContext?.fundamental_health?.debt_risk_score < 45
+      || tradeContext?.fundamental_health?.dividend_safety_score < 45
+      || tradeContext?.fundamental_health?.high_dividend_debt_risk
+    );
+    trimRawMinimum = debtRateOrDividendRiskConfirmed ? Math.min(trimRawMinimum, 53) : trimRawMinimum;
+  }
+  if (hasDecisionTag(tags, ["MemoryStorage", "DRAMNAND", "NAND", "Cyclical"])) {
+    const cycleDeteriorating = tradeContext?.cycle_state?.regime === "deteriorating";
+    accumulateRawMinimum = Math.max(accumulateRawMinimum, cycleDeteriorating ? 74 : 68);
+    if (cycleDeteriorating || tradeContext?.relative_strength_state?.deteriorating) {
+      trimRawMinimum = Math.min(trimRawMinimum, 53);
+    }
+  }
+  if (hasDecisionTag(tags, ["ChinaADR", "ChinaInternet", "ChinaConsumer"])) {
+    accumulateRawMinimum = Math.max(accumulateRawMinimum, 70);
+    trimRawMinimum = Math.max(trimRawMinimum, 55);
+  }
+
+  return {
+    accumulate_raw_minimum: clamp(Math.round(accumulateRawMinimum), 60, 82),
+    trim_raw_minimum: clamp(Math.round(trimRawMinimum), 45, 65),
+  };
+}
+
+function buildActionEvidence({
+  opportunityScores,
+  pricePosition,
+  signals,
+  mergedRightSide,
+  trendEntry,
+  thresholds,
+  supportResistance,
+  horizon,
+  tradeContext,
+}) {
+  const status = pricePosition?.status;
+  const bucket = pricePosition?.between_position_bucket;
+  const rightLevel = mergedRightSide?.level || "none";
+  const rightScore = opportunityScores.right_side_confirmation_score ?? 0;
+  const trendScore = opportunityScores.trend_continuation_score ?? 0;
+  const sellScore = opportunityScores.sell_exit_score ?? 0;
+  const fallingKnifeRisk = opportunityScores.falling_knife_risk ?? 0;
+  const contextCompanyRisk = tradeContext?.company_risk?.company_specific_risk ? 82 : 0;
+  const signalCompanyRisk = signals.companySpecificRisk ? 55 : 0;
+  const companyRisk = Math.max(contextCompanyRisk, signalCompanyRisk);
+  const supportQuality = supportScoreForHorizon(supportResistance, horizon);
+  const resistanceQuality = resistanceScoreForHorizon(supportResistance, horizon);
+
+  const buyRawScores = [
+    opportunityScores.left_side_opportunity_score ?? 0,
+    rightScore,
+    trendScore,
+  ].filter(Number.isFinite).sort((a, b) => b - a);
+  const strongestRawBuy = buyRawScores[0] ?? 0;
+  const secondRawBuy = buyRawScores[1] ?? 0;
+  const thirdRawBuy = buyRawScores[2] ?? 0;
+  const baseBuyEvidence = strongestRawBuy;
+  const rawBuyConfirmCount = buyRawScores.filter((score) => score >= 65).length;
+  const rawBuyConfirmationBonus = secondRawBuy >= 75
+    ? 6
+    : secondRawBuy >= 65
+      ? 4
+      : secondRawBuy >= 55
+        ? 2
+        : 0;
+  const thirdBuyConfirmationBonus = thirdRawBuy >= 65 ? 1 : 0;
+  const rightLevelConfirmationBonus = rightLevel === "strong" ? 6 : rightLevel === "confirmed" ? 4 : 0;
+  const buyConfirmationBonus = Math.min(6, rawBuyConfirmationBonus + thirdBuyConfirmationBonus + rightLevelConfirmationBonus);
+  const buyPositionModifier = {
+    below_stop: -8,
+    below_buy_range: fallingKnifeRisk < 35 && signals.fundamentalHealthy ? 2 : 0,
+    inside_buy_range: 5,
+    between_buy_and_sell: bucket === "near_buy_side" ? 3 : bucket === "near_sell_side" ? -4 : 0,
+    inside_sell_range: -8,
+    above_sell_range: -12,
+  }[status] ?? 0;
+  const valuationPenalty = signals.valuationHigh ? 6 : 0;
+  const marketPenalty = signals.marketRiskRising ? 5 : 0;
+  const companyRiskPenalty = companyRisk >= 70 ? 20 : 0;
+  const fallingKnifePenalty = fallingKnifeRisk < 35
+    ? 0
+    : clamp(Math.round((fallingKnifeRisk - 35) * 0.40), 0, 15);
+  const sellConflictPenalty = sellScore >= thresholds.trim_execution_threshold ? 6 : 0;
+  const buyRiskPenalty = fallingKnifePenalty + companyRiskPenalty + valuationPenalty + marketPenalty + sellConflictPenalty;
+  const combinedBuyBeforeCap = strongestRawBuy + buyPositionModifier + buyConfirmationBonus - buyRiskPenalty;
+  const buyUpliftCap = 8;
+  const combinedBuyEvidence = clamp(Math.round(Math.min(combinedBuyBeforeCap, strongestRawBuy + buyUpliftCap)), 0, 100);
+
+  const leftBuyEvidence = opportunityScores.left_side_opportunity_score ?? 0;
+  const rightBuyEvidence = rightScore;
+  const trendBuyEvidence = trendScore;
+
+  const sellPositionModifier = {
+    below_stop: 6,
+    below_buy_range: -8,
+    inside_buy_range: -8,
+    between_buy_and_sell: bucket === "near_sell_side" ? 4 : bucket === "near_buy_side" ? -5 : 0,
+    inside_sell_range: 7,
+    above_sell_range: 9,
+  }[status] ?? 0;
+  const weakRejectionBonus = ["inside_sell_range", "above_sell_range"].includes(status) && signals.distributionRisk ? 3 : 0;
+  const recentPeakOverextensionBonus = signals.technicalWeak && ["near_sell_side", "inside_sell_range", "above_sell_range"].includes(bucket || status) ? 2 : 0;
+  const postPeakDistributionBonus = signals.persistentObvDecline || signals.distributionRisk ? 2 : 0;
+  const relativeWeaknessBonus = tradeContext?.relative_strength_state?.deteriorating ? 2 : 0;
+  const sellConfirmationBonus = Math.min(5, weakRejectionBonus + recentPeakOverextensionBonus + postPeakDistributionBonus + relativeWeaknessBonus);
+  const buyConflictPenalty = combinedBuyEvidence >= thresholds.accumulate_execution_threshold ? 6 : 0;
+  const combinedSellBeforeCap = sellScore + sellPositionModifier + sellConfirmationBonus - buyConflictPenalty;
+  const sellUpliftCap = 10;
+  const combinedSellEvidence = clamp(Math.round(Math.min(combinedSellBeforeCap, sellScore + sellUpliftCap)), 0, 100);
+  const sellEvidence = sellScore;
+  const avoidEvidence = clamp(Math.round(Math.max(
+    companyRisk,
+    signals.supportBreakdown ? 86 : 0,
+    fallingKnifeRisk >= thresholds.severe_falling_knife_limit ? fallingKnifeRisk : 0,
+    signals.persistentObvDecline && signals.fundamentalScore < 50 ? 76 : 0,
+    signals.companySpecificRisk && signals.technicalWeak ? 82 : 0,
+  )), 0, 100);
+  const strongestDirectionalEvidence = Math.max(combinedBuyEvidence, combinedSellEvidence, avoidEvidence);
+  const buyDistanceToTrigger = Math.max(0, thresholds.accumulate_execution_threshold - combinedBuyEvidence);
+  const sellDistanceToTrigger = Math.max(0, thresholds.trim_execution_threshold - combinedSellEvidence);
+  const holdEvidence = clamp(Math.round(
+    88
+    - (bucket === "near_buy_side" || bucket === "near_sell_side" ? 8 : 0)
+    - (buyDistanceToTrigger <= 5 ? 18 : buyDistanceToTrigger <= 10 ? 10 : 0)
+    - (sellDistanceToTrigger <= 5 ? 18 : sellDistanceToTrigger <= 10 ? 10 : 0)
+    + (buyDistanceToTrigger > 15 && sellDistanceToTrigger > 15 ? 2 : 0)
+    - (status === "unavailable" ? 10 : 0)
+  ), 50, 90);
+
+  return {
+    raw_left_score: opportunityScores.left_side_opportunity_score ?? 0,
+    raw_right_score: rightScore,
+    raw_trend_score: trendScore,
+    raw_sell_score: sellScore,
+    strongest_raw_buy: strongestRawBuy,
+    second_raw_buy: secondRawBuy,
+    third_raw_buy: thirdRawBuy,
+    base_buy_evidence: Number(baseBuyEvidence.toFixed(1)),
+    buy_position_modifier: buyPositionModifier,
+    buy_confirmation_bonus: buyConfirmationBonus,
+    buy_risk_penalty: buyRiskPenalty,
+    combined_buy_before_cap: Number(combinedBuyBeforeCap.toFixed(1)),
+    combined_buy_after_cap: combinedBuyEvidence,
+    buy_uplift_cap: buyUpliftCap,
+    left_buy_evidence: leftBuyEvidence,
+    right_buy_evidence: rightBuyEvidence,
+    trend_buy_evidence: trendBuyEvidence,
+    sell_evidence: sellEvidence,
+    sell_position_modifier: sellPositionModifier,
+    sell_confirmation_bonus: sellConfirmationBonus,
+    buy_conflict_penalty: buyConflictPenalty,
+    combined_sell_before_cap: Number(combinedSellBeforeCap.toFixed(1)),
+    combined_sell_after_cap: combinedSellEvidence,
+    sell_uplift_cap: sellUpliftCap,
+    combined_buy_evidence_score: combinedBuyEvidence,
+    combined_sell_evidence_score: combinedSellEvidence,
+    avoid_evidence_score: avoidEvidence,
+    hold_evidence_score: holdEvidence,
+    strongest_directional_evidence: strongestDirectionalEvidence,
+    buy_evidence_count: [
+      leftBuyEvidence >= thresholds.accumulate_left_threshold,
+      rightBuyEvidence >= thresholds.accumulate_right_threshold,
+      trendBuyEvidence >= thresholds.accumulate_trend_threshold,
+    ].filter(Boolean).length,
+    sell_evidence_count: [
+      sellEvidence >= thresholds.trim_reduce_threshold,
+      sellScore >= thresholds.trim_reduce_threshold,
+      resistanceQuality >= 68,
+      signals.distributionRisk,
+      signals.persistentObvDecline,
+      signals.valuationHigh,
+    ].filter(Boolean).length,
+    risk_filters: {
+      falling_knife_risk: fallingKnifeRisk,
+      company_specific_risk: companyRisk,
+      market_risk_rising: Boolean(signals.marketRiskRising),
+      valuation_high: Boolean(signals.valuationHigh),
+      high_risk_tags: Boolean(signals.highRiskTags),
+    },
+    position_modifiers: {
+      buy_position_modifier: buyPositionModifier,
+      sell_position_modifier: sellPositionModifier,
+    },
+  };
+}
+
 function buildHorizonRecommendation({
   row,
   horizon,
@@ -11964,49 +12275,238 @@ function buildHorizonRecommendation({
     trendEntry,
     signals,
   });
+  const thresholds = profileAdjustedActionThresholds(companyProfile, decisionProfile, signals, tradeContext);
+  const rawCoreMinimums = profileAdjustedRawCoreMinimums(companyProfile, decisionProfile, signals, tradeContext);
+  const actionEvidence = buildActionEvidence({
+    opportunityScores,
+    pricePosition,
+    signals,
+    mergedRightSide,
+    trendEntry,
+    thresholds,
+    supportResistance,
+    horizon,
+    tradeContext,
+  });
   let finalAction = "hold_watch";
-  const nearBuySide = pricePosition.between_position_bucket === "near_buy_side";
+  const rightEarly = mergedRightSide.level === "early";
   const nearSellSide = pricePosition.between_position_bucket === "near_sell_side";
-  const leftStrong = opportunityScores.left_side_opportunity_score >= (signals.highRiskTags ? 76 : 70) && opportunityScores.falling_knife_risk < 55;
-  const leftExceptional = opportunityScores.left_side_opportunity_score >= 84 && opportunityScores.falling_knife_risk < 42;
-  const rightStrong = opportunityScores.right_side_confirmation_score >= 82 || mergedRightSide.level === "strong";
-  const rightConfirmed = opportunityScores.right_side_confirmation_score >= 68 || ["confirmed", "strong"].includes(mergedRightSide.level);
-  const trendStrong = opportunityScores.trend_continuation_score >= (signals.highRiskTags ? 82 : 74);
-  const sellStrong = opportunityScores.sell_exit_score >= 74;
-  const sellExtreme = opportunityScores.sell_exit_score >= 84;
+  const effectiveBuyEvidence = actionEvidence.combined_buy_evidence_score;
+  const effectiveSellEvidence = actionEvidence.combined_sell_evidence_score;
+  const effectiveAvoidEvidence = actionEvidence.avoid_evidence_score;
+  const rawSellScore = actionEvidence.raw_sell_score ?? 0;
+  const buySellZoneAllowed = pricePosition.status !== "above_sell_range"
+    && (pricePosition.status !== "inside_sell_range" || ["confirmed", "strong"].includes(mergedRightSide.level));
+  const severeCompanyRisk = actionEvidence.risk_filters.company_specific_risk >= 70
+    || Boolean(tradeContext?.company_risk?.company_specific_risk);
+  const accumulateRawCorePassed = actionEvidence.strongest_raw_buy >= rawCoreMinimums.accumulate_raw_minimum;
+  const accumulateRiskPassed = signals.fundamentalHealthy
+    && !severeCompanyRisk
+    && opportunityScores.falling_knife_risk < thresholds.falling_knife_limit
+    && !signals.supportBreakdown
+    && buySellZoneAllowed;
+  const trimRawCorePassed = rawSellScore >= rawCoreMinimums.trim_raw_minimum
+    || (pricePosition.status === "inside_sell_range" && rawSellScore >= 50)
+    || (pricePosition.status === "above_sell_range" && rawSellScore >= 45);
+  const leftStrong = effectiveBuyEvidence >= thresholds.accumulate_execution_threshold
+    && accumulateRawCorePassed
+    && opportunityScores.falling_knife_risk < thresholds.falling_knife_limit
+    && actionEvidence.risk_filters.company_specific_risk < 70;
+  const leftExceptional = effectiveBuyEvidence >= thresholds.strong_buy_execution_threshold
+    && actionEvidence.strongest_raw_buy >= 78
+    && opportunityScores.falling_knife_risk < Math.max(30, thresholds.falling_knife_limit - 10)
+    && !severeCompanyRisk;
+  const rightStrong = actionEvidence.right_buy_evidence >= thresholds.strong_buy_execution_threshold || mergedRightSide.level === "strong";
+  const rightConfirmed = actionEvidence.right_buy_evidence >= thresholds.accumulate_right_threshold || ["confirmed", "strong"].includes(mergedRightSide.level);
+  const trendStrong = actionEvidence.trend_buy_evidence >= thresholds.accumulate_trend_threshold;
+  const trendExceptional = actionEvidence.trend_buy_evidence >= thresholds.strong_buy_execution_threshold;
+  const sellStrong = effectiveSellEvidence >= thresholds.trim_execution_threshold
+    && actionEvidence.sell_evidence_count >= 2;
+  const sellExtreme = effectiveSellEvidence >= thresholds.take_profit_execution_threshold
+    && actionEvidence.sell_evidence_count >= 3;
+  const buyRiskPass = actionEvidence.risk_filters.company_specific_risk < 70
+    && !severeCompanyRisk
+    && opportunityScores.falling_knife_risk < thresholds.falling_knife_limit
+    && !signals.supportBreakdown;
+  const strongBuyRiskPass = buyRiskPass
+    && opportunityScores.falling_knife_risk < Math.max(30, thresholds.falling_knife_limit - 10)
+    && !signals.marketRiskRising
+    && tradeContext?.valuation_state?.regime !== "extreme";
+  const multipleBuyEvidence = actionEvidence.buy_evidence_count >= 2;
 
   if (pricePosition.status === "below_stop") {
-    if (signals.companySpecificRisk || opportunityScores.company_specific_risk >= 70 || opportunityScores.falling_knife_risk >= 72 || signals.supportBreakdown || (signals.persistentObvDecline && signals.fundamentalScore < 50)) finalAction = "avoid";
+    if (severeCompanyRisk || opportunityScores.falling_knife_risk >= thresholds.severe_falling_knife_limit || signals.supportBreakdown || (signals.persistentObvDecline && signals.fundamentalScore < 50)) finalAction = "avoid";
     else if (signals.marketRiskRising || signals.persistentObvDecline) finalAction = "hold_watch";
     else finalAction = leftStrong ? "accumulate" : "hold_watch";
   } else if (pricePosition.status === "below_buy_range") {
-    if (signals.companySpecificRisk || opportunityScores.company_specific_risk >= 70) finalAction = "avoid";
+    if (severeCompanyRisk) finalAction = "avoid";
     else if (signals.marketRiskRising || signals.persistentObvDecline) finalAction = "hold_watch";
-    else if (leftExceptional || (leftStrong && rightConfirmed)) finalAction = "strong_buy";
-    else if (leftStrong || signals.fundamentalHealthy) finalAction = "accumulate";
+    else if ((leftExceptional || (leftStrong && (rightConfirmed || trendStrong))) && strongBuyRiskPass && effectiveBuyEvidence >= thresholds.strong_buy_execution_threshold) finalAction = "strong_buy";
+    else if (leftStrong || (multipleBuyEvidence && buyRiskPass) || (signals.fundamentalHealthy && actionEvidence.left_buy_evidence >= thresholds.accumulate_left_threshold - 4)) finalAction = "accumulate";
     else finalAction = "hold_watch";
   } else if (pricePosition.status === "inside_buy_range") {
-    if (signals.companySpecificRisk || opportunityScores.falling_knife_risk >= 72) finalAction = "avoid";
-    else if (leftExceptional || (signals.fundamentalStrong && (rightStrong || signals.strongVolumeConfirmation) && !signals.marketRiskRising)) finalAction = "strong_buy";
-    else if (leftStrong || signals.fundamentalHealthy || buyRangeProximityScore(pricePosition) >= 80) finalAction = "accumulate";
+    if (severeCompanyRisk || opportunityScores.falling_knife_risk >= thresholds.severe_falling_knife_limit) finalAction = "avoid";
+    else if ((leftExceptional || rightStrong || trendExceptional || (signals.fundamentalStrong && multipleBuyEvidence)) && strongBuyRiskPass && effectiveBuyEvidence >= thresholds.strong_buy_execution_threshold) finalAction = "strong_buy";
+    else if (leftStrong || rightConfirmed || trendStrong || signals.fundamentalHealthy || buyRangeProximityScore(pricePosition) >= 80) finalAction = "accumulate";
     else finalAction = "hold_watch";
   } else if (pricePosition.status === "between_buy_and_sell") {
-    if (signals.companySpecificRisk && (signals.technicalWeak || signals.persistentObvDecline)) finalAction = "avoid";
+    if (severeCompanyRisk && (signals.technicalWeak || signals.persistentObvDecline)) finalAction = "avoid";
     else if (nearSellSide && sellExtreme) finalAction = "take_profit";
     else if (nearSellSide && sellStrong) finalAction = "trim_reduce";
-    else if ((rightStrong || trendStrong) && signals.fundamentalStrong && !signals.valuationHigh && !signals.marketRiskRising) finalAction = "strong_buy";
-    else if (rightConfirmed || trendStrong || (nearBuySide && leftStrong)) finalAction = "accumulate";
+    else if (sellExtreme && actionEvidence.sell_evidence_count >= 3) finalAction = "take_profit";
+    else if (sellStrong && actionEvidence.sell_evidence_count >= 2 && actionEvidence.buy_evidence_count === 0) finalAction = "trim_reduce";
+    else if ((rightStrong || trendExceptional || leftExceptional) && signals.fundamentalStrong && strongBuyRiskPass && effectiveBuyEvidence >= thresholds.strong_buy_execution_threshold) finalAction = "strong_buy";
+    else if (
+      buyRiskPass
+      && (
+        multipleBuyEvidence
+        || leftStrong
+        || rightConfirmed
+        || trendStrong
+        || (rightEarly && actionEvidence.left_buy_evidence >= thresholds.accumulate_left_threshold - 2 && signals.fundamentalHealthy)
+      )
+    ) finalAction = "accumulate";
     else finalAction = "hold_watch";
   } else if (pricePosition.status === "inside_sell_range") {
-    if (signals.companySpecificRisk && signals.technicalWeak) finalAction = "avoid";
-    else if ((rightStrong || trendStrong) && signals.strongVolumeConfirmation && score >= 80 && !signals.marketOverheated && opportunityScores.sell_exit_score < 76) finalAction = "hold_watch";
+    if (severeCompanyRisk && signals.technicalWeak) finalAction = "avoid";
+    else if ((rightStrong || trendStrong) && signals.strongVolumeConfirmation && score >= 80 && !signals.marketOverheated && effectiveSellEvidence < thresholds.take_profit_execution_threshold) finalAction = "hold_watch";
     else if (horizon === "long_term" && (signals.sellEvidence >= 72 || sellExtreme)) finalAction = "take_profit";
     else finalAction = "trim_reduce";
   } else if (pricePosition.status === "above_sell_range") {
-    if (signals.companySpecificRisk && signals.technicalWeak) finalAction = "avoid";
+    if (severeCompanyRisk && signals.technicalWeak) finalAction = "avoid";
     else if (signals.distributionRisk || signals.valuationHigh || signals.marketOverheated || sellStrong || signals.sellEvidence >= 76) finalAction = "take_profit";
     else finalAction = "trim_reduce";
   }
+
+  const provisionalAction = finalAction;
+  let downgradeReason = null;
+  const maxRawBuyCore = Math.max(
+    actionEvidence.raw_left_score ?? 0,
+    actionEvidence.raw_right_score ?? 0,
+    actionEvidence.raw_trend_score ?? 0,
+  );
+  const strongBuyRawCorePassed = maxRawBuyCore >= 78 || ["confirmed", "strong"].includes(mergedRightSide.level);
+  const strongBuySellZonePassed = !["inside_sell_range", "above_sell_range"].includes(pricePosition.status)
+    || ["confirmed", "strong"].includes(mergedRightSide.level)
+    || trendEntry?.active;
+  const topEvidencePresent = Boolean(
+    signals.distributionRisk
+    || signals.persistentObvDecline
+    || signals.valuationHigh
+    || tradeContext?.relative_strength_state?.deteriorating
+    || tradeContext?.cycle_state?.regime === "deteriorating"
+    || (signals.technicalWeak && ["near_sell_side", "inside_sell_range", "above_sell_range"].includes(pricePosition.between_position_bucket || pricePosition.status))
+  );
+  const takeProfitRawCorePassed = (actionEvidence.raw_sell_score ?? 0) >= 65
+    || ["inside_sell_range", "above_sell_range"].includes(pricePosition.status);
+  if (finalAction === "strong_buy" && (!strongBuyRawCorePassed || !strongBuySellZonePassed || !accumulateRiskPassed)) {
+    finalAction = effectiveBuyEvidence >= thresholds.accumulate_execution_threshold && accumulateRawCorePassed && accumulateRiskPassed
+      ? "accumulate"
+      : "hold_watch";
+    downgradeReason = !strongBuyRawCorePassed
+      ? "strong_buy_raw_core_requirement_failed"
+      : !strongBuySellZonePassed
+        ? "strong_buy_sell_zone_protection_failed"
+        : "strong_buy_risk_filter_failed";
+  }
+  if (finalAction === "accumulate" && (!accumulateRawCorePassed || !accumulateRiskPassed)) {
+    finalAction = "hold_watch";
+    downgradeReason = !accumulateRawCorePassed
+      ? "accumulate_raw_core_requirement_failed"
+      : "accumulate_risk_filter_failed";
+  }
+  if (finalAction === "take_profit" && (!takeProfitRawCorePassed || !topEvidencePresent)) {
+    finalAction = effectiveSellEvidence >= thresholds.trim_execution_threshold && trimRawCorePassed ? "trim_reduce" : "hold_watch";
+    downgradeReason = !takeProfitRawCorePassed
+      ? "take_profit_raw_sell_requirement_failed"
+      : "take_profit_independent_top_evidence_missing";
+  }
+  if (finalAction === "trim_reduce" && !trimRawCorePassed) {
+    finalAction = "hold_watch";
+    downgradeReason = "trim_reduce_raw_core_requirement_failed";
+  }
+  const evidenceForAction = (action) => {
+    if (["strong_buy", "accumulate"].includes(action)) return effectiveBuyEvidence;
+    if (["trim_reduce", "take_profit"].includes(action)) return effectiveSellEvidence;
+    if (action === "avoid") return effectiveAvoidEvidence;
+    return actionEvidence.hold_evidence_score;
+  };
+  const thresholdForAction = (action) => {
+    if (action === "strong_buy") return thresholds.strong_buy_execution_threshold;
+    if (action === "accumulate") return thresholds.accumulate_execution_threshold;
+    if (action === "trim_reduce") return thresholds.trim_execution_threshold;
+    if (action === "take_profit") return thresholds.take_profit_execution_threshold;
+    if (action === "avoid") return thresholds.avoid_execution_threshold;
+    return null;
+  };
+  const gateAction = () => {
+    if (finalAction === "strong_buy" && evidenceForAction("strong_buy") < thresholds.strong_buy_execution_threshold) {
+      finalAction = evidenceForAction("accumulate") >= thresholds.accumulate_execution_threshold && accumulateRawCorePassed && accumulateRiskPassed
+        ? "accumulate"
+        : "hold_watch";
+      downgradeReason = downgradeReason || "strong_buy_execution_threshold_failed";
+    }
+    if (finalAction === "accumulate" && evidenceForAction("accumulate") < thresholds.accumulate_execution_threshold) {
+      finalAction = "hold_watch";
+      downgradeReason = downgradeReason || "accumulate_execution_threshold_failed";
+    }
+    if (finalAction === "take_profit" && evidenceForAction("take_profit") < thresholds.take_profit_execution_threshold) {
+      finalAction = evidenceForAction("trim_reduce") >= thresholds.trim_execution_threshold && trimRawCorePassed ? "trim_reduce" : "hold_watch";
+      downgradeReason = downgradeReason || "take_profit_execution_threshold_failed";
+    }
+    if (finalAction === "trim_reduce" && evidenceForAction("trim_reduce") < thresholds.trim_execution_threshold) {
+      finalAction = "hold_watch";
+      downgradeReason = downgradeReason || "trim_reduce_execution_threshold_failed";
+    }
+    if (finalAction === "avoid" && evidenceForAction("avoid") < thresholds.avoid_execution_threshold) {
+      finalAction = "hold_watch";
+      downgradeReason = downgradeReason || "avoid_execution_threshold_failed";
+    }
+  };
+  gateAction();
+  const selectedActionEvidenceScore = clamp(Math.round(evidenceForAction(finalAction)), 0, 100);
+  const selectedActionThreshold = thresholdForAction(finalAction);
+  const marginAboveThreshold = selectedActionThreshold == null
+    ? null
+    : Number((selectedActionEvidenceScore - selectedActionThreshold).toFixed(1));
+  const triggerType = provisionalAction !== finalAction
+    ? "execution_gate_fallback"
+    : finalAction === "strong_buy"
+      ? "strong_buy_evidence"
+      : finalAction === "accumulate"
+        ? "combined_buy_evidence"
+        : finalAction === "trim_reduce"
+          ? "combined_sell_evidence"
+          : finalAction === "take_profit"
+            ? "take_profit_evidence"
+            : finalAction === "avoid"
+              ? "avoid_risk_evidence"
+              : "hold_watch_balance";
+  const triggerComponents = finalAction === "hold_watch"
+    ? {
+      combined_buy_evidence_score: effectiveBuyEvidence,
+      combined_sell_evidence_score: effectiveSellEvidence,
+      avoid_evidence_score: effectiveAvoidEvidence,
+      hold_evidence_score: actionEvidence.hold_evidence_score,
+    }
+    : ["strong_buy", "accumulate"].includes(finalAction)
+      ? {
+        combined_buy_evidence_score: effectiveBuyEvidence,
+        raw_left_score: actionEvidence.raw_left_score,
+        raw_right_score: actionEvidence.raw_right_score,
+        raw_trend_score: actionEvidence.raw_trend_score,
+        buy_evidence_count: actionEvidence.buy_evidence_count,
+      }
+      : ["trim_reduce", "take_profit"].includes(finalAction)
+        ? {
+          combined_sell_evidence_score: effectiveSellEvidence,
+          raw_sell_score: actionEvidence.raw_sell_score,
+          sell_evidence_count: actionEvidence.sell_evidence_count,
+        }
+        : {
+          avoid_evidence_score: effectiveAvoidEvidence,
+          risk_filters: actionEvidence.risk_filters,
+        };
 
   const components = scoreActionComponents(finalAction, pricePosition, signals);
   if (["strong_buy", "accumulate"].includes(finalAction)) {
@@ -12030,7 +12530,8 @@ function buildHorizonRecommendation({
     reachability_multiplier: actionReachabilityMultiplier(finalAction, buyRange, sellRange, pricePosition),
     profile_modifier: actionProfileMultiplier(finalAction, companyProfile),
   };
-  const actionRecommendationScore = weightedActionScore(finalAction, components, multipliers);
+  const componentModelScore = weightedActionScore(finalAction, components, multipliers);
+  const actionRecommendationScore = selectedActionEvidenceScore;
   const positiveFactors = [
     signals.fundamentalHealthy ? (currentLanguage === "zh" ? "基本面未明显恶化" : "Fundamentals intact") : null,
     signals.strongVolumeConfirmation ? (currentLanguage === "zh" ? "量能 / OBV 有确认" : "Volume / OBV confirmed") : null,
@@ -12063,6 +12564,67 @@ function buildHorizonRecommendation({
       falling_knife_risk: opportunityScores.falling_knife_risk,
       company_specific_risk: opportunityScores.company_specific_risk,
     },
+    action_thresholds: thresholds,
+    action_evidence: {
+      raw_left_score: actionEvidence.raw_left_score,
+      raw_right_score: actionEvidence.raw_right_score,
+      raw_trend_score: actionEvidence.raw_trend_score,
+      raw_sell_score: actionEvidence.raw_sell_score,
+      strongest_raw_buy: actionEvidence.strongest_raw_buy,
+      second_raw_buy: actionEvidence.second_raw_buy,
+      third_raw_buy: actionEvidence.third_raw_buy,
+      base_buy_evidence: actionEvidence.base_buy_evidence,
+      buy_position_modifier: actionEvidence.buy_position_modifier,
+      buy_confirmation_bonus: actionEvidence.buy_confirmation_bonus,
+      buy_risk_penalty: actionEvidence.buy_risk_penalty,
+      combined_buy_before_cap: actionEvidence.combined_buy_before_cap,
+      combined_buy_after_cap: actionEvidence.combined_buy_after_cap,
+      left_buy_evidence: actionEvidence.left_buy_evidence,
+      right_buy_evidence: actionEvidence.right_buy_evidence,
+      trend_buy_evidence: actionEvidence.trend_buy_evidence,
+      sell_evidence: actionEvidence.sell_evidence,
+      sell_position_modifier: actionEvidence.sell_position_modifier,
+      sell_confirmation_bonus: actionEvidence.sell_confirmation_bonus,
+      buy_conflict_penalty: actionEvidence.buy_conflict_penalty,
+      combined_sell_before_cap: actionEvidence.combined_sell_before_cap,
+      combined_sell_after_cap: actionEvidence.combined_sell_after_cap,
+      combined_buy_evidence_score: actionEvidence.combined_buy_evidence_score,
+      combined_sell_evidence_score: actionEvidence.combined_sell_evidence_score,
+      accumulate_raw_minimum: rawCoreMinimums.accumulate_raw_minimum,
+      trim_raw_minimum: rawCoreMinimums.trim_raw_minimum,
+      accumulate_execution_threshold: thresholds.accumulate_execution_threshold,
+      strong_buy_execution_threshold: thresholds.strong_buy_execution_threshold,
+      trim_execution_threshold: thresholds.trim_execution_threshold,
+      take_profit_execution_threshold: thresholds.take_profit_execution_threshold,
+      avoid_evidence_score: actionEvidence.avoid_evidence_score,
+      hold_evidence_score: actionEvidence.hold_evidence_score,
+      buy_evidence_count: actionEvidence.buy_evidence_count,
+      sell_evidence_count: actionEvidence.sell_evidence_count,
+      selected_action: finalAction,
+      selected_action_evidence_score: selectedActionEvidenceScore,
+      profile_adjusted_threshold: selectedActionThreshold,
+      margin_above_threshold: marginAboveThreshold,
+      trigger_type: triggerType,
+      trigger_components: triggerComponents,
+      provisional_action: provisionalAction,
+      strong_buy_raw_core_passed: strongBuyRawCorePassed && strongBuySellZonePassed,
+      accumulate_raw_core_passed: accumulateRawCorePassed,
+      accumulate_risk_passed: accumulateRiskPassed,
+      trim_raw_core_passed: trimRawCorePassed,
+      take_profit_raw_core_passed: takeProfitRawCorePassed && topEvidencePresent,
+      raw_core_requirement_passed: finalAction === "strong_buy"
+        ? strongBuyRawCorePassed && strongBuySellZonePassed
+        : finalAction === "accumulate"
+          ? accumulateRawCorePassed && accumulateRiskPassed
+          : finalAction === "trim_reduce"
+            ? trimRawCorePassed
+        : finalAction === "take_profit"
+          ? takeProfitRawCorePassed && topEvidencePresent
+          : true,
+      downgrade_reason: downgradeReason,
+      risk_filters: actionEvidence.risk_filters,
+      position_modifiers: actionEvidence.position_modifiers,
+    },
     right_side_confirmation: mergedRightSide,
     right_side_confirmation_model: mergedRightSide,
     trend_entry: trendEntry,
@@ -12080,6 +12642,21 @@ function buildHorizonRecommendation({
     risk_factors: riskFactors,
     action_components: {
       ...components,
+      component_model_score: componentModelScore,
+      selected_action_evidence_score: selectedActionEvidenceScore,
+      profile_adjusted_threshold: selectedActionThreshold,
+      margin_above_threshold: marginAboveThreshold,
+      trigger_type: triggerType,
+      raw_core_requirement_passed: finalAction === "strong_buy"
+        ? strongBuyRawCorePassed && strongBuySellZonePassed
+        : finalAction === "accumulate"
+          ? accumulateRawCorePassed && accumulateRiskPassed
+          : finalAction === "trim_reduce"
+            ? trimRawCorePassed
+        : finalAction === "take_profit"
+          ? takeProfitRawCorePassed && topEvidencePresent
+          : true,
+      downgrade_reason: downgradeReason,
       data_quality_multiplier: Number(multipliers.data_quality_multiplier.toFixed(2)),
       signal_agreement_multiplier: Number(multipliers.signal_agreement_multiplier.toFixed(2)),
       reachability_multiplier: Number(multipliers.reachability_multiplier.toFixed(2)),
