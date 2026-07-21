@@ -15,6 +15,18 @@
   --hold-bg: rgba(158, 112, 25, 0.22);
   --sell: #ff8e84;
   --sell-bg: rgba(154, 63, 55, 0.22);
+  --strong-buy: #39d06f;
+  --strong-buy-bg: rgba(42, 153, 91, 0.28);
+  --accumulate: #8fda7b;
+  --accumulate-bg: rgba(83, 132, 63, 0.22);
+  --watch: #8ec5ff;
+  --watch-bg: rgba(58, 101, 148, 0.24);
+  --trim: #ffb24d;
+  --trim-bg: rgba(186, 112, 32, 0.24);
+  --profit: #ff7b4f;
+  --profit-bg: rgba(185, 78, 45, 0.26);
+  --avoid: #ff5d6c;
+  --avoid-bg: rgba(169, 50, 64, 0.28);
   --accent: #8ec5ff;
   --shadow: 0 24px 64px rgba(0, 0, 0, 0.42);
   --radius: 18px;
@@ -381,9 +393,15 @@ body.modal-open {
   letter-spacing: 0.02em;
 }
 
-.analysis-pill.buy { color: var(--buy); }
-.analysis-pill.hold { color: var(--hold); }
+.analysis-pill.buy,
+.analysis-pill.accumulate { color: var(--buy); }
+.analysis-pill.strong-buy { color: var(--strong-buy); }
+.analysis-pill.hold { color: var(--watch); }
+.analysis-pill.reduce,
+.analysis-pill.trim-reduce { color: var(--trim); }
+.analysis-pill.take-profit { color: var(--profit); }
 .analysis-pill.sell { color: var(--sell); }
+.analysis-pill.avoid { color: var(--avoid); }
 
 .analysis-grid {
   display: grid;
@@ -1469,9 +1487,15 @@ thead tr.subhead th[data-group-cell] {
   font-weight: 700;
 }
 
-.score.buy { color: var(--buy); }
-.score.hold { color: var(--hold); }
+.score.buy,
+.score.accumulate { color: var(--buy); }
+.score.strong-buy { color: var(--strong-buy); }
+.score.hold { color: var(--watch); }
+.score.reduce,
+.score.trim-reduce { color: var(--trim); }
+.score.take-profit { color: var(--profit); }
 .score.sell { color: var(--sell); }
+.score.avoid { color: var(--avoid); }
 
 .signal {
   display: inline-flex;
@@ -1523,9 +1547,15 @@ thead tr.subhead th[data-group-cell] {
   font-weight: 800;
 }
 
-.action.buy { color: var(--buy); }
-.action.hold { color: var(--hold); }
+.action.buy,
+.action.accumulate { color: var(--buy); }
+.action.strong-buy { color: var(--strong-buy); }
+.action.hold { color: var(--watch); }
+.action.reduce,
+.action.trim-reduce { color: var(--trim); }
+.action.take-profit { color: var(--profit); }
 .action.sell { color: var(--sell); }
+.action.avoid { color: var(--avoid); }
 .action.na { color: var(--muted); }
 
 .price-cell {
@@ -2029,24 +2059,38 @@ tbody tr.selected-row td {
   font-weight: 800;
 }
 
-.stock-mini-chip.buy {
+.stock-mini-chip.buy,
+.stock-mini-chip.accumulate {
   color: var(--buy);
   background: var(--buy-bg);
 }
 
+.stock-mini-chip.strong-buy {
+  color: var(--strong-buy);
+  background: var(--strong-buy-bg);
+  border-color: rgba(73, 224, 124, 0.28);
+}
+
 .stock-mini-chip.hold {
-  color: var(--hold);
-  background: var(--hold-bg);
+  color: var(--watch);
+  background: var(--watch-bg);
 }
 
-.stock-mini-chip.reduce {
-  color: var(--hold);
-  background: var(--hold-bg);
+.stock-mini-chip.reduce,
+.stock-mini-chip.trim-reduce {
+  color: var(--trim);
+  background: var(--trim-bg);
 }
 
-.stock-mini-chip.sell {
-  color: var(--sell);
-  background: var(--sell-bg);
+.stock-mini-chip.take-profit {
+  color: var(--profit);
+  background: var(--profit-bg);
+}
+
+.stock-mini-chip.sell,
+.stock-mini-chip.avoid {
+  color: var(--avoid);
+  background: var(--avoid-bg);
 }
 
 .stock-current-action {
@@ -2196,24 +2240,46 @@ tbody tr.selected-row td {
 }
 
 .decision-core-card.buy strong,
+.decision-core-card.accumulate strong,
 .detail-kpi-card.buy strong,
+.detail-kpi-card.accumulate strong,
 .dimension-card.buy strong,
+.dimension-card.accumulate strong,
+.detail-overview-value.accumulate,
 .detail-overview-value.buy {
   color: var(--buy);
+}
+
+.decision-core-card.strong-buy strong,
+.detail-kpi-card.strong-buy strong,
+.dimension-card.strong-buy strong,
+.detail-overview-value.strong-buy {
+  color: var(--strong-buy);
 }
 
 .decision-core-card.hold strong,
 .detail-kpi-card.hold strong,
 .dimension-card.hold strong,
 .detail-overview-value.hold {
-  color: var(--hold);
+  color: var(--watch);
 }
 
 .decision-core-card.reduce strong,
+.decision-core-card.trim-reduce strong,
 .detail-kpi-card.reduce strong,
+.detail-kpi-card.trim-reduce strong,
 .dimension-card.reduce strong,
+.dimension-card.trim-reduce strong,
+.detail-overview-value.trim-reduce,
 .detail-overview-value.reduce {
-  color: var(--hold);
+  color: var(--trim);
+}
+
+.decision-core-card.take-profit strong,
+.detail-kpi-card.take-profit strong,
+.dimension-card.take-profit strong,
+.detail-overview-value.take-profit {
+  color: var(--profit);
 }
 
 .decision-core-card.sell strong,
@@ -2221,6 +2287,13 @@ tbody tr.selected-row td {
 .dimension-card.sell strong,
 .detail-overview-value.sell {
   color: var(--sell);
+}
+
+.decision-core-card.avoid strong,
+.detail-kpi-card.avoid strong,
+.dimension-card.avoid strong,
+.detail-overview-value.avoid {
+  color: var(--avoid);
 }
 
 .detail-overview-card {

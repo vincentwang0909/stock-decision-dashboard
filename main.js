@@ -5027,15 +5027,18 @@ function localizedStrength(value) {
 
 function ratingTone(value) {
   const normalized = normalizeSixAction(value);
-  if (["strong_buy", "accumulate"].includes(normalized)) return "buy";
+  if (normalized === "strong_buy") return "strong-buy";
+  if (normalized === "accumulate") return "accumulate";
   if (normalized === "hold_watch") return "hold";
-  if (normalized === "trim_reduce") return "reduce";
-  if (normalized === "take_profit") return "reduce";
-  if (normalized === "avoid") return "sell";
-  if (normalized.includes("buy")) return "buy";
+  if (normalized === "trim_reduce") return "trim-reduce";
+  if (normalized === "take_profit") return "take-profit";
+  if (normalized === "avoid") return "avoid";
+  if (normalized.includes("strong") && normalized.includes("buy")) return "strong-buy";
+  if (normalized.includes("buy")) return "accumulate";
   if (normalized.includes("weak hold")) return "hold";
-  if (normalized.includes("reduce")) return "reduce";
-  if (normalized.includes("sell") || normalized.includes("avoid") || normalized.includes("short")) return "sell";
+  if (normalized.includes("reduce") || normalized.includes("trim")) return "trim-reduce";
+  if (normalized.includes("profit")) return "take-profit";
+  if (normalized.includes("sell") || normalized.includes("avoid") || normalized.includes("short")) return "avoid";
   return "hold";
 }
 
@@ -18008,6 +18011,10 @@ function renderDetailModal(row) {
   const ai = decision.ai_decision;
   const technical = decision.technical;
   const fundamental = decision.fundamental;
+  const fundamentalQuality = fundamental?.quality || {};
+  const fundamentalGrowth = fundamental?.growth || {};
+  const fundamentalValuation = fundamental?.valuation || {};
+  const fundamentalFinancialHealth = fundamental?.financial_health || {};
   const options = decision.options;
   const marketContext = decision.market_context;
   const marketEngine = marketContext.market_engine || {};
@@ -18907,22 +18914,22 @@ function renderDetailModal(row) {
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("quality")}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: "ROE", value: displayValue(fundamental.quality.roe, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "毛利率" : "Gross Margin", value: displayValue(fundamental.quality.gross_margin, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "营业利润率" : "Operating Margin", value: displayValue(fundamental.quality.operating_margin, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "净利率" : "Net Margin", value: displayValue(fundamental.quality.net_margin, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "负债率" : "Debt Ratio", value: displayValue(fundamental.quality.debt_ratio, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "现金比率" : "Cash Ratio", value: displayValue(fundamental.quality.cash_ratio, (value) => formatPercentage(value)) },
+          { label: "ROE", value: displayValue(fundamentalQuality.roe, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "毛利率" : "Gross Margin", value: displayValue(fundamentalQuality.gross_margin, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "营业利润率" : "Operating Margin", value: displayValue(fundamentalQuality.operating_margin, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "净利率" : "Net Margin", value: displayValue(fundamentalQuality.net_margin, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "负债率" : "Debt Ratio", value: displayValue(fundamentalQuality.debt_ratio, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "现金比率" : "Cash Ratio", value: displayValue(fundamentalQuality.cash_ratio, (value) => formatPercentage(value)) },
         ])}</div>
       </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("growth")}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: t("revenueGrowth"), value: displayValue(fundamental.growth.revenue_growth, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "每股收益增长" : "EPS Growth", value: displayValue(fundamental.growth.eps_growth, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "自由现金流增长" : "FCF Growth", value: displayValue(fundamental.growth.free_cash_flow_growth, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "管理层指引" : "Forward Guidance", value: displayValue(fundamental.growth.forward_guidance, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "分析师预期" : "Analyst Growth", value: displayValue(fundamental.growth.analyst_growth_expectation, (value) => formatPercentage(value)) },
+          { label: t("revenueGrowth"), value: displayValue(fundamentalGrowth.revenue_growth, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "每股收益增长" : "EPS Growth", value: displayValue(fundamentalGrowth.eps_growth, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "自由现金流增长" : "FCF Growth", value: displayValue(fundamentalGrowth.free_cash_flow_growth, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "管理层指引" : "Forward Guidance", value: displayValue(fundamentalGrowth.forward_guidance, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "分析师预期" : "Analyst Growth", value: displayValue(fundamentalGrowth.analyst_growth_expectation, (value) => formatPercentage(value)) },
         ])}</div>
       </section>
       <section class="detail-section-card">
@@ -18939,23 +18946,23 @@ function renderDetailModal(row) {
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("valuationScore")}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: t("pe"), value: displayValue(fundamental.valuation.pe, (value) => formatRatio(value)) },
-          { label: t("forwardPe"), value: displayValue(fundamental.valuation.forward_pe, (value) => formatRatio(value)) },
-          { label: "PEG", value: displayValue(fundamental.valuation.peg, (value) => formatRatio(value)) },
-          { label: "PS", value: displayValue(fundamental.valuation.ps_ratio, (value) => formatRatio(value)) },
-          { label: "EV / EBITDA", value: displayValue(fundamental.valuation.ev_ebitda, (value) => formatRatio(value)) },
-          { label: "Price / FCF", value: displayValue(fundamental.valuation.price_fcf, (value) => formatRatio(value)) },
-          { label: t("summary"), value: fundamental.valuation.state || t("dataUnavailable") },
+          { label: t("pe"), value: displayValue(fundamentalValuation.pe, (value) => formatRatio(value)) },
+          { label: t("forwardPe"), value: displayValue(fundamentalValuation.forward_pe, (value) => formatRatio(value)) },
+          { label: "PEG", value: displayValue(fundamentalValuation.peg, (value) => formatRatio(value)) },
+          { label: "PS", value: displayValue(fundamentalValuation.ps_ratio, (value) => formatRatio(value)) },
+          { label: "EV / EBITDA", value: displayValue(fundamentalValuation.ev_ebitda, (value) => formatRatio(value)) },
+          { label: "Price / FCF", value: displayValue(fundamentalValuation.price_fcf, (value) => formatRatio(value)) },
+          { label: t("summary"), value: fundamentalValuation.state || t("dataUnavailable") },
         ])}</div>
       </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("financialHealth")}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: t("freeCashFlow"), value: displayValue(fundamental.financial_health.free_cash_flow, (value) => formatBillions(value, currencyCode)) },
-          { label: currentLanguage === "zh" ? "现金储备" : "Cash Reserve", value: displayValue(fundamental.financial_health.cash_reserve, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "债务" : "Debt", value: displayValue(fundamental.financial_health.debt, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "资本开支" : "CapEx", value: displayValue(fundamental.financial_health.capital_expenditure, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "现金流稳定性" : "Cash Flow Stability", value: displayValue(fundamental.financial_health.cash_flow_stability, (value) => `${Math.round(value)}/100`) },
+          { label: t("freeCashFlow"), value: displayValue(fundamentalFinancialHealth.free_cash_flow, (value) => formatBillions(value, currencyCode)) },
+          { label: currentLanguage === "zh" ? "现金储备" : "Cash Reserve", value: displayValue(fundamentalFinancialHealth.cash_reserve, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "债务" : "Debt", value: displayValue(fundamentalFinancialHealth.debt, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "资本开支" : "CapEx", value: displayValue(fundamentalFinancialHealth.capital_expenditure, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "现金流稳定性" : "Cash Flow Stability", value: displayValue(fundamentalFinancialHealth.cash_flow_stability, (value) => `${Math.round(value)}/100`) },
         ])}</div>
       </section>
     </section>
@@ -19169,16 +19176,19 @@ function renderSelectedOverview(row) {
 function actionClass(action) {
   const normalized = normalizeSixAction(action);
   if (normalized === "n/a") return "na";
-  if (["strong_buy", "accumulate"].includes(normalized)) return "buy";
+  if (normalized === "strong_buy") return "strong-buy";
+  if (normalized === "accumulate") return "accumulate";
   if (["hold_watch"].includes(normalized)) return "hold";
-  if (normalized === "trim_reduce") return "reduce";
-  if (normalized === "take_profit") return "reduce";
-  if (["avoid"].includes(normalized)) return "sell";
-  if (normalized.includes("buy")) return "buy";
+  if (normalized === "trim_reduce") return "trim-reduce";
+  if (normalized === "take_profit") return "take-profit";
+  if (["avoid"].includes(normalized)) return "avoid";
+  if (normalized.includes("strong") && normalized.includes("buy")) return "strong-buy";
+  if (normalized.includes("buy")) return "accumulate";
   if (normalized.includes("weak hold")) return "hold";
-  if (normalized.includes("reduce")) return "reduce";
+  if (normalized.includes("reduce") || normalized.includes("trim")) return "trim-reduce";
+  if (normalized.includes("profit")) return "take-profit";
   if (normalized === "hold") return "hold";
-  if (normalized.includes("sell") || normalized === "short") return "sell";
+  if (normalized.includes("sell") || normalized.includes("avoid") || normalized === "short") return "avoid";
   return normalized;
 }
 
@@ -19247,7 +19257,6 @@ function renderStockList() {
           <span class="stock-mini-chip ${actionClass(row.midTermRating)}">${currentLanguage === "zh" ? "中" : "M"}: ${row.midTermCompactLabel || localizedActionLabel(row.midTermRating)} · ${row.midTermActionScore ?? "—"}</span>
           <span class="stock-mini-chip ${actionClass(row.longTermRating)}">${currentLanguage === "zh" ? "长" : "L"}: ${row.longTermCompactLabel || localizedActionLabel(row.longTermRating)} · ${row.longTermActionScore ?? "—"}</span>
         </div>
-        <div class="stock-current-action">${currentLanguage === "zh" ? "操作推荐评分" : "Action Scores"}: ${currentLanguage === "zh" ? "短" : "S"} ${row.shortTermActionScore ?? "—"} / ${currentLanguage === "zh" ? "中" : "M"} ${row.midTermActionScore ?? "—"} / ${currentLanguage === "zh" ? "长" : "L"} ${row.longTermActionScore ?? "—"}</div>
       </div>
     `;
     item.addEventListener("click", () => {
