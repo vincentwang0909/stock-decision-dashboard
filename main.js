@@ -14315,6 +14315,7 @@ function deactivateExecutableBuyRange(range, reason) {
   }
   range.deactivated_active_segment = candidate;
   range.active_segment = null;
+  range.active_entry_segment = null;
   range.active_entry_mode = null;
   range.current_price_in_range = false;
   range.current_price_segment = "outside";
@@ -14323,11 +14324,115 @@ function deactivateExecutableBuyRange(range, reason) {
     range.high = range.base_pullback_range.high;
     range.midpoint = range.base_pullback_range.midpoint;
     range.final_executable_range = cloneRangeSummary(range.base_pullback_range);
+    range.displayed_primary_range = cloneRangeSummary(range.base_pullback_range);
+    range.display_mode = "base_only";
   }
   range.action_consistency = {
     ...(range.action_consistency || {}),
     current_price_in_active_segment: false,
     deactivation_reason: reason,
+  };
+}
+
+function horizonEntryAnchorProfile(horizonKey, row, supportResistance = {}) {
+  const tech = row?.technicals || {};
+  const resistances = supportResistance?.resistances || [];
+  if (horizonKey === "long_term") {
+    return {
+      right_candidates: [resistances[2]?.price, resistances[3]?.price, resistances[4]?.price, tech.ma100, tech.ma200],
+      trend_candidates: [tech.ma100, tech.ma200, resistances[2]?.price, resistances[3]?.price],
+      source_labels: [
+        resistances[2]?.id || resistances[2]?.level || "R3",
+        resistances[3]?.id || resistances[3]?.level || "R4",
+        Number.isFinite(tech.ma100) ? "MA100 reclaim" : null,
+        Number.isFinite(tech.ma200) ? "MA200 reclaim" : null,
+      ].filter(Boolean),
+    };
+  }
+  if (horizonKey === "mid_term") {
+    return {
+      right_candidates: [resistances[1]?.price, resistances[2]?.price, tech.ma50, tech.ma100],
+      trend_candidates: [tech.ma50, tech.ma100, resistances[1]?.price, resistances[2]?.price],
+      source_labels: [
+        resistances[1]?.id || resistances[1]?.level || "R2",
+        resistances[2]?.id || resistances[2]?.level || "R3",
+        Number.isFinite(tech.ma50) ? "MA50 reclaim" : null,
+        Number.isFinite(tech.ma100) ? "MA100 reclaim" : null,
+      ].filter(Boolean),
+    };
+  }
+  return {
+    right_candidates: [resistances[0]?.price, tech.ma20, tech.ma50],
+    trend_candidates: [tech.ma20, resistances[0]?.price, tech.ma50],
+    source_labels: [
+      resistances[0]?.id || resistances[0]?.level || "R1",
+      Number.isFinite(tech.ma20) ? "MA20 reclaim" : null,
+      Number.isFinite(tech.ma50) ? "MA50 reclaim" : null,
+    ].filter(Boolean),
+  };
+}
+
+function nearestFiniteAnchor(candidates = [], price = null) {
+  return candidates
+    .filter(Number.isFinite)
+    .sort((a, b) => Math.abs((price ?? a) - a) - Math.abs((price ?? b) - b))[0];
+}
+
+function buildLongIndependentEntryEvidence({ row, range, tradeContext, supportResistance }) {
+  const price = finiteNumberOrNull(row?.price);
+  const tech = row?.technicals || {};
+  const rs = tradeContext?.relative_strength_state || {};
+  const evidence = [];
+  const missing = [];
+  const add = (key, passed, detail, available = true) => {
+    if (!available) {
+      missing.push(key);
+      return;
+    }
+    if (passed) evidence.push({ key, detail });
+  };
+  add("price_above_ma100", Number.isFinite(price) && Number.isFinite(tech.ma100) && price >= tech.ma100, `price ${price} vs MA100 ${tech.ma100}`, Number.isFinite(price) && Number.isFinite(tech.ma100));
+  add("price_above_ma200", Number.isFinite(price) && Number.isFinite(tech.ma200) && price >= tech.ma200, `price ${price} vs MA200 ${tech.ma200}`, Number.isFinite(price) && Number.isFinite(tech.ma200));
+  add("long_relative_strength", Number.isFinite(rs.long_score) && rs.long_score >= 58, `long RS score ${rs.long_score}`, Number.isFinite(rs.long_score));
+  add("return_120d_positive", Number.isFinite(rs.stock_return_120d) && rs.stock_return_120d >= 0, `120D return ${rs.stock_return_120d}%`, Number.isFinite(rs.stock_return_120d));
+  add("vs_spy_120d_positive", Number.isFinite(rs.vs_spy_120d) && rs.vs_spy_120d >= -1, `120D vs SPY ${rs.vs_spy_120d}`, Number.isFinite(rs.vs_spy_120d));
+  add("vs_qqq_120d_positive", Number.isFinite(rs.vs_qqq_120d) && rs.vs_qqq_120d >= -1, `120D vs QQQ ${rs.vs_qqq_120d}`, Number.isFinite(rs.vs_qqq_120d));
+  add("fundamental_health", Number.isFinite(tradeContext?.fundamental_health?.score) && tradeContext.fundamental_health.score >= 60, `fundamental ${tradeContext?.fundamental_health?.score}`, Number.isFinite(tradeContext?.fundamental_health?.score));
+  add("valuation_room", ["reasonable", "neutral"].includes(tradeContext?.valuation_state?.regime) || (tradeContext?.valuation_state?.score ?? 0) >= 50, `valuation ${tradeContext?.valuation_state?.regime || tradeContext?.valuation_state?.score}`, tradeContext?.valuation_state?.regime !== "unavailable" || Number.isFinite(tradeContext?.valuation_state?.score));
+  add("guidance_not_lowered", tradeContext?.guidance_state?.direction !== "lowered", `guidance ${tradeContext?.guidance_state?.direction || "unavailable"}`, true);
+  add("cycle_not_deteriorating", tradeContext?.cycle_state?.regime !== "deteriorating", `cycle ${tradeContext?.cycle_state?.regime || "neutral"}`, true);
+  const baseSources = [
+    ...(range?.base_pullback_range?.based_on || []),
+    ...(range?.based_on || []),
+    ...(supportResistance?.supports || []).slice(2, 5).map((level) => level?.id || level?.level),
+  ].join(" ");
+  add("long_structural_anchors", /S3|S4|S5|MA100|MA200|52W|Major Swing|Fib 61|Fib 78/i.test(baseSources), baseSources || "no long anchors", Boolean(baseSources));
+  return {
+    count: evidence.length,
+    required_minimum: 5,
+    passed: evidence.length >= 5,
+    evidence,
+    missing,
+  };
+}
+
+function shortSignalContaminationForSegment(segment, horizonKey, longEvidence = null) {
+  const sources = (segment?.anchor_sources || []).join(" ");
+  const shortSignals = ["R1", "MA20", "MA50", "close", "Volume", "7D", "breakout"];
+  const longSignals = ["MA100", "MA200", "R3", "R4", "R5", "52W", "Major Swing", "120D", "long"];
+  const shortHits = shortSignals.filter((item) => new RegExp(item, "i").test(sources)).length;
+  const longHits = longSignals.filter((item) => new RegExp(item, "i").test(sources)).length;
+  const total = Math.max(1, shortHits + longHits);
+  const detected = horizonKey === "long_term" && shortHits > longHits && !(longEvidence?.passed);
+  return {
+    detected,
+    short_signal_weight_pct: Math.round((shortHits / total) * 100),
+    long_signal_weight_pct: Math.round((longHits / total) * 100),
+    blocking_reason: detected
+      ? (currentLanguage === "zh"
+        ? "长期 active entry 主要由 R1/MA20/MA50/短期量价信号驱动，长期独立证据不足。"
+        : "Long-term active entry is mostly driven by R1/MA20/MA50/short-term tape signals, with insufficient long-term independent evidence.")
+      : null,
   };
 }
 
@@ -14356,6 +14461,12 @@ function annotateBuyRangeSegments({
   const resistance = nearestAnchorAbovePrice(supportResistance?.resistances || [], price);
   const ma20 = finiteNumberOrNull(row.technicals?.ma20);
   const ma50 = finiteNumberOrNull(row.technicals?.ma50);
+  const ma100 = finiteNumberOrNull(row.technicals?.ma100);
+  const ma200 = finiteNumberOrNull(row.technicals?.ma200);
+  const horizonAnchors = horizonEntryAnchorProfile(horizonKey, row, supportResistance);
+  const longIndependentEvidence = horizonKey === "long_term"
+    ? buildLongIndependentEntryEvidence({ row, range, tradeContext, supportResistance })
+    : null;
   const volume = technical?.volume_confirmation || {};
   const fundamentalHealthy = !preliminaryRecommendation?.action_evidence?.risk_filters?.company_specific_risk
     && (tradeContext?.fundamental_health?.regime === "healthy" || tradeContext?.fundamental_health?.score >= 58);
@@ -14432,11 +14543,23 @@ function annotateBuyRangeSegments({
   const rightThreshold = thresholds.accumulate_right_threshold ?? thresholds.accumulate_execution_threshold ?? 68;
   const rightConfirmed = ["confirmed", "strong"].includes(rightSide.level)
     || (rightSide.level === "early" && Math.max(leftScore, evidence.raw_trend_score ?? 0) >= rightThreshold - 2);
-  const rightAnchorPrice = [resistance?.price, ma20, ma50].filter(Number.isFinite).sort((a, b) => Math.abs(price - a) - Math.abs(price - b))[0];
+  const rightAnchorPrice = nearestFiniteAnchor(horizonAnchors.right_candidates, price);
   const rightDistanceLimitAtr = activeEntryDistanceLimitAtr(companyProfile, "right_side");
+  const midRightIndependent = horizonKey !== "mid_term" || (
+    [
+      Number.isFinite(ma50),
+      Number.isFinite(ma100),
+      (tradeContext?.relative_strength_state?.mid_score ?? 0) >= 56,
+      (tradeContext?.trend_state?.score ?? 0) >= 55,
+      Number.isFinite(supportResistance?.resistances?.[1]?.price) || Number.isFinite(supportResistance?.resistances?.[2]?.price),
+    ].filter(Boolean).length >= 2
+  );
+  const longRightIndependent = horizonKey !== "long_term" || Boolean(longIndependentEvidence?.passed);
   const rightAllowed = rightConfirmed
     && rightScore >= rightThreshold - 4
     && !companySpecificRisk
+    && midRightIndependent
+    && longRightIndependent
     && Number.isFinite(rightAnchorPrice)
     && Number.isFinite(atr)
     && price <= rightAnchorPrice + atr * rightDistanceLimitAtr;
@@ -14451,17 +14574,22 @@ function annotateBuyRangeSegments({
       activationThreshold: rightThreshold,
       allocationHint,
       anchorSources: [
-        resistance?.id || resistance?.level || "R1 / retest",
-        Number.isFinite(ma20) ? "MA20 reclaim" : null,
-        Number.isFinite(ma50) ? "MA50 reclaim" : null,
+        ...horizonAnchors.source_labels,
+        horizonKey === "mid_term" && Number.isFinite(ma100) ? "20D/60D transition via MA100" : null,
+        horizonKey === "long_term" && longIndependentEvidence?.passed ? `long evidence ${longIndependentEvidence.count}/${longIndependentEvidence.required_minimum}` : null,
         volume.behavior_key ? `Volume: ${volume.behavior_key}` : null,
       ].filter(Boolean),
-      anchorPrices: [rightAnchorPrice, resistance?.price, ma20, ma50],
+      anchorPrices: [rightAnchorPrice, ...horizonAnchors.right_candidates],
       reason: currentLanguage === "zh"
-        ? "右侧确认：价格围绕突破 / 均线收复锚点，且确认分数达标。"
-        : "Right-side entry: price is near a breakout / reclaim anchor and confirmation score qualifies.",
+        ? `${horizonRangeKeys(horizonKey).label === "long" ? "长期右侧确认" : horizonRangeKeys(horizonKey).label === "mid" ? "中期右侧确认" : "短期右侧确认"}：价格围绕该周期突破 / 均线收复锚点，且确认分数达标。`
+        : `Horizon-specific right-side entry: price is near the ${horizonKey} breakout / reclaim anchor and confirmation score qualifies.`,
     });
-    if (segment?.active) segments.push(segment);
+    if (segment?.active) {
+      segment.horizon_key = horizonKey;
+      segment.long_independent_evidence = longIndependentEvidence;
+      segment.long_short_signal_contamination = shortSignalContaminationForSegment(segment, horizonKey, longIndependentEvidence);
+      if (!segment.long_short_signal_contamination?.detected) segments.push(segment);
+    }
   }
   const trendScore = evidence.raw_trend_score ?? opportunity.trend_continuation_score ?? trendEntry.score ?? 0;
   const trendThreshold = thresholds.accumulate_trend_threshold ?? thresholds.accumulate_execution_threshold ?? 70;
@@ -14471,12 +14599,13 @@ function annotateBuyRangeSegments({
     : null;
   const decisionTags = decisionTagSet(companyProfile, companyProfile?.decision_profile || {});
   const minUpside = hasAnyTag(decisionTags, ["HighVolatility", "HighMultiple", "AIInfrastructure", "HighGrowth"]) ? 4 : 3;
-  const trendAnchorPrice = [ma20, resistance?.price, ma50].filter(Number.isFinite).sort((a, b) => Math.abs(price - a) - Math.abs(price - b))[0];
+  const trendAnchorPrice = nearestFiniteAnchor(horizonAnchors.trend_candidates, price);
   const trendDistanceLimitAtr = activeEntryDistanceLimitAtr(companyProfile, "trend");
   const trendAllowed = trendScore >= trendThreshold
     && Number.isFinite(remainingUpsidePct)
     && remainingUpsidePct >= minUpside
     && tradeContext?.valuation_state?.regime !== "extreme"
+    && (horizonKey !== "long_term" || Boolean(longIndependentEvidence?.passed))
     && Number.isFinite(trendAnchorPrice)
     && Number.isFinite(atr)
     && price <= trendAnchorPrice + atr * trendDistanceLimitAtr;
@@ -14491,16 +14620,20 @@ function annotateBuyRangeSegments({
       activationThreshold: trendThreshold,
       allocationHint,
       anchorSources: [
-        Number.isFinite(ma20) ? "MA20 trend anchor" : null,
-        resistance?.id || resistance?.level || "R1 reclaim",
-        "relative strength / trend continuation",
+        ...horizonAnchors.source_labels,
+        horizonKey === "long_term" ? "60D/120D relative strength / long trend continuation" : "relative strength / trend continuation",
       ].filter(Boolean),
       anchorPrices: [trendAnchorPrice, sellLow],
       reason: currentLanguage === "zh"
         ? "强势趋势买入：趋势延续分数达标，且距离卖出区仍保留上行空间。"
         : "Trend entry: continuation score qualifies and there is still upside room before the sell range.",
     });
-    if (segment?.active) segments.push(segment);
+    if (segment?.active) {
+      segment.horizon_key = horizonKey;
+      segment.long_independent_evidence = longIndependentEvidence;
+      segment.long_short_signal_contamination = shortSignalContaminationForSegment(segment, horizonKey, longIndependentEvidence);
+      if (!segment.long_short_signal_contamination?.detected) segments.push(segment);
+    }
   }
   const activeSegments = segments.filter(Boolean);
   const activeSegment = activeSegments.find((segment) => rangeContainsPrice(segment, price, tolerance)) || null;
@@ -14538,13 +14671,21 @@ function annotateBuyRangeSegments({
     current_price_in_active_segment: Boolean(activeSegment),
     tolerance_buffer_atr: activeEntryToleranceAtr(companyProfile),
   };
-  if (activeSegment) {
-    applyExecutableRange(range, activeSegment, price);
-  } else {
-    range.final_executable_range = cloneRangeSummary(base);
-    range.active_entry_mode = null;
-  }
-}
+	  if (activeSegment) {
+	    applyExecutableRange(range, activeSegment, price);
+	  } else {
+	    range.final_executable_range = cloneRangeSummary(base);
+	    range.active_entry_mode = null;
+	  }
+  range.base_range = cloneRangeSummary(base);
+  range.active_entry_segment = activeSegment || null;
+  range.displayed_primary_range = range.active_segment && horizonKey !== "long_term" ? cloneRangeSummary(range.active_segment) : cloneRangeSummary(base);
+  range.display_mode = range.active_segment
+    ? (horizonKey === "long_term" ? "base_plus_active" : "active_only")
+    : "base_only";
+  range.long_independent_evidence = longIndependentEvidence;
+  range.long_short_signal_contamination = shortSignalContaminationForSegment(range.active_segment, horizonKey, longIndependentEvidence);
+	}
 
 function annotateSellRangeSegments({
   row,
@@ -14797,6 +14938,7 @@ function applyActiveTradeRanges({
       preliminaryRecommendation: preliminaryActionPlan?.[horizonKey],
     });
   });
+  enforceBuyRangeHorizonSeparation(buyPlan);
   bindStopsToActiveEntries(stopLossPlan, buyPlan, row, companyProfile, supportResistance);
   ["short_term", "mid_term", "long_term"].forEach((horizonKey) => {
     const keys = horizonRangeKeys(horizonKey);
@@ -15037,6 +15179,284 @@ function buildActionPlan(row, aiDecision, buyPlan, sellPlan, stopLossPlan, suppo
       long_term: longTerm,
     },
     overall_action: buildOverallAction(primaryAction.short_term, primaryAction.mid_term, primaryAction.long_term),
+  };
+}
+
+function rangeOverlapStats(a, b) {
+  const aAvailable = Number.isFinite(a?.low) && Number.isFinite(a?.high);
+  const bAvailable = Number.isFinite(b?.low) && Number.isFinite(b?.high);
+  if (!aAvailable || !bAvailable) {
+    return { overlap_amount: 0, overlap_pct_smaller_range: 0, overlap_pct_a: 0, overlap_pct_b: 0 };
+  }
+  const overlapAmount = Math.max(0, Math.min(a.high, b.high) - Math.max(a.low, b.low));
+  const widthA = Math.max(0.01, a.high - a.low);
+  const widthB = Math.max(0.01, b.high - b.low);
+  return {
+    overlap_amount: Number(overlapAmount.toFixed(2)),
+    overlap_pct_smaller_range: Number(((overlapAmount / Math.min(widthA, widthB)) * 100).toFixed(1)),
+    overlap_pct_a: Number(((overlapAmount / widthA) * 100).toFixed(1)),
+    overlap_pct_b: Number(((overlapAmount / widthB) * 100).toFixed(1)),
+  };
+}
+
+function activeSegmentSignature(segment) {
+  if (!segment || !Number.isFinite(segment.low) || !Number.isFinite(segment.high)) return null;
+  return {
+    low: Number(segment.low.toFixed(2)),
+    high: Number(segment.high.toFixed(2)),
+    mode: segment.mode || null,
+    anchors: [...new Set((segment.anchor_sources || []).map(String))].sort(),
+    stop: segment.reward_risk_analysis?.tactical_stop?.price ?? null,
+    target: segment.reward_risk_analysis?.weighted_target?.price ?? null,
+    rr: segment.reward_risk_analysis?.rr_weighted ?? null,
+    evidence: segment.evidence_score ?? null,
+  };
+}
+
+function sameSegmentValue(a, b) {
+  const left = activeSegmentSignature(a);
+  const right = activeSegmentSignature(b);
+  return Boolean(left && right && left.low === right.low && left.high === right.high && left.mode === right.mode);
+}
+
+function validateBuyRangeHorizonSeparation(buyPlan = {}) {
+  const ranges = {
+    short_term: buyPlan.short_term_buy_range,
+    mid_term: buyPlan.mid_term_buy_range,
+    long_term: buyPlan.long_term_buy_range,
+  };
+  const pairs = [
+    ["short_term", "mid_term"],
+    ["mid_term", "long_term"],
+    ["short_term", "long_term"],
+  ];
+  const conflicts = [];
+  const details = pairs.map(([aKey, bKey]) => {
+    const a = ranges[aKey];
+    const b = ranges[bKey];
+    const overlap = rangeOverlapStats(a, b);
+    const sameValueSegment = sameSegmentValue(a?.active_segment, b?.active_segment);
+    const exactDuplicate = rangeIsAvailable(a) && rangeIsAvailable(b)
+      && Number(a.low.toFixed(2)) === Number(b.low.toFixed(2))
+      && Number(a.high.toFixed(2)) === Number(b.high.toFixed(2));
+    const longRange = aKey === "long_term" ? a : bKey === "long_term" ? b : null;
+    const contamination = longRange?.long_short_signal_contamination || {};
+    const sameAnchors = sameValueSegment && JSON.stringify(activeSegmentSignature(a?.active_segment)?.anchors || []) === JSON.stringify(activeSegmentSignature(b?.active_segment)?.anchors || []);
+    const sharedTransitionEntry = aKey === "short_term" && bKey === "mid_term" && sameValueSegment && !sameAnchors;
+    const involvesLong = aKey === "long_term" || bKey === "long_term";
+    const validShortMidActiveOverride = aKey === "short_term"
+      && bKey === "mid_term"
+      && overlap.overlap_pct_smaller_range > 50
+      && !sameValueSegment
+      && Boolean(a?.active_segment || b?.active_segment);
+    const conflict = exactDuplicate
+      || (sameValueSegment && !sharedTransitionEntry)
+      || (overlap.overlap_pct_smaller_range > 50 && involvesLong && !validShortMidActiveOverride)
+      || contamination.detected;
+    const item = {
+      pair: `${aKey}/${bKey}`,
+      exact_duplicate: exactDuplicate,
+      severe_overlap: overlap.overlap_pct_smaller_range > 50,
+      same_value_segment: sameValueSegment,
+      same_anchor_set: sameAnchors,
+      same_mode: Boolean(a?.active_segment?.mode && a.active_segment.mode === b?.active_segment?.mode),
+      same_stop: a?.reward_risk_analysis?.tactical_stop?.price === b?.reward_risk_analysis?.tactical_stop?.price,
+      same_target: a?.reward_risk_analysis?.weighted_target?.price === b?.reward_risk_analysis?.weighted_target?.price,
+      same_rr: a?.reward_risk_analysis?.rr_weighted === b?.reward_risk_analysis?.rr_weighted,
+      same_evidence: a?.active_segment?.evidence_score === b?.active_segment?.evidence_score,
+      shared_transition_entry: sharedTransitionEntry,
+      valid_short_mid_active_override: validShortMidActiveOverride,
+      source_horizon_mismatch: Boolean(contamination.detected),
+      long_short_signal_contamination: contamination,
+      overlap,
+      resolution: conflict ? "conflict" : "passed",
+      explanation: conflict
+        ? (currentLanguage === "zh" ? "买入区间周期分离存在异常，需要避免跨周期复用或短期信号污染长期。" : "Buy horizon separation has a conflict; avoid cross-horizon reuse or short-signal contamination.")
+        : (currentLanguage === "zh" ? "买入区间周期分离通过。" : "Buy horizon separation passed."),
+    };
+    if (conflict) conflicts.push(item);
+    return item;
+  });
+  return {
+    passed: conflicts.length === 0,
+    conflicts,
+    details,
+  };
+}
+
+function enforceBuyRangeHorizonSeparation(buyPlan = {}) {
+  const shortRange = buyPlan.short_term_buy_range;
+  const midRange = buyPlan.mid_term_buy_range;
+  const longRange = buyPlan.long_term_buy_range;
+  const conflicts = [];
+  const longActive = longRange?.active_segment || null;
+  if (longActive) {
+    [
+      ["short_term", shortRange?.active_segment || shortRange],
+      ["mid_term", midRange?.active_segment || midRange],
+    ].forEach(([otherKey, otherRange]) => {
+      const overlap = rangeOverlapStats(longActive, otherRange);
+      if (overlap.overlap_pct_smaller_range > 50) {
+        conflicts.push({
+          pair: `${otherKey}/long_term`,
+          overlap,
+          long_active_segment: cloneRangeSummary(longActive),
+          other_range: cloneRangeSummary(otherRange),
+          reason: "long_active_segment_severe_overlap",
+        });
+      }
+    });
+    if (longRange?.long_short_signal_contamination?.detected) {
+      conflicts.push({
+        pair: "long_term",
+        overlap: null,
+        long_active_segment: cloneRangeSummary(longActive),
+        reason: "long_short_signal_contamination",
+      });
+    }
+  }
+  if (conflicts.length) {
+    deactivateExecutableBuyRange(longRange, "buy_horizon_separation_long_active_overlap");
+    longRange.buy_range_horizon_separation = {
+      conflicts,
+      resolution: "long_active_segment_deactivated",
+      explanation: currentLanguage === "zh"
+        ? "长期 active 买入段与较短周期严重重叠或短期信号污染，已取消长期 active 段，保留长期核心基础区。"
+        : "Long-term active entry overlapped shorter horizons or was contaminated by short-term signals, so it was deactivated and the long core base range is retained.",
+    };
+  }
+  buyPlan.buy_range_horizon_separation = validateBuyRangeHorizonSeparation(buyPlan);
+  return buyPlan;
+}
+
+function separateUpperLowerBuyRanges(upperRange, lowerRange, { price, atr, leveraged = false } = {}) {
+  const overlap = rangeOverlapStats(upperRange, lowerRange);
+  if (!rangeIsAvailable(upperRange) || !rangeIsAvailable(lowerRange) || overlap.overlap_pct_smaller_range <= 50) {
+    return {
+      adjusted: false,
+      overlap,
+      neutral_hold_zone: upperRange?.low > lowerRange?.high ? {
+        low: lowerRange.high,
+        high: upperRange.low,
+        reason: currentLanguage === "zh" ? "ETF 买入周期之间保留观望区。" : "Neutral hold zone between ETF buy horizons.",
+      } : null,
+      resolution: "not_required",
+    };
+  }
+  const originalUpper = cloneRangeSummary(upperRange);
+  const originalLower = cloneRangeSummary(lowerRange);
+  const buffer = Number.isFinite(atr) && Number.isFinite(price)
+    ? Math.max(atr * (leveraged ? 0.1 : 0.08), price * (leveraged ? 0.003 : 0.002))
+    : 0.01;
+  const boundary = (upperRange.low + lowerRange.high) / 2;
+  const upperLow = Math.min(upperRange.high - 0.01, Math.max(upperRange.low, boundary + buffer / 2));
+  const lowerHigh = Math.max(lowerRange.low + 0.01, Math.min(lowerRange.high, boundary - buffer / 2));
+  upperRange.original_range = upperRange.original_range || originalUpper;
+  lowerRange.original_range = lowerRange.original_range || originalLower;
+  upperRange.low = Number(upperLow.toFixed(2));
+  upperRange.midpoint = Number(((upperRange.low + upperRange.high) / 2).toFixed(2));
+  lowerRange.high = Number(lowerHigh.toFixed(2));
+  lowerRange.midpoint = Number(((lowerRange.low + lowerRange.high) / 2).toFixed(2));
+  const neutral = lowerRange.high < upperRange.low ? {
+    low: lowerRange.high,
+    high: upperRange.low,
+    reason: currentLanguage === "zh"
+      ? "ETF 买入周期原本严重重叠，重叠部分改为观望区，避免同一价格同时代表不同周期买入。"
+      : "ETF buy horizons had severe overlap; the overlap is converted into a neutral hold zone.",
+  } : null;
+  const after = rangeOverlapStats(upperRange, lowerRange);
+  return {
+    adjusted: true,
+    overlap_before: overlap,
+    overlap_after: after,
+    neutral_hold_zone: neutral,
+    resolution: neutral ? "carved_overlap_into_neutral_hold_zone" : "range_narrowed_without_full_separation",
+  };
+}
+
+function enforceETFBuyHorizonSeparation(buyPlan = {}, { price, atr, etfProfile } = {}) {
+  const leveraged = Boolean(etfProfile?.daily_reset || Math.abs(etfProfile?.leverage_multiple || 1) > 1);
+  const pairs = [
+    ["short_term", "mid_term"],
+    ["mid_term", "long_term"],
+  ];
+  const adjustments = [];
+  pairs.forEach(([upperKey, lowerKey]) => {
+    const upper = buyPlan[`${upperKey}_buy_range`];
+    const lower = buyPlan[`${lowerKey}_buy_range`];
+    const adjustment = separateUpperLowerBuyRanges(upper, lower, { price, atr, leveraged });
+    if (adjustment.adjusted) {
+      adjustments.push({ pair: `${upperKey}/${lowerKey}`, ...adjustment });
+      upper.buy_horizon_separation_adjustment = {
+        pair: `${upperKey}/${lowerKey}`,
+        original_range: upper.original_range,
+        resolution: adjustment.resolution,
+        neutral_hold_zone: adjustment.neutral_hold_zone,
+      };
+      lower.buy_horizon_separation_adjustment = {
+        pair: `${upperKey}/${lowerKey}`,
+        original_range: lower.original_range,
+        resolution: adjustment.resolution,
+        neutral_hold_zone: adjustment.neutral_hold_zone,
+      };
+      upper.neutral_hold_zone = upper.neutral_hold_zone || adjustment.neutral_hold_zone;
+      lower.neutral_hold_zone = lower.neutral_hold_zone || adjustment.neutral_hold_zone;
+      if (upper.active_segment && !rangeContainsPrice(upper, price)) {
+        upper.active_segment.active = false;
+        upper.active_segment.invalidation_reason = "buy_horizon_separation";
+        upper.active_segment = null;
+        upper.current_price_in_range = false;
+      }
+      if (lower.active_segment && !rangeContainsPrice(lower, price)) {
+        lower.active_segment.active = false;
+        lower.active_segment.invalidation_reason = "buy_horizon_separation";
+        lower.active_segment = null;
+        lower.current_price_in_range = false;
+      }
+    }
+  });
+  buyPlan.buy_horizon_separation_adjustments = adjustments;
+  return buyPlan;
+}
+
+function validateETFBuyHorizonSeparation(buyPlan = {}, etfProfile = {}) {
+  const leveraged = Boolean(etfProfile?.daily_reset || Math.abs(etfProfile?.leverage_multiple || 1) > 1);
+  const pairs = [
+    ["short_term", "mid_term"],
+    ["mid_term", "long_term"],
+    ["short_term", "long_term"],
+  ];
+  const conflicts = [];
+  const details = pairs.map(([upperKey, lowerKey]) => {
+    const upper = buyPlan[`${upperKey}_buy_range`];
+    const lower = buyPlan[`${lowerKey}_buy_range`];
+    const overlap = rangeOverlapStats(upper, lower);
+    const exactDuplicate = rangeIsAvailable(upper) && rangeIsAvailable(lower)
+      && Number(upper.low.toFixed(2)) === Number(lower.low.toFixed(2))
+      && Number(upper.high.toFixed(2)) === Number(lower.high.toFixed(2));
+    const severeOverlap = overlap.overlap_pct_smaller_range > 50;
+    const extendedHoldingBuyRange = leveraged && lowerKey === "long_term" && Boolean(lower?.active_segment);
+    const conflict = exactDuplicate || severeOverlap || extendedHoldingBuyRange;
+    const item = {
+      pair: `${upperKey}/${lowerKey}`,
+      exact_duplicate: exactDuplicate,
+      severe_overlap: severeOverlap,
+      overlap,
+      leveraged,
+      extended_holding_has_active_buy: extendedHoldingBuyRange,
+      neutral_hold_zone: upper?.neutral_hold_zone || lower?.neutral_hold_zone || null,
+      resolution: conflict ? "conflict" : "passed",
+      explanation: conflict
+        ? (currentLanguage === "zh" ? "ETF 买入周期仍存在严重重叠或延长持有层 active buy，需要继续分离。" : "ETF buy horizons still have severe overlap or extended-holding active buy.")
+        : (currentLanguage === "zh" ? "ETF 买入周期分离通过。" : "ETF buy horizon separation passed."),
+    };
+    if (conflict) conflicts.push(item);
+    return item;
+  });
+  return {
+    passed: conflicts.length === 0,
+    conflicts,
+    details,
   };
 }
 
@@ -16094,6 +16514,30 @@ function buildETFPlansAndActions({ row, etfProfile, supportResistance, technical
   actionPlan.action_conflict = conflict;
   actionPlan.plan_recommendations = primaryAction;
   actionPlan.overall_action = buildOverallAction(primaryAction.short_term, primaryAction.mid_term, primaryAction.long_term);
+  enforceETFBuyHorizonSeparation(buyPlan, { price, atr, etfProfile });
+  ["short_term", "mid_term", "long_term"].forEach((horizonKey) => {
+    const buyRange = buyPlan[`${horizonKey}_buy_range`];
+    const entryBlock = entryAction[horizonKey];
+    const primaryBlock = primaryAction[horizonKey];
+    const buyStillExecutable = Boolean(buyRange?.active_segment && buyRange?.current_price_in_range);
+    const downgrade = (block) => {
+      if (!block || !["strong_buy", "accumulate"].includes(block.final_action) || buyStillExecutable) return;
+      block.final_action = "hold_watch";
+      block.action = "hold_watch";
+      block.final_action_label = actionLabel("hold_watch");
+      block.action_label = actionLabel("hold_watch");
+      block.action_recommendation_score = Math.min(block.action_recommendation_score ?? 70, 68);
+      block.score = block.action_recommendation_score;
+      block.reason = currentLanguage === "zh"
+        ? "ETF 买入周期分离后，当前价格不再位于可执行买入段内，降级为持有 / 观望。"
+        : "After ETF buy-horizon separation, current price is no longer inside an executable entry segment, so action is downgraded to hold/watch.";
+      block.buy_range = buyRange;
+    };
+    downgrade(entryBlock);
+    downgrade(primaryBlock);
+    actionPlan[horizonKey] = primaryAction[horizonKey];
+  });
+  actionPlan.overall_action = buildOverallAction(primaryAction.short_term, primaryAction.mid_term, primaryAction.long_term);
   return { buyPlan, sellPlan, stopLossPlan, actionPlan };
 }
 
@@ -16306,6 +16750,7 @@ function buildETFDecisionModel(row, research, companyProfile, etfProfile) {
     options_consistency: validateOptionsConsistency(plans.actionPlan, optionsStrategyPlan),
     paired_etf_consistency: validatePairedETFConsistency({ etf_decision: { etf_profile: etfProfile, benchmark_context: benchmarkContext } }),
     etf_buy_sell_separation: validateETFBuySellRangeSeparation(plans.buyPlan, plans.sellPlan),
+    etf_buy_horizon_separation: validateETFBuyHorizonSeparation(plans.buyPlan, etfProfile),
     critical_fields: validateNoMissingCriticalFields({
       action_plan: plans.actionPlan,
       buy_plan: plans.buyPlan,
@@ -17391,6 +17836,7 @@ function buildDecisionModel(row) {
 		  const validation = {
 		    action_consistency: validateActionConsistency(actionPlan),
 		    action_range_consistency: validateActionRangeConsistency(actionPlan),
+		    buy_horizon_separation: validateBuyRangeHorizonSeparation(recommendedBuyPlan),
 		    sell_horizon_separation: validateSellRangeHorizonSeparation(sellPlan),
 		    options_consistency: validateOptionsConsistency(actionPlan, optionsStrategyPlan),
     critical_fields: validateNoMissingCriticalFields({
@@ -17743,8 +18189,10 @@ function renderDetailModal(row) {
 	    `;
 	  };
 	  const renderBuyZoneCard = (title, zone, { hideUnavailable = false } = {}) => {
-    const zoneLow = zone?.low ?? zone?.zone?.low ?? null;
-    const zoneHigh = zone?.high ?? zone?.zone?.high ?? null;
+    const primaryDisplayRange = zone?.displayed_primary_range
+      || (zone?.display_mode === "base_plus_active" ? (zone?.base_range || zone?.base_pullback_range) : null);
+    const zoneLow = primaryDisplayRange?.low ?? zone?.low ?? zone?.zone?.low ?? null;
+    const zoneHigh = primaryDisplayRange?.high ?? zone?.high ?? zone?.zone?.high ?? null;
     const available = ["available", "triggered"].includes(zone?.status) && zoneLow != null && zoneHigh != null;
     if (!available && hideUnavailable) return "";
     const isMomentum = zone?.plan_type === "momentum";
@@ -17792,7 +18240,8 @@ function renderDetailModal(row) {
 	        ${zone?.allocation_hint ? `<div class="detail-line-note">${currentLanguage === "zh" ? "建议分批比例" : "Allocation Hint"}: ${zone.allocation_hint}</div>` : ""}
 	        ${zone?.active_entry_mode ? `<div class="detail-line-note">${currentLanguage === "zh" ? "当前激活模式" : "Active Mode"}: ${entryModeLabel(zone.active_entry_mode)}</div>` : ""}
 	        ${zone?.base_pullback_range ? `<div class="detail-line-note">${currentLanguage === "zh" ? "基础低吸区" : "Base Pullback Range"}: ${formatCurrency(zone.base_pullback_range.low, currencyCode)} - ${formatCurrency(zone.base_pullback_range.high, currencyCode)}</div>` : ""}
-	        ${zone?.final_executable_range ? `<div class="detail-line-note">${currentLanguage === "zh" ? "当前可执行区间" : "Current Executable Range"}: ${formatCurrency(zone.final_executable_range.low, currencyCode)} - ${formatCurrency(zone.final_executable_range.high, currencyCode)}</div>` : ""}
+	        ${zone?.display_mode === "base_plus_active" && zone?.active_entry_segment ? `<div class="detail-line-note">${currentLanguage === "zh" ? "当前可执行买入区" : "Current Active Entry Range"}: ${entryModeLabel(zone.active_entry_segment.mode)} ${formatCurrency(zone.active_entry_segment.low, currencyCode)} - ${formatCurrency(zone.active_entry_segment.high, currencyCode)}</div>` : ""}
+	        ${zone?.final_executable_range && zone?.display_mode !== "base_plus_active" ? `<div class="detail-line-note">${currentLanguage === "zh" ? "当前可执行区间" : "Current Executable Range"}: ${formatCurrency(zone.final_executable_range.low, currencyCode)} - ${formatCurrency(zone.final_executable_range.high, currencyCode)}</div>` : ""}
 	        ${renderSegmentList(zone?.segments || [], zone?.active_entry_mode)}
 	        ${zone?.reward_risk_ratio != null ? `<div class="detail-line-note">${currentLanguage === "zh" ? "风险收益比" : "Reward / Risk"}: ${zone.reward_risk_ratio}</div>` : ""}
 	        ${renderReachabilityNote(zone)}
