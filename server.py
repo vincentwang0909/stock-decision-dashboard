@@ -5520,6 +5520,24 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
         1 for quote in quotes.values()
         if isinstance(quote, dict) and quote.get("quote_status") == "unavailable"
     )
+    hard_failed = [
+        failure for failure in failed
+        if isinstance(failure, dict) and not failure.get("used_cache")
+    ]
+    cache_fallback_failures = [
+        failure for failure in failed
+        if isinstance(failure, dict) and failure.get("used_cache")
+    ]
+    cache_fallback_tickers = sorted({
+        normalize_ticker_input(failure.get("ticker") or failure.get("symbol"))
+        for failure in cache_fallback_failures
+        if failure.get("ticker") or failure.get("symbol")
+    })
+    hard_failed_tickers = sorted({
+        normalize_ticker_input(failure.get("ticker") or failure.get("symbol"))
+        for failure in hard_failed
+        if failure.get("ticker") or failure.get("symbol")
+    })
     items = [quote_to_market_item(ticker, quotes[ticker]) for ticker in normalized_tickers]
     success_count = sum(
         1 for quote in quotes.values()
@@ -5611,7 +5629,11 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
             "missing_from_request": missing_from_request,
             "total_tickers": len(normalized_tickers),
             "success_count": success_count,
-            "failed_count": len(failed),
+            "failed_count": len(hard_failed),
+            "live_failure_count": len(failed),
+            "cache_fallback_count": len(cache_fallback_failures),
+            "cache_fallback_tickers": cache_fallback_tickers,
+            "hard_failed_tickers": hard_failed_tickers,
             "unavailable_count": unavailable_count,
             "has_stale_quotes": stale_quote_count > 0 or unavailable_count > 0,
             "stale_quote_count": stale_quote_count,

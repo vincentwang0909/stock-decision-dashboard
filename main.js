@@ -3725,6 +3725,14 @@ function normalizedRefreshStatus(snapshot) {
   const failedCount = Number.isFinite(status.failed_count)
     ? status.failed_count
     : Array.isArray(snapshot.failed) ? snapshot.failed.length : 0;
+  const liveFailureCount = Number.isFinite(status.live_failure_count)
+    ? status.live_failure_count
+    : failedCount;
+  const cacheFallbackCount = Number.isFinite(status.cache_fallback_count)
+    ? status.cache_fallback_count
+    : Array.isArray(snapshot.failed)
+      ? snapshot.failed.filter((failure) => failure?.used_cache).length
+      : 0;
   const usedCacheCount = Number.isFinite(status.used_cache_count) ? status.used_cache_count : 0;
   const unavailableCount = Number.isFinite(status.unavailable_count)
     ? status.unavailable_count
@@ -3745,6 +3753,8 @@ function normalizedRefreshStatus(snapshot) {
     total_tickers: totalTickers,
     success_count: successCount,
     failed_count: failedCount,
+    live_failure_count: liveFailureCount,
+    cache_fallback_count: cacheFallbackCount,
     used_cache_count: usedCacheCount,
     unavailable_count: unavailableCount,
     has_stale_quotes: typeof status.has_stale_quotes === "boolean" ? status.has_stale_quotes : staleQuoteCount > 0,
@@ -3861,12 +3871,17 @@ function refreshChipText(snapshot, fallbackText = t("refresh")) {
     addPart(currentLanguage === "zh" ? "刷新成功" : "Refresh succeeded");
   }
   if (lastRefresh) addPart(`${t("lastRefresh")} ${lastRefresh}`);
-  if (status.stale_quote_count > 0 || status.stale_cache_count > 0) addPart(t("partialCachedQuotes"));
+  if (status.stale_quote_count > 0 || status.stale_cache_count > 0 || status.cache_fallback_count > 0) {
+    const cacheCount = Math.max(status.cache_fallback_count || 0, status.stale_quote_count || 0, status.stale_cache_count || 0);
+    addPart(cacheCount > 0
+      ? (currentLanguage === "zh" ? `部分行情使用缓存（${cacheCount} 个 ticker）` : `Some quotes use cache (${cacheCount} ticker(s))`)
+      : t("partialCachedQuotes"));
+  }
   if (status.failed_count > 0 || status.unavailable_count > 0) {
     const unavailableTotal = Math.max(status.failed_count || 0, status.unavailable_count || 0);
     addPart(currentLanguage === "zh"
-      ? `部分行情暂不可用（${unavailableTotal} 个 ticker 未返回可用报价，已使用缓存或显示暂无价格）`
-      : `Some quotes are unavailable (${unavailableTotal} ticker(s) did not return a usable quote; cached or blank prices are shown)`);
+      ? `部分行情暂不可用（${unavailableTotal} 个 ticker 没有 live 报价且无可用缓存）`
+      : `Some quotes are unavailable (${unavailableTotal} ticker(s) have no live quote and no usable cache)`);
   }
   if (nextRefresh) addPart(`${t("nextRefresh")} ${nextRefresh}`);
   return parts.join(" • ");
@@ -3969,10 +3984,13 @@ function mergeMarketSnapshots(baseSnapshot, patchSnapshot, requestedTickers = []
     ...(patchSnapshot.quotes || {}),
   };
   const orderedTickers = requestedTickers.length ? requestedTickers : Object.keys(quotes);
+  const quoteHasUsablePrice = (ticker) => quotes[ticker]?.price != null;
   const failedByTicker = new Map();
   [...(safeBaseSnapshot.failed || []), ...(patchSnapshot.failed || [])].forEach((failure) => {
     if (!failure) return;
-    failedByTicker.set(failure.ticker || failure.symbol || JSON.stringify(failure), failure);
+    const ticker = failure.ticker || failure.symbol || null;
+    if (ticker && (failure.used_cache || quoteHasUsablePrice(ticker))) return;
+    failedByTicker.set(ticker || JSON.stringify(failure), failure);
   });
   const baseStatus = safeBaseSnapshot.refresh_status || {};
   const patchStatus = patchSnapshot.refresh_status || {};
@@ -3980,12 +3998,20 @@ function mergeMarketSnapshots(baseSnapshot, patchSnapshot, requestedTickers = []
   const successCount = quoteValues.filter((quote) => quote?.price != null).length;
   const unavailableCount = quoteValues.filter((quote) => quote?.quote_status === "unavailable").length;
   const staleQuoteCount = quoteValues.filter((quote) => quote?.stale || quote?.dataStaleness === "stale" || quote?.quote_status === "stale").length;
+  const cacheFallbackCount = uniqueList([
+    ...(baseStatus.cache_fallback_tickers || []),
+    ...(patchStatus.cache_fallback_tickers || []),
+    ...(safeBaseSnapshot.failed || []).filter((failure) => failure?.used_cache).map((failure) => failure.ticker || failure.symbol),
+    ...(patchSnapshot.failed || []).filter((failure) => failure?.used_cache).map((failure) => failure.ticker || failure.symbol),
+  ]).length;
   const status = {
     ...baseStatus,
     ...patchStatus,
     total_tickers: orderedTickers.length,
     success_count: successCount,
     failed_count: failedByTicker.size,
+    live_failure_count: (baseStatus.live_failure_count || 0) + (patchStatus.live_failure_count || 0),
+    cache_fallback_count: Math.max(cacheFallbackCount, baseStatus.cache_fallback_count || 0, patchStatus.cache_fallback_count || 0),
     unavailable_count: unavailableCount,
     unavailable_quote_count: unavailableCount,
     stale_quote_count: staleQuoteCount,
@@ -20394,7 +20420,7 @@ const loadedCachedSnapshot = loadCachedSnapshot();
 syncTickerRows();
 render();
 syncWatchlistFromServer({ rerender: true, refreshPrices: false });
-if (!loadedCachedSnapshot) {
+if (!loadedCachedSnapshot || shouldHideFormalActionsForState() || marketDataState?.is_stale) {
   runDashboardRefresh({ mode: "cache" });
 }
 scheduleNextHourlyAutoRefresh();
