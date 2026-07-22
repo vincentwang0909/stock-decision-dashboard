@@ -367,7 +367,7 @@ const DEFAULT_WATCHLIST = [
 const I18N = {
   en: {
     appTitle: "Stock Decision Dashboard",
-    refresh: "Auto refresh every 1 hour",
+    refresh: "Auto refresh at the top of every hour",
     refreshNow: "Refresh Now",
     refreshing: "Refreshing...",
     lastRefresh: "Last refresh",
@@ -403,7 +403,7 @@ const I18N = {
     holdWord: "hold",
     sellWord: "sell",
     indicators: "indicators",
-    fallbackRefresh: "Auto refresh every 1 hour • using seeded fallback",
+    fallbackRefresh: "Auto refresh at the top of every hour • using seeded fallback",
     unavailableRefresh: "Price source unavailable",
     staleRefresh: "Using last successful refresh",
     noMarketDataAdd: "has no available market data and could not be added.",
@@ -754,7 +754,7 @@ const I18N = {
   },
   zh: {
     appTitle: "股票决策面板",
-    refresh: "每 1 小时自动刷新",
+    refresh: "每整点自动刷新",
     refreshNow: "立即刷新",
     refreshing: "刷新中...",
     lastRefresh: "上次刷新",
@@ -790,7 +790,7 @@ const I18N = {
     holdWord: "观望",
     sellWord: "卖出",
     indicators: "个指标",
-    fallbackRefresh: "每 1 小时自动刷新一次 • 当前使用本地回退数据",
+    fallbackRefresh: "每整点自动刷新 • 当前使用本地回退数据",
     unavailableRefresh: "行情源暂时不可用",
     staleRefresh: "当前使用上一次成功刷新结果",
     noMarketDataAdd: "没有可用的市场数据，无法添加。",
@@ -2550,16 +2550,20 @@ function normalizeHistory(history, fallbackPrice, volatility, ticker, allowSynth
   const closes = Array.isArray(history?.closes) ? history.closes.filter((value) => Number.isFinite(value)) : [];
   const highs = Array.isArray(history?.highs) ? history.highs.filter((value) => Number.isFinite(value)) : [];
   const lows = Array.isArray(history?.lows) ? history.lows.filter((value) => Number.isFinite(value)) : [];
+  const opens = Array.isArray(history?.opens) ? history.opens.map((value) => Number(value)).filter((value) => Number.isFinite(value)) : [];
   const volumes = Array.isArray(history?.volumes) ? history.volumes.filter((value) => Number.isFinite(value)) : [];
   const turnovers = Array.isArray(history?.turnovers) ? history.turnovers.map((value) => Number(value)).filter((value) => Number.isFinite(value)) : [];
+  const timestamps = Array.isArray(history?.timestamps) ? history.timestamps.slice(-252) : Array.isArray(history?.dates) ? history.dates.slice(-252) : [];
 
   if (closes.length >= 30 && highs.length >= 30 && lows.length >= 30 && volumes.length >= 30) {
     return {
       closes: closes.slice(-252),
       highs: highs.slice(-252),
       lows: lows.slice(-252),
+      opens: opens.slice(-252),
       volumes: volumes.slice(-252),
       turnovers: turnovers.slice(-252),
+      timestamps,
       synthetic: false,
     };
   }
@@ -2569,8 +2573,10 @@ function normalizeHistory(history, fallbackPrice, volatility, ticker, allowSynth
       closes,
       highs,
       lows,
+      opens,
       volumes,
       turnovers,
+      timestamps,
       synthetic: false,
     };
   }
@@ -3545,6 +3551,7 @@ let refreshRequestInFlight = false;
 let refreshQueued = false;
 let latestMarketRequestId = 0;
 let marketDataState = null;
+let hourlyAutoRefreshTimer = null;
 
 function syncTickerRows() {
   const previousRows = new Map(tickerRows.map((row) => [row.ticker, row]));
@@ -3681,6 +3688,27 @@ function formatRefreshDateTime(updatedAt) {
   }).replace(",", "");
 }
 
+function nextHourlyRefreshDate(now = new Date()) {
+  const base = now instanceof Date ? now : new Date(now);
+  const safeBase = Number.isNaN(base.getTime()) ? new Date() : base;
+  const next = new Date(safeBase);
+  next.setMinutes(0, 0, 0);
+  if (next.getTime() <= safeBase.getTime()) {
+    next.setHours(next.getHours() + 1);
+  }
+  return next;
+}
+
+function nextHourlyRefreshIso(now = new Date()) {
+  return nextHourlyRefreshDate(now).toISOString();
+}
+
+function msUntilNextHourlyRefresh(now = new Date()) {
+  const base = now instanceof Date ? now : new Date(now);
+  const safeBase = Number.isNaN(base.getTime()) ? new Date() : base;
+  return Math.max(1000, nextHourlyRefreshDate(safeBase).getTime() - safeBase.getTime());
+}
+
 function normalizedRefreshStatus(snapshot) {
   if (!snapshot) return null;
   const status = snapshot.refresh_status || {};
@@ -3689,9 +3717,7 @@ function normalizedRefreshStatus(snapshot) {
     || status.last_any_successful_ticker_refresh_at
     || status.last_dashboard_refresh
     || null;
-  const nextRefresh = status.next_auto_refresh_at
-    || status.next_dashboard_refresh
-    || (lastRefresh ? new Date(new Date(lastRefresh).getTime() + PRICE_REFRESH_MS).toISOString() : null);
+  const nextRefresh = nextHourlyRefreshIso();
   const totalTickers = Number.isFinite(status.total_tickers) ? status.total_tickers : Object.keys(snapshot.quotes || {}).length;
   const successCount = Number.isFinite(status.success_count)
     ? status.success_count
@@ -3799,9 +3825,10 @@ function refreshChipText(snapshot, fallbackText = t("refresh")) {
 	  if (!snapshot) return fallbackText;
 	  if (shouldHideFormalActionsForState()) {
 	    const age = Number.isFinite(marketDataState?.cache_age_minutes) ? `${marketDataState.cache_age_minutes}m` : "—";
+	    const warning = marketDataState?.warning || (currentLanguage === "zh" ? "等待最新市场数据，当前推荐暂不显示。" : "Waiting for latest market data; recommendations are hidden.");
 	    return currentLanguage === "zh"
-	      ? `正在更新最新市场数据，当前推荐暂不显示 • 本地缓存 ${age}`
-	      : `Refreshing latest market data; recommendations hidden • local cache ${age}`;
+	      ? `${warning} • 本地缓存 ${age}`
+	      : `${warning} • local cache ${age}`;
 	  }
 	  const status = normalizedRefreshStatus(snapshot);
   if (!status) return fallbackText;
@@ -3817,7 +3844,7 @@ function refreshChipText(snapshot, fallbackText = t("refresh")) {
     seen.add(text);
     parts.push(text);
   };
-  addPart(currentLanguage === "zh" ? "每 1 小时自动刷新" : "Refreshes every 1 hour");
+  addPart(currentLanguage === "zh" ? "每整点自动刷新" : "Refreshes at the top of every hour");
   if (status.is_refreshing) {
     addPart(currentLanguage === "zh" ? "正在刷新行情..." : "Refreshing quotes...");
   } else if (status.success_count === 0 && status.total_tickers > 0) {
@@ -3835,7 +3862,12 @@ function refreshChipText(snapshot, fallbackText = t("refresh")) {
   }
   if (lastRefresh) addPart(`${t("lastRefresh")} ${lastRefresh}`);
   if (status.stale_quote_count > 0 || status.stale_cache_count > 0) addPart(t("partialCachedQuotes"));
-  if (status.failed_count > 0 || status.unavailable_count > 0) addPart(currentLanguage === "zh" ? "部分行情暂不可用" : "Some quotes are unavailable");
+  if (status.failed_count > 0 || status.unavailable_count > 0) {
+    const unavailableTotal = Math.max(status.failed_count || 0, status.unavailable_count || 0);
+    addPart(currentLanguage === "zh"
+      ? `部分行情暂不可用（${unavailableTotal} 个 ticker 未返回可用报价，已使用缓存或显示暂无价格）`
+      : `Some quotes are unavailable (${unavailableTotal} ticker(s) did not return a usable quote; cached or blank prices are shown)`);
+  }
   if (nextRefresh) addPart(`${t("nextRefresh")} ${nextRefresh}`);
   return parts.join(" • ");
 }
@@ -3846,7 +3878,7 @@ function refreshStatusForTimestamp(timestamp, { hasStaleQuotes = false, staleQuo
   return {
     refresh_interval_minutes: 60,
     last_dashboard_refresh: safeBase ? safeBase.toISOString() : null,
-    next_dashboard_refresh: safeBase ? new Date(safeBase.getTime() + PRICE_REFRESH_MS).toISOString() : null,
+    next_dashboard_refresh: nextHourlyRefreshIso(),
     is_refreshing: isRefreshing,
     has_stale_quotes: hasStaleQuotes,
     stale_quote_count: staleQuoteCount,
@@ -5359,21 +5391,6 @@ function normalizeExpectedMove(raw = {}, currentPrice = null) {
   };
 }
 
-function formatUnavailableReason(sourceName) {
-  return currentLanguage === "zh"
-    ? `${sourceName} 暂不可用；需要历史分析师预期快照或外部数据源。`
-    : `${sourceName} is unavailable; it requires historical estimate snapshots or an external feed.`;
-}
-
-function analystTrendLabel(value) {
-  if (!value) return t("dataUnavailable");
-  if (currentLanguage !== "zh") return localizedDashboardText(value);
-  if (value === "improving") return "改善";
-  if (value === "deteriorating") return "转弱";
-  if (value === "stable") return "稳定";
-  return localizedDashboardText(value);
-}
-
 function estimateExpectedMoveFromIv(price, ivPercent, days) {
   if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(ivPercent) || ivPercent <= 0 || !Number.isFinite(days) || days <= 0) {
     return { move: null, move_pct: null, source: null };
@@ -5436,57 +5453,16 @@ function buildAnalystRevisionModule(row, fundamental = {}) {
   const metadata = row.metadata || {};
   const targetMeanPrice = metadata.targetMeanPrice ?? null;
   const targetMedianPrice = metadata.targetMedianPrice ?? null;
-  const targetRevisionTrend = metadata.targetRevisionTrend ?? null;
-  const revenueRevision = metadata.revenueEstimateRevision ?? null;
-  const revenueEstimateGrowth = metadata.revenueEstimateGrowth ?? null;
-  const epsRevisionNote = metadata.epsEstimateRevision30d == null
-    ? formatUnavailableReason(currentLanguage === "zh" ? "EPS 7/30/90日预期修正" : "EPS 7/30/90D estimate revisions")
-    : "";
-  const revenueRevisionNote = revenueRevision == null && revenueEstimateGrowth != null
-    ? (currentLanguage === "zh" ? "Yahoo 当前提供收入预期增长/快照，未提供收入预期历史修正序列。" : "Yahoo provides revenue estimate growth/snapshot here, not historical revenue revision snapshots.")
-    : revenueRevision == null
-      ? formatUnavailableReason(currentLanguage === "zh" ? "收入预期修正" : "Revenue estimate revisions")
-      : "";
-  const targetRevisionNote = targetRevisionTrend == null
-    ? formatUnavailableReason(currentLanguage === "zh" ? "目标价修正趋势" : "Analyst target revision trend")
-    : metadata.targetRevisionTrendProxy
-      ? (currentLanguage === "zh" ? `目标价历史不可用；当前使用 ${metadata.targetRevisionTrendProxy} 作为趋势代理。` : `Target-price history unavailable; using ${metadata.targetRevisionTrendProxy} as a trend proxy.`)
-      : "";
   return {
-    eps_estimate_revisions_7d: metadata.epsEstimateRevision7d ?? null,
-    eps_estimate_revisions_30d: metadata.epsEstimateRevision30d ?? null,
-    eps_estimate_revisions_90d: metadata.epsEstimateRevision90d ?? null,
-    eps_estimate_current: metadata.epsEstimateCurrent ?? null,
-    eps_estimate_30d_ago: metadata.epsEstimate30DaysAgo ?? null,
-    revenue_estimate_revisions: revenueRevision,
-    revenue_estimate_growth: revenueEstimateGrowth,
-    revenue_estimate_current: metadata.revenueEstimateCurrent ?? null,
     next_year_eps_growth: metadata.nextYearEpsGrowth ?? metadata.earningsGrowth ?? metadata.earningsQuarterlyGrowth ?? fundamental.growth?.eps_growth ?? null,
     forward_guidance_changes: metadata.forwardGuidanceChange ?? fundamental.growth?.forward_guidance ?? null,
-    analyst_target_revision_trend: targetRevisionTrend,
-    analyst_target_revision_trend_proxy: metadata.targetRevisionTrendProxy ?? null,
-    recommendation_trend_delta: metadata.recommendationTrendDelta ?? null,
-    analyst_upgrade_count_recent: metadata.analystUpgradeCountRecent ?? null,
-    analyst_downgrade_count_recent: metadata.analystDowngradeCountRecent ?? null,
     target_mean_price: targetMeanPrice,
     target_median_price: targetMedianPrice,
-    recommendation_mean: metadata.recommendationMean ?? null,
-    recommendation_key: metadata.recommendationKey ?? null,
-    analyst_count: metadata.numberOfAnalystOpinions ?? null,
     source_status: {
-      revisions: metadata.epsEstimateRevision30d == null ? "unavailable" : "available",
-      revenue_revisions: revenueRevision == null ? (revenueEstimateGrowth == null ? "unavailable" : "snapshot_only") : "available",
+      guidance: metadata.forwardGuidanceChange != null || fundamental.growth?.forward_guidance != null ? "available" : "unavailable",
+      next_year_eps_growth: metadata.nextYearEpsGrowth != null || metadata.earningsGrowth != null || metadata.earningsQuarterlyGrowth != null || fundamental.growth?.eps_growth != null ? "available" : "unavailable",
       target_snapshot: targetMeanPrice != null || targetMedianPrice != null ? "available" : "unavailable",
-      target_trend: targetRevisionTrend == null ? "unavailable" : (metadata.targetRevisionTrendProxy ? "proxy" : "available"),
     },
-    eps_revision_note: epsRevisionNote,
-    revenue_revision_note: revenueRevisionNote,
-    target_revision_note: targetRevisionNote,
-    notes: [
-      epsRevisionNote,
-      revenueRevisionNote,
-      targetRevisionNote,
-    ].filter(Boolean),
   };
 }
 
@@ -5494,19 +5470,6 @@ function benchmarkTrendReturn(trend, lookback) {
   if (!trend) return null;
   const key = `change_${lookback}d_pct`;
   return Number.isFinite(trend[key]) ? trend[key] : null;
-}
-
-function sectorEtfForClassification(companyProfile = {}) {
-  const tags = new Set([...(companyProfile.tags || []), ...(companyProfile.top_tags || [])]);
-  if (tags.has("Semiconductor") || tags.has("AIInfrastructure") || tags.has("MemoryStorage")) return "SMH";
-  if (tags.has("Software") || tags.has("Cloud")) return "IGV";
-  if (tags.has("Healthcare") || tags.has("HealthInsurance") || tags.has("HealthcareServices")) return "XLV";
-  if (tags.has("REIT") || tags.has("RealEstate")) return "XLRE";
-  if (tags.has("Banking") || tags.has("Fintech")) return "XLF";
-  if (tags.has("Energy")) return "XLE";
-  if (tags.has("Industrial") || tags.has("Defense")) return "XLI";
-  if (tags.has("EV") || tags.has("AutoManufacturer") || tags.has("Consumer") || tags.has("Ecommerce")) return "XLY";
-  return null;
 }
 
 function buildRelativeStrengthModule(row, marketContext = {}, companyProfile = {}) {
@@ -5523,7 +5486,6 @@ function buildRelativeStrengthModule(row, marketContext = {}, companyProfile = {
     const benchmarkValue = benchmarkTrendReturn(trend, lookback);
     return Number.isFinite(stockValue) && Number.isFinite(benchmarkValue) ? stockValue - benchmarkValue : null;
   };
-  const sectorEtf = sectorEtfForClassification(companyProfile);
   const spyHasAllLookbacks = [20, 60, 120].every((lookback) => Number.isFinite(benchmarkTrendReturn(spyTrend, lookback)));
   const qqqHasAllLookbacks = [20, 60, 120].every((lookback) => Number.isFinite(benchmarkTrendReturn(qqqTrend, lookback)));
   return {
@@ -5536,18 +5498,10 @@ function buildRelativeStrengthModule(row, marketContext = {}, companyProfile = {
     stock_vs_qqq_20d: vsBenchmark(qqqTrend, 20),
     stock_vs_qqq_60d: vsBenchmark(qqqTrend, 60),
     stock_vs_qqq_120d: vsBenchmark(qqqTrend, 120),
-    stock_vs_sector_etf: null,
-    sector_etf: sectorEtf,
-    relative_strength_percentile: null,
     source_status: {
       spy: spyHasAllLookbacks ? "available" : Number.isFinite(benchmarkTrendReturn(spyTrend, 20)) ? "partial" : "unavailable",
       qqq: qqqHasAllLookbacks ? "available" : Number.isFinite(benchmarkTrendReturn(qqqTrend, 20)) ? "partial" : "unavailable",
-      sector_etf: "unavailable",
-      percentile: "unavailable",
     },
-    note: sectorEtf
-      ? (currentLanguage === "zh" ? `行业ETF参考 ${sectorEtf}，当前尚未抓取该ETF历史序列。` : `Sector ETF reference is ${sectorEtf}; its history is not fetched yet.`)
-      : (currentLanguage === "zh" ? "未识别到稳定行业ETF参考。" : "No stable sector ETF reference was identified."),
   };
 }
 
@@ -5562,18 +5516,14 @@ function buildEarningsEventRiskModule(row, optionsExpectedMove = {}) {
   return {
     days_to_earnings: daysToEarnings,
     earnings_date: earningsDate,
-    historical_earnings_gap: metadata.historicalEarningsGap ?? null,
     expected_move_from_options: optionsExpectedMove.expected_move_30d_pct ?? optionsExpectedMove.atm_straddle_implied_move_pct ?? null,
-    post_earnings_drift: metadata.postEarningsDrift ?? null,
     source_status: {
       calendar: earningsDate != null || daysToEarnings != null ? "available" : "unavailable",
-      historical_gap: metadata.historicalEarningsGap == null ? "unavailable" : "available",
       expected_move: optionsExpectedMove.expected_move_30d_pct == null && optionsExpectedMove.atm_straddle_implied_move_pct == null ? "unavailable" : "available",
-      drift: metadata.postEarningsDrift == null ? "unavailable" : "available",
     },
     note: currentLanguage === "zh"
-      ? "历史财报跳空和财报后漂移需要历史财报日期序列；缺失时不会伪造。"
-      : "Historical earnings gap and post-earnings drift require past earnings-date series and are not fabricated when unavailable.",
+      ? "财报事件风险使用财报日期、距离财报天数和期权预期波动；已移除缺少可靠来源的历史跳空/漂移字段。"
+      : "Earnings-event risk uses earnings date, days to earnings, and options expected move; unreliable historical gap/drift fields are removed.",
   };
 }
 
@@ -5668,26 +5618,13 @@ function buildGuidanceState(analystRevisions = {}, fundamental = {}) {
     else if (guidancePct <= -2) direction = "lowered";
     else direction = "maintained";
   }
-  const epsSignals = [
-    analystRevisions.eps_estimate_revisions_7d,
-    analystRevisions.eps_estimate_revisions_30d,
-    analystRevisions.eps_estimate_revisions_90d,
-  ].filter(Number.isFinite);
-  const epsRevisionScore = epsSignals.length ? scoreFromPercentSignal(mean(epsSignals), 12) : null;
-  const targetTrend = analystRevisions.analyst_target_revision_trend || analystRevisions.analyst_target_revision_trend_proxy || null;
-  let targetScore = null;
-  if (targetTrend === "improving") targetScore = 68;
-  else if (targetTrend === "deteriorating") targetScore = 36;
-  else if (targetTrend === "stable") targetScore = 52;
   const directionScore = direction === "raised" ? 75 : direction === "maintained" ? 55 : direction === "lowered" ? 25 : null;
-  const score = averageAvailableScores([directionScore, epsRevisionScore, targetScore]);
+  const score = averageAvailableScores([directionScore]);
   return {
     direction,
     magnitude: Number.isFinite(guidancePct) ? Number(guidancePct.toFixed(1)) : null,
-    recency: analystRevisions.source_status?.revisions === "available" ? "recent_snapshot" : "unavailable",
+    recency: analystRevisions.source_status?.guidance === "available" ? "current_snapshot" : "unavailable",
     score,
-    eps_revision_score: epsRevisionScore,
-    target_revision_score: targetScore,
     explanation: currentLanguage === "zh"
       ? direction === "raised"
         ? "前瞻指引或盈利预期上修，长期买入和卖出区间可适度上移。"
@@ -5910,6 +5847,433 @@ function buildCompanyRiskState({ fundamentalHealth, guidanceState, valuationStat
 	  };
 	}
 
+function isoDateOnly(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
+}
+
+function calendarDayDiff(fromDate, toDate) {
+  const from = isoDateOnly(fromDate);
+  const to = isoDateOnly(toDate);
+  if (!from || !to) return null;
+  const fromMs = new Date(`${from}T00:00:00Z`).getTime();
+  const toMs = new Date(`${to}T00:00:00Z`).getTime();
+  return Math.round((toMs - fromMs) / 86400000);
+}
+
+function historyBarsFromTechnicals(technicals = {}) {
+  const history = technicals.history || {};
+  const closes = Array.isArray(history.closes) ? history.closes : [];
+  const highs = Array.isArray(history.highs) ? history.highs : [];
+  const lows = Array.isArray(history.lows) ? history.lows : [];
+  const volumes = Array.isArray(history.volumes) ? history.volumes : [];
+  const opens = Array.isArray(history.opens) ? history.opens : [];
+  const timestamps = Array.isArray(history.timestamps) ? history.timestamps : [];
+  const length = Math.min(closes.length, highs.length || closes.length, lows.length || closes.length);
+  const bars = [];
+  for (let index = 0; index < length; index += 1) {
+    const close = finiteNumberOrNull(closes[index]);
+    if (!Number.isFinite(close)) continue;
+    const high = finiteNumberOrNull(highs[index]);
+    const low = finiteNumberOrNull(lows[index]);
+    bars.push({
+      index,
+      date: timestamps[index] || null,
+      open: finiteNumberOrNull(opens[index]),
+      high,
+      low,
+      close,
+      volume: finiteNumberOrNull(volumes[index]),
+    });
+  }
+  return bars;
+}
+
+function atrAtHistoryIndex(bars = [], index, period = 14) {
+  if (!Number.isFinite(index) || index <= 0) return null;
+  const start = Math.max(1, index - period + 1);
+  const ranges = [];
+  for (let i = start; i <= index; i += 1) {
+    const bar = bars[i];
+    const prev = bars[i - 1];
+    if (!bar || !prev || ![bar.high, bar.low, prev.close].every(Number.isFinite)) continue;
+    ranges.push(Math.max(bar.high - bar.low, Math.abs(bar.high - prev.close), Math.abs(bar.low - prev.close)));
+  }
+  return ranges.length ? mean(ranges) : null;
+}
+
+function maAtHistoryIndex(bars = [], index, period = 20) {
+  if (!Number.isFinite(index) || index < 0) return null;
+  const values = bars.slice(Math.max(0, index - period + 1), index + 1).map((bar) => bar.close).filter(Number.isFinite);
+  return values.length >= Math.min(period, index + 1) ? mean(values) : null;
+}
+
+function volumeRatioAtHistoryIndex(bars = [], index, period = 20) {
+  const current = finiteNumberOrNull(bars[index]?.volume);
+  if (!Number.isFinite(current)) return null;
+  const base = bars.slice(Math.max(0, index - period), index).map((bar) => bar.volume).filter(Number.isFinite);
+  const avg = base.length ? mean(base) : null;
+  return Number.isFinite(avg) && avg > 0 ? current / avg : null;
+}
+
+function closeLocationForBar(bar) {
+  if (!bar || ![bar.high, bar.low, bar.close].every(Number.isFinite) || bar.high === bar.low) return null;
+  return clamp(((bar.close - bar.low) / (bar.high - bar.low)) * 100, 0, 100);
+}
+
+function eventTypeForShock({ eventDate, earningsDate, guidanceState, companySpecificNewsRisk, marketWideSelloff }) {
+  const calendarDiff = calendarDayDiff(earningsDate, eventDate);
+  if (Number.isFinite(calendarDiff) && calendarDiff >= -2 && calendarDiff <= 4) {
+    return { event_type: "earnings_gap_down", event_date_match_method: "calendar_days_-2_to_+4", event_days_from_earnings: calendarDiff };
+  }
+  if (guidanceState?.direction === "lowered") return { event_type: "guidance_shock", event_date_match_method: "guidance_state", event_days_from_earnings: calendarDiff };
+  if (companySpecificNewsRisk) return { event_type: "company_specific_event", event_date_match_method: "company_news", event_days_from_earnings: calendarDiff };
+  if (marketWideSelloff) return { event_type: "market_driven_selloff", event_date_match_method: "market_context", event_days_from_earnings: calendarDiff };
+  return { event_type: "unknown_event_shock", event_date_match_method: "price_volume_history", event_days_from_earnings: calendarDiff };
+}
+
+function recentEventRiskScoreForState(state) {
+  if (state === "awaiting_confirmation") return 80;
+  if (state === "deteriorating") return 85;
+  if (state === "stabilizing") return 60;
+  if (state === "fast_reversal") return 40;
+  if (state === "confirmed_recovery") return 20;
+  return 0;
+}
+
+function followThroughStatusForState(state) {
+  if (state === "awaiting_confirmation") return "waiting";
+  if (state === "stabilizing" || state === "fast_reversal") return "partial";
+  if (state === "confirmed_recovery" || state === "resolved") return "confirmed";
+  if (state === "deteriorating") return "failed";
+  return "none";
+}
+
+function recentEventStateFromGapRisk(gapRisk = {}) {
+  return gapRisk?.recent_event_state
+    || gapRisk?.recent_event_shock?.recent_event_state
+    || gapRisk?.recent_event_shock?.risk_state
+    || (gapRisk?.classification === "post_event_recovery" ? "confirmed_recovery" : null)
+    || "resolved";
+}
+
+function recentEventBlocksEntryMode(gapRisk = {}, mode = "entry") {
+  if (!gapRisk?.active) return false;
+  const state = recentEventStateFromGapRisk(gapRisk);
+  if (["resolved", "confirmed_recovery"].includes(state)) return false;
+  if (["awaiting_confirmation", "deteriorating"].includes(state)) return true;
+  if (state === "stabilizing") return ["right_side", "trend", "strong_buy"].includes(mode);
+  return false;
+}
+
+function recentEventAllocationHint(gapRisk = {}, fallback = null) {
+  const state = recentEventStateFromGapRisk(gapRisk);
+  if (state !== "stabilizing") return fallback;
+  return currentLanguage === "zh" ? "5%-10% 小仓观察" : "5%-10% starter only";
+}
+
+function buildRecentEventShockState(
+  history,
+  earningsDate,
+  currentDate,
+  gapDownRisk,
+  guidanceState,
+  technicals,
+  volumeContext,
+  relativeStrength,
+) {
+  const bars = Array.isArray(history) ? history : historyBarsFromTechnicals({ history });
+  const currentIndex = bars.length - 1;
+  const currentBar = bars[currentIndex];
+  if (bars.length < 5 || !currentBar) {
+    return {
+      active: false,
+      event_type: null,
+      event_date: null,
+      risk_state: "resolved",
+      expiry_reason: "insufficient_history",
+      explanation: currentLanguage === "zh" ? "历史 K 线不足，无法扫描近期事件冲击。" : "Insufficient history to scan recent event shocks.",
+    };
+  }
+
+  const pctTrigger = finiteNumberOrNull(gapDownRisk?.profile_trigger_pct) ?? -5;
+  const marketWideSelloff = Boolean(gapDownRisk?.market_wide_selloff);
+  const companySpecificNewsRisk = Boolean(gapDownRisk?.company_specific_news_risk);
+  const lookback = Math.min(10, currentIndex);
+  const candidates = [];
+  for (let index = Math.max(1, currentIndex - lookback); index <= currentIndex; index += 1) {
+    const bar = bars[index];
+    const prev = bars[index - 1];
+    if (!bar || !prev || !Number.isFinite(prev.close) || prev.close <= 0) continue;
+    const dayChangePct = ((bar.close - prev.close) / prev.close) * 100;
+    const atrValue = atrAtHistoryIndex(bars, index);
+    const dropInAtr = Number.isFinite(atrValue) && atrValue > 0 && bar.close < prev.close ? Math.abs(bar.close - prev.close) / atrValue : null;
+    const overnightGapPct = Number.isFinite(bar.open) ? ((bar.open - prev.close) / prev.close) * 100 : null;
+    const isCandidate = dayChangePct <= pctTrigger
+      || (Number.isFinite(dropInAtr) && dropInAtr >= 1.5)
+      || (Number.isFinite(overnightGapPct) && overnightGapPct <= -4);
+    if (!isCandidate) continue;
+    const eventType = eventTypeForShock({
+      eventDate: bar.date,
+      earningsDate,
+      guidanceState,
+      companySpecificNewsRisk,
+      marketWideSelloff,
+    });
+    candidates.push({
+      index,
+      bar,
+      prev,
+      dayChangePct,
+      dropInAtr,
+      overnightGapPct,
+      atrValue,
+      volumeRatio: volumeRatioAtHistoryIndex(bars, index),
+      closeLocation: closeLocationForBar(bar),
+      ...eventType,
+    });
+  }
+  const event = candidates
+    .sort((a, b) => {
+      const typeWeight = (item) => item.event_type === "earnings_gap_down" ? 2 : item.event_type === "company_specific_event" ? 1 : 0;
+      return (typeWeight(b) - typeWeight(a)) || (b.index - a.index);
+    })[0];
+  if (!event) {
+    return {
+      active: false,
+      event_type: null,
+      event_date: null,
+      risk_state: "resolved",
+      expiry_reason: "no_recent_event_shock",
+      scanned_trading_days: lookback,
+      event_date_match_method: null,
+      explanation: currentLanguage === "zh" ? "最近 10 个交易日未发现符合阈值的事件急跌。" : "No qualifying event shock found in the last 10 trading sessions.",
+    };
+  }
+
+  const postBars = bars.slice(event.index + 1);
+  const tradingDaysSinceEvent = currentIndex - event.index;
+  const calendarDaysSinceEvent = calendarDayDiff(event.bar.date, currentDate || currentBar.date);
+  const eventLow = finiteNumberOrNull(event.bar.low);
+  const eventClose = finiteNumberOrNull(event.bar.close);
+  const preEventClose = finiteNumberOrNull(event.prev.close);
+  const currentPrice = finiteNumberOrNull(currentBar.close);
+  const eventMa20 = maAtHistoryIndex(bars, event.index, 20);
+  const eventMa50 = maAtHistoryIndex(bars, event.index, 50);
+  const eventSupport = gapDownRisk?.nearest_support_price ?? null;
+  const eventDayBrokeSupport = Number.isFinite(eventSupport) && preEventClose >= eventSupport && eventClose < eventSupport;
+  const eventDayBrokeMa20 = Number.isFinite(eventMa20) && preEventClose >= eventMa20 && eventClose < eventMa20;
+  const eventDayBrokeMa50 = Number.isFinite(eventMa50) && preEventClose >= eventMa50 && eventClose < eventMa50;
+  const postLows = postBars.map((bar) => bar.low).filter(Number.isFinite);
+  const newLowSinceEvent = Number.isFinite(eventLow) && postLows.some((value) => value < eventLow);
+  const noNewLow = tradingDaysSinceEvent > 0 && !newLowSinceEvent;
+  const eventCloseReclaimed = Number.isFinite(currentPrice) && Number.isFinite(eventClose) && currentPrice >= eventClose;
+  const supportReclaimed = Number.isFinite(currentPrice) && Number.isFinite(eventSupport)
+    ? currentPrice >= eventSupport
+    : !eventDayBrokeSupport;
+  const ma20Reclaimed = Number.isFinite(currentPrice) && Number.isFinite(technicals?.ma20) && currentPrice >= technicals.ma20;
+  const ma50Reclaimed = Number.isFinite(currentPrice) && Number.isFinite(technicals?.ma50) && currentPrice >= technicals.ma50;
+  const currentVolumeRatio = volumeRatioAtHistoryIndex(bars, currentIndex);
+  const volumeNormalized = Number.isFinite(event.volumeRatio) && Number.isFinite(currentVolumeRatio)
+    ? currentVolumeRatio <= Math.max(1.2, event.volumeRatio * 0.7)
+    : false;
+  const obvTrend = volumeContext?.obv_trend_20d || technicals?.volume_confirmation?.obv_trend_20d || "neutral";
+  const obvStabilized = obvTrend !== "falling" && !(tradingDaysSinceEvent > 0 && Number.isFinite(currentPrice) && Number.isFinite(eventClose) && currentPrice < eventClose && !volumeNormalized);
+  const relativeStrengthShock = Boolean(event.event_day_relative_strength_shock)
+    || [relativeStrength?.vs_spy_20d, relativeStrength?.vs_qqq_20d].some((value) => Number.isFinite(value) && value <= -4)
+    || Boolean(gapDownRisk?.relative_strength_shock);
+  const relativeStrengthStabilized = !relativeStrengthShock || [relativeStrength?.vs_spy_20d, relativeStrength?.vs_qqq_20d].every((value) => !Number.isFinite(value) || value > -6);
+  const recoveredEventGapPct = Number.isFinite(currentPrice) && Number.isFinite(preEventClose) && preEventClose > eventClose
+    ? clamp(((currentPrice - eventClose) / (preEventClose - eventClose)) * 100, 0, 100)
+    : null;
+  const currentPriceVsEventClosePct = Number.isFinite(currentPrice) && Number.isFinite(eventClose) ? ((currentPrice - eventClose) / eventClose) * 100 : null;
+  const currentPriceVsEventLowPct = Number.isFinite(currentPrice) && Number.isFinite(eventLow) ? ((currentPrice - eventLow) / eventLow) * 100 : null;
+  const currentPriceVsPreEventClosePct = Number.isFinite(currentPrice) && Number.isFinite(preEventClose) ? ((currentPrice - preEventClose) / preEventClose) * 100 : null;
+  const conditions = {
+    no_new_low: noNewLow,
+    event_close_reclaimed: eventCloseReclaimed,
+    support_reclaimed: supportReclaimed,
+    volume_normalized: volumeNormalized,
+    obv_stabilized: obvStabilized,
+    relative_strength_stabilized: relativeStrengthStabilized,
+  };
+  const stabilizationScore = Math.round(mean(Object.values(conditions).map((passed) => passed ? 100 : 0)) ?? 0);
+  const followThroughRequired = ["earnings_gap_down", "guidance_shock", "company_specific_event", "unknown_event_shock"].includes(event.event_type);
+  const postDownDays = postBars.filter((bar, idx) => {
+    const previous = idx === 0 ? event.bar : postBars[idx - 1];
+    return Number.isFinite(bar.close) && Number.isFinite(previous?.close) && bar.close < previous.close;
+  });
+  const highVolumePostDownDays = postDownDays.filter((bar) => {
+    const ratio = volumeRatioAtHistoryIndex(bars, bar.index);
+    return Number.isFinite(ratio) && ratio >= 1.25;
+  });
+  const weakRecentCloseCount = postBars.slice(-2).filter((bar) => {
+    const closeLocation = closeLocationForBar(bar);
+    return Number.isFinite(closeLocation) && closeLocation < 35;
+  }).length;
+  const atrNow = atrAtHistoryIndex(bars, currentIndex);
+  const atrExpanding = Number.isFinite(atrNow) && Number.isFinite(event.atrValue) && atrNow > event.atrValue * 1.15;
+  const priceDeteriorationPresent = newLowSinceEvent
+    || highVolumePostDownDays.length > 0
+    || (eventDayBrokeSupport && !supportReclaimed)
+    || weakRecentCloseCount >= 2
+    || atrExpanding;
+  const deteriorationFlags = {
+    new_low_since_event: newLowSinceEvent,
+    high_volume_down_after_event: highVolumePostDownDays.length > 0,
+    support_not_reclaimed_after_break: eventDayBrokeSupport && !supportReclaimed,
+    ma50_not_reclaimed_after_break: eventDayBrokeMa50 && !ma50Reclaimed,
+    obv_still_weak: !obvStabilized,
+    relative_strength_still_weak: !relativeStrengthStabilized,
+    weak_recent_close: weakRecentCloseCount >= 1,
+    atr_expanding: atrExpanding,
+  };
+  const deteriorationCount = Object.values(deteriorationFlags).filter(Boolean).length;
+  const fastReversal = tradingDaysSinceEvent >= 1
+    && tradingDaysSinceEvent <= 3
+    && noNewLow
+    && eventCloseReclaimed
+    && supportReclaimed
+    && volumeNormalized
+    && (obvStabilized || relativeStrengthStabilized)
+    && stabilizationScore >= 70;
+  const confirmedRecovery = tradingDaysSinceEvent >= 2
+    && noNewLow
+    && eventCloseReclaimed
+    && supportReclaimed
+    && (ma20Reclaimed || event.event_type === "market_driven_selloff")
+    && volumeNormalized
+    && obvStabilized
+    && relativeStrengthStabilized
+    && stabilizationScore >= 80;
+  const followThroughConfirmed = followThroughRequired ? (fastReversal || confirmedRecovery) : stabilizationScore >= 60 && noNewLow;
+  const persistenceWindow = event.event_type === "market_driven_selloff"
+    ? 5
+    : event.event_type === "company_specific_event" || event.event_type === "guidance_shock"
+      ? 12
+      : 8;
+  const stillInWindow = tradingDaysSinceEvent <= persistenceWindow;
+  let recentEventState = "resolved";
+  if (!stillInWindow) recentEventState = "resolved";
+  else if (confirmedRecovery) recentEventState = "confirmed_recovery";
+  else if (fastReversal) recentEventState = "fast_reversal";
+  else if (tradingDaysSinceEvent === 0) recentEventState = "awaiting_confirmation";
+  else if (priceDeteriorationPresent && deteriorationCount >= 2) recentEventState = "deteriorating";
+  else if (stabilizationScore >= 45 || noNewLow || volumeNormalized) recentEventState = "stabilizing";
+  else recentEventState = "awaiting_confirmation";
+  const active = stillInWindow && !["confirmed_recovery", "resolved"].includes(recentEventState);
+  const expiryReason = !stillInWindow
+    ? "persistence_window_expired"
+    : ["confirmed_recovery", "resolved"].includes(recentEventState)
+      ? "follow_through_confirmed"
+      : null;
+  const missingConditions = Object.entries(conditions).filter(([, passed]) => !passed).map(([key]) => key);
+  const followThroughStatus = followThroughStatusForState(recentEventState);
+  const riskScore = recentEventRiskScoreForState(recentEventState);
+  const stateEvolution = [
+    {
+      date: event.bar.date,
+      trading_days_since_event: 0,
+      state: "awaiting_confirmation",
+      explanation: currentLanguage === "zh" ? "事件日先进入等待确认，不直接判定持续恶化。" : "Event day enters awaiting confirmation; it is not automatically treated as deterioration.",
+    },
+    ...postBars.map((bar, idx) => {
+      const observedBars = bars.slice(event.index + 1, event.index + 2 + idx);
+      const observedNewLow = Number.isFinite(eventLow) && observedBars.some((item) => Number.isFinite(item.low) && item.low < eventLow);
+      const observedClose = finiteNumberOrNull(bar.close);
+      const observedEventCloseReclaimed = Number.isFinite(observedClose) && Number.isFinite(eventClose) && observedClose >= eventClose;
+      const observedVolumeRatio = volumeRatioAtHistoryIndex(bars, bar.index);
+      const observedVolumeNormal = Number.isFinite(event.volumeRatio) && Number.isFinite(observedVolumeRatio)
+        ? observedVolumeRatio <= Math.max(1.2, event.volumeRatio * 0.7)
+        : false;
+      const observedState = idx + 1 <= 3
+        && !observedNewLow
+        && observedEventCloseReclaimed
+        && observedVolumeNormal
+        ? "fast_reversal"
+        : observedNewLow
+          ? "deteriorating"
+          : observedEventCloseReclaimed || observedVolumeNormal
+            ? "stabilizing"
+            : "awaiting_confirmation";
+      return {
+        date: bar.date,
+        trading_days_since_event: idx + 1,
+        state: idx + 1 === tradingDaysSinceEvent ? recentEventState : observedState,
+        no_new_low: !observedNewLow,
+        event_close_reclaimed: observedEventCloseReclaimed,
+        volume_normalized: observedVolumeNormal,
+      };
+    }),
+  ];
+  return {
+    active,
+    event_type: event.event_type,
+    event_date: event.bar.date,
+    event_date_match_method: event.event_date_match_method,
+    event_days_from_earnings: event.event_days_from_earnings,
+    trading_days_since_event: tradingDaysSinceEvent,
+    calendar_days_since_event: calendarDaysSinceEvent,
+    persistence_window_trading_days: persistenceWindow,
+    event_day_change_pct: Number(event.dayChangePct.toFixed(2)),
+    event_day_gap_pct: Number.isFinite(event.overnightGapPct) ? Number(event.overnightGapPct.toFixed(2)) : null,
+    event_day_drop_in_atr: Number.isFinite(event.dropInAtr) ? Number(event.dropInAtr.toFixed(2)) : null,
+    event_day_volume_ratio: Number.isFinite(event.volumeRatio) ? Number(event.volumeRatio.toFixed(2)) : null,
+    event_day_close_location: Number.isFinite(event.closeLocation) ? Number(event.closeLocation.toFixed(1)) : null,
+    event_day_broke_support: eventDayBrokeSupport,
+    event_day_broke_ma20: eventDayBrokeMa20,
+    event_day_broke_ma50: eventDayBrokeMa50,
+    event_day_relative_strength_shock: relativeStrengthShock,
+    current_price_vs_event_close_pct: Number.isFinite(currentPriceVsEventClosePct) ? Number(currentPriceVsEventClosePct.toFixed(2)) : null,
+    current_price_vs_event_low_pct: Number.isFinite(currentPriceVsEventLowPct) ? Number(currentPriceVsEventLowPct.toFixed(2)) : null,
+    current_price_vs_pre_event_close_pct: Number.isFinite(currentPriceVsPreEventClosePct) ? Number(currentPriceVsPreEventClosePct.toFixed(2)) : null,
+    new_low_since_event: newLowSinceEvent,
+    recovered_event_gap_pct: Number.isFinite(recoveredEventGapPct) ? Number(recoveredEventGapPct.toFixed(1)) : null,
+    volume_normalized: volumeNormalized,
+    obv_stabilized: obvStabilized,
+    relative_strength_stabilized: relativeStrengthStabilized,
+    support_reclaimed: supportReclaimed,
+    ma20_reclaimed: ma20Reclaimed,
+    ma50_reclaimed: ma50Reclaimed,
+    follow_through_required: followThroughRequired,
+    follow_through_confirmed: followThroughConfirmed,
+    recent_event_state: recentEventState,
+    state_evolution: stateEvolution,
+    deterioration_flags: deteriorationFlags,
+    deterioration_count: deteriorationCount,
+    follow_through_confirmation: {
+      required: followThroughRequired,
+      confirmed: followThroughConfirmed,
+      status: followThroughStatus,
+      trading_days_observed: tradingDaysSinceEvent,
+      no_new_low: noNewLow,
+      event_close_reclaimed: eventCloseReclaimed,
+      support_reclaimed: supportReclaimed,
+      volume_normalized: volumeNormalized,
+      obv_stabilized: obvStabilized,
+      relative_strength_stabilized: relativeStrengthStabilized,
+      score: stabilizationScore,
+      missing_conditions: missingConditions,
+      explanation: followThroughConfirmed
+        ? (currentLanguage === "zh" ? "事件急跌后的价格、量能和相对强度已满足止稳确认。" : "Price, volume, and relative strength have confirmed post-event stabilization.")
+        : (currentLanguage === "zh" ? "事件急跌仍在观察期，尚未完成止稳确认。" : "The event shock remains in the observation window without confirmed stabilization."),
+    },
+    stabilization_score: stabilizationScore,
+    risk_state: recentEventState,
+    risk_score: riskScore,
+    expiry_reason: expiryReason,
+    explanation: active
+      ? (currentLanguage === "zh"
+        ? `${event.event_type} 发生于 ${event.bar.date || "近期"}，当前状态 ${recentEventState}，止稳分 ${stabilizationScore}/100。`
+        : `${event.event_type} occurred on ${event.bar.date || "a recent session"}; current state ${recentEventState}, stabilization score ${stabilizationScore}/100.`)
+      : (currentLanguage === "zh"
+        ? `${event.event_type} 已不再阻止正常交易计划，原因：${expiryReason || "已解除"}。`
+        : `${event.event_type} no longer blocks the normal trade plan: ${expiryReason || "resolved"}.`),
+  };
+}
+
 function buildGapDownRiskModel({
   row,
   supportResistance,
@@ -5923,19 +6287,20 @@ function buildGapDownRiskModel({
   const atr = finiteNumberOrNull(row?.technicals?.atr14);
   const dayChangePct = finiteNumberOrNull(row?.changePercent);
   const dayChangeAmount = Number.isFinite(price) && Number.isFinite(previousClose) ? price - previousClose : null;
-  const dropInAtr = Number.isFinite(dayChangeAmount) && Number.isFinite(atr) && atr > 0 ? Math.abs(dayChangeAmount) / atr : null;
+  const dropInAtr = Number.isFinite(dayChangeAmount) && dayChangeAmount < 0 && Number.isFinite(atr) && atr > 0 ? Math.abs(dayChangeAmount) / atr : null;
   const overnightGapPct = null;
   const tags = decisionTagSet(companyProfile, companyProfile?.decision_profile || {});
   const volatileProfile = hasAnyTag(tags, ["HighVolatility", "Speculative", "Meme", "NewlyListed", "IPO"]);
   const defensiveProfile = hasAnyTag(tags, ["MegaCap", "Defensive", "Healthcare", "HealthInsurance", "HealthcareServices"]);
   const pctTrigger = volatileProfile ? -7 : defensiveProfile ? -5.8 : -5;
-  const active = (Number.isFinite(dayChangePct) && dayChangePct <= pctTrigger)
+  const todayGapActive = (Number.isFinite(dayChangePct) && dayChangePct <= pctTrigger)
     || (Number.isFinite(overnightGapPct) && overnightGapPct <= -4)
     || (Number.isFinite(dropInAtr) && dropInAtr >= 1.5);
   const volume = technical?.volume_confirmation || tradeContext?.volume_state || {};
   const closeLocation = finiteNumberOrNull(volume.close_location_pct ?? row?.technicals?.closePosition * 100);
   const volumeRatio = finiteNumberOrNull(volume.relative_volume_20d ?? row?.technicals?.volumeRatio);
   const supports = supportResistance?.supports || [];
+  const nearestSupport = nearestAnchorBelowPrice(supports, price);
   const ma20 = finiteNumberOrNull(row?.technicals?.ma20);
   const ma50 = finiteNumberOrNull(row?.technicals?.ma50);
   const brokeSupport = Number.isFinite(price) && Number.isFinite(previousClose)
@@ -5964,10 +6329,10 @@ function buildGapDownRiskModel({
     || (marketContext?.enhanced_context?.spy_trend?.change_5d_pct ?? 0) <= -3
     || (marketContext?.enhanced_context?.qqq_trend?.change_5d_pct ?? 0) <= -3;
   const closeStrong = Number.isFinite(closeLocation) && closeLocation >= 62;
-  const supportHeld = active && !brokeSupport && !brokeMa50;
+  const supportHeld = todayGapActive && !brokeSupport && !brokeMa50;
   const intradayRecoveryPct = Number.isFinite(closeLocation) ? closeLocation : null;
   let riskScore = 0;
-  if (active) riskScore += 25;
+  if (todayGapActive) riskScore += 25;
   if (Number.isFinite(volumeRatio) && volumeRatio >= 1.5) riskScore += 12;
   if (Number.isFinite(closeLocation) && closeLocation < 35) riskScore += 14;
   if (brokeSupport) riskScore += 16;
@@ -5982,18 +6347,54 @@ function buildGapDownRiskModel({
   if (closeStrong) riskScore -= 10;
   if (supportHeld) riskScore -= 8;
   riskScore = clamp(Math.round(riskScore), 0, 100);
+  const currentDate = row?.updatedAt || row?.last_quote_time || (technical?.history?.timestamps || []).slice(-1)[0] || null;
+  const recentEventShock = buildRecentEventShockState(
+    technical?.history || row?.technicals?.history || {},
+    marketContext?.earnings_event_risk?.earnings_date ?? row?.metadata?.earningsDate,
+    currentDate,
+    {
+      profile_trigger_pct: pctTrigger,
+      market_wide_selloff: marketWideSelloff,
+      company_specific_news_risk: companySpecificNewsRisk,
+      relative_strength_shock: relativeStrengthShock,
+      nearest_support_price: nearestSupport?.price ?? null,
+    },
+    tradeContext?.guidance_state,
+    row?.technicals || {},
+    volume,
+    tradeContext?.relative_strength_state || {},
+  );
+  const recentClassification = (() => {
+    if (!recentEventShock?.active) return null;
+    if (recentEventShock.risk_state === "deteriorating") {
+      return guidanceRisk || companySpecificNewsRisk ? "company_specific_breakdown" : "falling_knife";
+    }
+    if (recentEventShock.risk_state === "awaiting_confirmation") return "event_driven_gap_down";
+    if (recentEventShock.risk_state === "fast_reversal") return "post_event_recovery";
+    if (recentEventShock.risk_state === "stabilizing") return "post_event_stabilization";
+    if (recentEventShock.risk_state === "confirmed_recovery") return "post_event_recovery";
+    return null;
+  })();
+  const active = todayGapActive || Boolean(recentEventShock?.active);
+  if (recentEventShock?.active) {
+    riskScore = clamp(Math.max(riskScore, recentEventShock.risk_score ?? recentEventRiskScoreForState(recentEventShock.risk_state)), 0, 100);
+  }
   let classification = "normal_pullback";
-  if (!active) classification = "normal_pullback";
+  if (recentClassification) classification = recentClassification;
+  else if (!todayGapActive) classification = recentEventShock?.risk_state === "confirmed_recovery" ? "post_event_recovery" : "normal_pullback";
   else if (!Number.isFinite(dayChangePct) && !Number.isFinite(dropInAtr)) classification = "data_insufficient";
   else if ((guidanceRisk || companySpecificNewsRisk) && (brokeSupport || brokeMa50 || riskScore >= 65)) classification = "company_specific_breakdown";
   else if (riskScore >= 72 && (brokeSupport || !obvConfirmation) && !closeStrong) classification = "falling_knife";
   else if (guidanceRisk || companySpecificNewsRisk || earningsEventProximity) classification = "event_driven_gap_down";
   else if (marketWideSelloff && supportHeld) classification = "market_driven_selloff";
   else if (closeStrong && supportHeld && riskScore < 58) classification = "capitulation_with_recovery";
-  const followThroughRequired = ["event_driven_gap_down", "company_specific_breakdown", "falling_knife"].includes(classification);
-  const followThroughConfirmed = !followThroughRequired && (closeStrong || supportHeld) && obvConfirmation;
+  const followThroughRequired = ["event_driven_gap_down", "company_specific_breakdown", "falling_knife", "post_event_stabilization"].includes(classification)
+    || Boolean(recentEventShock?.active && recentEventShock.follow_through_required);
+  const followThroughConfirmed = recentEventShock?.follow_through_confirmation?.confirmed
+    ?? (!followThroughRequired && (closeStrong || supportHeld) && obvConfirmation);
   return {
     active,
+    today_gap_active: todayGapActive,
     gap_pct: overnightGapPct,
     day_change_pct: dayChangePct,
     overnight_gap_pct: overnightGapPct,
@@ -6001,12 +6402,12 @@ function buildGapDownRiskModel({
     abnormal_volume_ratio: volumeRatio,
     close_location: closeLocation,
     intraday_recovery_pct: intradayRecoveryPct,
-    broke_support: brokeSupport,
-    broke_ma20: brokeMa20,
-    broke_ma50: brokeMa50,
+    broke_support: brokeSupport || Boolean(recentEventShock?.event_day_broke_support),
+    broke_ma20: brokeMa20 || Boolean(recentEventShock?.event_day_broke_ma20),
+    broke_ma50: brokeMa50 || Boolean(recentEventShock?.event_day_broke_ma50),
     obv_confirmation: obvConfirmation,
     relative_strength_shock: relativeStrengthShock,
-    event_risk: earningsEventProximity || guidanceRisk || companySpecificNewsRisk,
+    event_risk: earningsEventProximity || guidanceRisk || companySpecificNewsRisk || Boolean(recentEventShock?.active),
     earnings_event_proximity: earningsEventProximity,
     guidance_risk: guidanceRisk,
     company_specific_news_risk: companySpecificNewsRisk,
@@ -6014,18 +6415,30 @@ function buildGapDownRiskModel({
     stabilization_state: followThroughConfirmed ? "confirmed" : supportHeld || closeStrong ? "early" : active ? "unconfirmed" : "not_required",
     risk_score: riskScore,
     classification,
+    recent_event_shock: recentEventShock,
     follow_through_confirmation: {
       required: followThroughRequired,
       confirmed: followThroughConfirmed,
-      days_required: followThroughRequired ? 2 : 0,
+      days_required: recentEventShock?.follow_through_confirmation?.trading_days_observed != null ? 2 : followThroughRequired ? 2 : 0,
+      trading_days_observed: recentEventShock?.follow_through_confirmation?.trading_days_observed ?? null,
+      no_new_low: recentEventShock?.follow_through_confirmation?.no_new_low ?? null,
+      event_close_reclaimed: recentEventShock?.follow_through_confirmation?.event_close_reclaimed ?? null,
+      support_reclaimed: recentEventShock?.follow_through_confirmation?.support_reclaimed ?? null,
+      volume_normalized: recentEventShock?.follow_through_confirmation?.volume_normalized ?? null,
+      obv_stabilized: recentEventShock?.follow_through_confirmation?.obv_stabilized ?? null,
+      relative_strength_stabilized: recentEventShock?.follow_through_confirmation?.relative_strength_stabilized ?? null,
+      score: recentEventShock?.follow_through_confirmation?.score ?? null,
+      missing_conditions: recentEventShock?.follow_through_confirmation?.missing_conditions ?? [],
       reclaim_level: Number.isFinite(ma20) ? ma20 : supports[0]?.price ?? null,
       volume_requirement: followThroughRequired ? "no further high-volume downside expansion" : null,
       obv_requirement: followThroughRequired ? "OBV stops deteriorating" : null,
-      reason: followThroughRequired
+      reason: recentEventShock?.follow_through_confirmation?.explanation || (followThroughRequired
         ? (currentLanguage === "zh" ? "事件型急跌或破位需要 1-2 个交易日确认止稳。" : "Event-driven gap-down or breakdown needs 1-2 sessions of follow-through stabilization.")
-        : null,
+        : null),
     },
-    explanation: active
+    explanation: recentEventShock?.active
+      ? recentEventShock.explanation
+      : active
       ? (currentLanguage === "zh" ? `急跌分类：${classification}，风险分 ${riskScore}/100。` : `Gap-down classification: ${classification}, risk ${riskScore}/100.`)
       : (currentLanguage === "zh" ? "未触发单日急跌风险模型。" : "Gap-down risk model was not triggered."),
   };
@@ -10211,9 +10624,10 @@ function buildUnifiedOptionsStrategyPlan({
   const optionsDataStatus = optionsAvailable ? "available" : "fallback";
 	  const optionsState = tradeContext?.options_state || buildOptionsState(row, optionsModule?.expected_move || optionsModule?.options_expected_move || {}, optionsModule);
 	  const gapDownRisk = tradeContext?.gap_down_risk || {};
-	  const gapDownPutRisk = gapDownRisk.active
-	    && ["event_driven_gap_down", "company_specific_breakdown", "falling_knife"].includes(gapDownRisk.classification)
-	    && gapDownRisk.follow_through_confirmation?.confirmed !== true;
+	  const recentEventState = recentEventStateFromGapRisk(gapDownRisk);
+	  const gapDownPutAvoid = gapDownRisk.active && ["awaiting_confirmation", "deteriorating"].includes(recentEventState);
+	  const gapDownPutConservative = gapDownRisk.active && recentEventState === "stabilizing";
+	  const gapDownPutNeutral = gapDownRisk.active && recentEventState === "fast_reversal";
 	  const gammaFlip = Number.isFinite(optionsModule?.net_gex) && Number.isFinite(optionsModule?.gamma_flip) ? optionsModule.gamma_flip : null;
   const validPutWall = optionsAvailable && Number.isFinite(optionsModule?.put_wall) ? optionsModule.put_wall : null;
   const validCallWall = optionsAvailable && Number.isFinite(optionsModule?.call_wall) ? optionsModule.call_wall : null;
@@ -10290,13 +10704,19 @@ function buildUnifiedOptionsStrategyPlan({
     marketRegime === "panic" ? (currentLanguage === "zh" ? "市场仍处恐慌状态，Sell Put 只考虑极低价或回避。" : "Market panic: use only very low strikes or avoid sell puts.") : null,
     marketRiskRising ? (currentLanguage === "zh" ? "VIX 快速上升或市场风险继续释放。" : "VIX / market risk is rising quickly.") : null,
 	    volumeRisk ? (currentLanguage === "zh" ? "OBV 或量价结构偏弱，存在接飞刀风险。" : "OBV / price-volume structure is weak.") : null,
-	    gapDownPutRisk ? (currentLanguage === "zh" ? "单日急跌尚未确认止稳，不能因为 IV / 权利金高而激进 Sell Put。" : "Sharp gap-down has not stabilized; do not sell puts aggressively just because IV / premium is high.") : null,
+	    gapDownPutAvoid ? (currentLanguage === "zh" ? "近期事件急跌仍处等待确认或恶化状态，Sell Put 暂时回避。" : "Recent event shock is awaiting confirmation or deteriorating; avoid sell puts for now.") : null,
 	    companyRisk ? (currentLanguage === "zh" ? "个股基本面或资产负债表风险偏高。" : "Company-specific fundamental or balance-sheet risk is elevated.") : null,
     dividendUnsafe ? (currentLanguage === "zh" ? "高股息伴随分红安全或债务风险，不能因股息率直接卖 Put。" : "High yield comes with dividend safety or debt risk.") : null,
 	    (!entryIsConstructive || ["trim_reduce", "take_profit", "avoid"].includes(overallAction)) ? (currentLanguage === "zh" ? "买入 / 加仓视角未支持积极建仓，Sell Put 不宜激进。" : "Entry view does not support aggressive accumulation; sell puts should not be aggressive.") : null,
 	  ].filter(Boolean);
+  const putCautionConditions = [
+    gapDownPutConservative ? (currentLanguage === "zh" ? "近期事件急跌正在止稳中，Sell Put 仅适合更低 strike / 小仓保守方案。" : "Recent event shock is stabilizing; sell puts should be lower-strike and conservative only.") : null,
+    gapDownPutNeutral ? (currentLanguage === "zh" ? "近期事件急跌已快速反转，Sell Put 恢复中性评估但不追高 strike。" : "Recent event shock has fast-reversed; sell puts return to neutral evaluation without chasing strikes.") : null,
+  ].filter(Boolean);
 	  let sellPutRecommendation = "Neutral";
-		  if (gapDownPutRisk || putAvoidConditions.length >= 2 || overallAction === "avoid" || marketRegime === "panic") sellPutRecommendation = "Avoid";
+		  if (gapDownPutAvoid || putAvoidConditions.length >= 2 || overallAction === "avoid" || marketRegime === "panic") sellPutRecommendation = "Avoid";
+	  else if (gapDownPutConservative) sellPutRecommendation = "Conservative";
+	  else if (gapDownPutNeutral) sellPutRecommendation = "Neutral";
 	  else if (entryIsConstructive && !companyRisk && !volumeRisk) sellPutRecommendation = highIv || marketRecovering ? "Recommended" : "Conservative";
 	  else if (positionIsExit) sellPutRecommendation = "Avoid";
   else if (lowIv) sellPutRecommendation = "Neutral";
@@ -10311,6 +10731,7 @@ function buildUnifiedOptionsStrategyPlan({
     + (highIv ? 5 : lowIv ? -7 : 0)
 	    + (entryIsConstructive ? 5 : 0)
     - (putAvoidConditions.length * 6)
+    - (putCautionConditions.length * 3)
     - (speculative ? 5 : 0)
     - (chinaAdr ? 4 : 0)
   ), 20, 92);
@@ -10354,12 +10775,14 @@ function buildUnifiedOptionsStrategyPlan({
       optionFallbackNote,
     ]),
     avoid_conditions: putAvoidConditions,
+    caution_conditions: putCautionConditions,
     market_context_notes: uniqueText([
       marketRegime === "risk_on" ? (currentLanguage === "zh" ? "risk_on：strike 可接近中期买入区或 S2。" : "risk_on: strike can sit near mid buy range or S2.") : null,
       marketRegime === "neutral" ? (currentLanguage === "zh" ? "neutral：strike 优先参考 S3 或中期区间下沿。" : "neutral: strike prioritizes S3 or mid range low.") : null,
       marketRegime === "risk_off" ? (currentLanguage === "zh" ? "risk_off：strike 下移到长期区间上沿或 S4。" : "risk_off: strike shifts to long range high or S4.") : null,
       marketRegime === "panic" ? (currentLanguage === "zh" ? "panic：极低 strike 或回避。" : "panic: very low strike or avoid.") : null,
       optionFallbackNote,
+      ...putCautionConditions,
     ]),
     plans: [30, 45].map((dte, index) => {
       const dteTarget = index === 0
@@ -13511,6 +13934,8 @@ function buildActionView(recommendation, action, fields = {}) {
 function buildEntryAction(recommendation, tradeContext = {}) {
   const companyRisk = Boolean(tradeContext?.company_risk?.company_specific_risk)
     || (recommendation?.opportunity_scores?.company_specific_risk ?? 0) >= 70;
+  const gapRisk = tradeContext?.gap_down_risk || {};
+  const eventShockBlocksEntry = recentEventBlocksEntryMode(gapRisk, recommendation?.final_action === "strong_buy" ? "strong_buy" : "entry");
   if (companyRisk || recommendation?.final_action === "avoid") {
     return buildActionView(recommendation, "avoid", {
       linked_buy_segment: null,
@@ -13519,6 +13944,16 @@ function buildEntryAction(recommendation, tradeContext = {}) {
         ? "无仓位 / 加仓视角：公司或基本面风险优先，暂不新建仓。"
         : "Entry view: company / fundamental risk takes priority, so do not initiate.",
       based_on: "company_risk_override",
+    });
+  }
+  if (eventShockBlocksEntry) {
+    return buildActionView(recommendation, "hold_watch", {
+      linked_buy_segment: null,
+      allocation_hint: "0%",
+      reason: currentLanguage === "zh"
+        ? `无仓位 / 加仓视角：近期财报或事件急跌状态为 ${recentEventStateFromGapRisk(gapRisk)}，暂不主动建仓。`
+        : `Entry view: recent earnings/event shock state is ${recentEventStateFromGapRisk(gapRisk)}, so do not initiate.`,
+      based_on: "recent_event_shock_state_gate",
     });
   }
   const buyAction = ["strong_buy", "accumulate"].includes(recommendation?.final_action)
@@ -14477,16 +14912,18 @@ function annotateBuyRangeSegments({
 	  const fallingKnifeRisk = opportunity.falling_knife_risk ?? evidence.risk_filters?.falling_knife_risk ?? 0;
 	  const fallingKnifeLimit = thresholds.falling_knife_limit ?? 55;
 	  const gapDownRisk = tradeContext?.gap_down_risk || {};
-	  const gapBlocksEntry = gapDownRisk.active
-	    && ["event_driven_gap_down", "company_specific_breakdown", "falling_knife"].includes(gapDownRisk.classification)
-	    && gapDownRisk.follow_through_confirmation?.confirmed !== true;
+	  const gapEventState = recentEventStateFromGapRisk(gapDownRisk);
+	  const gapBlocksLeftPullback = recentEventBlocksEntryMode(gapDownRisk, "left_side");
+	  const gapBlocksRightTrend = recentEventBlocksEntryMode(gapDownRisk, "right_side");
+	  const gapBlocksStrongBuy = recentEventBlocksEntryMode(gapDownRisk, "strong_buy");
 	  const gapInvalidatesSupport = gapDownRisk.active
 	    && gapDownRisk.broke_support
-	    && !["market_driven_selloff", "capitulation_with_recovery"].includes(gapDownRisk.classification);
+	    && !["market_driven_selloff", "capitulation_with_recovery", "post_event_recovery"].includes(gapDownRisk.classification);
 	  const allocationHint = range.allocation_hint || allocationHintForRange(companyProfile, horizonRangeKeys(horizonKey).label);
+	  const eventAdjustedAllocationHint = recentEventAllocationHint(gapDownRisk, allocationHint);
 	  const segments = [];
 	  const tolerance = Number.isFinite(atr) ? atr * activeEntryToleranceAtr(companyProfile) : 0;
-	  if (!gapInvalidatesSupport && rangeContainsPrice(base, price, tolerance)) {
+	  if (!gapBlocksLeftPullback && !gapInvalidatesSupport && rangeContainsPrice(base, price, tolerance)) {
     segments.push(makeActiveSegment({
       mode: "pullback",
       low: base.low,
@@ -14495,7 +14932,7 @@ function annotateBuyRangeSegments({
       atr,
       evidenceScore: evidence.combined_buy_after_cap,
       activationThreshold: thresholds.accumulate_execution_threshold,
-      allocationHint,
+      allocationHint: eventAdjustedAllocationHint,
       anchorSources: base.based_on || [],
       anchorPrices: [base.low, base.high],
       reason: currentLanguage === "zh" ? "当前价格位于基础回调低吸区。" : "Current price is inside the base pullback range.",
@@ -14516,7 +14953,7 @@ function annotateBuyRangeSegments({
   const leftAllowed = leftScore >= leftThreshold
 	    && fundamentalHealthy
 	    && !companySpecificRisk
-	    && !gapBlocksEntry
+	    && !gapBlocksLeftPullback
 	    && !gapInvalidatesSupport
 	    && fallingKnifeRisk < fallingKnifeLimit
     && Number.isFinite(leftAnchorPrice)
@@ -14533,7 +14970,7 @@ function annotateBuyRangeSegments({
       atr,
       evidenceScore: leftScore,
       activationThreshold: leftThreshold,
-      allocationHint,
+      allocationHint: eventAdjustedAllocationHint,
       anchorSources: leftAnchorSources,
       anchorPrices: [leftAnchorPrice, base?.high],
       reason: currentLanguage === "zh"
@@ -14561,6 +14998,8 @@ function annotateBuyRangeSegments({
   const rightAllowed = rightConfirmed
     && rightScore >= rightThreshold - 4
     && !companySpecificRisk
+    && !gapBlocksRightTrend
+    && !gapInvalidatesSupport
     && midRightIndependent
     && longRightIndependent
     && Number.isFinite(rightAnchorPrice)
@@ -14608,6 +15047,8 @@ function annotateBuyRangeSegments({
     && Number.isFinite(remainingUpsidePct)
     && remainingUpsidePct >= minUpside
     && tradeContext?.valuation_state?.regime !== "extreme"
+    && !gapBlocksRightTrend
+    && !gapInvalidatesSupport
     && (horizonKey !== "long_term" || Boolean(longIndependentEvidence?.passed))
     && Number.isFinite(trendAnchorPrice)
     && Number.isFinite(atr)
@@ -14667,8 +15108,14 @@ function annotateBuyRangeSegments({
   range.active_segment = activeSegment;
   range.current_price_in_range = Boolean(activeSegment);
   range.current_price_segment = activeSegment ? currentPriceSegment(activeSegment, price) : "outside";
-	  range.reward_risk_ratio = rewardRiskRatioForRange(price, activeSegment || base, sellRange, null);
-	  range.gap_down_risk = gapDownRisk;
+  range.reward_risk_ratio = rewardRiskRatioForRange(price, activeSegment || base, sellRange, null);
+  range.gap_down_risk = gapDownRisk;
+  range.recent_event_shock = gapDownRisk.recent_event_shock || null;
+  range.recent_event_state = gapEventState;
+  range.event_shock_entry_blocked = Boolean(gapBlocksLeftPullback || gapBlocksRightTrend || gapBlocksStrongBuy);
+  if (gapBlocksLeftPullback || gapBlocksRightTrend || gapBlocksStrongBuy) {
+    range.invalidation_reason = "recent_event_shock_state_gate";
+  }
   range.action_consistency = {
     checked: true,
     current_price_in_active_segment: Boolean(activeSegment),
@@ -14965,6 +15412,24 @@ function applyActiveTradeRanges({
         buyRange.active_segment.position_size_adjustment = buyRange.reward_risk_analysis.position_size_adjustment;
         buyRange.active_segment.allocation_hint = buyRange.reward_risk_analysis.position_size_adjustment.suggested_allocation;
         buyRange.allocation_hint = buyRange.reward_risk_analysis.position_size_adjustment.suggested_allocation;
+      }
+      const eventState = recentEventStateFromGapRisk(tradeContext?.gap_down_risk || {});
+      if (
+        eventState === "stabilizing"
+        && buyRange.active_segment
+        && ["left_side", "pullback"].includes(buyRange.active_segment.mode)
+      ) {
+        const eventAllocation = recentEventAllocationHint(tradeContext?.gap_down_risk || {}, buyRange.active_segment.allocation_hint);
+        buyRange.active_segment.allocation_hint = eventAllocation;
+        buyRange.allocation_hint = eventAllocation;
+        buyRange.active_segment.position_size_adjustment = {
+          ...(buyRange.active_segment.position_size_adjustment || {}),
+          suggested_allocation: eventAllocation,
+          event_state_cap: true,
+          reason: currentLanguage === "zh"
+            ? "近期事件急跌处于止稳中，只允许小仓试探。"
+            : "Recent event shock is stabilizing, so only a starter allocation is allowed.",
+        };
       }
     }
   });
@@ -18053,6 +18518,7 @@ function renderDetailModal(row) {
 	  const renderGapDownRiskCard = (gapRisk) => {
 	    if (!gapRisk) return "";
 	    const follow = gapRisk.follow_through_confirmation || {};
+	    const recent = gapRisk.recent_event_shock || {};
 	    return `
 	      <section class="detail-section-card">
 	        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "急跌风险" : "Gap-Down Risk"}</h3></div>
@@ -18065,10 +18531,20 @@ function renderDetailModal(row) {
 	          </div>
 	          <div class="decision-list-card">
 	            <div class="decision-list-title">${currentLanguage === "zh" ? "确认要求" : "Follow-Through"}</div>
-	            <div class="detail-line-note">${currentLanguage === "zh" ? "需要确认" : "Required"}: ${follow.required ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")} · ${currentLanguage === "zh" ? "已确认" : "Confirmed"}: ${follow.confirmed ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")}</div>
+	            <div class="detail-line-note">${currentLanguage === "zh" ? "确认状态" : "Follow-Through Status"}: ${localizedDashboardText(follow.status || "none")} · ${currentLanguage === "zh" ? "需要确认" : "Required"}: ${follow.required ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")} · ${currentLanguage === "zh" ? "已确认" : "Confirmed"}: ${follow.confirmed ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")}</div>
 	            <div class="detail-line-note">${currentLanguage === "zh" ? "支撑跌破" : "Support Break"}: ${gapRisk.broke_support ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")} · MA20: ${gapRisk.broke_ma20 ? (currentLanguage === "zh" ? "跌破" : "Broken") : "—"} · MA50: ${gapRisk.broke_ma50 ? (currentLanguage === "zh" ? "跌破" : "Broken") : "—"}</div>
 	            ${follow.reason ? `<div class="detail-line-note">${localizedDashboardText(follow.reason)}</div>` : ""}
 	          </div>
+	          ${recent.event_date ? `
+	            <div class="decision-list-card">
+	              <div class="decision-list-title">${currentLanguage === "zh" ? "近期事件冲击" : "Recent Event Shock"}</div>
+	              <div class="detail-line-label">${localizedDashboardText(recent.event_type || t("dataUnavailable"))}</div>
+	              <div class="detail-line-note">${currentLanguage === "zh" ? "事件日期" : "Event Date"}: ${recent.event_date} · ${currentLanguage === "zh" ? "距今交易日" : "Trading Days Since"}: ${recent.trading_days_since_event ?? "—"}</div>
+	              <div class="detail-line-note">${currentLanguage === "zh" ? "事件状态" : "Event State"}: ${localizedDashboardText(recent.recent_event_state || recent.risk_state || t("dataUnavailable"))} · ${currentLanguage === "zh" ? "止稳分" : "Stabilization"}: ${recent.stabilization_score ?? "—"}/100</div>
+	              <div class="detail-line-note">${currentLanguage === "zh" ? "事件日跌幅" : "Event-Day Drop"}: ${formatChangePercent(recent.event_day_change_pct)} · ${currentLanguage === "zh" ? "ATR倍数" : "ATR Move"}: ${recent.event_day_drop_in_atr ?? "—"}</div>
+	              ${recent.follow_through_confirmation?.missing_conditions?.length ? `<div class="detail-line-note">${currentLanguage === "zh" ? "缺失确认" : "Missing Confirmation"}: ${recent.follow_through_confirmation.missing_conditions.map(localizedDashboardText).join(", ")}</div>` : ""}
+	            </div>
+	          ` : ""}
 	        </div>
 	      </section>
 	    `;
@@ -18871,8 +19347,6 @@ function renderDetailModal(row) {
           { label: currentLanguage === "zh" ? "本股 20 / 60 / 120日涨跌" : "Stock Return 20 / 60 / 120D", value: `${displayValue(relativeStrength.stock_return_20d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_return_60d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_return_120d, (value) => formatChangePercent(value))}` },
           { label: currentLanguage === "zh" ? "相对 SPY 20 / 60 / 120日" : "Stock vs SPY 20 / 60 / 120D", value: `${displayValue(relativeStrength.stock_vs_spy_20d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_spy_60d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_spy_120d, (value) => formatChangePercent(value))}`, note: relativeStrength.source_status?.spy !== "available" ? (currentLanguage === "zh" ? "SPY 基准 60/120日序列缺失时对应周期显示暂不可用；手动刷新会重建新版市场缓存。" : "Missing SPY 60/120D benchmark history leaves those horizons unavailable; manual refresh rebuilds the market cache.") : "" },
           { label: currentLanguage === "zh" ? "相对 QQQ 20 / 60 / 120日" : "Stock vs QQQ 20 / 60 / 120D", value: `${displayValue(relativeStrength.stock_vs_qqq_20d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_qqq_60d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_qqq_120d, (value) => formatChangePercent(value))}`, note: relativeStrength.source_status?.qqq !== "available" ? (currentLanguage === "zh" ? "QQQ 基准 60/120日序列缺失时对应周期显示暂不可用；手动刷新会重建新版市场缓存。" : "Missing QQQ 60/120D benchmark history leaves those horizons unavailable; manual refresh rebuilds the market cache.") : "" },
-          { label: currentLanguage === "zh" ? "相对行业ETF" : "Stock vs Sector ETF", value: displayValue(relativeStrength.stock_vs_sector_etf, (value) => formatChangePercent(value)), note: relativeStrength.sector_etf ? `${currentLanguage === "zh" ? "参考ETF" : "Reference ETF"}: ${relativeStrength.sector_etf} · ${localizedDashboardText(relativeStrength.note)}` : localizedDashboardText(relativeStrength.note) },
-          { label: currentLanguage === "zh" ? "相对强度百分位" : "Relative Strength Percentile", value: displayValue(relativeStrength.relative_strength_percentile, (value) => `${Math.round(value)}%`), note: currentLanguage === "zh" ? "需要同一股票池横截面分布；当前没有足够样本时不伪造。" : "Requires cross-sectional universe data and is not fabricated without it." },
         ])}</div>
       </section>
       <section class="detail-section-card">
@@ -18933,14 +19407,11 @@ function renderDetailModal(row) {
         ])}</div>
       </section>
       <section class="detail-section-card">
-        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "分析师盈利预期修正" : "Analyst Estimate Revisions"}</h3></div>
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "前瞻指引与目标价" : "Forward Guidance & Target Snapshot"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: currentLanguage === "zh" ? "EPS预期修正 7 / 30 / 90日" : "EPS Estimate Revisions 7 / 30 / 90D", value: `${displayValue(analystRevisions.eps_estimate_revisions_7d, (value) => formatChangePercent(value))} / ${displayValue(analystRevisions.eps_estimate_revisions_30d, (value) => formatChangePercent(value))} / ${displayValue(analystRevisions.eps_estimate_revisions_90d, (value) => formatChangePercent(value))}`, note: analystRevisions.source_status?.revisions === "unavailable" ? analystRevisions.eps_revision_note : "" },
-          { label: currentLanguage === "zh" ? "收入预期修正" : "Revenue Estimate Revisions", value: analystRevisions.revenue_estimate_revisions == null ? displayValue(analystRevisions.revenue_estimate_growth, (value) => formatPercentage(value)) : displayValue(analystRevisions.revenue_estimate_revisions, (value) => formatChangePercent(normalizeRatioPercent(value))), note: analystRevisions.revenue_estimate_revisions == null ? analystRevisions.revenue_revision_note : "" },
           { label: currentLanguage === "zh" ? "下一年EPS增长" : "Next-Year EPS Growth", value: displayValue(analystRevisions.next_year_eps_growth, (value) => formatPercentage(value)) },
           { label: currentLanguage === "zh" ? "前瞻指引变化" : "Forward Guidance Changes", value: displayValue(analystRevisions.forward_guidance_changes, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "目标价修正趋势" : "Analyst Target Revision Trend", value: analystTrendLabel(analystRevisions.analyst_target_revision_trend), note: analystRevisions.target_mean_price != null || analystRevisions.target_median_price != null ? `${currentLanguage === "zh" ? "当前目标价快照" : "Current target snapshot"}: ${displayValue(analystRevisions.target_mean_price, (value) => formatCurrency(value, currencyCode))} / ${displayValue(analystRevisions.target_median_price, (value) => formatCurrency(value, currencyCode))}${analystRevisions.analyst_target_revision_trend_proxy ? ` · ${currentLanguage === "zh" ? "趋势代理" : "Trend proxy"}: ${localizedDashboardText(analystRevisions.analyst_target_revision_trend_proxy)}` : ""}` : analystRevisions.target_revision_note },
-          { label: currentLanguage === "zh" ? "分析师数量 / 推荐均值" : "Analyst Count / Recommendation Mean", value: `${analystRevisions.analyst_count ?? "—"} / ${displayValue(analystRevisions.recommendation_mean, (value) => formatRatio(value))}`, note: analystRevisions.recommendation_key || "" },
+          { label: currentLanguage === "zh" ? "当前目标价快照" : "Current Target Snapshot", value: `${displayValue(analystRevisions.target_mean_price, (value) => formatCurrency(value, currencyCode))} / ${displayValue(analystRevisions.target_median_price, (value) => formatCurrency(value, currencyCode))}`, note: currentLanguage === "zh" ? "仅保留目标价水平；目标价修正趋势已从模型和 UI 移除。" : "Only target-price levels remain; target revision trend is removed from the model and UI." },
         ])}</div>
       </section>
       <section class="detail-section-card">
@@ -19033,9 +19504,7 @@ function renderDetailModal(row) {
         <div class="detail-line-list">${renderMetricRows([
           { label: currentLanguage === "zh" ? "财报日期" : "Earnings Date", value: earningsEventRisk.earnings_date ? formatSnapshotTimestamp(earningsEventRisk.earnings_date) : t("dataUnavailable"), note: earningsEventRisk.source_status?.calendar === "unavailable" ? (currentLanguage === "zh" ? "财报日源暂不可用。" : "Earnings calendar source unavailable.") : "" },
           { label: currentLanguage === "zh" ? "距离财报天数" : "Days to Earnings", value: earningsEventRisk.days_to_earnings == null ? t("dataUnavailable") : `${earningsEventRisk.days_to_earnings} ${currentLanguage === "zh" ? "天" : "days"}` },
-          { label: currentLanguage === "zh" ? "历史财报跳空" : "Historical Earnings Gap", value: displayValue(earningsEventRisk.historical_earnings_gap, (value) => formatPercentValue(normalizeRatioPercent(value))), note: earningsEventRisk.source_status?.historical_gap === "unavailable" ? localizedDashboardText(earningsEventRisk.note) : "" },
           { label: currentLanguage === "zh" ? "期权隐含财报波动参考" : "Expected Move from Options", value: displayValue(earningsEventRisk.expected_move_from_options, (value) => formatPercentValue(value)), note: earningsEventRisk.source_status?.expected_move === "unavailable" ? (currentLanguage === "zh" ? "期权 expected move 暂不可用。" : "Options expected move unavailable.") : "" },
-          { label: currentLanguage === "zh" ? "财报后漂移" : "Post-Earnings Drift", value: displayValue(earningsEventRisk.post_earnings_drift, (value) => formatPercentValue(normalizeRatioPercent(value))), note: earningsEventRisk.source_status?.drift === "unavailable" ? (currentLanguage === "zh" ? "需要历史财报日后的价格序列。" : "Requires price series after historical earnings dates.") : "" },
         ])}</div>
       </section>
       <section class="detail-section-card">
@@ -19444,12 +19913,20 @@ function loadCachedSnapshot() {
   try {
     const cached = JSON.parse(localStorage.getItem(PRICE_CACHE_KEY) || "null");
     if (!cached?.snapshot) return false;
+    const updatedMs = snapshotTimestampMs(cached.snapshot);
+    const cacheAgeMinutes = Number.isFinite(updatedMs) ? Math.max(0, Math.round((Date.now() - updatedMs) / 60000)) : null;
+    const crossedTradingDay = Number.isFinite(updatedMs)
+      ? new Date(updatedMs).toDateString() !== new Date().toDateString()
+      : true;
+    const canShowCachedRecommendations = Number.isFinite(cacheAgeMinutes) && cacheAgeMinutes <= 60 && !crossedTradingDay;
     applySnapshot(cached.snapshot, false, {
       source: "local_cache",
-      isProvisional: true,
-      isRefreshing: true,
+      isProvisional: !canShowCachedRecommendations,
+      isRefreshing: false,
       requestId: latestMarketRequestId,
-      warning: currentLanguage === "zh" ? "正在更新最新市场数据，当前推荐暂不显示。" : "Refreshing latest market data; formal recommendations are hidden.",
+      warning: canShowCachedRecommendations
+        ? null
+        : (currentLanguage === "zh" ? "本地缓存已过期，等待下一个整点或手动刷新后显示正式推荐。" : "Local cache is stale; formal recommendations wait for the next hourly refresh or manual refresh."),
     });
     const chipText = refreshChipText(cached.snapshot);
     if (chipText) {
@@ -19740,6 +20217,21 @@ async function runDashboardRefresh({ manual = false, auto = false, mode = null }
   });
 }
 
+function scheduleNextHourlyAutoRefresh() {
+  if (hourlyAutoRefreshTimer) {
+    window.clearTimeout(hourlyAutoRefreshTimer);
+  }
+  const delay = msUntilNextHourlyRefresh();
+  hourlyAutoRefreshTimer = window.setTimeout(() => {
+    runDashboardRefresh({ auto: true, mode: "auto" })
+      .finally(() => scheduleNextHourlyAutoRefresh());
+  }, delay);
+  if (currentSnapshot) {
+    setRefreshChip(refreshChipText(currentSnapshot));
+  }
+  return delay;
+}
+
 async function addTicker(rawTicker) {
   const ticker = normalizeTickerInput(rawTicker);
   if (!ticker) return false;
@@ -19898,17 +20390,14 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-loadCachedSnapshot();
+const loadedCachedSnapshot = loadCachedSnapshot();
 syncTickerRows();
 render();
-runDashboardRefresh({ mode: "cache" }).then(() => {
-  if (isDashboardRefreshDue(currentSnapshot)) {
-    runDashboardRefresh({ auto: true, mode: "auto" });
-  }
-});
-setInterval(() => {
-  runDashboardRefresh({ auto: true, mode: "auto" });
-}, PRICE_REFRESH_MS);
+syncWatchlistFromServer({ rerender: true, refreshPrices: false });
+if (!loadedCachedSnapshot) {
+  runDashboardRefresh({ mode: "cache" });
+}
+scheduleNextHourlyAutoRefresh();
 setInterval(() => {
   syncWatchlistFromServer({ rerender: true, refreshPrices: false }).then((changed) => {
     if (changed) refreshSnapshot({ mode: "cache" });
@@ -19919,9 +20408,7 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     syncWatchlistFromServer({ rerender: true, refreshPrices: false }).then((changed) => {
       if (changed) refreshSnapshot({ mode: "cache" });
-      if (isDashboardRefreshDue(currentSnapshot)) {
-        runDashboardRefresh({ auto: true, mode: "auto" });
-      }
     });
+    if (currentSnapshot) setRefreshChip(refreshChipText(currentSnapshot));
   }
 });
