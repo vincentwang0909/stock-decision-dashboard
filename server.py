@@ -113,12 +113,20 @@ BACKGROUND_REFRESH_STATE = {
     "last_batches": [],
     "next_run_at": None,
 }
+WATCHLIST_SCHEMA_VERSION = 1
+WATCHLIST_MIGRATION_TICKERS = ["QQQ"]
 DEFAULT_SHARED_WATCHLIST = [
     "NVDA", "TSLA", "AMD", "BABA", "GOOGL", "AMZN", "AAPL", "CRCL", "FFAI", "HIMS",
     "MPT", "META", "MSFT", "NFLX", "PLTR", "NOW", "SOFI", "TEM", "XE", "ZETA",
-    "300657", "002463", "603005", "600522",
+    "QQQ", "300657", "002463", "603005", "600522",
 ]
 US_SYMBOL_CATALOG = [
+    {"ticker": "QQQ", "name": "Invesco QQQ Trust", "aliases": ["Nasdaq 100 ETF", "Nasdaq-100", "纳指100", "QQQ ETF"], "exchange": "NASDAQ"},
+    {"ticker": "SPMO", "name": "Invesco S&P 500 Momentum ETF", "aliases": ["S&P 500 Momentum ETF", "Momentum ETF"], "exchange": "NYSE"},
+    {"ticker": "TQQQ", "name": "ProShares UltraPro QQQ", "aliases": ["Nasdaq 100 3x Bull ETF", "3x QQQ", "Leveraged QQQ"], "exchange": "NASDAQ"},
+    {"ticker": "SQQQ", "name": "ProShares UltraPro Short QQQ", "aliases": ["Nasdaq 100 3x Bear ETF", "Inverse QQQ", "Short QQQ"], "exchange": "NASDAQ"},
+    {"ticker": "SOXL", "name": "Direxion Daily Semiconductor Bull 3X Shares", "aliases": ["Semiconductor Bull 3X ETF", "3x Semiconductor Bull"], "exchange": "NYSE"},
+    {"ticker": "SOXS", "name": "Direxion Daily Semiconductor Bear 3X Shares", "aliases": ["Semiconductor Bear 3X ETF", "3x Semiconductor Bear"], "exchange": "NYSE"},
     {"ticker": "NVDA", "name": "NVIDIA", "aliases": ["NVIDIA Corp", "英伟达"], "exchange": "NASDAQ"},
     {"ticker": "TSLA", "name": "Tesla", "aliases": ["Tesla Inc", "特斯拉"], "exchange": "NASDAQ"},
     {"ticker": "AMD", "name": "AMD", "aliases": ["Advanced Micro Devices", "超威半导体"], "exchange": "NASDAQ"},
@@ -292,6 +300,14 @@ def init_watchlist_db():
                         "INSERT OR IGNORE INTO watchlist (ticker, market_type) VALUES (?, ?)",
                         (item["ticker"], item["market_type"]),
                     )
+            current_version = conn.execute("PRAGMA user_version").fetchone()[0]
+            if current_version < WATCHLIST_SCHEMA_VERSION:
+                for item in normalize_watchlist_items(WATCHLIST_MIGRATION_TICKERS):
+                    conn.execute(
+                        "INSERT OR IGNORE INTO watchlist (ticker, market_type) VALUES (?, ?)",
+                        (item["ticker"], item["market_type"]),
+                    )
+                conn.execute(f"PRAGMA user_version = {WATCHLIST_SCHEMA_VERSION}")
             conn.commit()
 
 
