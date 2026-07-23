@@ -5,6 +5,7 @@ const SYMBOL_SEARCH_API_URL = `${API_BASE}/api/symbol-search`;
 const APP_BUILD_VERSION = "2026.07.19.etf-engine-v1";
 const DECISION_MODEL_VERSION = "trade-plan-v5-etf-engine";
 const PRICE_CACHE_KEY = "stock-dashboard-market-cache-v9";
+const ACTION_STATE_CACHE_KEY = "stock-dashboard-action-state-v1";
 const WATCHLIST_CACHE_KEY = "stock-dashboard-watchlist-v1";
 const WATCHLIST_SESSION_KEY = "stock-dashboard-watchlist-session-v1";
 const WATCHLIST_MIGRATION_KEY = "stock-dashboard-watchlist-migration-v3";
@@ -6612,7 +6613,7 @@ function scorePriceAboveLevel(price, level, band = 0.08) {
   return clamp(Math.round(50 + clamp((price - level) / level, -band, band) / band * 32), 0, 100);
 }
 
-function weightedAvailableScore(parts = []) {
+function forecastWeightedScore(parts = []) {
   const valid = parts.filter((item) => Number.isFinite(item?.score) && Number.isFinite(item?.weight) && item.weight > 0);
   const total = valid.reduce((sum, item) => sum + item.weight, 0);
   if (!total) return null;
@@ -6629,18 +6630,95 @@ function historyReturnScore(history, lookback, band) {
   return scoreSignedPercent(computeReturnPct(history?.closes || [], lookback), band);
 }
 
+function forecastHistoryFrom(row = {}, technicalModule = {}) {
+  const candidates = [
+    row?.technicals?.history,
+    row?.history,
+    technicalModule?.history,
+    technicalModule?.technical_analysis?.history,
+  ].filter(Boolean);
+  const best = candidates
+    .map((history) => ({
+      history,
+      length: Math.max(
+        Array.isArray(history?.closes) ? history.closes.length : 0,
+        Array.isArray(history?.close) ? history.close.length : 0,
+        Array.isArray(history?.bars) ? history.bars.length : 0,
+        Array.isArray(history) ? history.length : 0,
+      ),
+    }))
+    .sort((a, b) => b.length - a.length)[0]?.history || {};
+  const fromBars = Array.isArray(best?.bars) ? best.bars : Array.isArray(best) ? best : null;
+  if (fromBars) {
+    return {
+      opens: fromBars.map((bar) => finiteNumberOrNull(bar.open)),
+      highs: fromBars.map((bar) => finiteNumberOrNull(bar.high)),
+      lows: fromBars.map((bar) => finiteNumberOrNull(bar.low)),
+      closes: fromBars.map((bar) => finiteNumberOrNull(bar.close ?? bar.price)),
+      volumes: fromBars.map((bar) => finiteNumberOrNull(bar.volume)),
+      timestamps: fromBars.map((bar) => bar.date || bar.timestamp || bar.time || null),
+      source_path: Array.isArray(best?.bars) ? "history.bars" : "history[]",
+    };
+  }
+  return {
+    opens: Array.isArray(best.opens) ? best.opens : Array.isArray(best.open) ? best.open : [],
+    highs: Array.isArray(best.highs) ? best.highs : Array.isArray(best.high) ? best.high : [],
+    lows: Array.isArray(best.lows) ? best.lows : Array.isArray(best.low) ? best.low : [],
+    closes: Array.isArray(best.closes) ? best.closes : Array.isArray(best.close) ? best.close : [],
+    volumes: Array.isArray(best.volumes) ? best.volumes : Array.isArray(best.volume) ? best.volume : [],
+    turnovers: Array.isArray(best.turnovers) ? best.turnovers : [],
+    timestamps: Array.isArray(best.timestamps) ? best.timestamps : Array.isArray(best.dates) ? best.dates : [],
+    source_path: best === row?.technicals?.history ? "row.technicals.history" : best === row?.history ? "row.history" : "technical.history",
+  };
+}
+
+function forecastTechnicalValue(row = {}, technicalModule = {}, key) {
+  const tech = row?.technicals || {};
+  const trend = technicalModule?.trend || {};
+  const momentum = technicalModule?.momentum || {};
+  const direct = tech[key] ?? technicalModule?.[key] ?? trend[key] ?? momentum[key];
+  if (Number.isFinite(direct)) return direct;
+  if (key === "atr14") return finiteNumberOrNull(tech.atr ?? technicalModule?.atr ?? technicalModule?.trend_state?.atr);
+  if (key === "closePosition") return finiteNumberOrNull(tech.closePosition ?? technicalModule?.volume_confirmation?.close_position);
+  if (key === "macdHistogram") return finiteNumberOrNull(tech.macdHistogram ?? momentum.macd_histogram);
+  if (key === "fibPosition") return finiteNumberOrNull(tech.fibPosition ?? trend.fibonacci);
+  return null;
+}
+
 function aggregateWeeklyBars(history = {}) {
-  const closes = history.closes || [];
-  const highs = history.highs || [];
-  const lows = history.lows || [];
-  const volumes = history.volumes || [];
-  const dates = history.timestamps || history.dates || [];
+  const rawCloses = history.closes || [];
+  const rawHighs = history.highs || [];
+  const rawLows = history.lows || [];
+  const rawOpens = history.opens || [];
+  const rawVolumes = history.volumes || [];
+  const rawDates = history.timestamps || history.dates || [];
+  const closes = rawCloses.map(finiteNumberOrNull);
+  const highs = rawHighs.map(finiteNumberOrNull);
+  const lows = rawLows.map(finiteNumberOrNull);
+  const opens = rawOpens.map(finiteNumberOrNull);
+  const volumes = rawVolumes.map(finiteNumberOrNull);
+  const dates = rawDates || [];
   const length = Math.min(closes.length, highs.length, lows.length);
+  const missingFields = [
+    closes.length ? null : "close",
+    highs.length ? null : "high",
+    lows.length ? null : "low",
+    volumes.length ? null : "volume",
+    opens.length ? null : "open",
+    dates.length ? null : "date",
+  ].filter(Boolean);
+  const openSource = opens.length >= length ? "daily_open" : "first_close_fallback";
   if (length < 10) {
     return {
       bars: [],
       status: "unavailable",
+      data_status: "unavailable",
       source: "daily_history",
+      weekly_bar_count: 0,
+      weekly_missing_fields: missingFields,
+      weekly_latest_bar: null,
+      weekly_trend_score: null,
+      open_source: openSource,
       explanation: currentLanguage === "zh" ? "日线历史不足，无法聚合周线。" : "Daily history is insufficient for weekly aggregation.",
     };
   }
@@ -6655,6 +6733,8 @@ function aggregateWeeklyBars(history = {}) {
       volume: bar.volume,
       start: bar.start,
       end: bar.end,
+      week_start: bar.start,
+      week_end: bar.end,
     });
   };
   if (dates.length >= length) {
@@ -6665,6 +6745,7 @@ function aggregateWeeklyBars(history = {}) {
       const high = highs[i];
       const low = lows[i];
       if (!Number.isFinite(close) || !Number.isFinite(high) || !Number.isFinite(low)) continue;
+      const open = Number.isFinite(opens[i]) ? opens[i] : close;
       const rawDate = dates[i] || dates[i - (closes.length - dates.length)];
       const parsed = new Date(rawDate);
       const fallbackKey = Math.floor((i - Math.max(0, closes.length - length)) / 5);
@@ -6674,7 +6755,7 @@ function aggregateWeeklyBars(history = {}) {
       if (key !== currentKey) {
         pushBar(current);
         currentKey = key;
-        current = { open: close, high, low, close, volume: 0, start: rawDate, end: rawDate };
+        current = { open, high, low, close, volume: 0, start: rawDate, end: rawDate };
       } else if (current) {
         current.high = Math.max(current.high, high);
         current.low = Math.min(current.low, low);
@@ -6691,8 +6772,9 @@ function aggregateWeeklyBars(history = {}) {
       const lowSlice = lows.slice(i, i + 5).filter(Number.isFinite);
       const volumeSlice = volumes.slice(i, i + 5).filter(Number.isFinite);
       if (!closeSlice.length || !highSlice.length || !lowSlice.length) continue;
+      const openSlice = opens.slice(i, i + 5).filter(Number.isFinite);
       buckets.push({
-        open: closeSlice[0],
+        open: openSlice[0] ?? closeSlice[0],
         high: Math.max(...highSlice),
         low: Math.min(...lowSlice),
         close: closeSlice[closeSlice.length - 1],
@@ -6702,10 +6784,17 @@ function aggregateWeeklyBars(history = {}) {
       });
     }
   }
+  const trendScore = weeklyTrendScore({ bars: buckets });
   return {
     bars: buckets,
     status: buckets.length >= 8 ? "available" : "partial",
+    data_status: buckets.length >= 8 ? "available" : "partial",
     source: dates.length ? "daily_history_dates" : "daily_history_5bar_fallback",
+    weekly_bar_count: buckets.length,
+    weekly_missing_fields: missingFields,
+    weekly_latest_bar: buckets[buckets.length - 1] || null,
+    weekly_trend_score: trendScore,
+    open_source: openSource,
     explanation: currentLanguage === "zh" ? "长期模型由日线聚合周线结构；未使用或伪造 1h/4h 数据。" : "Long-term model aggregates weekly structure from daily bars; no 1h/4h signals are fabricated.",
   };
 }
@@ -6713,51 +6802,99 @@ function aggregateWeeklyBars(history = {}) {
 function weeklyTrendScore(weekly = {}) {
   const closes = (weekly.bars || []).map((bar) => bar.close).filter(Number.isFinite);
   if (closes.length < 8) return null;
-  return weightedAvailableScore([
+  return forecastWeightedScore([
     { score: scoreSignedPercent(computeReturnPct(closes, Math.min(12, closes.length - 1)), 18), weight: 0.4 },
     { score: scoreSignedPercent(computeReturnPct(closes, Math.min(24, closes.length - 1)), 28), weight: 0.35 },
     { score: scorePriceAboveLevel(closes[closes.length - 1], mean(closes.slice(-20)), 0.12), weight: 0.25 },
   ]);
 }
 
-function horizonTechnicalScore(row, horizonKey, weekly = {}) {
+function horizonTechnicalScore(row, horizonKey, weekly = {}, technicalModule = {}) {
   const tech = row.technicals || {};
-  const history = tech.history || {};
+  const history = forecastHistoryFrom(row, technicalModule);
   const price = row.price;
+  const ma10 = forecastTechnicalValue(row, technicalModule, "ma10");
+  const ma20 = forecastTechnicalValue(row, technicalModule, "ma20");
+  const ma50 = forecastTechnicalValue(row, technicalModule, "ma50");
+  const ma100 = forecastTechnicalValue(row, technicalModule, "ma100");
+  const ma200 = forecastTechnicalValue(row, technicalModule, "ma200");
+  const macd = forecastTechnicalValue(row, technicalModule, "macd");
+  const macdHistogram = forecastTechnicalValue(row, technicalModule, "macdHistogram");
+  const rsi14 = forecastTechnicalValue(row, technicalModule, "rsi14");
+  const closePosition = forecastTechnicalValue(row, technicalModule, "closePosition");
+  const fibPosition = forecastTechnicalValue(row, technicalModule, "fibPosition");
+  const upperBand = forecastTechnicalValue(row, technicalModule, "upperBand");
+  const lowerBand = forecastTechnicalValue(row, technicalModule, "lowerBand");
   if (horizonKey === "short_term") {
-    return moduleScoreEntry(weightedAvailableScore([
-      { score: scorePriceAboveLevel(price, tech.ma20, 0.06), weight: 0.22 },
-      { score: scorePriceAboveLevel(price, tech.ma50, 0.08), weight: 0.14 },
+    return moduleScoreEntry(forecastWeightedScore([
+      { score: scorePriceAboveLevel(price, ma10, 0.05), weight: 0.10 },
+      { score: scorePriceAboveLevel(price, ma20, 0.06), weight: 0.18 },
+      { score: scorePriceAboveLevel(price, ma50, 0.08), weight: 0.12 },
       { score: historyReturnScore(history, 5, 8), weight: 0.18 },
-      { score: historyReturnScore(history, 20, 15), weight: 0.20 },
-      { score: scoreSignedPercent((tech.macdHistogram ?? 0) * 10, 8), weight: 0.10 },
-      { score: Number.isFinite(tech.rsi14) ? clamp(Math.round(100 - Math.abs(tech.rsi14 - 55) * 1.35), 18, 86) : null, weight: 0.08 },
-      { score: Number.isFinite(tech.closePosition) ? clamp(Math.round(35 + tech.closePosition * 45), 25, 85) : null, weight: 0.08 },
-    ]), { window: "1D/5D/20D, MA20/50" });
+      { score: historyReturnScore(history, 20, 15), weight: 0.17 },
+      { score: scoreSignedPercent((macdHistogram ?? 0) * 10, 8), weight: 0.09 },
+      { score: Number.isFinite(rsi14) ? clamp(Math.round(100 - Math.abs(rsi14 - 55) * 1.35), 18, 86) : null, weight: 0.06 },
+      { score: Number.isFinite(tech.kdj?.j) ? clamp(Math.round(100 - Math.abs(tech.kdj.j - 55) * 0.8), 18, 84) : null, weight: 0.04 },
+      { score: Number.isFinite(closePosition) ? clamp(Math.round(35 + closePosition * 45), 25, 85) : null, weight: 0.04 },
+      { score: Number.isFinite(price) && Number.isFinite(upperBand) && Number.isFinite(lowerBand) && upperBand > lowerBand
+        ? clamp(Math.round(70 - Math.abs((price - ((upperBand + lowerBand) / 2)) / Math.max(upperBand - lowerBand, 0.01)) * 35), 22, 78)
+        : null, weight: 0.02 },
+    ]), {
+      window: "1D/5D/20D, MA10/20/50",
+      raw_source_paths: ["row.technicals.ma10/ma20/ma50", "row.technicals.history", "row.technicals.macdHistogram/rsi14/kdj/closePosition"],
+      history_source: history.source_path,
+      history_length: (history.closes || []).filter(Number.isFinite).length,
+      fib_position: Number.isFinite(fibPosition) ? fibPosition : null,
+    });
   }
   if (horizonKey === "mid_term") {
-    return moduleScoreEntry(weightedAvailableScore([
-      { score: scorePriceAboveLevel(price, tech.ma50, 0.10), weight: 0.22 },
-      { score: scorePriceAboveLevel(price, tech.ma100, 0.14), weight: 0.16 },
+    return moduleScoreEntry(forecastWeightedScore([
+      { score: scorePriceAboveLevel(price, ma20, 0.08), weight: 0.10 },
+      { score: scorePriceAboveLevel(price, ma50, 0.10), weight: 0.20 },
+      { score: scorePriceAboveLevel(price, ma100, 0.14), weight: 0.16 },
       { score: historyReturnScore(history, 20, 18), weight: 0.22 },
       { score: historyReturnScore(history, 60, 28), weight: 0.25 },
-      { score: scorePriceAboveLevel(tech.ma20, tech.ma50, 0.08), weight: 0.15 },
-    ]), { window: "20D/60D, MA50/100" });
+      { score: scorePriceAboveLevel(ma20, ma50, 0.08), weight: 0.07 },
+    ]), {
+      window: "20D/60D, MA20/50/100",
+      raw_source_paths: ["row.technicals.ma20/ma50/ma100", "row.technicals.history"],
+      history_source: history.source_path,
+      history_length: (history.closes || []).filter(Number.isFinite).length,
+    });
   }
-  return moduleScoreEntry(weightedAvailableScore([
-    { score: scorePriceAboveLevel(price, tech.ma100, 0.16), weight: 0.18 },
-    { score: scorePriceAboveLevel(price, tech.ma200, 0.22), weight: 0.22 },
+  return moduleScoreEntry(forecastWeightedScore([
+    { score: scorePriceAboveLevel(price, ma50, 0.14), weight: 0.10 },
+    { score: scorePriceAboveLevel(price, ma100, 0.16), weight: 0.18 },
+    { score: scorePriceAboveLevel(price, ma200, 0.22), weight: 0.22 },
     { score: historyReturnScore(history, 60, 30), weight: 0.18 },
     { score: historyReturnScore(history, 120, 45), weight: 0.18 },
-    { score: weeklyTrendScore(weekly), weight: 0.24 },
-  ]), { window: "60D/120D, MA100/200, weekly aggregation" });
+    { score: weekly.weekly_trend_score ?? weeklyTrendScore(weekly), weight: 0.14 },
+  ]), {
+    window: "60D/120D, MA50/100/200, weekly aggregation",
+    raw_source_paths: ["row.technicals.ma50/ma100/ma200", "row.technicals.history", "weekly aggregation"],
+    history_source: history.source_path,
+    history_length: (history.closes || []).filter(Number.isFinite).length,
+    weekly_bar_count: weekly.weekly_bar_count ?? (weekly.bars || []).length,
+    weekly_data_status: weekly.data_status || weekly.status,
+  });
 }
 
-function horizonVolumeScore(row, horizonKey) {
+function horizonVolumeScore(row, horizonKey, technicalModule = {}) {
   const tech = row.technicals || {};
-  const history = tech.history || {};
+  const history = forecastHistoryFrom(row, technicalModule);
   const closes = history.closes || [];
   const volumes = history.volumes || [];
+  const periodKey = horizonKey === "short_term" ? "short_term" : horizonKey === "mid_term" ? "mid_term" : "long_term";
+  const existing = technicalModule?.volume_confirmation?.money_flow_core?.[periodKey];
+  if (existing && Number.isFinite(existing.score)) {
+    return moduleScoreEntry(existing.score, {
+      obv_window: horizonKey === "short_term" ? 20 : horizonKey === "mid_term" ? 60 : 120,
+      volume_window: horizonKey === "short_term" ? 20 : horizonKey === "mid_term" ? 60 : 120,
+      raw_source_paths: [`technical.volume_confirmation.money_flow_core.${periodKey}`, "row.technicals.history"],
+      components: existing.components || null,
+      weights: existing.weights || null,
+    });
+  }
   const obvWindow = horizonKey === "short_term" ? 20 : horizonKey === "mid_term" ? 60 : 120;
   const volWindow = horizonKey === "short_term" ? 20 : horizonKey === "mid_term" ? 60 : 120;
   const volumeAvg = mean(volumes.slice(-volWindow));
@@ -6767,12 +6904,18 @@ function horizonVolumeScore(row, horizonKey) {
     : null;
   const obvState = obvTrend(closes, volumes, obvWindow);
   const obvScore = obvState === "rising" ? 72 : obvState === "neutral" ? 54 : obvState === "falling" ? 32 : null;
-  return moduleScoreEntry(weightedAvailableScore([
+  return moduleScoreEntry(forecastWeightedScore([
     { score: volumeRatioScore, weight: horizonKey === "short_term" ? 0.45 : 0.30 },
     { score: obvScore, weight: horizonKey === "long_term" ? 0.55 : 0.40 },
     { score: Number.isFinite(tech.closePosition) ? clamp(Math.round(35 + tech.closePosition * 45), 25, 85) : null, weight: 0.15 },
     { score: historyReturnScore(history, horizonKey === "short_term" ? 5 : horizonKey === "mid_term" ? 20 : 60, horizonKey === "short_term" ? 8 : 20), weight: 0.15 },
-  ]), { obv_window: obvWindow, volume_window: volWindow, obv_state: obvState });
+  ]), {
+    obv_window: obvWindow,
+    volume_window: volWindow,
+    obv_state: obvState,
+    raw_source_paths: ["row.technicals.history.closes", "row.technicals.history.volumes", "row.technicals.closePosition"],
+    history_source: history.source_path,
+  });
 }
 
 function horizonRelativeStrengthScore(tradeContext = {}, horizonKey) {
@@ -6803,7 +6946,7 @@ function horizonSupportResistanceScore(row, supportResistance = {}, horizonKey) 
   const resistancePenalty = nearestResistance
     ? clamp(Math.round((nearestResistance.strength_score ?? 50) - Math.max(0, resistanceDistance ?? 10) * 3), 20, 82)
     : null;
-  const score = weightedAvailableScore([
+  const score = forecastWeightedScore([
     { score: supportScore, weight: 0.55 },
     { score: Number.isFinite(resistancePenalty) ? 100 - resistancePenalty : null, weight: 0.45 },
   ]);
@@ -6812,6 +6955,7 @@ function horizonSupportResistanceScore(row, supportResistance = {}, horizonKey) 
     nearest_resistance: nearestResistance?.id || nearestResistance?.level || null,
     support_distance_pct: Number.isFinite(supportDistance) ? Number(supportDistance.toFixed(2)) : null,
     resistance_distance_pct: Number.isFinite(resistanceDistance) ? Number(resistanceDistance.toFixed(2)) : null,
+    raw_source_paths: ["decision.support_resistance.supports", "decision.support_resistance.resistances"],
   });
 }
 
@@ -6869,22 +7013,114 @@ function horizonCycleScore(tradeContext = {}) {
   return moduleScoreEntry(tradeContext.cycle_state?.score, { regime: tradeContext.cycle_state?.regime || null });
 }
 
+function horizonLongTrendScore(row, weekly = {}, tradeContext = {}, technicalModule = {}) {
+  const technicalScore = horizonTechnicalScore(row, "long_term", weekly, technicalModule);
+  const rs = tradeContext?.relative_strength_state || {};
+  const weeklyScore = weekly.weekly_trend_score ?? weeklyTrendScore(weekly);
+  const price = finiteNumberOrNull(row?.price);
+  const tech = row?.technicals || {};
+  const ma100 = finiteNumberOrNull(tech.ma100);
+  const ma200 = finiteNumberOrNull(tech.ma200);
+  const score = forecastWeightedScore([
+    { score: technicalScore?.score, weight: 0.35 },
+    { score: scorePriceAboveLevel(price, ma100, 0.16), weight: 0.12 },
+    { score: scorePriceAboveLevel(price, ma200, 0.22), weight: 0.14 },
+    { score: scoreSignedPercent(rs.stock_return_60d, 30), weight: 0.10 },
+    { score: scoreSignedPercent(rs.stock_return_120d, 45), weight: 0.14 },
+    { score: scoreSignedPercent(rs.vs_spy_120d, 24), weight: 0.06 },
+    { score: scoreSignedPercent(rs.vs_qqq_120d, 24), weight: 0.06 },
+    { score: weeklyScore, weight: 0.13 },
+  ]);
+  return moduleScoreEntry(score, {
+    window: "60D/120D/weekly, MA100/200",
+    weekly_bar_count: weekly.weekly_bar_count ?? (weekly.bars || []).length,
+    weekly_data_status: weekly.data_status || weekly.status,
+    weekly_trend_score: weeklyScore,
+    raw_source_paths: ["row.technicals.ma100/ma200", "trade_context.relative_strength_state", "weekly aggregation"],
+  });
+}
+
 function horizonBalanceSheetScore(fundamental = {}, tradeContext = {}) {
   const debtRisk = tradeContext.company_risk?.debt_risk_score;
   const health = fundamental.financial_health || {};
-  const cashScore = finiteNumberOrNull(health.cash_ratio_score) ?? finiteNumberOrNull(health.liquidity_score);
-  const debtRatio = finiteNumberOrNull(health.debt_ratio);
-  return moduleScoreEntry(weightedAvailableScore([
-    { score: Number.isFinite(debtRisk) ? 100 - debtRisk : null, weight: 0.45 },
-    { score: cashScore, weight: 0.30 },
-    { score: Number.isFinite(debtRatio) ? clamp(Math.round(82 - debtRatio * 75), 15, 85) : null, weight: 0.25 },
-  ]), { debt_ratio: debtRatio ?? null });
+  const quality = fundamental.quality || {};
+  const cashReserve = finiteNumberOrNull(health.cash_reserve ?? quality.cash_ratio);
+  const freeCashFlow = finiteNumberOrNull(health.free_cash_flow);
+  const cashFlowStability = finiteNumberOrNull(health.cash_flow_stability);
+  const debtRatio = finiteNumberOrNull(health.debt_ratio ?? quality.debt_ratio);
+  const financialHealthScore = finiteNumberOrNull(fundamental.financial_health_score);
+  const cashScore = Number.isFinite(cashReserve)
+    ? clamp(Math.round(35 + cashReserve * 95), 10, 86)
+    : null;
+  const fcfScore = Number.isFinite(freeCashFlow)
+    ? metricScore(freeCashFlow, -3, 8)
+    : null;
+  return moduleScoreEntry(forecastWeightedScore([
+    { score: financialHealthScore, weight: 0.22 },
+    { score: Number.isFinite(debtRisk) ? 100 - debtRisk : null, weight: 0.25 },
+    { score: cashScore, weight: 0.18 },
+    { score: fcfScore, weight: 0.17 },
+    { score: Number.isFinite(cashFlowStability) ? cashFlowStability : null, weight: 0.08 },
+    { score: Number.isFinite(debtRatio) ? clamp(Math.round(82 - debtRatio * 75), 15, 85) : null, weight: 0.10 },
+  ]), {
+    debt_ratio: debtRatio ?? null,
+    cash_reserve: cashReserve ?? null,
+    free_cash_flow: freeCashFlow ?? null,
+    cash_flow_stability: cashFlowStability ?? null,
+    raw_source_paths: ["fundamental.financial_health", "fundamental.quality", "trade_context.company_risk"],
+  });
 }
 
-function buildForecastModuleScores({ row, horizonKey, supportResistance, fundamental, marketContext, tradeContext, weekly }) {
+function horizonIndustryCycleScore(companyProfile = {}, tradeContext = {}, fundamental = {}) {
+  const profile = companyProfile?.decision_profile?.base_profile || companyProfile?.scoring_profile || "generic";
+  const tags = companyProfile?.tags || [];
+  const relevant = profile === "memory_cycle"
+    || profile === "ai_infrastructure"
+    || profile === "reit_dividend"
+    || profile === "high_growth_cyclical"
+    || profile === "china_adr"
+    || hasAnyTag(tags, ["Cyclical", "MemoryStorage", "DRAMNAND", "NAND", "AIInfrastructure", "InterestRateSensitive", "ChinaADR"]);
+  if (!relevant) return null;
+  const cycleState = horizonCycleScore(tradeContext);
+  const components = fundamental.profile_fundamental?.components || {};
+  const reitRateScore = profile === "reit_dividend"
+    ? horizonMarketContextScore(tradeContext?.market_context || {})?.score
+    : null;
+  const aiScore = profile === "ai_infrastructure"
+    ? forecastWeightedScore([
+      { score: components.revenue_growth, weight: 0.30 },
+      { score: components.free_cash_flow, weight: 0.20 },
+      { score: components.valuation_risk != null ? 100 - components.valuation_risk : null, weight: 0.25 },
+      { score: tradeContext?.relative_strength_state?.long_score, weight: 0.25 },
+    ])
+    : null;
+  const memoryScore = profile === "memory_cycle"
+    ? forecastWeightedScore([
+      { score: cycleState?.score, weight: 0.35 },
+      { score: components.gross_margin_trend, weight: 0.20 },
+      { score: components.free_cash_flow, weight: 0.20 },
+      { score: tradeContext?.relative_strength_state?.long_score, weight: 0.25 },
+    ])
+    : null;
+  const score = forecastWeightedScore([
+    { score: cycleState?.score, weight: 0.45 },
+    { score: aiScore, weight: profile === "ai_infrastructure" ? 0.35 : 0 },
+    { score: memoryScore, weight: profile === "memory_cycle" ? 0.35 : 0 },
+    { score: reitRateScore, weight: profile === "reit_dividend" ? 0.20 : 0 },
+    { score: tradeContext?.relative_strength_state?.long_score, weight: 0.20 },
+  ]);
+  return moduleScoreEntry(score, {
+    profile,
+    relevant,
+    regime: tradeContext?.cycle_state?.regime || null,
+    raw_source_paths: ["trade_context.cycle_state", "fundamental.profile_fundamental.components", "trade_context.relative_strength_state"],
+  });
+}
+
+function buildForecastModuleScores({ row, horizonKey, supportResistance, fundamental, marketContext, tradeContext, weekly, technical, companyProfile }) {
   return {
-    technical_structure: horizonTechnicalScore(row, horizonKey, weekly),
-    money_flow_volume: horizonVolumeScore(row, horizonKey),
+    technical_structure: horizonTechnicalScore(row, horizonKey, weekly, technical),
+    money_flow_volume: horizonVolumeScore(row, horizonKey, technical),
     relative_strength: horizonRelativeStrengthScore(tradeContext, horizonKey),
     support_resistance: horizonSupportResistanceScore(row, supportResistance, horizonKey),
     market_context: horizonMarketContextScore(marketContext),
@@ -6892,8 +7128,8 @@ function buildForecastModuleScores({ row, horizonKey, supportResistance, fundame
     fundamental_quality: horizonFundamentalScore(tradeContext, fundamental),
     valuation: horizonValuationScore(tradeContext),
     guidance_growth: horizonGuidanceScore(tradeContext),
-    long_trend: horizonTechnicalScore(row, "long_term", weekly),
-    industry_cycle: horizonCycleScore(tradeContext),
+    long_trend: horizonLongTrendScore(row, weekly, tradeContext, technical),
+    industry_cycle: horizonIndustryCycleScore(companyProfile, tradeContext, fundamental),
     balance_sheet: horizonBalanceSheetScore(fundamental, tradeContext),
   };
 }
@@ -6936,6 +7172,9 @@ function adjustForecastWeightsForProfile(baseWeights = {}, companyProfile = {}) 
     add("fundamental_quality", 0.03);
     add("balance_sheet", 0.02);
   }
+  const cycleRelevant = ["memory_cycle", "ai_infrastructure", "reit_dividend", "high_growth_cyclical", "china_adr"].includes(profile)
+    || hasAnyTag(tags, ["Cyclical", "MemoryStorage", "DRAMNAND", "NAND", "AIInfrastructure", "InterestRateSensitive", "ChinaADR"]);
+  if (!cycleRelevant && weights.industry_cycle != null) weights.industry_cycle = 0;
   return weights;
 }
 
@@ -6980,9 +7219,14 @@ function forecastOpportunityType(direction, moduleScores = {}, tradeContext = {}
 }
 
 function buildHorizonForecasts({ row, companyProfile, technical, fundamental, marketContext, supportResistance, tradeContext }) {
-  const weekly = aggregateWeeklyBars(technical?.history || row.technicals?.history || {});
+  const forecastHistory = forecastHistoryFrom(row, technical);
+  const weekly = aggregateWeeklyBars(forecastHistory);
   const price = row.price ?? null;
-  const atrValue = Number.isFinite(technical?.atr14) ? technical.atr14 : Math.max((price || 1) * 0.025, 0.5);
+  const atrValue = Number.isFinite(row?.technicals?.atr14)
+    ? row.technicals.atr14
+    : Number.isFinite(technical?.atr14)
+      ? technical.atr14
+      : Math.max((price || 1) * 0.025, 0.5);
   const result = {};
   const horizonMeta = {
     short_term: { horizon: "1-30 days", lowMultiplier: 1.15, highMultiplier: 1.65, returnBand: 12 },
@@ -6992,7 +7236,7 @@ function buildHorizonForecasts({ row, companyProfile, technical, fundamental, ma
   Object.entries(horizonMeta).forEach(([horizonKey, meta]) => {
     const baseWeights = STOCK_HORIZON_FORECAST_WEIGHTS[horizonKey] || {};
     const profileWeights = adjustForecastWeightsForProfile(baseWeights, companyProfile);
-    const moduleScores = buildForecastModuleScores({ row, horizonKey, supportResistance, fundamental, marketContext, tradeContext, weekly });
+    const moduleScores = buildForecastModuleScores({ row, horizonKey, supportResistance, fundamental, marketContext, tradeContext, weekly, technical, companyProfile });
     const weighted = computeWeightedForecast(moduleScores, profileWeights);
     const score = weighted.score;
     const bearishScore = clamp(100 - score + Math.max(0, 50 - (moduleScores.support_resistance?.score ?? 50)) * 0.25, 0, 100);
@@ -7050,6 +7294,11 @@ function buildHorizonForecasts({ row, companyProfile, technical, fundamental, ma
       stale_modules: [],
       raw_module_scores: weighted.raw_module_scores,
       weekly_structure: horizonKey === "long_term" ? weekly : { status: "not_used" },
+      weekly_bar_count: horizonKey === "long_term" ? weekly.weekly_bar_count ?? (weekly.bars || []).length : null,
+      weekly_data_status: horizonKey === "long_term" ? weekly.data_status || weekly.status : "not_used",
+      weekly_missing_fields: horizonKey === "long_term" ? weekly.weekly_missing_fields || [] : [],
+      weekly_latest_bar: horizonKey === "long_term" ? weekly.weekly_latest_bar || null : null,
+      weekly_trend_score: horizonKey === "long_term" ? weekly.weekly_trend_score ?? null : null,
       forecast_explanation: currentLanguage === "zh"
         ? `${meta.horizon} 预测使用该周期独立窗口，当前方向为 ${forecastDirectionLabel(expectedDirection)}；缺失模块已从权重中移除。`
         : `${meta.horizon} forecast uses horizon-specific windows. Current direction is ${forecastDirectionLabel(expectedDirection)}; missing modules are removed from weights.`,
@@ -7098,6 +7347,81 @@ function buildNeutralHoldZones(row, buyPlan = {}, sellPlan = {}, companyProfile 
   return zones;
 }
 
+function enforceForecastNeutralZone({ row, buyPlan = {}, sellPlan = {}, horizonForecast = {}, companyProfile = {} }) {
+  const atrValue = Number.isFinite(row?.technicals?.atr14) ? row.technicals.atr14 : Math.max((row?.price || 1) * 0.025, 0.5);
+  const minAtr = minimumNeutralZoneAtr(companyProfile);
+  const adjustments = {};
+  ["short_term", "mid_term", "long_term"].forEach((horizonKey) => {
+    const keys = horizonRangeKeys(horizonKey);
+    const buyRange = buyPlan?.[keys.buy];
+    const sellRange = sellPlan?.[keys.sell];
+    const buyHigh = finiteNumberOrNull(buyRange?.high);
+    const sellLow = finiteNumberOrNull(sellRange?.low);
+    const width = Number.isFinite(buyHigh) && Number.isFinite(sellLow) ? sellLow - buyHigh : null;
+    const widthInAtr = Number.isFinite(width) && Number.isFinite(atrValue) && atrValue > 0 ? width / atrValue : null;
+    const forecast = horizonForecast?.[horizonKey] || {};
+    const bullish = forecast.bullish_evidence_score ?? forecast.direction_score ?? 50;
+    const bearish = forecast.bearish_evidence_score ?? 50;
+    const buyEvidence = buyRange?.active_segment?.evidence_score ?? bullish;
+    const sellEvidence = sellRange?.active_segment?.evidence_score ?? bearish;
+    const action = {
+      applied: false,
+      width_in_atr: Number.isFinite(widthInAtr) ? Number(widthInAtr.toFixed(2)) : null,
+      minimum_width_in_atr: minAtr,
+      resolution: "not_required",
+      explanation: null,
+    };
+    if (!Number.isFinite(widthInAtr) || widthInAtr >= minAtr) {
+      adjustments[horizonKey] = action;
+      return;
+    }
+    const buyActive = Boolean(buyRange?.active_segment);
+    const sellActive = Boolean(sellRange?.active_segment);
+    const direction = forecast.expected_direction || "neutral";
+    let resolution = null;
+    if (buyActive && sellActive) {
+      if (forecastDirectionIsBullish(direction) || buyEvidence >= sellEvidence + 5) {
+        deactivateExecutableSellRange(sellRange, "neutral_zone_too_narrow_buy_evidence_stronger");
+        resolution = "deactivated_active_sell_segment";
+      } else if (forecastDirectionIsBearish(direction) || sellEvidence >= buyEvidence + 5) {
+        deactivateExecutableBuyRange(buyRange, "neutral_zone_too_narrow_sell_evidence_stronger");
+        resolution = "deactivated_active_buy_segment";
+      } else {
+        deactivateExecutableBuyRange(buyRange, "neutral_zone_too_narrow_conflicting_evidence");
+        deactivateExecutableSellRange(sellRange, "neutral_zone_too_narrow_conflicting_evidence");
+        resolution = "deactivated_both_active_segments";
+      }
+    } else if (buyActive && forecastDirectionIsBearish(direction) && bearish >= bullish - 2) {
+      deactivateExecutableBuyRange(buyRange, "neutral_zone_too_narrow_forecast_bearish");
+      resolution = "deactivated_active_buy_segment";
+    } else if (sellActive && forecastDirectionIsBullish(direction) && bullish >= bearish - 2) {
+      deactivateExecutableSellRange(sellRange, "neutral_zone_too_narrow_forecast_bullish");
+      resolution = "deactivated_active_sell_segment";
+    } else if (sellActive && widthInAtr < minAtr * 0.5 && sellEvidence < 72) {
+      deactivateExecutableSellRange(sellRange, "neutral_zone_too_narrow_sell_evidence_not_extreme");
+      resolution = "deactivated_active_sell_segment";
+    } else if (buyActive && widthInAtr < minAtr * 0.5 && buyEvidence < 72) {
+      deactivateExecutableBuyRange(buyRange, "neutral_zone_too_narrow_buy_evidence_not_extreme");
+      resolution = "deactivated_active_buy_segment";
+    }
+    action.applied = Boolean(resolution);
+    action.resolution = resolution || "kept_structure_with_warning";
+    action.explanation = resolution
+      ? (currentLanguage === "zh"
+        ? "买入区与卖出区之间观望带过窄，已根据该周期 forecast 与证据强弱取消较弱 active 段。"
+        : "Neutral zone was too narrow; the weaker active segment was removed based on this horizon's forecast/evidence.")
+      : (currentLanguage === "zh"
+        ? "观望带偏窄，但当前只有一个强 active 段且证据足够，保留结构并输出警告。"
+        : "Neutral zone is narrow, but only one strong active segment is present, so it is kept with a warning.");
+    if (buyRange) buyRange.neutral_zone_enforcement = action;
+    if (sellRange) sellRange.neutral_zone_enforcement = action;
+    adjustments[horizonKey] = action;
+  });
+  buyPlan.neutral_zone_enforcement = adjustments;
+  sellPlan.neutral_zone_enforcement = adjustments;
+  return adjustments;
+}
+
 function applyForecastToPlans({ buyPlan, sellPlan, horizonForecast, neutralHoldZones }) {
   [
     ["short_term", "short_term_buy_range", "short_term_sell_range"],
@@ -7123,6 +7447,363 @@ function applyForecastToPlans({ buyPlan, sellPlan, horizonForecast, neutralHoldZ
   });
 }
 
+function forecastDirectionIsBullish(direction) {
+  return ["bullish", "strong_bullish"].includes(direction);
+}
+
+function forecastDirectionIsBearish(direction) {
+  return ["bearish", "strong_bearish"].includes(direction);
+}
+
+function forecastAnchorCandidates({ row, horizonKey, supportResistance = {}, forecast = {}, tradeContext = {}, technical = {} }) {
+  const tech = {
+    ...(row?.technicals || {}),
+    ma20: forecastTechnicalValue(row, technical, "ma20"),
+    ma50: forecastTechnicalValue(row, technical, "ma50"),
+    ma100: forecastTechnicalValue(row, technical, "ma100"),
+    ma200: forecastTechnicalValue(row, technical, "ma200"),
+  };
+  const supports = supportResistance?.supports || [];
+  const resistances = supportResistance?.resistances || [];
+  const expectedMove = tradeContext?.options_state?.expected_move || {};
+  const add = (price, source, kind = "technical") => Number.isFinite(price) ? { price, source, kind } : null;
+  if (horizonKey === "short_term") {
+    return [
+      add(tech.ma20, "MA20", "technical"),
+      add(tech.ma50, "MA50", "technical"),
+      add(supports[0]?.price, supports[0]?.id || "S1", "support"),
+      add(resistances[0]?.price, resistances[0]?.id || "R1", "resistance"),
+      add(expectedMove.upper_7d, "7D Expected Move Upper", "expected_move"),
+      add(forecast.expected_price_low, "short expected low", "forecast"),
+      add(forecast.expected_price_high, "short expected high", "forecast"),
+    ].filter(Boolean);
+  }
+  if (horizonKey === "mid_term") {
+    return [
+      add(tech.ma50, "MA50", "technical"),
+      add(tech.ma100, "MA100", "technical"),
+      add(supports[1]?.price, supports[1]?.id || "S2", "support"),
+      add(supports[2]?.price, supports[2]?.id || "S3", "support"),
+      add(resistances[1]?.price, resistances[1]?.id || "R2", "resistance"),
+      add(resistances[2]?.price, resistances[2]?.id || "R3", "resistance"),
+      add(expectedMove.upper_30d, "30D Expected Move Upper", "expected_move"),
+      add(forecast.expected_price_low, "mid expected low", "forecast"),
+      add(forecast.expected_price_high, "mid expected high", "forecast"),
+    ].filter(Boolean);
+  }
+  return [
+    add(tech.ma100, "MA100", "technical"),
+    add(tech.ma200, "MA200", "technical"),
+    add(supports[2]?.price, supports[2]?.id || "S3", "support"),
+    add(supports[3]?.price, supports[3]?.id || "S4", "support"),
+    add(supports[4]?.price, supports[4]?.id || "S5", "support"),
+    add(resistances[2]?.price, resistances[2]?.id || "R3", "resistance"),
+    add(resistances[3]?.price, resistances[3]?.id || "R4", "resistance"),
+    add(resistances[4]?.price, resistances[4]?.id || "R5", "resistance"),
+    add(forecast.expected_price_low, "long expected low", "forecast"),
+    add(forecast.expected_price_high, "long expected high", "forecast"),
+  ].filter(Boolean);
+}
+
+function forecastEntryMode(horizonKey, forecast = {}, tradeContext = {}) {
+  const opportunity = forecast.opportunity_type || "";
+  if (/trend/i.test(opportunity)) return "trend";
+  if (/right|recovery|confirmation/i.test(opportunity)) return "right_side";
+  if (/left/i.test(opportunity)) return "left_side";
+  if (horizonKey === "long_term" && (tradeContext?.relative_strength_state?.long_score ?? 0) >= 62) return "trend";
+  return "pullback";
+}
+
+function forecastPlanActivationThreshold(horizonKey, forecast = {}, companyProfile = {}, mode = "pullback") {
+  let threshold = horizonKey === "short_term" ? 62 : horizonKey === "mid_term" ? 64 : 66;
+  const tags = new Set([...(companyProfile?.tags || []), ...(companyProfile?.quality_tags || []), ...(companyProfile?.risk_tags || [])]);
+  const profile = companyProfile?.decision_profile?.base_profile || companyProfile?.base_profile || "";
+  const opportunity = forecast?.opportunity_type || "";
+  if ((tags.has("MegaCap") || tags.has("CashCow") || profile === "software_cloud" || profile === "healthcare_defensive") && (mode === "left_side" || /left_side/i.test(opportunity))) {
+    threshold -= horizonKey === "long_term" ? 4 : 8;
+  }
+  if (tags.has("HighVolatility") || tags.has("Speculative") || tags.has("Meme") || tags.has("NewlyListed")) threshold += 4;
+  if (profile === "reit_dividend" || tags.has("HighDebtRisk")) threshold += 3;
+  return clamp(Math.round(threshold), 54, 72);
+}
+
+function selectForecastActiveEntry({ row, horizonKey, buyRange, sellRange, supportResistance, forecast, tradeContext, technical, companyProfile }) {
+  const price = finiteNumberOrNull(row?.price);
+  const atr = finiteNumberOrNull(row?.technicals?.atr14) ?? (Number.isFinite(price) ? price * 0.035 : null);
+  if (!Number.isFinite(price) || !Number.isFinite(atr) || atr <= 0 || !forecastDirectionIsBullish(forecast?.expected_direction)) return null;
+  const existing = buyRange?.active_segment || null;
+  if (existing && rangeContainsPrice(existing, price, atr * activeEntryToleranceAtr(companyProfile))) return null;
+  const gapRisk = tradeContext?.gap_down_risk || {};
+  const mode = forecastEntryMode(horizonKey, forecast, tradeContext);
+  if (recentEventBlocksEntryMode(gapRisk, mode === "trend" ? "right_side" : mode)) return null;
+  const forecastScore = forecast?.bullish_evidence_score ?? forecast?.direction_score ?? 0;
+  const minScore = forecastPlanActivationThreshold(horizonKey, forecast, companyProfile, mode);
+  if (forecastScore < minScore) return null;
+  if (horizonKey === "long_term") {
+    const longEvidence = buildLongIndependentEntryEvidence({ row, range: buyRange, tradeContext, supportResistance });
+    if (longEvidence.count < Math.max(4, longEvidence.required_minimum - 1)) {
+      return {
+        rejected: true,
+        mode,
+        reason: "long_independent_evidence_insufficient",
+        long_independent_evidence: longEvidence,
+      };
+    }
+  }
+  const anchors = forecastAnchorCandidates({ row, horizonKey, supportResistance, forecast, tradeContext, technical });
+  const candidateAnchors = anchors
+    .filter((anchor) => Number.isFinite(anchor.price))
+    .map((anchor) => ({
+      ...anchor,
+      distance: Math.abs(price - anchor.price),
+      distanceAtr: Math.abs(price - anchor.price) / atr,
+    }))
+    .sort((a, b) => a.distanceAtr - b.distanceAtr);
+  const maxDistanceAtr = horizonKey === "short_term" ? 0.85 : horizonKey === "mid_term" ? 1.05 : 1.25;
+  const nearbyAnchors = candidateAnchors.filter((item) => item.distanceAtr <= maxDistanceAtr);
+  if (!nearbyAnchors.length) {
+    return {
+      rejected: true,
+      mode,
+      reason: "no_horizon_anchor_near_current_price",
+      anchor_candidates: candidateAnchors.slice(0, 6),
+    };
+  }
+  const rejectedSegments = [];
+  for (const anchor of nearbyAnchors) {
+    const lowerBuffer = mode === "trend" ? 0.30 : mode === "right_side" ? 0.35 : 0.45;
+    const baseUpperBuffer = mode === "left_side" ? 0.55 : mode === "pullback" ? 0.65 : activeEntryDistanceLimitAtr(companyProfile, mode);
+    const tags = new Set([...(companyProfile?.tags || []), ...(companyProfile?.risk_tags || [])]);
+    const highRiskTactical = tags.has("HighVolatility") || tags.has("Speculative") || tags.has("Meme") || tags.has("NewlyListed");
+    const supportReclaimBuffer = anchor.kind === "support" && anchor.price < price && forecastDirectionIsBullish(forecast?.expected_direction)
+      ? (horizonKey === "long_term" ? 0.90 : horizonKey === "mid_term" ? 0.85 : 0.70)
+      : null;
+    const upperBuffer = supportReclaimBuffer
+      ? Math.max(baseUpperBuffer, highRiskTactical ? Math.min(supportReclaimBuffer, 0.65) : supportReclaimBuffer)
+      : baseUpperBuffer;
+    const sellLow = finiteNumberOrNull(sellRange?.low);
+    const highCap = Number.isFinite(sellLow) ? sellLow - atr * 0.15 : null;
+    const high = Math.min(anchor.price + atr * upperBuffer, Number.isFinite(highCap) ? highCap : anchor.price + atr * upperBuffer);
+    const low = Math.max(0.01, anchor.price - atr * lowerBuffer);
+    const segment = makeActiveSegment({
+      mode,
+      low,
+      high,
+      price,
+      atr,
+      evidenceScore: forecastScore,
+      activationThreshold: minScore,
+      allocationHint: mode === "left_side" ? "10-20%" : horizonKey === "long_term" ? "15-30%" : "10-25%",
+      anchorSources: [
+        `forecast_${forecast.expected_direction}`,
+        anchor.source,
+        horizonKey === "long_term" ? "long horizon independent forecast" : `${horizonKey} forecast`,
+      ],
+      anchorPrices: [anchor.price, forecast.expected_price_low, forecast.expected_price_high],
+      reason: currentLanguage === "zh"
+        ? "Forecast 生成的周期独立可执行买入段：当前价格接近该周期真实结构锚点，且方向预测看涨。"
+        : "Forecast-driven horizon entry: price is near a real structure anchor for this horizon and the forecast is bullish.",
+    });
+    if (segment?.active) {
+      segment.forecast_driven = true;
+      segment.horizon_key = horizonKey;
+      segment.anchor_source_detail = anchor;
+      return segment;
+    }
+    rejectedSegments.push({ segment, anchor });
+  }
+  return {
+    rejected: true,
+    mode,
+    reason: "candidate_does_not_cover_current_price",
+    rejected_segments: rejectedSegments.slice(0, 4),
+    anchor_candidates: candidateAnchors.slice(0, 6),
+  };
+}
+
+function selectForecastActiveExit({ row, horizonKey, sellRange, buyRange, supportResistance, forecast, tradeContext, technical, companyProfile }) {
+  const price = finiteNumberOrNull(row?.price);
+  const atr = finiteNumberOrNull(row?.technicals?.atr14) ?? (Number.isFinite(price) ? price * 0.035 : null);
+  if (!Number.isFinite(price) || !Number.isFinite(atr) || atr <= 0 || !forecastDirectionIsBearish(forecast?.expected_direction)) return null;
+  const existing = sellRange?.active_segment || null;
+  if (existing && rangeContainsPrice(existing, price, atr * activeEntryToleranceAtr(companyProfile))) return null;
+  const sellEvidence = forecast?.bearish_evidence_score ?? 0;
+  const minScore = horizonKey === "short_term" ? 58 : horizonKey === "mid_term" ? 61 : 64;
+  if (sellEvidence < minScore) return null;
+  const anchors = selectHorizonExitAnchors({
+    horizonKey,
+    resistanceLevels: supportResistance?.resistances || [],
+    baseSellRange: sellRange?.base_sell_range || sellRange,
+    expectedMove: tradeContext?.options_state?.expected_move || {},
+    row,
+    technical,
+    tradeContext,
+  }).map((anchor) => ({
+    ...anchor,
+    distanceAtr: Math.abs(price - anchor.price) / atr,
+  })).sort((a, b) => a.distanceAtr - b.distanceAtr);
+  const maxDistanceAtr = horizonKey === "short_term" ? 0.85 : horizonKey === "mid_term" ? 1.05 : 1.25;
+  const anchor = anchors.find((item) => item.distanceAtr <= maxDistanceAtr) || null;
+  if (!anchor) {
+    return {
+      rejected: true,
+      mode: activeSellModeForHorizon(horizonKey),
+      reason: "no_horizon_exit_anchor_near_current_price",
+      anchor_candidates: anchors.slice(0, 6),
+    };
+  }
+  const band = activeSellBandForHorizon(horizonKey, atr);
+  const segment = makeActiveSegment({
+    mode: `forecast_${activeSellModeForHorizon(horizonKey)}`,
+    low: anchor.price - band.lowBuffer,
+    high: anchor.price + band.highBuffer,
+    price,
+    atr,
+    evidenceScore: sellEvidence,
+    activationThreshold: minScore,
+    allocationHint: horizonKey === "short_term" ? "10-20%" : horizonKey === "mid_term" ? "20-35%" : "25-45%",
+    anchorSources: [`forecast_${forecast.expected_direction}`, anchor.source || anchor.id || "horizon exit anchor"],
+    anchorPrices: [anchor.price, forecast.expected_price_low, forecast.expected_price_high],
+    reason: currentLanguage === "zh"
+      ? "Forecast 生成的周期独立可执行卖出段：该周期预测转弱，且当前价格接近真实退出锚点。"
+      : "Forecast-driven horizon exit: this horizon forecast weakened and price is near a real exit anchor.",
+  });
+  if (!segment?.active) {
+    return {
+      rejected: true,
+      mode: activeSellModeForHorizon(horizonKey),
+      reason: "candidate_does_not_cover_current_price",
+      segment,
+      anchor,
+    };
+  }
+  segment.forecast_driven = true;
+  segment.horizon_key = horizonKey;
+  segment.next_target = anchors.find((item) => item.price > segment.high) || null;
+  return segment;
+}
+
+function deactivateExecutableSellRange(range, reason) {
+  if (!range) return;
+  const candidate = range.active_segment || null;
+  if (candidate) {
+    candidate.active = false;
+    candidate.executable = false;
+    candidate.deactivation_reason = reason;
+  }
+  range.deactivated_active_segment = candidate;
+  range.active_segment = null;
+  range.active_exit_mode = null;
+  range.current_price_in_range = false;
+  range.current_price_segment = "outside";
+  if (range.base_sell_range) {
+    range.low = range.base_sell_range.low;
+    range.high = range.base_sell_range.high;
+    range.midpoint = range.base_sell_range.midpoint;
+    range.final_executable_range = cloneRangeSummary(range.base_sell_range);
+  }
+  range.action_consistency = {
+    ...(range.action_consistency || {}),
+    current_price_in_active_segment: false,
+    deactivation_reason: reason,
+  };
+}
+
+function applyForecastDrivenPlanCandidates({
+  row,
+  buyPlan,
+  sellPlan,
+  supportResistance,
+  technical,
+  companyProfile,
+  tradeContext,
+  horizonForecast,
+}) {
+  const diagnostics = {};
+  ["short_term", "mid_term", "long_term"].forEach((horizonKey) => {
+    const keys = horizonRangeKeys(horizonKey);
+    const buyRange = buyPlan?.[keys.buy];
+    const sellRange = sellPlan?.[keys.sell];
+    const forecast = horizonForecast?.[horizonKey];
+    const entryCandidate = selectForecastActiveEntry({
+      row,
+      horizonKey,
+      buyRange,
+      sellRange,
+      supportResistance,
+      forecast,
+      tradeContext,
+      technical,
+      companyProfile,
+    });
+    const exitCandidate = selectForecastActiveExit({
+      row,
+      horizonKey,
+      sellRange,
+      buyRange,
+      supportResistance,
+      forecast,
+      tradeContext,
+      technical,
+      companyProfile,
+    });
+    diagnostics[horizonKey] = { entry_candidate: entryCandidate || null, exit_candidate: exitCandidate || null };
+    if (buyRange) {
+      buyRange.forecast_driven_candidates = {
+        ...(buyRange.forecast_driven_candidates || {}),
+        entry: entryCandidate || null,
+      };
+      if (entryCandidate && !entryCandidate.rejected) {
+        buyRange.segments = [...(buyRange.segments || []), entryCandidate];
+        buyRange.active_entry_ranges = {
+          ...(buyRange.active_entry_ranges || {}),
+          forecast_entry: entryCandidate,
+        };
+        applyExecutableRange(buyRange, entryCandidate, row.price);
+        buyRange.active_entry_segment = entryCandidate;
+        buyRange.displayed_primary_range = horizonKey === "long_term"
+          ? cloneRangeSummary(buyRange.base_pullback_range || buyRange.base_range || buyRange)
+          : cloneRangeSummary(entryCandidate);
+        buyRange.display_mode = horizonKey === "long_term" ? "base_plus_active" : "active_only";
+        buyRange.forecast_plan_applied = {
+          applied: true,
+          generated_active_entry: true,
+          reason: "forecast_bullish_generated_horizon_entry",
+        };
+      }
+    }
+    if (sellRange) {
+      sellRange.forecast_driven_candidates = {
+        ...(sellRange.forecast_driven_candidates || {}),
+        exit: exitCandidate || null,
+      };
+      if (exitCandidate && !exitCandidate.rejected) {
+        sellRange.segments = [...(sellRange.segments || []), exitCandidate];
+        sellRange.active_exit_ranges = {
+          ...(sellRange.active_exit_ranges || {}),
+          forecast_exit: exitCandidate,
+        };
+        sellRange.active_segment = exitCandidate;
+        sellRange.active_exit_mode = exitCandidate.mode;
+        sellRange.current_price_in_range = rangeContainsPrice(exitCandidate, row.price);
+        sellRange.current_price_segment = currentPriceSegment(exitCandidate, row.price);
+        sellRange.final_executable_range = {
+          low: exitCandidate.low,
+          high: exitCandidate.high,
+          midpoint: exitCandidate.midpoint,
+          mode: exitCandidate.mode,
+        };
+        sellRange.forecast_plan_applied = {
+          applied: true,
+          generated_active_exit: true,
+          reason: "forecast_bearish_generated_horizon_exit",
+        };
+      }
+    }
+  });
+  return diagnostics;
+}
+
 function applyForecastActionGate(finalAction, forecast, actionEvidence, signals) {
   const direction = forecast?.expected_direction || "neutral";
   if (["strong_buy", "accumulate"].includes(finalAction) && ["bearish", "strong_bearish"].includes(direction)) {
@@ -7143,11 +7824,188 @@ function applyForecastActionGate(finalAction, forecast, actionEvidence, signals)
   return { action: finalAction, reason: null };
 }
 
+function loadActionStateCache() {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ACTION_STATE_CACHE_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveActionStateCache(cache = {}) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(ACTION_STATE_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Ignore storage failures; action stability falls back to stateless behavior.
+  }
+}
+
+function stableActionCacheKey(ticker, horizonKey) {
+  return `${normalizeTickerInput(ticker || "")}:${horizonKey}`;
+}
+
+function latestDailyBarDate(row = {}) {
+  const timestamps = row?.technicals?.history?.timestamps || row?.technicals?.history?.dates || [];
+  const last = timestamps[timestamps.length - 1] || row?.updatedAt || row?.lastSuccessfulUpdate || null;
+  if (!last) return null;
+  const parsed = new Date(last);
+  if (Number.isNaN(parsed.getTime())) return String(last).slice(0, 10) || null;
+  return parsed.toISOString().slice(0, 10);
+}
+
+function actionStateCanPersist(row = {}) {
+  const state = row.market_data_state || marketDataState || {};
+  if (state.source === "local_cache" || state.is_provisional) return false;
+  if (row.isDecisionProvisional) return false;
+  return Boolean(row.decision_build_path === "applied_snapshot" || row.decisionModel?.decision_build_path === "applied_snapshot");
+}
+
+function actionStabilityHardRisk(rawAction, tradeContext = {}, block = {}) {
+  const eventState = recentEventStateFromGapRisk(tradeContext?.gap_down_risk || {});
+  return rawAction === "avoid"
+    || Boolean(tradeContext?.company_risk?.company_specific_risk)
+    || ["awaiting_confirmation", "deteriorating"].includes(eventState)
+    || /support|stop|company|fundamental|event/i.test(String(block?.action_evidence?.downgrade_reason || ""));
+}
+
+function resolveStableAction({ row, horizonKey, rawAction, rawScore, tradeContext, block, forecastDirection }) {
+  const cache = loadActionStateCache();
+  const key = stableActionCacheKey(row?.ticker, horizonKey);
+  const previous = cache[key] || null;
+  const canPersist = actionStateCanPersist(row);
+  const dailyBarDate = latestDailyBarDate(row);
+  const hardRisk = actionStabilityHardRisk(rawAction, tradeContext, block);
+  const requiredPersistence = horizonKey === "short_term" ? 2 : horizonKey === "mid_term" ? 2 : 3;
+  if (!canPersist) {
+    return {
+      official_action: rawAction,
+      official_score: rawScore,
+      previous_action: previous?.confirmed_action || null,
+      previous_score: previous?.confirmed_score ?? null,
+      pending_action: previous?.pending_action || null,
+      persistence_count: previous?.pending_count || 0,
+      upgrade_confirmed: rawAction === previous?.confirmed_action,
+      downgrade_confirmed: rawAction === previous?.confirmed_action,
+      persisted: false,
+      stability_reason: currentLanguage === "zh"
+        ? "当前 snapshot 为本地缓存 / provisional，不写入正式动作状态。"
+        : "Current snapshot is local/provisional, so confirmed action state is not updated.",
+    };
+  }
+  if (!previous || hardRisk) {
+    cache[key] = {
+      confirmed_action: rawAction,
+      confirmed_score: rawScore,
+      pending_action: null,
+      pending_score: null,
+      pending_count: 0,
+      last_snapshot_updated_at: row.market_data_state?.snapshot_updated_at || null,
+      last_daily_bar_date: dailyBarDate,
+      forecast_direction: forecastDirection,
+      updated_at: new Date().toISOString(),
+      hard_risk_confirmed: hardRisk,
+    };
+    saveActionStateCache(cache);
+    return {
+      official_action: rawAction,
+      official_score: rawScore,
+      previous_action: previous?.confirmed_action || null,
+      previous_score: previous?.confirmed_score ?? null,
+      pending_action: null,
+      persistence_count: hardRisk ? requiredPersistence : 1,
+      upgrade_confirmed: true,
+      downgrade_confirmed: true,
+      persisted: true,
+      stability_reason: hardRisk
+        ? (currentLanguage === "zh" ? "硬风险触发，正式动作立即更新。" : "Hard risk triggered, so official action updates immediately.")
+        : (currentLanguage === "zh" ? "首次正式 server snapshot，建立动作基线。" : "First confirmed server snapshot establishes the action baseline."),
+    };
+  }
+  if (previous.confirmed_action === rawAction) {
+    cache[key] = {
+      ...previous,
+      confirmed_score: rawScore,
+      pending_action: null,
+      pending_score: null,
+      pending_count: 0,
+      last_snapshot_updated_at: row.market_data_state?.snapshot_updated_at || null,
+      last_daily_bar_date: dailyBarDate,
+      forecast_direction: forecastDirection,
+      updated_at: new Date().toISOString(),
+    };
+    saveActionStateCache(cache);
+    return {
+      official_action: rawAction,
+      official_score: rawScore,
+      previous_action: previous.confirmed_action,
+      previous_score: previous.confirmed_score ?? null,
+      pending_action: null,
+      persistence_count: 0,
+      upgrade_confirmed: true,
+      downgrade_confirmed: true,
+      persisted: true,
+      stability_reason: currentLanguage === "zh"
+        ? "当前 raw action 与已确认正式动作一致，保持稳定。"
+        : "Raw action matches the confirmed official action, so it remains stable.",
+    };
+  }
+  const dailyCloseChanged = dailyBarDate && previous.last_daily_bar_date && dailyBarDate !== previous.last_daily_bar_date;
+  const pendingCount = previous.pending_action === rawAction ? (previous.pending_count || 0) + 1 : 1;
+  const confirmed = dailyCloseChanged || pendingCount >= requiredPersistence;
+  cache[key] = confirmed
+    ? {
+      ...previous,
+      confirmed_action: rawAction,
+      confirmed_score: rawScore,
+      pending_action: null,
+      pending_score: null,
+      pending_count: 0,
+      last_snapshot_updated_at: row.market_data_state?.snapshot_updated_at || null,
+      last_daily_bar_date: dailyBarDate,
+      forecast_direction: forecastDirection,
+      updated_at: new Date().toISOString(),
+    }
+    : {
+      ...previous,
+      pending_action: rawAction,
+      pending_score: rawScore,
+      pending_count: pendingCount,
+      last_snapshot_updated_at: row.market_data_state?.snapshot_updated_at || null,
+      forecast_direction: forecastDirection,
+      updated_at: new Date().toISOString(),
+    };
+  saveActionStateCache(cache);
+  const isUpgrade = ["strong_buy", "accumulate"].includes(rawAction) && !["strong_buy", "accumulate"].includes(previous.confirmed_action);
+  const isDowngrade = ["hold_watch", "trim_reduce", "take_profit", "avoid"].includes(rawAction) && ["strong_buy", "accumulate"].includes(previous.confirmed_action);
+  return {
+    official_action: confirmed ? rawAction : previous.confirmed_action,
+    official_score: confirmed ? rawScore : previous.confirmed_score ?? rawScore,
+    previous_action: previous.confirmed_action,
+    previous_score: previous.confirmed_score ?? null,
+    pending_action: confirmed ? null : rawAction,
+    persistence_count: confirmed ? requiredPersistence : pendingCount,
+    upgrade_confirmed: !isUpgrade || confirmed,
+    downgrade_confirmed: !isDowngrade || confirmed,
+    persisted: true,
+    stability_reason: confirmed
+      ? (dailyCloseChanged
+        ? (currentLanguage === "zh" ? "日线日期变化，正式动作确认更新。" : "Daily bar changed, so the official action update is confirmed.")
+        : (currentLanguage === "zh" ? "连续正式 snapshot 达到持久化要求，动作确认更新。" : "Consistent confirmed snapshots reached the persistence requirement."))
+      : (currentLanguage === "zh"
+        ? "raw action 发生变化，但尚未达到持久化确认次数，正式动作暂保持上一状态。"
+        : "Raw action changed, but persistence is not confirmed yet; official action keeps the prior state."),
+  };
+}
+
 function buildActionStability(row, actionPlan = {}, horizonForecast = {}, tradeContext = {}) {
   const result = {};
   ["short_term", "mid_term", "long_term"].forEach((horizonKey) => {
     const block = actionPlan[horizonKey] || {};
     const rawAction = block.final_action || "hold_watch";
+    const rawScore = block.action_recommendation_score ?? null;
     const price = row?.price ?? null;
     const buyRange = block.active_buy_segment || block.buy_range?.active_segment || block.buy_range;
     const sellRange = block.active_sell_segment || block.sell_range?.active_segment || block.sell_range;
@@ -7159,27 +8017,37 @@ function buildActionStability(row, actionPlan = {}, horizonForecast = {}, tradeC
     if (rangeIsAvailable(sellRange) && Number.isFinite(price) && price >= sellRange.low && price <= sellRange.high) {
       intradayState = currentLanguage === "zh" ? "盘中价格位于可执行卖出区，正式动作仍需结合该周期预测。" : "Intraday price is inside the executable sell zone; official action still follows the horizon forecast.";
     }
+    const resolved = resolveStableAction({
+      row,
+      horizonKey,
+      rawAction,
+      rawScore,
+      tradeContext,
+      block,
+      forecastDirection: horizonForecast?.[horizonKey]?.expected_direction || "neutral",
+    });
     result[horizonKey] = {
-      official_action: rawAction,
-      official_action_label: actionLabel(rawAction),
+      official_action: resolved.official_action,
+      official_action_label: actionLabel(resolved.official_action),
       intraday_state: intradayState,
-      pending_action: null,
-      previous_action: null,
-      previous_score: null,
+      pending_action: resolved.pending_action,
+      previous_action: resolved.previous_action,
+      previous_score: resolved.previous_score,
       current_raw_action: rawAction,
-      current_raw_score: block.action_recommendation_score ?? null,
-      upgrade_confirmed: true,
-      downgrade_confirmed: true,
-      persistence_count: 1,
-      stability_reason: currentLanguage === "zh"
-        ? "当前版本将正式周期操作与盘中执行提示分开；无 1h/4h 数据时不使用小时级信号改变正式操作。"
-        : "Official horizon action is separated from intraday execution notes; without 1h/4h data, hourly signals do not change the official action.",
+      current_raw_score: rawScore,
+      official_score: resolved.official_score,
+      upgrade_confirmed: resolved.upgrade_confirmed,
+      downgrade_confirmed: resolved.downgrade_confirmed,
+      persistence_count: resolved.persistence_count,
+      persisted: resolved.persisted,
+      stability_reason: resolved.stability_reason,
       forecast_direction: horizonForecast?.[horizonKey]?.expected_direction || "neutral",
       event_state: recentEventStateFromGapRisk(tradeContext?.gap_down_risk || {}),
     };
     if (actionPlan[horizonKey]) {
       actionPlan[horizonKey].official_action = result[horizonKey].official_action;
       actionPlan[horizonKey].official_action_label = result[horizonKey].official_action_label;
+      actionPlan[horizonKey].official_action_score = result[horizonKey].official_score;
       actionPlan[horizonKey].intraday_state = result[horizonKey].intraday_state;
       actionPlan[horizonKey].action_stability = result[horizonKey];
     }
@@ -12933,7 +13801,7 @@ function getHorizonAction(decision, horizonKey) {
   const actionPlanBlock = decision?.action_plan?.[horizonKey];
   const aiBlock = decision?.ai_decision?.[horizonKey];
   const breakdownBlock = decision?.score_breakdown?.[scoreKey] || aiBlock?.score_breakdown;
-  const finalAction = normalizeSixAction(actionPlanBlock?.final_action || breakdownBlock?.final_action || aiBlock?.final_action || null);
+  const finalAction = normalizeSixAction(actionPlanBlock?.official_action || actionPlanBlock?.final_action || breakdownBlock?.final_action || aiBlock?.final_action || null);
   const finalActionLabel = actionLabel(finalAction);
   const forecastDirection = actionPlanBlock?.forecast_direction || breakdownBlock?.forecast_direction || aiBlock?.forecast_direction || "neutral";
   const forecastDirectionText = actionPlanBlock?.forecast_direction_label || breakdownBlock?.forecast_direction_label || aiBlock?.forecast_direction_label || forecastDirectionLabel(forecastDirection);
@@ -12945,7 +13813,7 @@ function getHorizonAction(decision, horizonKey) {
     forecast_direction_label: forecastDirectionText,
     compact_label: compactFinalActionLabel(finalAction, finalActionLabel),
     score_rating: scoreRating || "Hold-Watch",
-    action_recommendation_score: actionPlanBlock?.action_recommendation_score ?? breakdownBlock?.action_recommendation_score ?? aiBlock?.action_recommendation_score ?? null,
+    action_recommendation_score: actionPlanBlock?.official_action_score ?? actionPlanBlock?.action_recommendation_score ?? breakdownBlock?.action_recommendation_score ?? aiBlock?.action_recommendation_score ?? null,
   };
 }
 
@@ -16060,6 +16928,51 @@ function bindStopsToActiveEntries(stopLossPlan, buyPlan, row, companyProfile, su
   });
 }
 
+function refreshActiveBuyRiskControls({ row, buyPlan, sellPlan, stopLossPlan, supportResistance, companyProfile, tradeContext }) {
+  ["short_term", "mid_term", "long_term"].forEach((horizonKey) => {
+    const keys = horizonRangeKeys(horizonKey);
+    const buyRange = buyPlan?.[keys.buy];
+    const sellRange = sellPlan?.[keys.sell];
+    const stop = stopLossPlan?.[keys.stop];
+    if (!buyRange) return;
+    buyRange.reward_risk_analysis = buildRewardRiskAnalysis({
+      row,
+      horizonKey,
+      buyRange,
+      sellRange,
+      sellPlan,
+      stop,
+      supportResistance,
+      companyProfile,
+      tradeContext,
+    });
+    buyRange.reward_risk_ratio = buyRange.reward_risk_analysis?.rr_weighted ?? rewardRiskRatioForRange(row.price, buyRange.active_segment || buyRange, sellRange, stop);
+    if (buyRange.active_segment && buyRange.reward_risk_analysis?.position_size_adjustment?.suggested_allocation) {
+      buyRange.active_segment.position_size_adjustment = buyRange.reward_risk_analysis.position_size_adjustment;
+      buyRange.active_segment.allocation_hint = buyRange.reward_risk_analysis.position_size_adjustment.suggested_allocation;
+      buyRange.allocation_hint = buyRange.reward_risk_analysis.position_size_adjustment.suggested_allocation;
+    }
+    const eventState = recentEventStateFromGapRisk(tradeContext?.gap_down_risk || {});
+    if (
+      eventState === "stabilizing"
+      && buyRange.active_segment
+      && ["left_side", "pullback"].includes(buyRange.active_segment.mode)
+    ) {
+      const eventAllocation = recentEventAllocationHint(tradeContext?.gap_down_risk || {}, buyRange.active_segment.allocation_hint);
+      buyRange.active_segment.allocation_hint = eventAllocation;
+      buyRange.allocation_hint = eventAllocation;
+      buyRange.active_segment.position_size_adjustment = {
+        ...(buyRange.active_segment.position_size_adjustment || {}),
+        suggested_allocation: eventAllocation,
+        event_state_cap: true,
+        reason: currentLanguage === "zh"
+          ? "近期事件急跌处于止稳中，只允许小仓试探。"
+          : "Recent event shock is stabilizing, so only a starter allocation is allowed.",
+      };
+    }
+  });
+}
+
 function applyActiveTradeRanges({
   row,
   buyPlan,
@@ -16070,6 +16983,7 @@ function applyActiveTradeRanges({
   companyProfile,
   tradeContext,
   preliminaryActionPlan,
+  horizonForecast,
 }) {
   ["short_term", "mid_term", "long_term"].forEach((horizonKey) => {
     const keys = horizonRangeKeys(horizonKey);
@@ -16096,51 +17010,30 @@ function applyActiveTradeRanges({
       preliminaryRecommendation: preliminaryActionPlan?.[horizonKey],
     });
   });
+  applyForecastDrivenPlanCandidates({
+    row,
+    buyPlan,
+    sellPlan,
+    supportResistance,
+    technical,
+    companyProfile,
+    tradeContext,
+    horizonForecast,
+  });
   enforceBuyRangeHorizonSeparation(buyPlan);
   bindStopsToActiveEntries(stopLossPlan, buyPlan, row, companyProfile, supportResistance);
-  ["short_term", "mid_term", "long_term"].forEach((horizonKey) => {
-    const keys = horizonRangeKeys(horizonKey);
-    const buyRange = buyPlan?.[keys.buy];
-    const sellRange = sellPlan?.[keys.sell];
-    const stop = stopLossPlan?.[keys.stop];
-    if (buyRange) {
-      buyRange.reward_risk_analysis = buildRewardRiskAnalysis({
-        row,
-        horizonKey,
-        buyRange,
-        sellRange,
-        sellPlan,
-        stop,
-        supportResistance,
-        companyProfile,
-        tradeContext,
-      });
-      buyRange.reward_risk_ratio = buyRange.reward_risk_analysis?.rr_weighted ?? rewardRiskRatioForRange(row.price, buyRange.active_segment || buyRange, sellRange, stop);
-      if (buyRange.active_segment && buyRange.reward_risk_analysis?.position_size_adjustment?.suggested_allocation) {
-        buyRange.active_segment.position_size_adjustment = buyRange.reward_risk_analysis.position_size_adjustment;
-        buyRange.active_segment.allocation_hint = buyRange.reward_risk_analysis.position_size_adjustment.suggested_allocation;
-        buyRange.allocation_hint = buyRange.reward_risk_analysis.position_size_adjustment.suggested_allocation;
-      }
-      const eventState = recentEventStateFromGapRisk(tradeContext?.gap_down_risk || {});
-      if (
-        eventState === "stabilizing"
-        && buyRange.active_segment
-        && ["left_side", "pullback"].includes(buyRange.active_segment.mode)
-      ) {
-        const eventAllocation = recentEventAllocationHint(tradeContext?.gap_down_risk || {}, buyRange.active_segment.allocation_hint);
-        buyRange.active_segment.allocation_hint = eventAllocation;
-        buyRange.allocation_hint = eventAllocation;
-        buyRange.active_segment.position_size_adjustment = {
-          ...(buyRange.active_segment.position_size_adjustment || {}),
-          suggested_allocation: eventAllocation,
-          event_state_cap: true,
-          reason: currentLanguage === "zh"
-            ? "近期事件急跌处于止稳中，只允许小仓试探。"
-            : "Recent event shock is stabilizing, so only a starter allocation is allowed.",
-        };
-      }
-    }
+  refreshActiveBuyRiskControls({ row, buyPlan, sellPlan, stopLossPlan, supportResistance, companyProfile, tradeContext });
+  const neutralZoneEnforcement = enforceForecastNeutralZone({
+    row,
+    buyPlan,
+    sellPlan,
+    horizonForecast,
+    companyProfile,
   });
+  buyPlan.neutral_zone_enforcement = neutralZoneEnforcement;
+  sellPlan.neutral_zone_enforcement = neutralZoneEnforcement;
+  bindStopsToActiveEntries(stopLossPlan, buyPlan, row, companyProfile, supportResistance);
+  refreshActiveBuyRiskControls({ row, buyPlan, sellPlan, stopLossPlan, supportResistance, companyProfile, tradeContext });
   buyPlan.short_term = buyPlan.short_term_buy_range;
   buyPlan.mid_term = buyPlan.mid_term_buy_range;
   buyPlan.long_term = buyPlan.long_term_buy_range;
@@ -18958,6 +19851,7 @@ function buildDecisionModel(row) {
     companyProfile,
     tradeContext,
     preliminaryActionPlan,
+    horizonForecast,
   });
   doNotBuyReasons = buildDoNotBuyReasons(row, recommendedBuyPlan, technical, fundamental, finalOptions, marketContext, supportResistance);
   neutralHoldZones = buildNeutralHoldZones(row, recommendedBuyPlan, sellPlan, companyProfile);
@@ -20754,12 +21648,12 @@ function applySnapshot(snapshot, shouldPersist = true, options = {}) {
     row.indicatorMap = metrics.indicatorMap;
     row.technicals = metrics.technicals;
     row.noData = metrics.noData || false;
+	    row.market_data_state = state;
+	    row.isDecisionProvisional = shouldHideFormalActionsForState(state);
+	    row.decision_build_path = "applied_snapshot";
 	    row.research = buildLongTermResearch(row);
 	    row.decisionModel = buildDecisionModel(row);
 	    row.decisionModel.decision_build_path = "applied_snapshot";
-	    row.decision_build_path = "applied_snapshot";
-	    row.market_data_state = state;
-	    row.isDecisionProvisional = shouldHideFormalActionsForState(state);
 	    applyDecisionSummaryToRow(row);
 	    applyProvisionalDecisionSummaryToRow(row, state);
 
