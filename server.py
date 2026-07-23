@@ -80,6 +80,10 @@ MARKET_DATA_MAX_LIVE_TICKERS = int(os.environ.get("MARKET_DATA_MAX_LIVE_TICKERS"
 MARKET_DATA_ROUTE_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_ROUTE_TIMEOUT_SECONDS", "18"))
 MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS", "8"))
 OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECONDS", "6"))
+BACKGROUND_MARKET_REFRESH_ENABLED = os.environ.get("BACKGROUND_MARKET_REFRESH_ENABLED", "true").strip().lower() not in {"0", "false", "no", "n"}
+BACKGROUND_MARKET_REFRESH_STARTUP_DELAY_SECONDS = int(os.environ.get("BACKGROUND_MARKET_REFRESH_STARTUP_DELAY_SECONDS", "15"))
+BACKGROUND_MARKET_REFRESH_AFTER_HOUR_SECONDS = int(os.environ.get("BACKGROUND_MARKET_REFRESH_AFTER_HOUR_SECONDS", "5"))
+BACKGROUND_MARKET_REFRESH_ON_START = os.environ.get("BACKGROUND_MARKET_REFRESH_ON_START", "true").strip().lower() not in {"0", "false", "no", "n"}
 A_SHARE_METADATA_TIMEOUT_SECONDS = 2.5
 A_SHARE_PRIMARY_PRICE_TIMEOUT_SECONDS = 4.0
 A_SHARE_SECONDARY_PRICE_TIMEOUT_SECONDS = 4.5
@@ -96,6 +100,19 @@ MARKET_CACHE_DIR = os.environ.get("MARKET_CACHE_DIR", os.path.join("data", "cach
 MARKET_EVENTS_FILE = os.environ.get("MARKET_EVENTS_FILE", os.path.join(ROOT, "market_events.json"))
 WATCHLIST_LOCK = threading.Lock()
 QUOTE_FETCH_LOCK = threading.Lock()
+BACKGROUND_REFRESH_LOCK = threading.Lock()
+BACKGROUND_REFRESH_THREAD_STARTED = False
+BACKGROUND_REFRESH_STATE = {
+    "enabled": BACKGROUND_MARKET_REFRESH_ENABLED,
+    "running": False,
+    "last_started_at": None,
+    "last_completed_at": None,
+    "last_success_count": 0,
+    "last_failed_count": 0,
+    "last_error": None,
+    "last_batches": [],
+    "next_run_at": None,
+}
 DEFAULT_SHARED_WATCHLIST = [
     "NVDA", "TSLA", "AMD", "BABA", "GOOGL", "AMZN", "AAPL", "CRCL", "FFAI", "HIMS",
     "MPT", "META", "MSFT", "NFLX", "PLTR", "NOW", "SOFI", "TEM", "XE", "ZETA",
@@ -5647,6 +5664,138 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
     }
 
 
+def next_top_of_hour_utc(now=None):
+    current = now or datetime.now(timezone.utc)
+    next_run = current.replace(minute=0, second=0, microsecond=0)
+    if next_run <= current:
+        next_run += timedelta(hours=1)
+    return next_run + timedelta(seconds=max(0, BACKGROUND_MARKET_REFRESH_AFTER_HOUR_SECONDS))
+
+
+def chunk_tickers_for_live_refresh(tickers):
+    batch_size = max(1, MARKET_DATA_MAX_LIVE_TICKERS)
+    return [tickers[index:index + batch_size] for index in range(0, len(tickers), batch_size)]
+
+
+def refresh_market_cache_for_watchlist(reason="scheduled_hourly"):
+    tickers = load_shared_watchlist()
+    if not tickers:
+        tickers = watchlist_items_to_tickers(normalize_watchlist_items(DEFAULT_SHARED_WATCHLIST))
+    tickers = normalize_watchlist(tickers)[:MARKET_DATA_MAX_TICKERS]
+    batches = chunk_tickers_for_live_refresh(tickers)
+    started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    batch_summaries = []
+    total_success = 0
+    total_failed = 0
+    total_cache_fallback = 0
+
+    with BACKGROUND_REFRESH_LOCK:
+        BACKGROUND_REFRESH_STATE.update({
+            "running": True,
+            "last_started_at": started_at,
+            "last_completed_at": None,
+            "last_error": None,
+            "last_batches": [],
+        })
+
+    try:
+        for batch_index, batch in enumerate(batches, start=1):
+            payload = build_market_data_payload(
+                batch,
+                force=True,
+                auto_refresh=True,
+                cache_only=False,
+            )
+            status = payload.get("refresh_status") or {}
+            success_count = int(status.get("success_count") or 0)
+            failed_count = int(status.get("failed_count") or 0)
+            cache_fallback_count = int(status.get("cache_fallback_count") or 0)
+            total_success += success_count
+            total_failed += failed_count
+            total_cache_fallback += cache_fallback_count
+            batch_summaries.append({
+                "batch": batch_index,
+                "tickers": batch,
+                "success_count": success_count,
+                "failed_count": failed_count,
+                "cache_fallback_count": cache_fallback_count,
+                "last_dashboard_refresh": status.get("last_dashboard_refresh"),
+            })
+    except Exception as exc:
+        traceback.print_exc()
+        with BACKGROUND_REFRESH_LOCK:
+            BACKGROUND_REFRESH_STATE.update({
+                "running": False,
+                "last_completed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "last_success_count": total_success,
+                "last_failed_count": total_failed,
+                "last_cache_fallback_count": total_cache_fallback,
+                "last_error": str(exc),
+                "last_batches": batch_summaries,
+            })
+        return False
+
+    completed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with BACKGROUND_REFRESH_LOCK:
+        BACKGROUND_REFRESH_STATE.update({
+            "running": False,
+            "last_completed_at": completed_at,
+            "last_success_count": total_success,
+            "last_failed_count": total_failed,
+            "last_cache_fallback_count": total_cache_fallback,
+            "last_error": None,
+            "last_batches": batch_summaries,
+            "last_reason": reason,
+        })
+    return True
+
+
+def watchlist_market_cache_needs_refresh():
+    tickers = load_shared_watchlist()
+    if not tickers:
+        tickers = watchlist_items_to_tickers(normalize_watchlist_items(DEFAULT_SHARED_WATCHLIST))
+    tickers = normalize_watchlist(tickers)[:MARKET_DATA_MAX_TICKERS]
+    if not tickers:
+        return False
+    for ticker in tickers:
+        cached = read_market_cache(ticker)
+        if not is_market_cache_fresh(cached):
+            return True
+    return False
+
+
+def background_market_refresh_loop():
+    if BACKGROUND_MARKET_REFRESH_STARTUP_DELAY_SECONDS > 0:
+        time.sleep(BACKGROUND_MARKET_REFRESH_STARTUP_DELAY_SECONDS)
+    if BACKGROUND_MARKET_REFRESH_ON_START and watchlist_market_cache_needs_refresh():
+        refresh_market_cache_for_watchlist(reason="startup_cache_warm")
+    while True:
+        next_run = next_top_of_hour_utc()
+        with BACKGROUND_REFRESH_LOCK:
+            BACKGROUND_REFRESH_STATE["next_run_at"] = next_run.strftime("%Y-%m-%dT%H:%M:%SZ")
+        delay = max(1, (next_run - datetime.now(timezone.utc)).total_seconds())
+        time.sleep(delay)
+        refresh_market_cache_for_watchlist(reason="scheduled_hourly")
+
+
+def start_background_market_refresh_scheduler():
+    global BACKGROUND_REFRESH_THREAD_STARTED
+    if not BACKGROUND_MARKET_REFRESH_ENABLED:
+        return False
+    with BACKGROUND_REFRESH_LOCK:
+        if BACKGROUND_REFRESH_THREAD_STARTED:
+            return False
+        BACKGROUND_REFRESH_THREAD_STARTED = True
+        BACKGROUND_REFRESH_STATE["next_run_at"] = next_top_of_hour_utc().strftime("%Y-%m-%dT%H:%M:%SZ")
+    thread = threading.Thread(
+        target=background_market_refresh_loop,
+        name="market-cache-hourly-refresh",
+        daemon=True,
+    )
+    thread.start()
+    return True
+
+
 def get_quote_for_debug_modules(ticker, force=False, include_options=True):
     normalized = normalize_ticker_input(ticker)
     cached = read_market_cache(normalized)
@@ -6381,6 +6530,8 @@ def api_symbol_search():
 def api_health():
     db_dir = os.path.dirname(WATCHLIST_DB_PATH)
     market_context_cache_exists = read_module_cache("market_context", "snapshot") is not None
+    with BACKGROUND_REFRESH_LOCK:
+        background_refresh = dict(BACKGROUND_REFRESH_STATE)
     return jsonify({
         "success": True,
         "status": "ok",
@@ -6394,6 +6545,7 @@ def api_health():
         "fundamentals_cache_count": count_cache_files("fundamentals"),
         "options_cache_count": count_cache_files("options"),
         "market_context_cache_exists": market_context_cache_exists,
+        "background_market_refresh": background_refresh,
         "cwd": os.getcwd(),
         "python_version": sys.version,
         "render_service": bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID") or os.environ.get("RENDER_EXTERNAL_URL")),
@@ -6485,6 +6637,9 @@ def serve_static_file(filename):
     if filename.startswith("api/"):
         return jsonify({"success": False, "error": "Not found"}), 404
     return send_from_directory(ROOT, filename)
+
+
+start_background_market_refresh_scheduler()
 
 
 def main():
