@@ -14,7 +14,7 @@ const PRICE_REFRESH_MS = 60 * 60 * 1000;
 const WATCHLIST_SYNC_MS = 60 * 1000;
 const MARKET_DATA_BATCH_SIZE = 25;
 const LIVE_REFRESH_BATCH_SIZE = 2;
-const REQUIRED_DEFAULT_TICKERS = ["QQQ", "300657", "002463", "603005", "600522"];
+const REQUIRED_DEFAULT_TICKERS = ["QQQ"];
 const CALIBRATION_CONFIG = {
   rating_thresholds: {
     strong_buy: 90,
@@ -106,11 +106,6 @@ const SCORING_PROFILE_WEIGHTS = {
     short: { technical: 0.50, market_context: 0.35, fundamental: 0.10, options: 0.05 },
     mid: { technical: 0.40, market_context: 0.40, fundamental: 0.15, options: 0.05 },
     long: { technical: 0.30, market_context: 0.50, fundamental: 0.15, options: 0.05 },
-  },
-  china_a_share: {
-    short: { technical: 0.70, fundamental: 0.20, sector_theme: 0.10 },
-    mid: { technical: 0.45, fundamental: 0.45, sector_theme: 0.10 },
-    long: { technical: 0.35, fundamental: 0.55, sector_theme: 0.10 },
   },
 };
 const TECHNICAL_PROFILE_WEIGHTS = {
@@ -221,41 +216,6 @@ const KNOWN_CLASSIFICATION_PROFILES = {
     category: "EVAuto",
     scoring_profile: "high_growth_cyclical",
   },
-  "600460": {
-    tags: ["AShare", "Semiconductor", "PowerSemiconductor", "IDM", "ChinaMarket", "Cyclical"],
-    category: "ChinaSemiconductor",
-    scoring_profile: "china_a_share",
-  },
-  "002213": {
-    tags: ["AShare", "Semiconductor", "MemoryStorage", "ChinaMarket", "HighVolatility", "Turnaround"],
-    category: "ChinaSemiconductor",
-    scoring_profile: "china_a_share",
-  },
-  "002463": {
-    tags: ["AShare", "PCB", "AIInfrastructure", "DataCenter", "ChinaMarket", "CyclicalGrowth"],
-    category: "PCBDataCenter",
-    scoring_profile: "china_a_share",
-  },
-  "300657": {
-    tags: ["AShare", "PCB", "ConsumerElectronics", "AIInfrastructure", "ChinaMarket", "HighVolatility"],
-    category: "PCBConsumerElectronics",
-    scoring_profile: "china_a_share",
-  },
-  "603005": {
-    tags: ["AShare", "Semiconductor", "AdvancedPackaging", "ImageSensor", "ChinaMarket", "HighVolatility"],
-    category: "ChinaSemiconductor",
-    scoring_profile: "china_a_share",
-  },
-  "600522": {
-    tags: ["AShare", "OpticalCommunication", "PowerCable", "ChinaMarket", "Industrial", "Cyclical"],
-    category: "OpticalCommunication",
-    scoring_profile: "china_a_share",
-  },
-  "600498": {
-    tags: ["AShare", "OpticalCommunication", "Networking", "ChinaMarket", "Industrial", "Cyclical"],
-    category: "OpticalCommunication",
-    scoring_profile: "china_a_share",
-  },
 };
 const SUPPORTED_ETF_METADATA = {
   QQQ: {
@@ -360,10 +320,6 @@ const DEFAULT_WATCHLIST = [
   "XE",
   "ZETA",
   "QQQ",
-  "300657",
-  "002463",
-  "603005",
-  "600522",
 ];
 
 const I18N = {
@@ -411,12 +367,11 @@ const I18N = {
     noMarketDataAdd: "has no available market data and could not be added.",
     noMarketData: "No market data",
     priceUnavailable: "Price unavailable",
-    searchHintIdle: "Search by ticker, company name, or A-share code, then pick one result.",
+    searchHintIdle: "Search by ticker or company name, then pick one result.",
     searchHintLoading: "Searching candidates...",
     searchHintEmpty: "No matching stocks found yet.",
     searchHintSelected: "Selected",
     searchMarketUs: "US",
-    searchMarketCn: "A-share",
     searchExchange: "Exchange",
     currentPrice: "Current Price",
     supportStrength: "Support Strength",
@@ -435,7 +390,6 @@ const I18N = {
     forwardPe: "Forward PE",
     filterAll: "All",
     filterUs: "US",
-    filterCn: "A-shares",
     filterMegaCap: "Mega Cap",
     filterGrowth: "Growth",
     filterSpeculative: "Speculative",
@@ -803,7 +757,6 @@ const I18N = {
     searchHintEmpty: "暂时没有匹配到股票。",
     searchHintSelected: "已选择",
     searchMarketUs: "美股",
-    searchMarketCn: "A股",
     searchExchange: "交易所",
     currentPrice: "当前价格",
     supportStrength: "支撑强度",
@@ -822,7 +775,6 @@ const I18N = {
     forwardPe: "远期市盈率",
     filterAll: "全部",
     filterUs: "美股",
-    filterCn: "A股",
     filterMegaCap: "超大盘",
     filterGrowth: "成长股",
     filterSpeculative: "投机型",
@@ -1164,11 +1116,6 @@ const COMPANY_NAME_MAP = {
   TEM: { en: "Tempus AI", zh: "Tempus AI" },
   XE: { en: "XE", zh: "XE" },
   ZETA: { en: "Zeta Global", zh: "Zeta Global" },
-  "002463": { en: "Hudian Corp.", zh: "沪电股份" },
-  "300657": { en: "Hongxin Electronics", zh: "先导基电" },
-  "603005": { en: "Anji Microelectronics", zh: "晶方科技" },
-  "600522": { en: "Jiangsu Zhongtian Technology", zh: "中天科技" },
-  "600641": { en: "Shanghai Vital Deeptech", zh: "万业企业" },
 };
 
 const PROFILE_TAG_LABELS = {
@@ -1202,11 +1149,7 @@ const PROFILE_TAG_LABELS = {
   NAND: { en: "NAND", zh: "NAND" },
   GPU: { en: "GPU", zh: "GPU" },
   PCB: { en: "PCB", zh: "PCB" },
-  PowerSemiconductor: { en: "Power Semiconductor", zh: "功率半导体" },
   IDM: { en: "IDM", zh: "IDM" },
-  AdvancedPackaging: { en: "Advanced Packaging", zh: "先进封装" },
-  ImageSensor: { en: "Image Sensor", zh: "图像传感器" },
-  OpticalCommunication: { en: "Optical Communication", zh: "光通信" },
   PowerCable: { en: "Power Cable", zh: "电力电缆" },
   Networking: { en: "Networking", zh: "网络设备" },
   ConsumerElectronics: { en: "Consumer Electronics", zh: "消费电子" },
@@ -1222,9 +1165,6 @@ const PROFILE_TAG_LABELS = {
   SocialMediaAds: { en: "Social Media / Ads", zh: "社交媒体 / 广告" },
   EcommerceCloud: { en: "E-commerce / Cloud", zh: "电商 / 云" },
   DigitalAdsCloud: { en: "Digital Ads / Cloud", zh: "数字广告 / 云" },
-  ChinaSemiconductor: { en: "China Semiconductor", zh: "A股半导体" },
-  PCBDataCenter: { en: "PCB / Data Center", zh: "PCB / 数据中心" },
-  PCBConsumerElectronics: { en: "PCB / Consumer Electronics", zh: "PCB / 消费电子" },
   REITDividend: { en: "REIT / Dividend", zh: "REIT / 分红" },
   HealthcareInsurance: { en: "Healthcare / Insurance", zh: "医疗 / 保险" },
   EVAuto: { en: "EV / Auto", zh: "电动车 / 汽车" },
@@ -1262,7 +1202,6 @@ const PROFILE_TAG_LABELS = {
   Meme: { en: "Meme", zh: "Meme" },
   Momentum: { en: "Momentum", zh: "动量" },
   EV: { en: "EV", zh: "电动车" },
-  AShare: { en: "A Share", zh: "A股" },
   ChinaMarket: { en: "China Market", zh: "中国市场" },
   Cybersecurity: { en: "Cybersecurity", zh: "网络安全" },
   HealthcareServices: { en: "Healthcare Services", zh: "医疗服务" },
@@ -1565,16 +1504,7 @@ function isSmallSpeculativeProfile(row, companyProfile) {
 
 function turnoverActivityScore(turnoverRate, row, companyProfile) {
   if (!Number.isFinite(turnoverRate)) return 50;
-  const marketType = schemaMarketTypeForTicker(row);
   const smallSpeculative = isSmallSpeculativeProfile(row, companyProfile);
-  if (marketType === "CN_A_SHARE") {
-    if (turnoverRate < 1) return 35;
-    if (turnoverRate < 3) return 55;
-    if (turnoverRate < 7) return 72;
-    if (turnoverRate < 15) return 82;
-    if (turnoverRate < 25) return 68;
-    return 45;
-  }
   if (smallSpeculative) {
     if (turnoverRate < 2) return 48;
     if (turnoverRate < 5) return 68;
@@ -1771,7 +1701,6 @@ function localizedProfileEvidence(tag, evidence) {
     "market cap 2B-10B": "市值处于 2B-10B 区间",
     "market cap 300M-2B": "市值处于 300M-2B 区间",
     "market cap < 300M": "市值低于 300M",
-    "six-digit A-share ticker": "6 位 A股代码",
     "company identity indicates China-based ADR / ADS listing": "公司身份显示为中国公司在美 ADR / ADS 上市",
     "China appears as revenue, manufacturing, supply chain, or market exposure rather than company identity": "中国更多体现为收入、制造、供应链或市场暴露，不是公司身份",
     "sector / industry / description points to chips or semiconductors": "行业、主营或描述指向芯片 / 半导体业务",
@@ -1820,7 +1749,6 @@ function scoringProfileLabel(profileKey) {
     ai_infrastructure: { en: "AI infrastructure profile", zh: "AI基础设施评分模型" },
     platform_ads: { en: "Platform / ads profile", zh: "平台广告评分模型" },
     reit_dividend: { en: "REIT / dividend profile", zh: "REIT / 分红评分模型" },
-    china_a_share: { en: "China A-share profile", zh: "A股评分模型" },
     china_adr: { en: "China ADR profile", zh: "中概股评分模型" },
     etf_profile: { en: "ETF profile", zh: "ETF评分模型" },
     healthcare_defensive: { en: "Healthcare defensive profile", zh: "医疗防御评分模型" },
@@ -1850,7 +1778,6 @@ function normalizeScoringWeights(weights = {}, horizon = "mid") {
 
 function inferScoringProfile(tags = [], category = "", marketType = "US") {
   const tagSet = new Set(tags);
-  if (marketType === "CN_A_SHARE" || tagSet.has("AShare")) return "china_a_share";
   if (tagSet.has("ETF")) return "etf_profile";
   if (tagSet.has("REIT") || tagSet.has("RealEstate")) return "reit_dividend";
   if (tagSet.has("MemoryStorage") || tagSet.has("DRAMNAND") || tagSet.has("NAND")) return "memory_cycle";
@@ -1900,9 +1827,7 @@ function buildDecisionProfile(classification = {}, marketType = "US") {
   const exposureSet = new Set(exposureTags);
   const preferredProfile = classification.scoring_profile;
   const inferredProfile = inferScoringProfile([...tagSet], classification.category, marketType);
-  const baseProfile = marketType === "CN_A_SHARE"
-    ? "china_a_share"
-    : SCORING_PROFILE_WEIGHTS[preferredProfile] ? preferredProfile : inferredProfile;
+  const baseProfile = SCORING_PROFILE_WEIGHTS[preferredProfile] ? preferredProfile : inferredProfile;
   const finalWeights = cloneProfileWeights(SCORING_PROFILE_WEIGHTS[baseProfile] || SCORING_PROFILE_WEIGHTS.generic);
   const technicalWeights = cloneProfileWeights(TECHNICAL_PROFILE_WEIGHTS[baseProfile] || TECHNICAL_PROFILE_WEIGHTS.generic);
   const fundamentalBase = {
@@ -2078,7 +2003,7 @@ function buildDecisionProfile(classification = {}, marketType = "US") {
     base_profile: baseProfile,
     size_profile: sizeProfile,
     business_profile: decisionProfileLabelFromTags([...tagSet], ["Software", "Cloud", "Semiconductor", "MemoryStorage", "AIInfrastructure", "SocialMedia", "DigitalAds", "Ecommerce", "Healthcare", "HealthInsurance", "HealthcareServices", "REIT", "EV", "AutoManufacturer", "Crypto", "ETF"]) || "generic_business",
-    theme_profile: ["GPU", "DataCenter", "DRAMNAND", "NAND", "PCB", "PowerSemiconductor", "AI", "Cybersecurity", "Momentum"].filter((tag) => tagSet.has(tag)),
+    theme_profile: ["GPU", "DataCenter", "DRAMNAND", "NAND", "AI", "Cybersecurity", "Momentum"].filter((tag) => tagSet.has(tag)),
     quality_profile: ["CashCow", "ProfitableGrowth", "HighGrowth", "Growth", "Mature", "Value", "Defensive", "Dividend", "Turnaround", "Speculative", "StoryStock", "CashBurn", "UnprofitableGrowth"].filter((tag) => tagSet.has(tag)),
     risk_profile: riskTags,
     region_profile: regionProfile,
@@ -2296,32 +2221,12 @@ function latest(values) {
 }
 
 function inferCurrencyCode(subject, exchangeName = "") {
-  const normalizedExchange = String(exchangeName || "").toUpperCase();
-  const raw = typeof subject === "string"
-    ? subject
-    : typeof subject?.symbol === "string"
-      ? subject.symbol
-      : typeof subject?.ticker === "string"
-        ? subject.ticker
-        : "";
-  const normalized = raw.toUpperCase();
-
-  if (
-    normalized.endsWith(".SZ")
-    || normalized.endsWith(".SS")
-    || /^\d{6}$/.test(normalized)
-    || normalizedExchange === "SZ"
-    || normalizedExchange === "SH"
-    || normalizedExchange === "SS"
-  ) {
-    return "CNY";
-  }
   return "USD";
 }
 
 function formatCurrency(value, currencyCode = "USD") {
   if (value == null || !Number.isFinite(Number(value))) return "—";
-  const symbol = currencyCode === "CNY" ? "¥" : "$";
+  const symbol = "$";
   return `${symbol}${Number(value).toFixed(2)}`;
 }
 
@@ -2332,7 +2237,7 @@ function formatCurrentPrice(value, currencyCode = "USD") {
 
 function formatOptionStrike(value, currencyCode = "USD") {
   if (value == null || !Number.isFinite(Number(value))) return "—";
-  const symbol = currencyCode === "CNY" ? "¥" : "$";
+  const symbol = "$";
   const numeric = Number(value);
   let text = "";
   if (Math.abs(numeric - Math.round(numeric)) < 1e-6) {
@@ -2347,7 +2252,7 @@ function formatOptionStrike(value, currencyCode = "USD") {
 
 function formatSignedCurrency(value, currencyCode = "USD") {
   if (value == null || !Number.isFinite(Number(value))) return "—";
-  const symbol = currencyCode === "CNY" ? "¥" : "$";
+  const symbol = "$";
   return `${value >= 0 ? "+" : "-"}${symbol}${Math.abs(Number(value)).toFixed(2)}`;
 }
 
@@ -2375,7 +2280,7 @@ function formatBillions(value) {
 function formatLargeCurrency(value, currencyCode = "USD") {
   if (value == null || !Number.isFinite(Number(value))) return "—";
   const num = Number(value);
-  const symbol = currencyCode === "CNY" ? "¥" : "$";
+  const symbol = "$";
   if (currentLanguage === "zh") {
     if (Math.abs(num) >= 1e12) return `${symbol}${(num / 1e12).toFixed(2)}万亿`;
     if (Math.abs(num) >= 1e11) return `${symbol}${(num / 1e11).toFixed(2)}千亿`;
@@ -3382,7 +3287,7 @@ async function syncWatchlistFromServer({ rerender = true, refreshPrices = false 
 }
 
 function searchMarketLabel(market) {
-  return market === "cn" ? t("searchMarketCn") : t("searchMarketUs");
+  return t("searchMarketUs");
 }
 
 function clearSymbolSearch({ keepInput = false } = {}) {
@@ -3488,8 +3393,8 @@ function normalizeTickerInput(value) {
 
 function inferWatchlistMarketType(ticker, marketType = null) {
   const requested = String(marketType || "").trim().toUpperCase();
-  if (requested === "US" || requested === "CN_A_SHARE") return requested;
-  return /^\d{6}$/.test(ticker) ? "CN_A_SHARE" : "US";
+  if (requested === "US") return requested;
+  return "US";
 }
 
 function normalizeWatchlistItem(item) {
@@ -3618,16 +3523,11 @@ function sortRows(rows) {
 }
 
 function marketTypeForTicker(tickerOrRow) {
-  const ticker = typeof tickerOrRow === "string" ? tickerOrRow : tickerOrRow?.ticker;
-  return /^\d{6}$/.test(String(ticker || "")) ? "cn" : "us";
+  return "us";
 }
 
 function schemaMarketTypeForTicker(tickerOrRow) {
-  return marketTypeForTicker(tickerOrRow) === "cn" ? "CN_A_SHARE" : "US";
-}
-
-function isCnAShare(tickerOrRow) {
-  return schemaMarketTypeForTicker(tickerOrRow) === "CN_A_SHARE";
+  return "US";
 }
 
 function isUsMarket(tickerOrRow) {
@@ -3636,7 +3536,7 @@ function isUsMarket(tickerOrRow) {
 
 function matchesFilter(row) {
   if (marketFilter === "all") return true;
-  if (marketFilter === "us" || marketFilter === "cn") return marketTypeForTicker(row) === marketFilter;
+  if (marketFilter === "us") return marketTypeForTicker(row) === marketFilter;
   return (row.decisionModel || buildDecisionModel(row)).company_profile?.category_key === marketFilter;
 }
 
@@ -3962,11 +3862,6 @@ function buildLiveRefreshBatches(tickers) {
   };
 
   tickers.forEach((ticker) => {
-    if (schemaMarketTypeForTicker(ticker) === "CN_A_SHARE") {
-      flushUsBatch();
-      batches.push([ticker]);
-      return;
-    }
     usBatch.push(ticker);
     if (usBatch.length >= LIVE_REFRESH_BATCH_SIZE) flushUsBatch();
   });
@@ -4063,7 +3958,7 @@ function applyLanguage() {
   const tickerInputLabel = document.querySelector("#tickerInputLabel");
   if (tickerInputLabel) tickerInputLabel.textContent = t("ticker");
   const tickerInput = document.querySelector("#tickerInput");
-  if (tickerInput) tickerInput.placeholder = currentLanguage === "zh" ? "例如 BABA / 阿里巴巴 / 300657" : "e.g. BABA / Alibaba / 300657";
+  if (tickerInput) tickerInput.placeholder = currentLanguage === "zh" ? "例如 BABA / 阿里巴巴 / QQQ" : "e.g. BABA / Alibaba / QQQ";
   const addStockButton = document.querySelector("#addStockButton");
   if (addStockButton) addStockButton.textContent = t("addSelected");
   updateManualRefreshButton();
@@ -4083,7 +3978,6 @@ function applyLanguage() {
   if (sortChangeLabel) sortChangeLabel.textContent = t("sortDayMove");
   const filterAll = document.querySelector('.filter-btn[data-market-filter="all"]');
   const filterUs = document.querySelector('.filter-btn[data-market-filter="us"]');
-  const filterCn = document.querySelector('.filter-btn[data-market-filter="cn"]');
   const filterMegaCap = document.querySelector('.filter-btn[data-market-filter="megaCap"]');
   const filterGrowth = document.querySelector('.filter-btn[data-market-filter="growth"]');
   const filterSpeculative = document.querySelector('.filter-btn[data-market-filter="speculative"]');
@@ -4091,7 +3985,6 @@ function applyLanguage() {
   const filterValue = document.querySelector('.filter-btn[data-market-filter="value"]');
   if (filterAll) filterAll.textContent = t("filterAll");
   if (filterUs) filterUs.textContent = t("filterUs");
-  if (filterCn) filterCn.textContent = t("filterCn");
   if (filterMegaCap) filterMegaCap.textContent = t("filterMegaCap");
   if (filterGrowth) filterGrowth.textContent = t("filterGrowth");
   if (filterSpeculative) filterSpeculative.textContent = t("filterSpeculative");
@@ -5148,7 +5041,7 @@ function neutralScore(value) {
 
 function classificationBucketKey(primaryCategory, tags = []) {
   if (["SoftwareCloud", "SocialMediaAds", "DigitalAdsCloud", "EcommerceCloud"].includes(primaryCategory)) return "megaCap";
-  if (["AIInfrastructure", "MemoryStorage", "ChinaSemiconductor", "PCBDataCenter", "PCBConsumerElectronics", "OpticalCommunication"].includes(primaryCategory)) return "growth";
+  if (["AIInfrastructure", "MemoryStorage"].includes(primaryCategory)) return "growth";
   if (["REITDividend"].includes(primaryCategory)) return "dividend";
   if (["HealthcareInsurance"].includes(primaryCategory)) return "megaCap";
   if (["EVAuto"].includes(primaryCategory)) return "growth";
@@ -8659,7 +8552,7 @@ function buildProfileTagAudit(row, rawTags, context) {
   const quoteType = String(row.metadata?.quoteType || "").toLowerCase();
 	  const instrumentMetadata = contextInstrumentMetadata || normalizeInstrumentMetadata(row);
 	  const etfIdentity = (instrumentMetadata.is_etf || instrumentMetadata.is_etn) && instrumentMetadata.metadata_confidence >= 80;
-  const isUsListed = !isCnAShare(row) && /nasdaq|nyse|amex|nms|ngm|ncm|nyq|ase|nas/i.test(exchangeName);
+  const isUsListed = /nasdaq|nyse|amex|nms|ngm|ncm|nyq|ase|nas/i.test(exchangeName);
   const directChinaCountry = /china|hong kong|prc/i.test(country);
   const caymanWithChinaBusiness = /cayman islands/i.test(country)
     && /(china-based|chinese company|people'?s republic of china|headquarter(?:ed|s)?\s+(?:in|at)\s+[^.]{0,80}(china|hong kong|shanghai|beijing|hangzhou|shenzhen|guangzhou))/i.test(description);
@@ -8695,18 +8588,15 @@ function buildProfileTagAudit(row, rawTags, context) {
     else addEvidence("MicroCap", 88, "market cap < 300M", "market_cap");
   }
 
-  if (isCnAShare(row)) {
-    addEvidence("AShare", 96, "six-digit A-share ticker", "market");
-    addExposure("ChinaMarket", 90, "China A-share market model", "market");
-  } else if (isUsListed) {
+  if (isUsListed) {
     addExposure("USListed", 86, "US exchange listing", "market");
   }
   if (etfIdentity) {
     addEvidence("ETF", 94, "reliable instrument metadata indicates exchange-traded fund", "market");
   }
-  if (chinaIdentity && adrIdentity && !isCnAShare(row)) {
+  if (chinaIdentity && adrIdentity) {
     addEvidence("ChinaADR", 88, "company identity indicates China-based ADR / ADS listing", "market");
-  } else if (chinaExposure && !isCnAShare(row)) {
+  } else if (chinaExposure) {
     addExposure("ChinaExposure", 58, "China appears as revenue, manufacturing, supply chain, or market exposure rather than company identity", "exposure");
   }
 
@@ -8799,7 +8689,7 @@ function buildProfileTagAudit(row, rawTags, context) {
   if ((return30 ?? 0) > 20 || (return90 ?? 0) > 35 || (nearHigh && (relativeVolume ?? 1) >= 1.15)) addEvidence("Momentum", 78, "30D / 90D return or near-high volume confirms momentum", "technical");
   if (semiconductorCore || /memory|industrial|materials|auto|travel|commodity/i.test(coreBlob)) addEvidence("Cyclical", semiconductorCore ? 76 : 68, "business has cyclical exposure", "core");
 
-  if ((rawSet.has("ChinaADR") || chinaExposure) && !evidenceMap.ChinaADR && !isCnAShare(row)) {
+  if ((rawSet.has("ChinaADR") || chinaExposure) && !evidenceMap.ChinaADR) {
     rejectTag("ChinaADR", "China appears as sales, manufacturing, supply-chain, or market exposure, not China ADR company identity.");
   }
   if ((rawSet.has("Healthcare") || healthcareExposure) && !healthcareCore) {
@@ -8869,12 +8759,12 @@ function buildProfileTagAudit(row, rawTags, context) {
 	  const fullTags = Object.keys(evidenceMap).filter((tag) => evidenceMap[tag].confidence >= 60);
   const groupOrder = {
     size: ["MegaCap", "LargeCap", "MidCap", "SmallCap", "MicroCap"],
-    core: ["ETF", "Software", "Cloud", "Semiconductor", "MemoryStorage", "PowerSemiconductor", "PCB", "OpticalCommunication", "AIInfrastructure", "SocialMedia", "DigitalAds", "EV", "AutoManufacturer", "Ecommerce", "Consumer", "REIT", "Banking", "Fintech", "Energy", "Healthcare", "HealthInsurance", "HealthcareServices", "Biotech", "Crypto", "Industrial", "Defense", "RealEstate", "AI"],
-    theme: ["GPU", "DataCenter", "DRAMNAND", "NAND", "IDM", "AdvancedPackaging", "ImageSensor", "PowerCable", "Networking", "ConsumerElectronics", "ConsumerPlatform", "ChinaConsumer", "HealthcareRealEstate"],
+    core: ["ETF", "Software", "Cloud", "Semiconductor", "MemoryStorage", "AIInfrastructure", "SocialMedia", "DigitalAds", "EV", "AutoManufacturer", "Ecommerce", "Consumer", "REIT", "Banking", "Fintech", "Energy", "Healthcare", "HealthInsurance", "HealthcareServices", "Biotech", "Crypto", "Industrial", "Defense", "RealEstate", "AI"],
+    theme: ["GPU", "DataCenter", "DRAMNAND", "NAND", "IDM", "ConsumerPlatform", "ChinaConsumer", "HealthcareRealEstate"],
     quality: ["CashCow", "ProfitableGrowth", "HighGrowth", "Growth", "CyclicalGrowth", "Dividend", "Turnaround", "Speculative", "Defensive"],
     risk: ["HighMultiple", "ExtremeValuation", "HighVolatility", "HighDebtRisk", "CashBurn", "NewlyListed", "RegulatoryRisk"],
     cycle: ["Cyclical", "InterestRateSensitive"],
-    geography: ["ChinaADR", "AShare", "USListed", "ChinaInternet"],
+    geography: ["ChinaADR", "USListed", "ChinaInternet"],
   };
   const priority = (tag) => {
     const entries = Object.entries(groupOrder);
@@ -8993,10 +8883,6 @@ function buildCompanyProfile(row, research) {
   if (!Number.isFinite(pe) && !Number.isFinite(forwardPe) && !Number.isFinite(psRatio)) missing.push("valuation_metrics");
   if (!textBlob) missing.push("company_metadata");
 
-  if (isCnAShare(row)) {
-    pushProfileTag(tagSet, reasons, "AShare", currentLanguage === "zh" ? "6 位数字代码识别为 A股。" : "Six-digit numeric ticker is classified as an A-share.");
-    pushProfileTag(tagSet, reasons, "ChinaMarket", currentLanguage === "zh" ? "该股票使用中国 A股市场模型。" : "This stock uses the China A-share model.");
-  }
   if (etfLike) {
     pushProfileTag(tagSet, reasons, "ETF", currentLanguage === "zh" ? "标的类型识别为 ETF。" : "Quote type indicates an ETF.");
   }
@@ -9138,16 +9024,6 @@ function buildCompanyProfile(row, research) {
 	    cashCowEvidence,
 	    instrumentMetadata,
 	  });
-  if (isCnAShare(row) && !tagAudit.top_tags.includes("AShare")) {
-    tagAudit.top_tags.unshift("AShare");
-    tagAudit.top_tags = [...new Set(tagAudit.top_tags)].slice(0, 6);
-  }
-  if (isCnAShare(row) && !tagAudit.top_tags.includes("ChinaMarket") && tagAudit.top_tags.length < 6) {
-    tagAudit.top_tags.push("ChinaMarket");
-  }
-  if (isCnAShare(row) && !tagAudit.top_tags.includes("HighVolatility") && tagAudit.top_tags.length < 6) {
-    tagAudit.top_tags.push("HighVolatility");
-  }
   const fallbackTags = tagAudit.full_tags.length ? tagAudit.full_tags : rawTags.slice(0, 6);
   const fallbackTopTags = tagAudit.top_tags.length ? tagAudit.top_tags : fallbackTags.slice(0, 6);
   const fallbackCategory = selectPrimaryCategory(fallbackTopTags.length ? fallbackTopTags : fallbackTags);
@@ -9686,7 +9562,6 @@ function buildSupportResistanceSchema(row, companyProfile = null, tradeContext =
 
 function primaryZoneMaxDrawdownPct(companyProfile, row) {
   const tags = companyProfile?.tags || [];
-  if (isCnAShare(row)) return 15;
   if (hasAnyTag(tags, ["Speculative", "HighVolatility", "IPO", "NewlyListed"])) return 18;
   if (hasAnyTag(tags, ["Growth", "HighGrowth", "HighMultiple", "Momentum", "StoryStock"])) return 12;
   if (hasAnyTag(tags, ["REIT", "Dividend"])) return 12;
@@ -9974,10 +9849,6 @@ function buildIdealBuyZone(row, supportResistance, companyProfile = null) {
 
 function atrStopMultiplier(row, companyProfile) {
   const tags = companyProfile?.tags || [];
-  if (isCnAShare(row)) {
-    if (hasAnyTag(tags, ["HighVolatility", "Speculative", "Momentum", "StoryStock"])) return 2.5;
-    return 2.0;
-  }
   if (hasAnyTag(tags, ["HighVolatility", "Speculative", "NewlyListed", "IPO", "Crypto", "StoryStock"])) return 2.5;
   if (hasAnyTag(tags, ["Semiconductor", "AIInfrastructure", "AI"])) return 2.0;
   if (hasAnyTag(tags, ["Growth", "HighGrowth", "Software", "Healthcare", "Consumer"])) return 1.7;
@@ -9988,10 +9859,6 @@ function atrStopMultiplier(row, companyProfile) {
 
 function buyZoneStopBuffer(row, companyProfile) {
   const tags = companyProfile?.tags || [];
-  if (isCnAShare(row)) {
-    if (hasAnyTag(tags, ["HighVolatility", "Speculative", "Momentum", "StoryStock"])) return 0.955;
-    return 0.978;
-  }
   if (hasAnyTag(tags, ["Speculative", "HighVolatility", "NewlyListed", "IPO", "Crypto", "StoryStock"])) return 0.955;
   if (hasAnyTag(tags, ["Semiconductor", "AIInfrastructure", "HighGrowth"])) return 0.98;
   if (hasAnyTag(tags, ["Software", "Growth", "ProfitableGrowth", "LargeCap"])) return 0.982;
@@ -10154,11 +10021,6 @@ function decisionRangeParameters(row, companyProfile = {}) {
     params.buy_zone_width_multiplier *= 1.12;
     params.stop_buffer_multiplier *= 1.12;
     params.support_confidence_adjustment -= hasAnyTag(tags, ["RegulatoryRisk"]) ? 5 : 2;
-  }
-  if (isCnAShare(row)) {
-    params.minimum_zone_gap_atr = Math.max(params.minimum_zone_gap_atr, 0.28);
-    params.buy_zone_width_multiplier *= 1.1;
-    params.stop_buffer_multiplier *= 1.12;
   }
   return params;
 }
@@ -10577,7 +10439,7 @@ function buildRecommendedBuyPlan(row, buyZones, aiDecision, technical, supportRe
   add(midCandidates, fib(0.618), 1.05, "Fib 61.8%");
   if (Number.isFinite(price) && Number.isFinite(atr)) add(midCandidates, price - atr * 1.35, 0.12, "ATR 1.35 fallback");
   add(midCandidates, expectedMove.lower_30d, 0.16, "Expected Move Lower 30D");
-  if (!isCnAShare(row) && options.available) add(midCandidates, options.putWall, 1.15, "Put Wall");
+  if (options.available) add(midCandidates, options.putWall, 1.15, "Put Wall");
 
   (supportResistance?.supports || []).slice(2, 5).forEach((level, index) => add(longCandidates, level.price, 1.8 - index * 0.2, level.level));
   add(longCandidates, tech.ma100, 1.1, "MA100");
@@ -10996,7 +10858,7 @@ function buildSellPlan(row, supportResistance, companyProfile, technical, fundam
     add(shortCandidates, price + atr * 1.5 * (params.sell_upside_multiplier || 1), 0.14, "ATR 1.5 fallback");
   }
   add(shortCandidates, expectedMove.upper_7d, 0.18, "Expected Move Upper 7D");
-  if (!isCnAShare(row) && options.available) add(shortCandidates, options.callWall, 1.1, "Call Wall");
+  if (options.available) add(shortCandidates, options.callWall, 1.1, "Call Wall");
 
   (supportResistance?.resistances || []).slice(1, 4).forEach((level, index) => add(midCandidates, level.price, 1.8 - index * 0.22, level.level));
   add(midCandidates, fibExtension(0.272), 1.05, "Fib Extension 127.2%");
@@ -12082,30 +11944,6 @@ function buildOptionsStrategies(row, optionsRead, idealBuyZone, supportResistanc
   const megaCashProfile = hasAnyTag(tags, ["MegaCap", "CashCow"]);
   const reitDividendProfile = hasAnyTag(tags, ["REIT", "Dividend", "InterestRateSensitive"]);
 
-  if (isCnAShare(row)) {
-    return {
-      sell_put_plan: { status: "not_supported", plans: [] },
-      covered_call_plan: { status: "not_supported", plans: [] },
-      cash_secured_put: {
-        recommendation: "Neutral",
-        suggested_dte: t("dataUnavailable"),
-        suggested_strike: null,
-        assignment_risk: t("dataUnavailable"),
-        suggested_zone: t("dataUnavailable"),
-        premium_yield: null,
-        reason: t("optionsUnavailable"),
-      },
-      covered_call: {
-        recommendation: "Neutral",
-        suggested_dte: t("dataUnavailable"),
-        suggested_strike: null,
-        assignment_risk: t("dataUnavailable"),
-        suggested_zone: t("dataUnavailable"),
-        premium_yield: null,
-        reason: t("optionsUnavailable"),
-      },
-    };
-  }
   const fallbackReason = optionsAvailable
     ? ""
     : (currentLanguage === "zh" ? " 期权链暂不可用，当前使用支撑压力、ATR 和买入区间做技术位 fallback，置信度降低。" : " Option chain is unavailable, so this uses support / resistance, ATR, and buy ranges as a lower-confidence technical fallback.");
@@ -12257,29 +12095,6 @@ function buildOptionsStrategies(row, optionsRead, idealBuyZone, supportResistanc
 }
 
 function buildOptionsModule(row, supportResistance, idealBuyZone, decisionHints = {}) {
-  if (isCnAShare(row)) {
-    const shortSqueeze = buildShortSqueezeBlock(row);
-    return {
-      status: "not_supported",
-      options_score: 50,
-      put_wall: null,
-      call_wall: null,
-      gamma_flip: null,
-      net_gex: null,
-      implied_volatility: null,
-      historic_volatility: null,
-      iv_percentile: null,
-      iv_rank: null,
-      max_pain: null,
-      options_flow: null,
-      sell_put_plan: { status: "not_supported", plans: [] },
-      covered_call_plan: { status: "not_supported", plans: [] },
-      cash_secured_put: { recommendation: "Neutral", suggested_dte: null, suggested_strike: null, assignment_risk: null, suggested_zone: null, premium_yield: null, reason: currentLanguage === "zh" ? "该市场暂不支持期权结构分析。" : "Options structure analysis is not supported for this market." },
-      covered_call: { recommendation: "Neutral", suggested_dte: null, suggested_strike: null, assignment_risk: null, suggested_zone: null, premium_yield: null, reason: currentLanguage === "zh" ? "该市场暂不支持期权策略分析。" : "Options strategy analysis is not supported for this market." },
-      short_squeeze: shortSqueeze,
-      summary: currentLanguage === "zh" ? "该市场暂不支持期权结构分析。" : "Options structure analysis is not supported for this market.",
-    };
-  }
   const optionsRead = row.research?.optionsRead || buildOptionsRead(row);
   const strategies = buildOptionsStrategies(row, optionsRead, idealBuyZone, supportResistance, decisionHints);
   const score = !optionsRead.available ? 50 : clamp(50 + optionsRead.scoreAdjustment * 4, 20, 85);
@@ -12357,39 +12172,6 @@ function buildUnifiedOptionsStrategyPlan({
   companyProfile,
   tradeContext,
 }) {
-  if (isCnAShare(row)) {
-    return {
-      options_data_status: "not_supported",
-      sell_put_plan: {
-        status: "not_supported",
-        recommendation: "Avoid",
-        expiration_days: [],
-        strike_range: { low: null, high: null },
-        preferred_strike: null,
-        risk_level: "high",
-        confidence: 0,
-        based_on: [],
-        avoid_conditions: [currentLanguage === "zh" ? "A股暂不支持美股期权策略。" : "US options strategies are not supported for A-shares."],
-        plans: [],
-      },
-      covered_call_plan: {
-        status: "not_supported",
-        recommendation: "Avoid",
-        expiration_days: [],
-        strike_range: { low: null, high: null },
-        preferred_strike: null,
-        risk_level: "high",
-        confidence: 0,
-        based_on: [],
-        avoid_conditions: [currentLanguage === "zh" ? "A股暂不支持美股期权策略。" : "US options strategies are not supported for A-shares."],
-        plans: [],
-      },
-      gamma_flip: null,
-      confidence: 0,
-      explanation: currentLanguage === "zh" ? "该市场暂不支持期权策略计划。" : "Options strategy plans are not supported for this market.",
-    };
-  }
-
   const price = row.price ?? null;
   const atr = Number.isFinite(row.technicals?.atr14) ? row.technicals.atr14 : (Number.isFinite(price) ? price * 0.035 : null);
   const marketRegime = marketRegimeFromContext(marketContext);
@@ -13158,48 +12940,6 @@ function buildMarketContextHorizonBreakdown(horizon, companyProfile, row, engine
 }
 
 function buildMarketContextModule(row, companyProfile) {
-  if (isCnAShare(row)) {
-    return {
-      status: "not_supported",
-      market_context_score: 50,
-      macro_score: 50,
-      sector_score: companyProfile.tags?.length ? 58 : 50,
-      news_score: 50,
-      institutional_score: 50,
-      market_regime: {
-        score: 50,
-        regime: "neutral",
-        confidence: 45,
-        summary: currentLanguage === "zh" ? "市场环境数据暂未接入 A股模型。" : "Market context data is not connected to the A-share model yet.",
-      },
-      horizon_scores: { short: 50, mid: 50, long: 50 },
-      horizon_breakdown: {
-        short: { base: 50, final_score: 50, reason: currentLanguage === "zh" ? "A股不使用美股宏观数据评分。" : "A-share scoring does not use US macro data." },
-        mid: { base: 50, final_score: 50, reason: currentLanguage === "zh" ? "A股不使用美股宏观数据评分。" : "A-share scoring does not use US macro data." },
-        long: { base: 50, final_score: 50, reason: currentLanguage === "zh" ? "A股不使用美股宏观数据评分。" : "A-share scoring does not use US macro data." },
-      },
-      strategy_impact: null,
-      market_engine: {
-        score: 50,
-        regime: "neutral",
-        confidence: 45,
-        vix: null,
-        fear_greed: null,
-        ten_year_yield: null,
-        equity_trend: null,
-      },
-      macro: {},
-      broad_macro_news: null,
-      sector_theme: {
-        tags: (companyProfile.top_tags_label || companyProfile.tags_label || []).slice(0, 6),
-        summary: (companyProfile.top_tags_label || companyProfile.tags_label || []).length ? (companyProfile.top_tags_label || companyProfile.tags_label).slice(0, 6).join(" / ") : t("dataUnavailable"),
-      },
-      news_sentiment: null,
-      institutional_insider: null,
-      summary: currentLanguage === "zh" ? "市场环境数据暂未接入 A股模型。" : "Market context data is not connected to the A-share model yet.",
-      risks: [],
-    };
-  }
   const snapshotContext = row.globalMarketContext || {};
   const sectorTheme = (companyProfile.top_tags_label || companyProfile.tags_label || []).slice(0, 6);
   const risks = [];
@@ -19763,22 +19503,15 @@ function buildETFDecisionModel(row, research, companyProfile, etfProfile) {
 }
 
 function horizonWeights(companyProfile, horizon, marketType = "US") {
-  const isCn = marketType === "CN_A_SHARE";
   const decisionWeights = normalizeScoringWeights(companyProfile?.decision_profile?.final_weights, horizon);
   if (decisionWeights) return decisionWeights;
   const profileWeights = normalizeScoringWeights(companyProfile?.scoring_weights, horizon);
   if (profileWeights) return profileWeights;
-  return isCn
-    ? (horizon === "short"
-      ? { technical: 0.7, fundamental: 0.2, sector_theme: 0.1 }
-      : horizon === "mid"
-        ? { technical: 0.45, fundamental: 0.45, sector_theme: 0.1 }
-        : { fundamental: 0.55, long_term_technical: 0.35, sector_theme: 0.1 })
-    : (horizon === "short"
+  return horizon === "short"
       ? { technical: 0.55, options: 0.2, market_context: 0.1, fundamental: 0.15 }
       : horizon === "mid"
         ? { technical: 0.4, fundamental: 0.35, options: 0.15, market_context: 0.1 }
-        : { fundamental: 0.5, long_term_technical: 0.3, market_context: 0.15, options: 0.05 });
+        : { fundamental: 0.5, long_term_technical: 0.3, market_context: 0.15, options: 0.05 };
 }
 
 function profileScoreAdjustment(companyProfile, fundamental, technical, horizon) {
@@ -20111,10 +19844,6 @@ function buildShortSetup(row, companyProfile, modules, supportResistance, idealB
     riskWarnings.push(currentLanguage === "zh" ? "投机 / 新股类型缺少卖空数据，默认不激进给 Short。" : "Speculative / newly listed names lack short-interest data, so the model avoids aggressive Short ratings.");
     score -= 8;
   }
-  if (marketType === "CN_A_SHARE") {
-    riskWarnings.push(currentLanguage === "zh" ? "A股暂不直接显示做空评级，仅作为强风险信号。" : "A-share names do not display direct Short ratings; this is only a risk signal.");
-  }
-
   whyWrong.push(...riskWarnings.slice(0, 4));
   if (nextResistance?.price) whyWrong.push(currentLanguage === "zh" ? `如果重新站上 ${formatCurrency(nextResistance.price, row.currencyCode)}，做空逻辑失效。` : `If price reclaims ${formatCurrency(nextResistance.price, row.currencyCode)}, the short thesis weakens.`);
   const blocked = insideBuyZone || nearStrongSupport || rsiOversold || kdjExtreme || squeezeBlocksShort || nearPutWallSupport || riskOnTape || (megaCapCashCow && score < 92);
@@ -20164,7 +19893,7 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
   );
   const profileFundamental = modules.fundamental.profile_fundamental || buildProfileFundamentalScore(row, modules.fundamental, companyProfile);
   const fundamentalScore = neutralScore(profileFundamental.score ?? modules.fundamental.fundamental_score);
-  const optionsScore = marketType === "CN_A_SHARE" ? 50 : neutralScore(modules.options.options_score);
+  const optionsScore = neutralScore(modules.options.options_score);
   const marketScore = neutralScore(modules.market_context.horizon_scores?.[horizon] ?? modules.market_context.market_context_score);
   const sectorThemeScore = neutralScore(modules.market_context.sector_score ?? (companyProfile.tags?.length ? 58 : 50));
   const marketBreakdown = modules.market_context.horizon_breakdown?.[horizon] || null;
@@ -20484,9 +20213,6 @@ function buildDataQuality(row, optionsModule, marketContext, idealBuyZone = null
   if (isUs && marketContext.market_engine?.equity_trend?.spy?.value == null && marketContext.market_engine?.equity_trend?.qqq?.value == null) missingFields.push("market_context.equity_trend");
   profileMissing.forEach((field) => missingFields.push(`company_profile.${field}`));
   if (row.noData) warnings.push(t("noMarketData"));
-  if (isCnAShare(row)) {
-    warnings.push(currentLanguage === "zh" ? "A股暂不使用美股期权和美股市场环境数据。" : "A-share scoring does not use US options or US market-context data.");
-  }
   if (isUs && missingFields.length) warnings.push(currentLanguage === "zh" ? "部分模块仍缺少外部数据源。" : "Some modules still need external data feeds.");
   if (profileMissing.length) warnings.push(currentLanguage === "zh" ? "公司画像使用了部分缺失字段的中性回退。" : "The company-profile classifier used neutral fallbacks for some missing fields.");
   if (row.marketStatus === "closed" || row.dataStaleness === "stale") staleFields.push("price");
@@ -20968,7 +20694,6 @@ function renderDetailModal(row) {
   const earningsEventRisk = marketContext.earnings_event_risk || decision.earnings_event_risk || {};
   const optionsExpectedMove = options.expected_move || decision.options_expected_move || {};
   const profile = decision.company_profile;
-  const isCnMarket = decision.market_type === "CN_A_SHARE";
   const isUsStock = decision.market_type === "US";
   const changeTone = Number.isFinite(row.changePercent) ? (row.changePercent >= 0 ? "buy" : "sell") : "hold";
   const tabItems = [
@@ -20978,7 +20703,6 @@ function renderDetailModal(row) {
     ...(isUsStock ? [{ key: "options", label: t("tabOptions") }] : []),
     { key: "news", label: t("tabNews") },
   ];
-  if (isCnMarket && detailActiveTab === "options") detailActiveTab = "summary";
 
   const localizedStrategyAction = (value) => {
     if (value === "Recommended") return t("recommended");
@@ -21987,14 +21711,7 @@ function renderDetailModal(row) {
     </section>
   `;
 
-  const newsPanel = isCnMarket ? `
-    <section class="detail-tab-section">
-      <section class="detail-section-card">
-        <div class="detail-section-head"><h3>${t("marketContext")}</h3></div>
-        <div class="decision-bullet muted">${currentLanguage === "zh" ? "市场环境数据暂未接入 A股模型。" : "Market context data is not connected to the A-share model yet."}</div>
-      </section>
-    </section>
-  ` : `
+  const newsPanel = `
     <section class="detail-tab-section">
       <div class="detail-kpi-grid">
         <article class="detail-kpi-card ${scoreToBand(marketContext.market_context_score).tone}"><span>${t("marketContext")}</span><strong>${marketContext.market_context_score}/100</strong><small>${localizedDashboardText(marketContext.summary)}</small></article>
@@ -22747,7 +22464,7 @@ function scheduleNextHourlyAutoRefresh() {
 async function addTicker(rawTicker) {
   const ticker = normalizeTickerInput(rawTicker);
   if (!ticker) return false;
-  const selectedMarketType = symbolSearchSelection?.market_type || (symbolSearchSelection?.market === "cn" ? "CN_A_SHARE" : symbolSearchSelection?.market === "us" ? "US" : null);
+  const selectedMarketType = symbolSearchSelection?.market_type || "US";
   const marketType = inferWatchlistMarketType(ticker, selectedMarketType);
   if (watchlistTickers.includes(ticker)) {
     syncWatchlistFromServer({ rerender: true, refreshPrices: false });

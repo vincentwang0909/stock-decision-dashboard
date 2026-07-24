@@ -45,14 +45,6 @@ pd = LazyModule("pandas")
 yf = LazyModule("yfinance")
 
 
-def get_ak():
-    try:
-        import importlib
-        return importlib.import_module("akshare")
-    except Exception:
-        return None
-
-
 ROOT = os.path.dirname(os.path.abspath(__file__))
 ENV_FILE = os.path.join(ROOT, ".env")
 if os.path.exists(ENV_FILE):
@@ -84,13 +76,9 @@ BACKGROUND_MARKET_REFRESH_ENABLED = os.environ.get("BACKGROUND_MARKET_REFRESH_EN
 BACKGROUND_MARKET_REFRESH_STARTUP_DELAY_SECONDS = int(os.environ.get("BACKGROUND_MARKET_REFRESH_STARTUP_DELAY_SECONDS", "15"))
 BACKGROUND_MARKET_REFRESH_AFTER_HOUR_SECONDS = int(os.environ.get("BACKGROUND_MARKET_REFRESH_AFTER_HOUR_SECONDS", "5"))
 BACKGROUND_MARKET_REFRESH_ON_START = os.environ.get("BACKGROUND_MARKET_REFRESH_ON_START", "true").strip().lower() not in {"0", "false", "no", "n"}
-A_SHARE_METADATA_TIMEOUT_SECONDS = 2.5
-A_SHARE_PRIMARY_PRICE_TIMEOUT_SECONDS = 4.0
-A_SHARE_SECONDARY_PRICE_TIMEOUT_SECONDS = 4.5
 CACHE = {}
 SEARCH_CACHE_SECONDS = 10 * 60
 SYMBOL_SEARCH_CACHE = {}
-A_SHARE_SYMBOL_CACHE = {"value": [], "expiresAt": 0}
 NEWS_CACHE_SECONDS = 60 * 60
 COMPANY_NEWS_CACHE = {}
 MARKET_CONTEXT_CACHE = {"value": None, "expiresAt": 0}
@@ -118,7 +106,7 @@ WATCHLIST_MIGRATION_TICKERS = ["QQQ"]
 DEFAULT_SHARED_WATCHLIST = [
     "NVDA", "TSLA", "AMD", "BABA", "GOOGL", "AMZN", "AAPL", "CRCL", "FFAI", "HIMS",
     "MPT", "META", "MSFT", "NFLX", "PLTR", "NOW", "SOFI", "TEM", "XE", "ZETA",
-    "QQQ", "300657", "002463", "603005", "600522",
+    "QQQ",
 ]
 US_SYMBOL_CATALOG = [
     {"ticker": "QQQ", "name": "Invesco QQQ Trust", "aliases": ["Nasdaq 100 ETF", "Nasdaq-100", "纳指100", "QQQ ETF"], "exchange": "NASDAQ"},
@@ -148,14 +136,6 @@ US_SYMBOL_CATALOG = [
     {"ticker": "XE", "name": "XE", "aliases": ["Energy Fuels"], "exchange": "NYSE"},
     {"ticker": "ZETA", "name": "Zeta Global", "aliases": ["Zeta"], "exchange": "NYSE"},
 ]
-A_SHARE_SYMBOL_CATALOG = [
-    {"ticker": "002463", "name": "沪电股份", "aliases": ["Hudian", "Hudian Corp", "Hu Dian"]},
-    {"ticker": "300657", "name": "先导基电", "aliases": ["Hongxin Electronics", "Xian Dao Ji Dian", "Hongxin"]},
-    {"ticker": "603005", "name": "晶方科技", "aliases": ["Anji Microelectronics", "Jingfang Keji", "Jingfang"]},
-    {"ticker": "600522", "name": "中天科技", "aliases": ["Zhongtian Technology", "Zhong Tian Ke Ji"]},
-    {"ticker": "600641", "name": "万业企业", "aliases": ["Shanghai Vital Deeptech", "Wanye Qiye", "Wan Ye Qi Ye"]},
-]
-
 POSITIVE_NEWS_KEYWORDS = [
     "beat", "beats", "surge", "growth", "upgrade", "raises", "raised", "expands", "partnership",
     "approval", "rebound", "record", "strong demand", "buyback", "bullish", "rally", "wins",
@@ -180,11 +160,6 @@ MACRO_EVENT_PATTERNS = [
 ]
 
 
-def is_a_share_ticker(ticker):
-    normalized = (ticker or "").strip().upper()
-    return len(normalized) == 6 and normalized.isdigit() and normalized.startswith(("0", "3", "6"))
-
-
 def normalize_ticker_input(value):
     invisible = "\u200b\u200c\u200d\ufeff"
     cleaned = "".join(ch for ch in (value or "") if ch not in invisible)
@@ -192,10 +167,7 @@ def normalize_ticker_input(value):
 
 
 def infer_market_type(ticker, market_type=None):
-    requested = (market_type or "").strip().upper()
-    if requested in ("US", "CN_A_SHARE"):
-        return requested
-    return "CN_A_SHARE" if is_a_share_ticker(ticker) else "US"
+    return "US"
 
 
 def normalize_watchlist_item(value):
@@ -377,87 +349,7 @@ def remove_shared_ticker(ticker, market_type=None):
 
 def resolve_market_symbol(ticker):
     normalized = (ticker or "").strip().upper()
-    if is_a_share_ticker(normalized):
-        if normalized.startswith(("0", "3")):
-            return f"{normalized}.SZ"
-        return f"{normalized}.SS"
     return normalized
-
-
-def fetch_a_share_symbol_rows():
-    now = time.time()
-    if A_SHARE_SYMBOL_CACHE["value"] and A_SHARE_SYMBOL_CACHE["expiresAt"] > now:
-        return A_SHARE_SYMBOL_CACHE["value"]
-
-    rows = [
-        {
-            "ticker": item["ticker"],
-            "name": item["name"],
-            "market": "cn",
-            "exchange": "SZ" if item["ticker"].startswith(("0", "3")) else "SH",
-            "aliases": item.get("aliases", []),
-        }
-        for item in A_SHARE_SYMBOL_CATALOG
-    ]
-
-    A_SHARE_SYMBOL_CACHE["value"] = rows
-    A_SHARE_SYMBOL_CACHE["expiresAt"] = now + 12 * 60 * 60
-    return rows
-
-
-def search_a_share_candidates(query, limit=8):
-    normalized = normalize_search_query(query)
-    if not normalized:
-        return []
-
-    query_upper = normalized.upper()
-    rows = fetch_a_share_symbol_rows()
-    scored = []
-    seen_tickers = set()
-
-    for item in rows:
-        ticker = item["ticker"]
-        name = item["name"]
-        alias_blob = " ".join(item.get("aliases", []))
-        search_blob = f"{name} {alias_blob}".upper()
-        score = None
-        if ticker == query_upper:
-            score = 0
-        elif ticker.startswith(query_upper):
-            score = 1
-        elif query_upper in search_blob:
-            score = 2
-        if score is None:
-            continue
-        seen_tickers.add(ticker)
-        scored.append((score, len(name), item))
-
-    if is_a_share_ticker(query_upper) and query_upper not in seen_tickers:
-        exchange = "SZ" if query_upper.startswith(("0", "3")) else "SH"
-        profile_info = _run_with_timeout(
-            lambda: fetch_a_share_profile(query_upper),
-            1.5,
-            fallback={},
-        ) or {}
-        display_name = (
-            profile_info.get("shortName")
-            or profile_info.get("longName")
-            or f"A-share {query_upper}"
-        )
-        scored.append((
-            0,
-            len(display_name),
-            {
-                "ticker": query_upper,
-                "name": display_name,
-                "market": "cn",
-                "exchange": exchange,
-                "aliases": [],
-            },
-        ))
-
-    scored.sort(key=lambda pair: (pair[0], pair[1], pair[2]["ticker"]))
-    return [format_symbol_candidate(item) for _, _, item in scored[:limit]]
 
 
 def search_us_candidates(query, limit=8):
@@ -528,7 +420,7 @@ def search_us_candidates(query, limit=8):
 
     if not candidates:
         symbol = normalize_ticker_input(normalized)
-        if symbol and not is_a_share_ticker(symbol):
+        if symbol:
             try:
                 quote = get_cached_quote(symbol)
                 candidates = [format_symbol_candidate({
@@ -549,21 +441,16 @@ def search_us_candidates(query, limit=8):
 
 def format_symbol_candidate(item):
     ticker = normalize_ticker_input(item.get("ticker"))
-    market = item.get("market") or ("cn" if is_a_share_ticker(ticker) else "us")
+    market = "us"
     exchange = str(item.get("exchange") or "").upper()
     symbol_display = ticker
-    if market == "cn":
-        if exchange == "SZ" or ticker.startswith(("0", "3")):
-            symbol_display = f"{ticker}.SZ"
-        elif exchange == "SH" or ticker.startswith("6"):
-            symbol_display = f"{ticker}.SH"
     return {
         "ticker": ticker,
         "symbolDisplay": symbol_display,
         "name": str(item.get("name") or ticker),
         "market": market,
-        "marketLabel": "A-share" if market == "cn" else "US",
-        "exchange": exchange or ("SZ" if market == "cn" and ticker.startswith(("0", "3")) else "SH" if market == "cn" else "US"),
+        "marketLabel": "US",
+        "exchange": exchange or "US",
     }
 
 
@@ -572,25 +459,7 @@ def search_symbol_candidates(query, limit=10):
     if not normalized:
         return []
 
-    query_upper = normalized.upper()
-    cn_candidates = search_a_share_candidates(normalized, limit=limit)
-    us_candidates = search_us_candidates(normalized, limit=limit)
-
-    combined = []
-    seen = set()
-    prefer_cn_first = query_upper[:1].isdigit()
-    ordered = [cn_candidates, us_candidates] if prefer_cn_first else [us_candidates, cn_candidates]
-
-    for group in ordered:
-        for item in group:
-            key = item["ticker"]
-            if key in seen:
-                continue
-            seen.add(key)
-            combined.append(item)
-            if len(combined) >= limit:
-                return combined
-    return combined
+    return search_us_candidates(normalized, limit=limit)[:limit]
 
 
 def iso_from_epoch(value):
@@ -1154,10 +1023,7 @@ def summarize_fomc_rate_path(series_points):
 def parse_google_news_rss(query, market="us", limit=6):
     if not query:
         return []
-    if market == "cn":
-        hl, gl, ceid = "zh-CN", "CN", "CN:zh-Hans"
-    else:
-        hl, gl, ceid = "en-US", "US", "US:en"
+    hl, gl, ceid = "en-US", "US", "US:en"
     url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl={hl}&gl={gl}&ceid={quote_plus(ceid)}"
     xml_text = http_get_text(url, timeout=8)
     root = ET.fromstring(xml_text)
@@ -1407,13 +1273,10 @@ def classify_macro_events(articles):
 def fetch_company_news_payload(ticker, quote):
     symbol = quote.get("symbol") or ticker
     company_name = quote.get("longName") or quote.get("shortName") or ticker
-    market = "cn" if is_a_share_ticker(ticker) else "us"
     query = f"{symbol} {company_name} stock"
-    if market == "cn":
-        query = f"{ticker} {company_name} 股票"
     try:
-        google_articles = parse_google_news_rss(query, market=market, limit=6)
-        yf_articles = fetch_yfinance_company_news(symbol, limit=6) if market == "us" else []
+        google_articles = parse_google_news_rss(query, market="us", limit=6)
+        yf_articles = fetch_yfinance_company_news(symbol, limit=6)
         articles = merge_news_articles(google_articles, yf_articles, limit=6)
         scored = score_news_articles(
             articles,
@@ -2203,7 +2066,7 @@ def build_unavailable_quote(ticker, reason, stale_value=None):
         },
         "optionsMarket": base.get("optionsMarket") or build_unavailable_options_payload(
             reason,
-            market="cn" if is_a_share_ticker(ticker) else "us",
+            market="us",
         ),
         "history": {
             "timestamps": history.get("timestamps", []),
@@ -3408,674 +3271,6 @@ def fetch_us_options_market(instrument, ticker, spot_price, updated_at, history_
     }
 
 
-def fetch_a_share_profile(ticker):
-    ak = get_ak()
-    if ak is None:
-        return {}
-    try:
-        profile = ak.stock_profile_cninfo(symbol=ticker)
-        if profile is None or profile.empty:
-            return {}
-        row = profile.iloc[0]
-        return {
-            "shortName": row.get("A股简称"),
-            "longName": row.get("公司名称"),
-        }
-    except Exception:
-        return {}
-
-
-def fetch_a_share_valuation(ticker):
-    result = {
-        "trailingPE": None,
-        "forwardPE": None,
-        "marketCap": None,
-    }
-    ak = get_ak()
-    if ak is None:
-        return result
-
-    try:
-        market_cap_df = ak.stock_zh_valuation_baidu(symbol=ticker, indicator="总市值", period="近一年")
-        if market_cap_df is not None and not market_cap_df.empty:
-            latest_market_cap = _safe_float(market_cap_df.iloc[-1]["value"])
-            if latest_market_cap is not None:
-                # Baidu valuation uses 亿元 for A-share market cap.
-                result["marketCap"] = int(latest_market_cap * 1e8)
-    except Exception:
-        pass
-
-    try:
-        pe_df = ak.stock_zh_valuation_baidu(symbol=ticker, indicator="市盈率(TTM)", period="近一年")
-        if pe_df is not None and not pe_df.empty:
-            result["trailingPE"] = _safe_float(pe_df.iloc[-1]["value"])
-    except Exception:
-        pass
-
-    try:
-        forecast_df = ak.stock_profit_forecast_ths(symbol=ticker)
-        if forecast_df is not None and not forecast_df.empty:
-            current_year = datetime.now().year
-            forecast_df = forecast_df.copy()
-            forecast_df["年度"] = pd.to_numeric(forecast_df["年度"], errors="coerce")
-            forecast_df["均值"] = pd.to_numeric(forecast_df["均值"], errors="coerce")
-            forecast_df = forecast_df.dropna(subset=["年度", "均值"])
-            future_rows = forecast_df[forecast_df["年度"] >= current_year]
-            target_row = future_rows.iloc[0] if not future_rows.empty else forecast_df.iloc[0]
-            mean_eps = _safe_float(target_row["均值"])
-            if mean_eps and mean_eps > 0:
-                # Keep EPS forecast here and convert to forward PE after we know price.
-                result["forwardEpsMean"] = mean_eps
-    except Exception:
-        pass
-
-    return result
-
-
-def fetch_a_share_spot_snapshot(ak, ticker):
-    attempts = [
-        ("stock_zh_a_spot_em", "代码", "最新价", "昨收", "名称"),
-        ("stock_zh_a_spot", "代码", "最新价", "昨收", "名称"),
-        ("stock_zh_a_spot_tx", "代码", "最新价", "昨收", "名称"),
-    ]
-    for func_name, code_col, price_col, prev_close_col, name_col in attempts:
-        fetcher = getattr(ak, func_name, None)
-        if fetcher is None:
-            continue
-        try:
-            frame = _run_with_timeout(fetcher, A_SHARE_SECONDARY_PRICE_TIMEOUT_SECONDS, fallback=None)
-            if frame is None or frame.empty:
-                continue
-            normalized_cols = {str(col).strip(): col for col in frame.columns}
-            code_column = next((normalized_cols[col] for col in ("代码", "symbol", "证券代码", code_col) if col in normalized_cols), None)
-            price_column = next((normalized_cols[col] for col in ("最新价", "最新", "price", price_col) if col in normalized_cols), None)
-            prev_column = next((normalized_cols[col] for col in ("昨收", "昨收价", "previous_close", prev_close_col) if col in normalized_cols), None)
-            name_column = next((normalized_cols[col] for col in ("名称", "name", name_col) if col in normalized_cols), None)
-            if code_column is None or price_column is None:
-                continue
-            rows = frame[frame[code_column].astype(str).str.strip() == ticker]
-            if rows.empty:
-                continue
-            row = rows.iloc[0]
-            price = _safe_float(row.get(price_column))
-            if price is None:
-                continue
-            return {
-                "source": func_name,
-                "price": price,
-                "previous_close": _safe_float(row.get(prev_column)) if prev_column else None,
-                "name": _safe_text(row.get(name_column)) if name_column else None,
-            }
-        except Exception:
-            continue
-    return None
-
-
-def eastmoney_secid(ticker):
-    return f"1.{ticker}" if str(ticker).startswith(("6", "9")) else f"0.{ticker}"
-
-
-def normalize_a_share_volume(value):
-    # Tencent/Eastmoney A-share endpoints report daily volume in lots (手).
-    # Keep the same unit consistently; relative volume and OBV only need consistency.
-    return _safe_int(value)
-
-
-def eastmoney_yi_to_number(value):
-    numeric = _safe_float(value)
-    return int(numeric * 1e8) if numeric is not None else None
-
-
-def fetch_a_share_yfinance_valuation(ticker, timeout=4):
-    def _fetch():
-        symbol = resolve_market_symbol(ticker)
-        instrument = yf.Ticker(symbol)
-        info = {}
-        fast_info = {}
-        try:
-            fast_info = dict(instrument.fast_info or {})
-        except Exception:
-            fast_info = {}
-        try:
-            info = instrument.info or {}
-        except Exception:
-            info = {}
-        market_cap = _safe_int(info.get("marketCap")) or _safe_int(fast_info.get("market_cap"))
-        free_cashflow = _safe_float(info.get("freeCashflow"))
-        price_to_fcf = _safe_float(
-            info.get("priceToFreeCashflow")
-            or info.get("priceToFreeCashFlow")
-            or info.get("priceToFCF")
-        )
-        if price_to_fcf is None and _safe_float(market_cap) not in (None, 0) and free_cashflow not in (None, 0):
-            try:
-                price_to_fcf = abs(_safe_float(market_cap) / free_cashflow)
-            except Exception:
-                price_to_fcf = None
-        return {
-            "trailingPE": _safe_float(info.get("trailingPE")),
-            "forwardPE": _safe_float(info.get("forwardPE")),
-            "marketCap": market_cap,
-            "metadata": {
-                "enterpriseToEbitda": _safe_float(info.get("enterpriseToEbitda")),
-                "pegRatio": _safe_float(info.get("pegRatio")),
-                "priceToFreeCashflow": price_to_fcf,
-                "freeCashflow": free_cashflow,
-                "enterpriseValue": _safe_float(info.get("enterpriseValue")),
-                "floatShares": _safe_int(info.get("floatShares")) or _safe_int(info.get("sharesFloat")) or _safe_int(info.get("publicFloat")) or _safe_int(fast_info.get("float_shares")),
-                "sharesOutstanding": _safe_int(info.get("sharesOutstanding")) or _safe_int(info.get("impliedSharesOutstanding")) or _safe_int(fast_info.get("shares")),
-                "sector": info.get("sector"),
-                "industry": info.get("industry"),
-                "businessSummary": info.get("longBusinessSummary") or info.get("shortBusinessSummary"),
-            },
-            "debug": {
-                "a_share_yfinance_fields": [key for key in ("trailingPE", "forwardPE", "pegRatio", "enterpriseToEbitda", "priceToFreeCashflow", "marketCap", "floatShares", "sharesOutstanding") if (
-                    (key in ("trailingPE", "forwardPE") and info.get(key) is not None)
-                    or (key == "pegRatio" and info.get("pegRatio") is not None)
-                    or (key == "enterpriseToEbitda" and info.get("enterpriseToEbitda") is not None)
-                    or (key == "priceToFreeCashflow" and price_to_fcf is not None)
-                    or (key == "marketCap" and market_cap is not None)
-                    or (key == "floatShares" and (_safe_int(info.get("floatShares")) or _safe_int(info.get("sharesFloat")) or _safe_int(info.get("publicFloat")) or _safe_int(fast_info.get("float_shares"))) is not None)
-                    or (key == "sharesOutstanding" and (_safe_int(info.get("sharesOutstanding")) or _safe_int(info.get("impliedSharesOutstanding")) or _safe_int(fast_info.get("shares"))) is not None)
-                )],
-            },
-        }
-
-    return _run_with_timeout(_fetch, timeout, fallback={}) or {}
-
-
-def merge_a_share_valuation(primary=None, fallback=None):
-    primary = primary or {}
-    fallback = fallback or {}
-    merged = dict(primary)
-    for key in ("trailingPE", "forwardPE", "marketCap", "forwardEpsMean"):
-        if merged.get(key) is None and fallback.get(key) is not None:
-            merged[key] = fallback.get(key)
-    metadata = dict(fallback.get("metadata") or {})
-    metadata.update({key: value for key, value in (primary.get("metadata") or {}).items() if value is not None})
-    merged["metadata"] = metadata
-    debug = {}
-    debug.update(fallback.get("debug") or {})
-    debug.update(primary.get("debug") or {})
-    merged["debug"] = debug
-    return merged
-
-
-def yfinance_history_frame_to_rows(frame, limit=252):
-    if frame is None or frame.empty:
-        return []
-    try:
-        clean = frame.dropna(subset=["Open", "High", "Low", "Close", "Volume"]).tail(limit)
-    except Exception:
-        return []
-    rows = []
-    for index, row in clean.iterrows():
-        try:
-            if hasattr(index, "to_pydatetime"):
-                stamp = index.to_pydatetime()
-            else:
-                stamp = pd.to_datetime(index).to_pydatetime()
-        except Exception:
-            stamp = None
-        close = _safe_float(row.get("Close"))
-        if close is None:
-            continue
-        rows.append({
-            "date": stamp.strftime("%Y-%m-%d") if stamp else str(index)[:10],
-            "datetime": stamp.replace(tzinfo=timezone.utc) if stamp and stamp.tzinfo is None else stamp,
-            "open": _safe_float(row.get("Open")),
-            "close": close,
-            "high": _safe_float(row.get("High")),
-            "low": _safe_float(row.get("Low")),
-            # Yahoo/yfinance reports A-share volume in shares. Keep the whole
-            # history in that unit so relative volume and OBV stay internally
-            # consistent.
-            "volume": _safe_int(row.get("Volume")),
-            "amount": None,
-            "turnover_rate": None,
-        })
-    return rows
-
-
-def fetch_a_share_yfinance_history_rows(ticker, limit=252, timeout=5):
-    def _fetch():
-        symbol = resolve_market_symbol(ticker)
-        instrument = yf.Ticker(symbol)
-        frame = load_yfinance_history_frame(instrument, symbol, period="1y", interval="1d")
-        return yfinance_history_frame_to_rows(frame, limit=limit)
-
-    return _run_with_timeout(_fetch, timeout, fallback=[]) or []
-
-
-def fetch_a_share_tencent_quote(ticker, timeout=4):
-    prefix = "sh" if str(ticker).startswith(("6", "9")) else "sz"
-    url = f"https://qt.gtimg.cn/q={prefix}{ticker}"
-    request = Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Accept": "text/plain, */*",
-            "Referer": "https://gu.qq.com/",
-        },
-    )
-    try:
-        with urlopen(request, timeout=timeout) as response:
-            raw = response.read()
-        text = raw.decode("gbk", errors="ignore")
-        match = re.search(r'="([^"]*)"', text)
-        fields = match.group(1).split("~") if match else []
-        if len(fields) < 39:
-            return None
-        price = _safe_float(fields[3])
-        if price is None or price <= 0:
-            return None
-        previous_close = _safe_float(fields[4])
-        turnover_rate = _safe_float(fields[38])
-        market_cap = eastmoney_yi_to_number(fields[44])
-        float_market_cap = eastmoney_yi_to_number(fields[45])
-        shares_outstanding = int(market_cap / price) if market_cap is not None and price else None
-        float_shares = int(float_market_cap / price) if float_market_cap is not None and price else None
-        return {
-            "source": "tencent_quote",
-            "price": price,
-            "previous_close": previous_close,
-            "open": _safe_float(fields[5]),
-            "volume": normalize_a_share_volume(fields[6]),
-            "amount": _safe_float(fields[57]) * 10000 if _safe_float(fields[57]) is not None else None,
-            "name": _safe_text(fields[1]),
-            "change": _safe_float(fields[31]),
-            "change_percent": _safe_float(fields[32]),
-            "high": _safe_float(fields[33]),
-            "low": _safe_float(fields[34]),
-            "turnover_rate": turnover_rate,
-            "trailingPE": _safe_float(fields[39]),
-            "market_cap": market_cap,
-            "float_market_cap": float_market_cap,
-            "floatShares": float_shares,
-            "sharesOutstanding": shares_outstanding,
-            "priceToBook": _safe_float(fields[46]),
-            "quote_time": _safe_text(fields[30]),
-        }
-    except Exception:
-        return None
-
-
-def fetch_a_share_eastmoney_quote(ticker, timeout=4):
-    fields = "f43,f44,f45,f46,f47,f48,f57,f58,f60,f84,f85,f116,f117,f162,f163,f164,f168,f170"
-    url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={eastmoney_secid(ticker)}&fields={fields}"
-    try:
-        payload = http_get_json_browser(url, timeout=timeout, referer="https://quote.eastmoney.com/")
-        data = (payload or {}).get("data") or {}
-        price = _safe_float(data.get("f43"))
-        previous_close = _safe_float(data.get("f60"))
-        high = _safe_float(data.get("f44"))
-        low = _safe_float(data.get("f45"))
-        open_price = _safe_float(data.get("f46"))
-        pct = _safe_float(data.get("f170"))
-        for key, value in {"price": price, "previous_close": previous_close, "high": high, "low": low, "open": open_price, "pct": pct}.items():
-            if value is not None and (key == "pct" or abs(value) > 1000):
-                value = value / 100
-            if key == "price":
-                price = value
-            elif key == "previous_close":
-                previous_close = value
-            elif key == "high":
-                high = value
-            elif key == "low":
-                low = value
-            elif key == "open":
-                open_price = value
-            elif key == "pct":
-                pct = value
-        if price is None:
-            return None
-        return {
-            "source": "eastmoney_quote",
-            "price": price,
-            "previous_close": previous_close,
-            "high": high,
-            "low": low,
-            "open": open_price,
-            "volume": normalize_a_share_volume(data.get("f47")),
-            "amount": _safe_float(data.get("f48")),
-            "market_cap": _safe_int(data.get("f116")),
-            "float_market_cap": _safe_int(data.get("f117")),
-            "floatShares": _safe_int(data.get("f84")),
-            "sharesOutstanding": _safe_int(data.get("f85")),
-            "turnover_rate": _safe_float(data.get("f168")),
-            "trailingPE": _safe_float(data.get("f163")) or _safe_float(data.get("f162")),
-            "priceToBook": _safe_float(data.get("f164")),
-            "change_percent": pct,
-            "name": _safe_text(data.get("f58")),
-        }
-    except Exception:
-        return None
-
-
-def fetch_a_share_eastmoney_history(ticker, limit=260, timeout=4):
-    fields1 = "f1,f2,f3,f4,f5,f6"
-    fields2 = "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
-    url = (
-        f"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={eastmoney_secid(ticker)}"
-        f"&klt=101&fqt=0&end=20500101&lmt={int(limit)}&fields1={fields1}&fields2={fields2}"
-    )
-    try:
-        payload = http_get_json_browser(url, timeout=timeout, referer="https://quote.eastmoney.com/")
-        klines = (((payload or {}).get("data") or {}).get("klines")) or []
-        rows = []
-        for line in klines:
-            parts = str(line).split(",")
-            if len(parts) < 6:
-                continue
-            stamp = datetime.strptime(parts[0], "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            close = _safe_float(parts[2])
-            if close is None:
-                continue
-            rows.append({
-                "date": stamp.date().isoformat(),
-                "datetime": stamp,
-                "open": _safe_float(parts[1]),
-                "close": close,
-                "high": _safe_float(parts[3]),
-                "low": _safe_float(parts[4]),
-                "volume": normalize_a_share_volume(parts[5]),
-                "amount": _safe_float(parts[6]) if len(parts) > 6 else None,
-                "turnover_rate": _safe_float(parts[10]) if len(parts) > 10 else None,
-            })
-        return rows[-limit:]
-    except Exception:
-        return []
-
-
-def fetch_a_share_with_eastmoney(ticker, profile_info=None, valuation_info=None, primary_error=None):
-    profile_info = profile_info or {}
-    valuation_info = valuation_info or {}
-    # The lightweight endpoints are substantially more reliable on Render than
-    # downloading the full AkShare spot table. History also gives us a usable
-    # last close when a real-time endpoint is temporarily unavailable.
-    history_source = "eastmoney"
-    history_rows = fetch_a_share_eastmoney_history(ticker, limit=252, timeout=4)
-    if not history_rows:
-        history_source = "yfinance"
-        history_rows = fetch_a_share_yfinance_history_rows(ticker, limit=252, timeout=5)
-    quote_snapshot = fetch_a_share_tencent_quote(ticker, timeout=3)
-    if not quote_snapshot and not history_rows:
-        quote_snapshot = fetch_a_share_eastmoney_quote(ticker, timeout=3)
-    if not quote_snapshot and not history_rows:
-        raise ValueError(f"A-share Eastmoney fallback failed for {ticker}: {primary_error or 'No quote/history'}")
-
-    yf_valuation = fetch_a_share_yfinance_valuation(ticker, timeout=4)
-    quote_valuation = {
-        "trailingPE": (quote_snapshot or {}).get("trailingPE"),
-        "marketCap": (quote_snapshot or {}).get("market_cap"),
-        "metadata": {
-            "floatShares": (quote_snapshot or {}).get("floatShares"),
-            "sharesOutstanding": (quote_snapshot or {}).get("sharesOutstanding"),
-        },
-    }
-    valuation_info = merge_a_share_valuation(merge_a_share_valuation(valuation_info, yf_valuation), quote_valuation)
-
-    latest = history_rows[-1] if history_rows else {}
-    previous = history_rows[-2] if len(history_rows) > 1 else latest
-    price = quote_snapshot.get("price") if quote_snapshot else latest.get("close")
-    previous_close = (quote_snapshot.get("previous_close") if quote_snapshot else None) or previous.get("close")
-    change = price - previous_close if price is not None and previous_close is not None else None
-    change_percent = quote_snapshot.get("change_percent") if quote_snapshot else None
-    if change_percent is None and change is not None and previous_close:
-        change_percent = (change / previous_close) * 100
-    forward_pe = valuation_info.get("forwardPE")
-    forward_eps_mean = valuation_info.get("forwardEpsMean")
-    if forward_pe is None and price is not None and forward_eps_mean:
-        forward_pe = price / forward_eps_mean
-    metadata_info = valuation_info.get("metadata") or {}
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return {
-        "price": price,
-        "previousClose": previous_close,
-        "change": change,
-        "changePercent": change_percent,
-        "updatedAt": iso_from_local_close(latest.get("datetime"), 15, 0, 8) if latest else now_iso,
-        "marketStatus": "open",
-        "dataStaleness": "fresh",
-        "last_successful_update": now_iso,
-        "symbol": resolve_market_symbol(ticker),
-        "shortName": profile_info.get("shortName") or (quote_snapshot or {}).get("name"),
-        "longName": profile_info.get("longName") or (quote_snapshot or {}).get("name"),
-        "exchangeName": "SZ" if ticker.startswith(("0", "3")) else "SH",
-        "trailingPE": valuation_info.get("trailingPE") or (quote_snapshot or {}).get("trailingPE"),
-        "forwardPE": forward_pe,
-        "marketCap": valuation_info.get("marketCap") or (quote_snapshot or {}).get("market_cap"),
-        "metadata": {
-            "sector": metadata_info.get("sector"),
-            "industry": metadata_info.get("industry"),
-            "beta": None,
-            "dividendYield": None,
-            "payoutRatio": None,
-            "enterpriseToEbitda": metadata_info.get("enterpriseToEbitda"),
-            "priceToSalesTrailing12Months": None,
-            "enterpriseToRevenue": None,
-            "pegRatio": metadata_info.get("pegRatio"),
-            "priceToFreeCashflow": metadata_info.get("priceToFreeCashflow"),
-            "operatingMargins": None,
-            "profitMargins": None,
-            "revenueGrowth": None,
-            "grossMargins": None,
-            "returnOnEquity": None,
-            "debtToEquity": None,
-            "currentRatio": None,
-            "quickRatio": None,
-            "freeCashflow": metadata_info.get("freeCashflow"),
-            "totalCash": None,
-            "totalDebt": None,
-            "capex": None,
-            "businessSummary": metadata_info.get("businessSummary"),
-            "ipoDate": None,
-            "floatShares": metadata_info.get("floatShares") or (quote_snapshot or {}).get("floatShares"),
-            "sharesOutstanding": metadata_info.get("sharesOutstanding") or (quote_snapshot or {}).get("sharesOutstanding"),
-            "turnoverRate": (quote_snapshot or {}).get("turnover_rate") or latest.get("turnover_rate"),
-            "priceToBook": (quote_snapshot or {}).get("priceToBook"),
-        },
-        "optionsMarket": build_unavailable_options_payload("A-share options wall data is not supported yet", market="cn"),
-        "history": {
-            "timestamps": [row["date"] for row in history_rows],
-            "closes": [_safe_float(row.get("close")) for row in history_rows],
-            "highs": [_safe_float(row.get("high")) for row in history_rows],
-            "lows": [_safe_float(row.get("low")) for row in history_rows],
-            "volumes": [_safe_int(row.get("volume")) for row in history_rows],
-            "turnovers": [_safe_float(row.get("turnover_rate")) for row in history_rows],
-        },
-        "debug": {
-            "a_share_quote_source": (quote_snapshot or {}).get("source") or "eastmoney_history",
-            "a_share_history_source": history_source if history_rows else None,
-            "a_share_history_points": len(history_rows),
-            **(valuation_info.get("debug") or {}),
-        },
-    }
-
-
-def fetch_a_share_with_yfinance_fallback(ticker, profile_info=None, valuation_info=None, primary_error=None):
-    profile_info = profile_info or {}
-    valuation_info = valuation_info or {}
-    symbol = resolve_market_symbol(ticker)
-    instrument = yf.Ticker(symbol)
-    history = load_yfinance_history_frame(instrument, symbol, period="1y", interval="1d")
-    if history is None or history.empty:
-        raise ValueError(f"A-share fetch failed for {ticker}: {primary_error or 'No fallback history'}")
-    history = history.dropna(subset=["Open", "High", "Low", "Close", "Volume"]).tail(252)
-    if history.empty:
-        raise ValueError(f"A-share fetch failed for {ticker}: {primary_error or 'No clean fallback history'}")
-
-    info = {}
-    fast_info = {}
-    try:
-        fast_info = dict(instrument.fast_info or {})
-    except Exception:
-        fast_info = {}
-    try:
-        info = instrument.info or {}
-    except Exception:
-        info = {}
-    yf_valuation = fetch_a_share_yfinance_valuation(ticker, timeout=3)
-    valuation_info = merge_a_share_valuation(valuation_info, yf_valuation)
-
-    latest_row = history.iloc[-1]
-    previous_row = history.iloc[-2] if len(history) > 1 else latest_row
-    price = _safe_float(latest_row["Close"])
-    previous_close = _safe_float(previous_row["Close"])
-    change = price - previous_close if price is not None and previous_close is not None else None
-    change_percent = (change / previous_close) * 100 if change is not None and previous_close else None
-    forward_pe = valuation_info.get("forwardPE")
-    forward_eps_mean = valuation_info.get("forwardEpsMean")
-    if forward_pe is None and price is not None and forward_eps_mean:
-        forward_pe = price / forward_eps_mean
-    free_cashflow = _safe_float(info.get("freeCashflow"))
-    market_cap = valuation_info.get("marketCap") or _safe_int(info.get("marketCap")) or _safe_int(fast_info.get("market_cap"))
-    price_to_fcf = None
-    if _safe_float(market_cap) not in (None, 0) and free_cashflow not in (None, 0):
-        try:
-            price_to_fcf = abs(_safe_float(market_cap) / free_cashflow)
-        except Exception:
-            price_to_fcf = None
-
-    catalog_match = next((item for item in A_SHARE_SYMBOL_CATALOG if item.get("ticker") == ticker), {})
-    exchange_name = "SZ" if ticker.startswith(("0", "3")) else "SH"
-    return {
-        "price": price,
-        "previousClose": previous_close,
-        "change": change,
-        "changePercent": change_percent,
-        "updatedAt": iso_from_local_close(history.index[-1], 15, 0, 8),
-        "marketStatus": "open",
-        "dataStaleness": "fresh",
-        "last_successful_update": iso_from_local_close(history.index[-1], 15, 0, 8),
-        "symbol": symbol,
-        "shortName": profile_info.get("shortName") or catalog_match.get("name"),
-        "longName": profile_info.get("longName") or catalog_match.get("name"),
-        "exchangeName": exchange_name,
-        "trailingPE": valuation_info.get("trailingPE") or _safe_float(info.get("trailingPE")),
-        "forwardPE": forward_pe or _safe_float(info.get("forwardPE")),
-        "marketCap": market_cap,
-        "metadata": {
-            "sector": info.get("sector"),
-            "industry": info.get("industry"),
-            "beta": _safe_float(info.get("beta")),
-            "dividendYield": _safe_float(info.get("dividendYield")),
-            "payoutRatio": _safe_float(info.get("payoutRatio")),
-            "enterpriseToEbitda": _safe_float(info.get("enterpriseToEbitda")) or (valuation_info.get("metadata") or {}).get("enterpriseToEbitda"),
-            "priceToSalesTrailing12Months": _safe_float(info.get("priceToSalesTrailing12Months")),
-            "enterpriseToRevenue": _safe_float(info.get("enterpriseToRevenue")),
-            "pegRatio": _safe_float(info.get("pegRatio")) or (valuation_info.get("metadata") or {}).get("pegRatio"),
-            "priceToFreeCashflow": price_to_fcf or (valuation_info.get("metadata") or {}).get("priceToFreeCashflow"),
-            "operatingMargins": _safe_float(info.get("operatingMargins")),
-            "profitMargins": _safe_float(info.get("profitMargins")),
-            "revenueGrowth": _safe_float(info.get("revenueGrowth")),
-            "grossMargins": _safe_float(info.get("grossMargins")),
-            "returnOnEquity": _safe_float(info.get("returnOnEquity")),
-            "debtToEquity": _safe_float(info.get("debtToEquity")),
-            "currentRatio": _safe_float(info.get("currentRatio")),
-            "quickRatio": _safe_float(info.get("quickRatio")),
-            "freeCashflow": free_cashflow or (valuation_info.get("metadata") or {}).get("freeCashflow"),
-            "totalCash": _safe_float(info.get("totalCash")),
-            "totalDebt": _safe_float(info.get("totalDebt")),
-            "capex": _safe_float(info.get("capitalExpenditure")),
-            "businessSummary": info.get("longBusinessSummary") or info.get("shortBusinessSummary") or (valuation_info.get("metadata") or {}).get("businessSummary"),
-            "country": info.get("country"),
-            "city": info.get("city"),
-            "state": info.get("state"),
-            "exchange": info.get("exchange") or exchange_name,
-            "quoteType": info.get("quoteType"),
-            "ipoDate": iso_from_epoch(info.get("firstTradeDateEpochUtc")),
-            "floatShares": _safe_int(info.get("floatShares")) or _safe_int(info.get("sharesFloat")) or _safe_int(info.get("publicFloat")) or _safe_int(fast_info.get("float_shares")) or (valuation_info.get("metadata") or {}).get("floatShares"),
-            "sharesOutstanding": _safe_int(info.get("sharesOutstanding")) or _safe_int(info.get("impliedSharesOutstanding")) or _safe_int(fast_info.get("shares")) or (valuation_info.get("metadata") or {}).get("sharesOutstanding"),
-        },
-        "optionsMarket": build_unavailable_options_payload("A-share options wall data is not supported yet", market="cn"),
-        "history": {
-            "timestamps": [entry.to_pydatetime().strftime("%Y-%m-%d") for entry in history.index],
-            "closes": [_safe_float(value) for value in history["Close"].tolist()],
-            "highs": [_safe_float(value) for value in history["High"].tolist()],
-            "lows": [_safe_float(value) for value in history["Low"].tolist()],
-            "volumes": [_safe_int(value) for value in history["Volume"].tolist()],
-            "turnovers": [None for _ in history["Volume"].tolist()],
-        },
-    }
-
-
-def fetch_a_share_spot_only_quote(ticker, profile_info=None, valuation_info=None, primary_error=None):
-    profile_info = profile_info or {}
-    valuation_info = valuation_info or {}
-    ak = get_ak()
-    if ak is None:
-        raise ValueError(f"A-share fetch failed for {ticker}: {primary_error or 'AkShare unavailable'}")
-
-    snapshot = fetch_a_share_spot_snapshot(ak, ticker)
-    if not snapshot:
-        raise ValueError(f"A-share fetch failed for {ticker}: {primary_error or 'No spot snapshot available'}")
-
-    price = snapshot.get("price")
-    previous_close = snapshot.get("previous_close")
-    change = price - previous_close if price is not None and previous_close is not None else None
-    change_percent = (change / previous_close) * 100 if change is not None and previous_close else None
-    forward_pe = valuation_info.get("forwardPE")
-    forward_eps_mean = valuation_info.get("forwardEpsMean")
-    if forward_pe is None and price is not None and forward_eps_mean:
-        forward_pe = price / forward_eps_mean
-
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return {
-        "price": price,
-        "previousClose": previous_close,
-        "change": change,
-        "changePercent": change_percent,
-        "updatedAt": now_iso,
-        "marketStatus": "open",
-        "dataStaleness": "fresh",
-        "last_successful_update": now_iso,
-        "symbol": resolve_market_symbol(ticker),
-        "shortName": profile_info.get("shortName") or snapshot.get("name"),
-        "longName": profile_info.get("longName") or snapshot.get("name"),
-        "exchangeName": "SZ" if ticker.startswith(("0", "3")) else "SH",
-        "trailingPE": valuation_info.get("trailingPE"),
-        "forwardPE": forward_pe,
-        "marketCap": valuation_info.get("marketCap"),
-        "metadata": {
-            "sector": None,
-            "industry": None,
-            "beta": None,
-            "dividendYield": None,
-            "payoutRatio": None,
-            "enterpriseToEbitda": None,
-            "priceToSalesTrailing12Months": None,
-            "enterpriseToRevenue": None,
-            "pegRatio": None,
-            "priceToFreeCashflow": None,
-            "operatingMargins": None,
-            "profitMargins": None,
-            "revenueGrowth": None,
-            "grossMargins": None,
-            "returnOnEquity": None,
-            "debtToEquity": None,
-            "currentRatio": None,
-            "quickRatio": None,
-            "freeCashflow": None,
-            "totalCash": None,
-            "totalDebt": None,
-            "capex": None,
-            "businessSummary": None,
-            "ipoDate": None,
-            "floatShares": None,
-            "sharesOutstanding": None,
-        },
-        "optionsMarket": build_unavailable_options_payload("A-share options wall data is not supported yet", market="cn"),
-        "history": {
-            "timestamps": [],
-            "closes": [],
-            "highs": [],
-            "lows": [],
-            "volumes": [],
-        },
-    }
-
-
 def _normalize_download_history_frame(frame):
     if frame is None or frame.empty:
         return pd.DataFrame()
@@ -4324,272 +3519,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=True):
     }
 
 
-def fetch_a_share_with_akshare(ticker):
-    start_date = (datetime.now() - timedelta(days=390)).strftime("%Y%m%d")
-    end_date = datetime.now().strftime("%Y%m%d")
-    exchange_name = "SZ" if ticker.startswith(("0", "3")) else "SH"
-
-    # Prefer small direct payloads. This keeps a single A-share refresh within
-    # the route timeout and avoids loading a market-wide AkShare table.
-    try:
-        return fetch_a_share_with_eastmoney(ticker, profile_info={}, valuation_info={})
-    except Exception:
-        pass
-
-    ak = get_ak()
-    if ak is None:
-        try:
-            return fetch_a_share_with_yfinance_fallback(ticker, profile_info={}, valuation_info={}, primary_error="AkShare unavailable")
-        except Exception as yf_error:
-            return fetch_a_share_with_eastmoney(ticker, profile_info={}, valuation_info={}, primary_error=yf_error)
-
-    primary_error = None
-    try:
-        history = _run_with_timeout(
-            lambda: ak.stock_zh_a_hist(
-                symbol=ticker,
-                period="daily",
-                start_date=start_date,
-                end_date=end_date,
-                adjust="",
-            ),
-            A_SHARE_PRIMARY_PRICE_TIMEOUT_SECONDS,
-            fallback=None,
-        )
-        if history is None:
-            raise TimeoutError(f"A-share primary history timed out for {ticker}")
-        history = history.dropna(subset=["开盘", "收盘", "最高", "最低", "成交量"]).tail(252)
-        if history is None or history.empty:
-            raise ValueError(f"No clean AkShare primary history for {ticker}")
-
-        latest_row = history.iloc[-1]
-        previous_row = history.iloc[-2] if len(history) > 1 else latest_row
-        profile_info = _run_with_timeout(
-            lambda: fetch_a_share_profile(ticker),
-            A_SHARE_METADATA_TIMEOUT_SECONDS,
-            fallback={},
-        ) or {}
-        valuation_info = _run_with_timeout(
-            lambda: fetch_a_share_valuation(ticker),
-            A_SHARE_METADATA_TIMEOUT_SECONDS,
-            fallback={},
-        ) or {}
-
-        price = _safe_float(latest_row["收盘"])
-        previous_close = _safe_float(previous_row["收盘"])
-        change = price - previous_close if price is not None and previous_close is not None else None
-        change_percent = _safe_float(latest_row.get("涨跌幅"))
-        if change_percent is None and change is not None and previous_close:
-            change_percent = (change / previous_close) * 100
-        forward_pe = None
-        forward_eps_mean = valuation_info.get("forwardEpsMean")
-        if price is not None and forward_eps_mean:
-            forward_pe = price / forward_eps_mean
-
-        return {
-            "price": price,
-            "previousClose": previous_close,
-            "change": change,
-            "changePercent": change_percent,
-            "updatedAt": iso_from_local_close(latest_row["日期"], 15, 0, 8),
-            "marketStatus": "open",
-            "dataStaleness": "fresh",
-            "last_successful_update": iso_from_local_close(latest_row["日期"], 15, 0, 8),
-            "symbol": resolve_market_symbol(ticker),
-            "shortName": profile_info.get("shortName"),
-            "longName": profile_info.get("longName"),
-            "exchangeName": exchange_name,
-            "trailingPE": valuation_info.get("trailingPE"),
-            "forwardPE": forward_pe,
-            "marketCap": valuation_info.get("marketCap"),
-            "metadata": {
-                "sector": None,
-                "industry": None,
-                "beta": None,
-                "dividendYield": None,
-                "payoutRatio": None,
-                "enterpriseToEbitda": None,
-                "priceToSalesTrailing12Months": None,
-                "enterpriseToRevenue": None,
-                "pegRatio": None,
-                "priceToFreeCashflow": None,
-                "operatingMargins": None,
-                "profitMargins": None,
-                "revenueGrowth": None,
-                "grossMargins": None,
-                "returnOnEquity": None,
-                "debtToEquity": None,
-                "currentRatio": None,
-                "quickRatio": None,
-                "freeCashflow": None,
-                "totalCash": None,
-                "totalDebt": None,
-                "capex": None,
-                "businessSummary": None,
-                "ipoDate": None,
-                "floatShares": None,
-                "sharesOutstanding": None,
-            },
-            "optionsMarket": build_unavailable_options_payload("A-share options wall data is not supported yet", market="cn"),
-            "history": {
-                "timestamps": [str(value) for value in history["日期"].tolist()],
-                "closes": [_safe_float(value) for value in history["收盘"].tolist()],
-                "highs": [_safe_float(value) for value in history["最高"].tolist()],
-                "lows": [_safe_float(value) for value in history["最低"].tolist()],
-                "volumes": [_safe_int(value) for value in history["成交量"].tolist()],
-                "turnovers": [_safe_float(value) for value in history["换手率"].tolist()] if "换手率" in history.columns else [None for _ in history["成交量"].tolist()],
-            },
-        }
-    except Exception as exc:
-        primary_error = exc
-
-    fallback_symbol = f"{exchange_name.lower()}{ticker}"
-    try:
-        history_tx = _run_with_timeout(
-            lambda: ak.stock_zh_a_hist_tx(
-                symbol=fallback_symbol,
-                start_date=start_date,
-                end_date=end_date,
-            ),
-            A_SHARE_SECONDARY_PRICE_TIMEOUT_SECONDS,
-            fallback=None,
-        )
-        if history_tx is None:
-            raise TimeoutError(f"A-share Tencent history timed out for {ticker}")
-        history_tx = history_tx.dropna(subset=["open", "close", "high", "low", "amount"]).tail(252)
-        if history_tx is None or history_tx.empty:
-            profile_info = _run_with_timeout(
-                lambda: fetch_a_share_profile(ticker),
-                A_SHARE_METADATA_TIMEOUT_SECONDS,
-                fallback={},
-            ) or {}
-            valuation_info = _run_with_timeout(
-                lambda: fetch_a_share_valuation(ticker),
-                A_SHARE_METADATA_TIMEOUT_SECONDS,
-                fallback={},
-            ) or {}
-            try:
-                return fetch_a_share_with_yfinance_fallback(ticker, profile_info=profile_info, valuation_info=valuation_info, primary_error=primary_error)
-            except Exception as yf_error:
-                try:
-                    return fetch_a_share_spot_only_quote(ticker, profile_info=profile_info, valuation_info=valuation_info, primary_error=yf_error or primary_error)
-                except Exception as spot_error:
-                    return fetch_a_share_with_eastmoney(ticker, profile_info=profile_info, valuation_info=valuation_info, primary_error=spot_error or yf_error or primary_error)
-    except Exception as tx_error:
-        profile_info = _run_with_timeout(
-            lambda: fetch_a_share_profile(ticker),
-            A_SHARE_METADATA_TIMEOUT_SECONDS,
-            fallback={},
-        ) or {}
-        valuation_info = _run_with_timeout(
-            lambda: fetch_a_share_valuation(ticker),
-            A_SHARE_METADATA_TIMEOUT_SECONDS,
-            fallback={},
-        ) or {}
-        try:
-            return fetch_a_share_with_yfinance_fallback(
-                ticker,
-                profile_info=profile_info,
-                valuation_info=valuation_info,
-                primary_error=tx_error if tx_error else primary_error,
-            )
-        except Exception as yf_error:
-            try:
-                return fetch_a_share_spot_only_quote(
-                    ticker,
-                    profile_info=profile_info,
-                    valuation_info=valuation_info,
-                    primary_error=yf_error or tx_error or primary_error,
-                )
-            except Exception as spot_error:
-                return fetch_a_share_with_eastmoney(
-                    ticker,
-                    profile_info=profile_info,
-                    valuation_info=valuation_info,
-                    primary_error=spot_error or yf_error or tx_error or primary_error,
-                )
-
-    latest_row = history_tx.iloc[-1]
-    previous_row = history_tx.iloc[-2] if len(history_tx) > 1 else latest_row
-    profile_info = _run_with_timeout(
-        lambda: fetch_a_share_profile(ticker),
-        A_SHARE_METADATA_TIMEOUT_SECONDS,
-        fallback={},
-    ) or {}
-    valuation_info = _run_with_timeout(
-        lambda: fetch_a_share_valuation(ticker),
-        A_SHARE_METADATA_TIMEOUT_SECONDS,
-        fallback={},
-    ) or {}
-
-    price = _safe_float(latest_row["close"])
-    previous_close = _safe_float(previous_row["close"])
-    change = price - previous_close if price is not None and previous_close is not None else None
-    change_percent = (change / previous_close) * 100 if change is not None and previous_close else None
-    forward_pe = None
-    forward_eps_mean = valuation_info.get("forwardEpsMean")
-    if price is not None and forward_eps_mean:
-        forward_pe = price / forward_eps_mean
-
-    return {
-        "price": price,
-        "previousClose": previous_close,
-        "change": change,
-        "changePercent": change_percent,
-        "updatedAt": iso_from_local_close(latest_row["date"], 15, 0, 8),
-        "marketStatus": "open",
-        "dataStaleness": "fresh",
-        "last_successful_update": iso_from_local_close(latest_row["date"], 15, 0, 8),
-        "symbol": resolve_market_symbol(ticker),
-        "shortName": profile_info.get("shortName"),
-        "longName": profile_info.get("longName"),
-        "exchangeName": exchange_name,
-        "trailingPE": valuation_info.get("trailingPE"),
-        "forwardPE": forward_pe,
-        "marketCap": valuation_info.get("marketCap"),
-        "metadata": {
-            "sector": None,
-            "industry": None,
-            "beta": None,
-            "dividendYield": None,
-            "payoutRatio": None,
-            "enterpriseToEbitda": None,
-            "priceToSalesTrailing12Months": None,
-            "enterpriseToRevenue": None,
-            "pegRatio": None,
-            "priceToFreeCashflow": None,
-            "operatingMargins": None,
-            "profitMargins": None,
-            "revenueGrowth": None,
-            "grossMargins": None,
-            "returnOnEquity": None,
-            "debtToEquity": None,
-            "currentRatio": None,
-            "quickRatio": None,
-            "freeCashflow": None,
-            "totalCash": None,
-            "totalDebt": None,
-            "capex": None,
-            "businessSummary": None,
-            "ipoDate": None,
-            "floatShares": None,
-            "sharesOutstanding": None,
-        },
-        "optionsMarket": build_unavailable_options_payload("A-share options wall data is not supported yet", market="cn"),
-        "history": {
-            "timestamps": [str(value) for value in history_tx["date"].tolist()],
-            "closes": [_safe_float(value) for value in history_tx["close"].tolist()],
-            "highs": [_safe_float(value) for value in history_tx["high"].tolist()],
-            "lows": [_safe_float(value) for value in history_tx["low"].tolist()],
-            "volumes": [_safe_int(value) for value in (history_tx["volume"].tolist() if "volume" in history_tx.columns else history_tx["amount"].tolist())],
-            "turnovers": [_safe_float(value) for value in history_tx["turnover"].tolist()] if "turnover" in history_tx.columns else [None for _ in history_tx["date"].tolist()],
-        },
-    }
-
-
 def fetch_quote(ticker, include_options=True):
-    if is_a_share_ticker(ticker):
-        return fetch_a_share_with_akshare(ticker)
     return fetch_us_quote_with_yfinance(ticker, include_options=include_options)
 
 
@@ -4631,25 +3561,24 @@ def get_cached_quote(ticker):
             }
             return value
         except Exception as exc:
-            if not is_a_share_ticker(ticker):
-                try:
-                    value = fetch_quote_with_timeout(
-                        ticker,
-                        timeout_seconds=max(4, QUOTE_FETCH_TIMEOUT_SECONDS // 2),
-                        include_options=False,
-                    )
-                    value["optionsMarket"] = value.get("optionsMarket") or build_unavailable_options_payload(
-                        "Quote loaded but options snapshot is unavailable",
-                        market="us",
-                    )
-                    value["quoteWarning"] = str(exc)
-                    CACHE[ticker] = {
-                        "value": value,
-                        "expiresAt": now + CACHE_SECONDS,
-                    }
-                    return value
-                except Exception:
-                    pass
+            try:
+                value = fetch_quote_with_timeout(
+                    ticker,
+                    timeout_seconds=max(4, QUOTE_FETCH_TIMEOUT_SECONDS // 2),
+                    include_options=False,
+                )
+                value["optionsMarket"] = value.get("optionsMarket") or build_unavailable_options_payload(
+                    "Quote loaded but options snapshot is unavailable",
+                    market="us",
+                )
+                value["quoteWarning"] = str(exc)
+                CACHE[ticker] = {
+                    "value": value,
+                    "expiresAt": now + CACHE_SECONDS,
+                }
+                return value
+            except Exception:
+                pass
             if stale_value:
                 fallback = stale_value.copy()
                 fallback["error"] = str(exc)
@@ -5203,32 +4132,30 @@ def fetch_market_quote_for_ticker(ticker, force=False):
             quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
             return quote, None, True, attempts
 
-    is_a_share = is_a_share_ticker(ticker)
-    source_name = "a_share_direct" if is_a_share else "yfinance"
+    source_name = "yfinance"
     try:
         quote = fetch_quote_with_timeout(
             ticker,
             timeout_seconds=MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS,
-            include_options=is_a_share,
+            include_options=False,
         )
         if quote.get("price") is None:
             raise ValueError("Live quote returned no price")
-        if not is_a_share:
-            options_market = _run_with_timeout(
-                lambda: fetch_us_options_market(
-                    yf.Ticker(ticker),
-                    ticker,
-                    quote.get("price"),
-                    quote.get("updatedAt") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    history_frame=None,
-                ),
-                OPTIONS_FETCH_TIMEOUT_SECONDS,
-                fallback=build_unavailable_options_payload(
-                    "Options chain timed out; quote and fundamentals are still available",
-                    market="us",
-                ),
-            )
-            quote["optionsMarket"] = options_market
+        options_market = _run_with_timeout(
+            lambda: fetch_us_options_market(
+                yf.Ticker(ticker),
+                ticker,
+                quote.get("price"),
+                quote.get("updatedAt") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                history_frame=None,
+            ),
+            OPTIONS_FETCH_TIMEOUT_SECONDS,
+            fallback=build_unavailable_options_payload(
+                "Options chain timed out; quote and fundamentals are still available",
+                market="us",
+            ),
+        )
+        quote["optionsMarket"] = options_market
         quote = merge_quote_with_cached_modules(ticker, quote, cached)
         quote["ticker"] = ticker
         quote["market_type"] = infer_market_type(ticker)
@@ -5245,46 +4172,45 @@ def fetch_market_quote_for_ticker(ticker, force=False):
     except Exception as exc:
         error_message = str(exc)
         attempts.append({"source": source_name, "success": False, "price": None, "error": error_message})
-        if not is_a_share:
-            try:
-                quote = fetch_quote_with_timeout(
+        try:
+            quote = fetch_quote_with_timeout(
+                ticker,
+                timeout_seconds=max(1, min(5, MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS)),
+                include_options=False,
+            )
+            if quote.get("price") is None:
+                raise ValueError("Live quote without options returned no price")
+            quote["optionsMarket"] = _run_with_timeout(
+                lambda: fetch_us_options_market(
+                    yf.Ticker(ticker),
                     ticker,
-                    timeout_seconds=max(1, min(5, MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS)),
-                    include_options=False,
-                )
-                if quote.get("price") is None:
-                    raise ValueError("Live quote without options returned no price")
-                quote["optionsMarket"] = _run_with_timeout(
-                    lambda: fetch_us_options_market(
-                        yf.Ticker(ticker),
-                        ticker,
-                        quote.get("price"),
-                        quote.get("updatedAt") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        history_frame=None,
-                    ),
-                    OPTIONS_FETCH_TIMEOUT_SECONDS,
-                    fallback=build_unavailable_options_payload(
-                        "Options chain timed out; quote and fundamentals are still available",
-                        market="us",
-                    ),
-                )
-                quote = merge_quote_with_cached_modules(ticker, quote, cached)
-                quote["ticker"] = ticker
-                quote["market_type"] = infer_market_type(ticker)
-                quote["quote_status"] = "available"
-                quote["quote_source"] = f"{source_name}:quote_only"
-                quote["stale"] = False
-                quote["dataStaleness"] = quote.get("dataStaleness") or "fresh"
-                quote["last_quote_time"] = quote.get("updatedAt") or quote.get("last_successful_update")
-                quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
-                quote["quoteWarning"] = error_message
-                CACHE[ticker] = {"value": quote, "expiresAt": time.time() + CACHE_SECONDS}
-                quote["cache_updated_at"] = write_market_cache(ticker, quote)
-                attempts.append({"source": f"{source_name}:quote_only", "success": True, "price": quote.get("price"), "error": None})
-                return quote, None, False, attempts
-            except Exception as fallback_exc:
-                error_message = f"{error_message}; quote-only fallback failed: {fallback_exc}"
-                attempts.append({"source": f"{source_name}:quote_only", "success": False, "price": None, "error": str(fallback_exc)})
+                    quote.get("price"),
+                    quote.get("updatedAt") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    history_frame=None,
+                ),
+                OPTIONS_FETCH_TIMEOUT_SECONDS,
+                fallback=build_unavailable_options_payload(
+                    "Options chain timed out; quote and fundamentals are still available",
+                    market="us",
+                ),
+            )
+            quote = merge_quote_with_cached_modules(ticker, quote, cached)
+            quote["ticker"] = ticker
+            quote["market_type"] = infer_market_type(ticker)
+            quote["quote_status"] = "available"
+            quote["quote_source"] = f"{source_name}:quote_only"
+            quote["stale"] = False
+            quote["dataStaleness"] = quote.get("dataStaleness") or "fresh"
+            quote["last_quote_time"] = quote.get("updatedAt") or quote.get("last_successful_update")
+            quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
+            quote["quoteWarning"] = error_message
+            CACHE[ticker] = {"value": quote, "expiresAt": time.time() + CACHE_SECONDS}
+            quote["cache_updated_at"] = write_market_cache(ticker, quote)
+            attempts.append({"source": f"{source_name}:quote_only", "success": True, "price": quote.get("price"), "error": None})
+            return quote, None, False, attempts
+        except Exception as fallback_exc:
+            error_message = f"{error_message}; quote-only fallback failed: {fallback_exc}"
+            attempts.append({"source": f"{source_name}:quote_only", "success": False, "price": None, "error": str(fallback_exc)})
         quote, failure = build_unavailable_or_cached_quote(ticker, error_message, cached=cached)
         quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
         return quote, failure, bool(cached), attempts
@@ -5326,7 +4252,6 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
     used_cache_count = 0
     stale_cache_count = 0
     us_live_tickers = []
-    a_share_live_tickers = []
     live_attempted_tickers = []
     live_success_tickers = []
     live_failed_tickers = []
@@ -5378,17 +4303,13 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
             used_cache_count += 1
             cache_only_tickers.append(ticker)
             continue
-        if is_a_share_ticker(ticker):
-            a_share_live_tickers.append(ticker)
-        else:
-            us_live_tickers.append(ticker)
+        us_live_tickers.append(ticker)
 
-    live_candidates = us_live_tickers + a_share_live_tickers
+    live_candidates = us_live_tickers
     if (force or auto_refresh) and len(live_candidates) > MARKET_DATA_MAX_LIVE_TICKERS:
         allowed_live = set(live_candidates[:MARKET_DATA_MAX_LIVE_TICKERS])
         deferred_live_tickers = [ticker for ticker in live_candidates if ticker not in allowed_live]
         us_live_tickers = [ticker for ticker in us_live_tickers if ticker in allowed_live]
-        a_share_live_tickers = [ticker for ticker in a_share_live_tickers if ticker in allowed_live]
         for ticker in deferred_live_tickers:
             cached = read_market_cache(ticker)
             quote, failure = build_unavailable_or_cached_quote(
@@ -5468,31 +4389,6 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
                     failed.append(failure)
             if executor:
                 executor.shutdown(wait=False, cancel_futures=True)
-        live_refresh_completed = True
-
-    for ticker in a_share_live_tickers:
-        live_refresh_started = True
-        live_attempted_tickers.append(ticker)
-        try:
-            quote, failure, used_cache, attempts = fetch_market_quote_for_ticker(ticker, force=force)
-        except Exception as exc:
-            traceback.print_exc()
-            cached = read_market_cache(ticker)
-            quote, failure = build_unavailable_or_cached_quote(ticker, str(exc), cached=cached)
-            used_cache = bool(cached)
-            attempts = [{"source": "a_share_worker", "success": False, "error": str(exc)}]
-        quotes[ticker] = quote
-        source_attempts_by_ticker[ticker] = attempts
-        if quote.get("price") is not None and not used_cache:
-            live_success_tickers.append(ticker)
-        elif failure:
-            live_failed_tickers.append(ticker)
-        if used_cache:
-            used_cache_count += 1
-            stale_cache_count += 1 if quote.get("stale") or quote.get("quote_status") == "stale" else 0
-        if failure:
-            failed.append(failure)
-    if a_share_live_tickers:
         live_refresh_completed = True
 
     for ticker in normalized_tickers:
@@ -5621,7 +4517,7 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
 
     return {
         "success": success_count > 0,
-        "source": "cache-first-yfinance-akshare",
+        "source": "cache-first-yfinance",
         "quotes": quotes,
         "items": items,
         "data": quotes,
@@ -5827,7 +4723,7 @@ def get_quote_for_debug_modules(ticker, force=False, include_options=True):
         quote["ticker"] = normalized
         quote["market_type"] = infer_market_type(normalized)
         quote["quote_status"] = "available"
-        quote["quote_source"] = "akshare" if is_a_share_ticker(normalized) else "yfinance"
+        quote["quote_source"] = "yfinance"
         write_market_cache(normalized, quote)
         return quote, False, None
     except Exception as exc:
@@ -5941,7 +4837,7 @@ class Handler(SimpleHTTPRequestHandler):
                         "floatShares": None,
                         "sharesOutstanding": None,
                     },
-                    "optionsMarket": build_unavailable_options_payload(str(exc), market="cn" if is_a_share_ticker(ticker) else "us"),
+                    "optionsMarket": build_unavailable_options_payload(str(exc), market="us"),
                     "history": {"timestamps": [], "closes": [], "highs": [], "lows": [], "volumes": []},
                     "error": str(exc),
                 }
@@ -6052,7 +4948,7 @@ class Handler(SimpleHTTPRequestHandler):
             }
 
         payload = {
-            "source": "yfinance-akshare",
+            "source": "yfinance",
             "quotes": quotes,
             "marketContext": market_context,
         }
@@ -6224,14 +5120,11 @@ def api_debug_quote(ticker):
     try:
         cached = read_market_cache(normalized)
         quote, failure, _used_cache, attempts = fetch_market_quote_for_ticker(normalized, force=True)
-        ak = get_ak() if is_a_share_ticker(normalized) else None
         return jsonify({
             "success": quote.get("price") is not None,
             "ticker": normalized,
             "market_type": infer_market_type(normalized),
             "resolved_symbol": resolve_market_symbol(normalized),
-            "is_a_share": is_a_share_ticker(normalized),
-            "akshare_import_success": ak is not None if is_a_share_ticker(normalized) else None,
             "quote_source_attempts": attempts,
             "cache_path": market_cache_path(normalized, "quotes"),
             "cache_exists": bool(cached),
@@ -6383,7 +5276,7 @@ def api_debug_fundamentals(ticker):
             "fields": fields,
             "missing_fields": missing_fields,
             "cache_used": bool(cache_used),
-            "yfinance_import_success": None if is_a_share_ticker(normalized) else debug_info.get("yfinance_import_success", error is None),
+            "yfinance_import_success": debug_info.get("yfinance_import_success", error is None),
             "yfinance_fields_found": debug_info.get("yfinance_fields_found") or [],
             "yahoo_quote_summary_attempt": debug_info.get("yahoo_quote_summary_attempt"),
             "raw_keys_sample": debug_info.get("raw_keys_sample") or [],
@@ -6432,7 +5325,7 @@ def api_debug_options(ticker):
             "ticker": normalized,
             "cache_exists": bool(cached),
             "cache_valid": cache_valid,
-            "yfinance_import_success": None if is_a_share_ticker(normalized) else ((quote.get("debug") or {}).get("yfinance_import_success", error is None) if isinstance(quote, dict) else (error is None)),
+            "yfinance_import_success": ((quote.get("debug") or {}).get("yfinance_import_success", error is None) if isinstance(quote, dict) else (error is None)),
             "has_option_chain": bool(options_market.get("available")) if isinstance(options_market, dict) else False,
             "expirations_count": len(options_market.get("expiries") or []) if isinstance(options_market, dict) else 0,
             "selected_expiration": options_market.get("selectedExpiration") if isinstance(options_market, dict) else None,
@@ -6662,7 +5555,7 @@ def main():
     os.chdir(ROOT)
     display_host = "localhost" if HOST == "127.0.0.1" else HOST
     print(f"Serving dashboard on http://{display_host}:{PORT}")
-    print(f"API endpoint: http://{display_host}:{PORT}/api/market-data?tickers=AAPL,MSFT,002463,300657")
+    print(f"API endpoint: http://{display_host}:{PORT}/api/market-data?tickers=AAPL,MSFT,QQQ,SPMO")
     app.run(host=HOST, port=PORT, debug=False)
 
 
