@@ -15939,12 +15939,18 @@ function buildEntryAction(recommendation, tradeContext = {}) {
       based_on: "active_buy_segment",
     });
   }
+  const waitingReference = recommendation?.buy_range?.waiting_entry_reference
+    || recommendation?.buy_range?.base_pullback_range
+    || null;
+  const waitingRangeText = rangeIsAvailable(waitingReference)
+    ? `${formatCurrency(waitingReference.low)}-${formatCurrency(waitingReference.high)}`
+    : null;
   return buildActionView(recommendation, "hold_watch", {
     linked_buy_segment: null,
     allocation_hint: "0%",
     reason: currentLanguage === "zh"
-      ? `无仓位 / 加仓视角：${recommendation?.entry_suitability_state?.explanation || "当前没有合格的可执行买入段，暂不主动建仓。"}`
-      : `Entry view: ${recommendation?.entry_suitability_state?.explanation || "current price is not inside an active buy segment, so do not initiate."}`,
+      ? `无仓位 / 加仓视角：${recommendation?.entry_suitability_state?.explanation || "当前没有合格的可执行买入段，暂不主动建仓。"}${waitingRangeText ? ` 可关注等待买入参考区 ${waitingRangeText}。` : ""}`
+      : `Entry view: ${recommendation?.entry_suitability_state?.explanation || "current price is not inside an active buy segment, so do not initiate."}${waitingRangeText ? ` Watch the reference buy zone ${waitingRangeText}.` : ""}`,
     based_on: recommendation?.entry_suitability_state?.state === "stop_adding" ? "entry_suitability_stop_adding" : "no_active_buy_segment",
   });
 }
@@ -15989,12 +15995,19 @@ function buildPositionManagementAction(recommendation, tradeContext = {}) {
       based_on: "company_risk_override",
     });
   }
+  const waitingReference = recommendation?.sell_range?.waiting_exit_reference
+    || recommendation?.sell_range?.base_profit_target_range
+    || recommendation?.sell_range?.base_sell_range
+    || null;
+  const waitingRangeText = rangeIsAvailable(waitingReference)
+    ? `${formatCurrency(waitingReference.low)}-${formatCurrency(waitingReference.high)}`
+    : null;
   return buildActionView(recommendation, "hold_watch", {
     linked_sell_segment: null,
     suggested_reduction_pct: "0%",
     reason: currentLanguage === "zh"
-      ? "持仓 / 减仓视角：当前价格不在该周期有效卖出段内，继续观察。"
-      : "Position view: current price is not inside this horizon's active sell segment, so hold/watch.",
+      ? `持仓 / 减仓视角：当前价格不在该周期有效卖出段内，继续观察。${waitingRangeText ? ` 可关注等待卖出参考区 ${waitingRangeText}。` : ""}`
+      : `Position view: current price is not inside this horizon's active sell segment, so hold/watch.${waitingRangeText ? ` Watch the reference exit zone ${waitingRangeText}.` : ""}`,
     based_on: "no_active_sell_segment",
   });
 }
@@ -17665,6 +17678,21 @@ function decorateExecutablePlanRanges(row, buyPlan = {}, sellPlan = {}) {
           : "No executable entry currently covers spot and passes RR / event-risk checks.",
         current_price_in_range: false,
       };
+      const waitingEntryReference = rangeIsAvailable(buyRange.base_pullback_range)
+        ? cloneRangeSummary(buyRange.base_pullback_range)
+        : null;
+      buyRange.waiting_entry_reference = waitingEntryReference ? {
+        ...waitingEntryReference,
+        active: false,
+        purpose: currentLanguage === "zh" ? "等待买入参考区" : "Reference buy zone",
+        reason: currentLanguage === "zh"
+          ? "该价格区间可作为等待回调或重新确认后的参考；当前没有通过执行条件，不代表现在可以买。"
+          : "This price zone is a reference for a pullback or renewed confirmation; it has not passed execution checks now.",
+      } : null;
+      if (!buyRange.executable_entry.active) {
+        buyRange.executable_entry.reference_range = buyRange.waiting_entry_reference;
+        buyRange.no_entry_reason = buyRange.executable_entry.reason;
+      }
       buyRange.candidate_entries = {
         left_side: buyRange.active_entry_ranges?.left_side_entry || null,
         pullback: (buyRange.segments || []).find((segment) => segment.mode === "pullback") || null,
@@ -17714,6 +17742,21 @@ function decorateExecutablePlanRanges(row, buyPlan = {}, sellPlan = {}) {
           : "No executable exit currently covers spot and passes opportunity-cost checks.",
         current_price_in_range: false,
       };
+      const waitingExitReference = rangeIsAvailable(sellRange.base_profit_target_range)
+        ? cloneRangeSummary(sellRange.base_profit_target_range)
+        : null;
+      sellRange.waiting_exit_reference = waitingExitReference ? {
+        ...waitingExitReference,
+        active: false,
+        purpose: currentLanguage === "zh" ? "等待卖出参考区" : "Reference exit zone",
+        reason: currentLanguage === "zh"
+          ? "该价格区间可作为未来止盈或减仓参考；当前没有通过可执行卖出条件，不代表现在应该卖。"
+          : "This price zone is a future trim/profit-taking reference; it has not passed executable exit checks now.",
+      } : null;
+      if (!sellRange.executable_exit.active) {
+        sellRange.executable_exit.reference_range = sellRange.waiting_exit_reference;
+        sellRange.no_exit_reason = sellRange.executable_exit.reason;
+      }
       sellRange.current_executable_exit = sellRange.executable_exit;
     }
   });
@@ -21164,7 +21207,9 @@ function renderDetailModal(row) {
     } : null);
     const executableActive = Boolean(executable?.active && Number.isFinite(executable.low) && Number.isFinite(executable.high));
     const baseRange = zone?.base_pullback_range || zone?.base_range || zone;
-    const available = ["available", "triggered"].includes(zone?.status) && (executableActive || (baseRange?.low != null && baseRange?.high != null));
+    const referenceRange = zone?.waiting_entry_reference || executable?.reference_range || baseRange;
+    const referenceAvailable = rangeIsAvailable(referenceRange);
+    const available = ["available", "triggered"].includes(zone?.status) && (executableActive || referenceAvailable);
     if (!available && hideUnavailable) return "";
     const isMomentum = zone?.plan_type === "momentum";
     const waiting = zone?.status === "waiting";
@@ -21200,6 +21245,8 @@ function renderDetailModal(row) {
         <div class="detail-line-label">
           ${executableActive
             ? `${formatCurrency(executable.low, currencyCode)} - ${formatCurrency(executable.high, currencyCode)}`
+            : referenceAvailable
+              ? `${currentLanguage === "zh" ? "等待买入参考区" : "Reference Buy Zone"}：${formatCurrency(referenceRange.low, currencyCode)} - ${formatCurrency(referenceRange.high, currencyCode)}`
             : (waiting || invalid)
               ? statusLabel
               : (currentLanguage === "zh" ? "当前可执行买入区：未激活" : "Current executable entry: inactive")}
@@ -21212,6 +21259,8 @@ function renderDetailModal(row) {
 	        ${zone?.active_entry_mode ? `<div class="detail-line-note">${currentLanguage === "zh" ? "当前激活模式" : "Active Mode"}: ${entryModeLabel(zone.active_entry_mode)}</div>` : ""}
 	        ${zone?.base_pullback_range ? `<div class="detail-line-note">${currentLanguage === "zh" ? "基础低吸参考区" : "Base Pullback Reference"}: ${formatCurrency(zone.base_pullback_range.low, currencyCode)} - ${formatCurrency(zone.base_pullback_range.high, currencyCode)} · ${localizedDashboardText(zone.base_pullback_range.purpose || "")}</div>` : ""}
 	        <div class="detail-line-note">${currentLanguage === "zh" ? "当前可执行买入区" : "Current Executable Entry"}: ${executableActive ? `${entryModeLabel(executable.mode)} ${formatCurrency(executable.low, currencyCode)} - ${formatCurrency(executable.high, currencyCode)}` : (currentLanguage === "zh" ? "未激活" : "Inactive")}</div>
+	        ${!executableActive && referenceAvailable ? `<div class="detail-line-note">${currentLanguage === "zh" ? "等待买入参考区" : "Reference Buy Zone"}: ${formatCurrency(referenceRange.low, currencyCode)} - ${formatCurrency(referenceRange.high, currencyCode)} · ${localizedDashboardText(referenceRange.reason || referenceRange.purpose || "")}</div>` : ""}
+	        ${!executableActive && zone?.no_entry_reason ? `<div class="detail-line-note">${currentLanguage === "zh" ? "为什么现在不买" : "Why Not Buy Now"}: ${localizedDashboardText(zone.no_entry_reason)}</div>` : ""}
 	        ${executable?.reason ? `<div class="detail-line-note">${currentLanguage === "zh" ? "执行说明" : "Execution Note"}: ${localizedDashboardText(executable.reason)}</div>` : ""}
 	        ${renderSegmentList(zone?.segments || [], zone?.active_entry_mode)}
 	        ${zone?.reward_risk_ratio != null ? `<div class="detail-line-note">${currentLanguage === "zh" ? "风险收益比" : "Reward / Risk"}: ${zone.reward_risk_ratio}</div>` : ""}
@@ -21283,14 +21332,21 @@ function renderDetailModal(row) {
   };
   const renderSellPlan = (plan, actionPlan) => {
     if (!plan) return `<div class="decision-bullet muted">${t("dataUnavailable")}</div>`;
-    const renderSellCard = (title, range, action) => `
-      <article class="decision-list-card">
-        <div class="decision-list-title">${title}</div>
-	        <div class="detail-line-label">${range?.executable_exit?.active ? `${formatCurrency(range.executable_exit.low, currencyCode)} - ${formatCurrency(range.executable_exit.high, currencyCode)}` : (currentLanguage === "zh" ? "当前可执行卖出区：未激活" : "Current executable exit: inactive")}</div>
+    const renderSellCard = (title, range, action) => {
+      const executable = range?.executable_exit || null;
+      const executableActive = Boolean(executable?.active && Number.isFinite(executable.low) && Number.isFinite(executable.high));
+      const referenceRange = range?.waiting_exit_reference || executable?.reference_range || range?.base_profit_target_range || range?.base_sell_range || null;
+      const referenceAvailable = rangeIsAvailable(referenceRange);
+      return `
+        <article class="decision-list-card">
+          <div class="decision-list-title">${title}</div>
+	        <div class="detail-line-label">${executableActive ? `${formatCurrency(executable.low, currencyCode)} - ${formatCurrency(executable.high, currencyCode)}` : referenceAvailable ? `${currentLanguage === "zh" ? "等待卖出参考区" : "Reference Exit Zone"}：${formatCurrency(referenceRange.low, currencyCode)} - ${formatCurrency(referenceRange.high, currencyCode)}` : (currentLanguage === "zh" ? "当前可执行卖出区：未激活" : "Current executable exit: inactive")}</div>
 	        <div class="detail-line-note">${currentLanguage === "zh" ? "当前价格" : "Current Price"}: ${formatCurrentPrice(action?.current_price ?? row.price, currencyCode)}</div>
 	        ${range?.active_exit_mode ? `<div class="detail-line-note">${currentLanguage === "zh" ? "当前激活模式" : "Active Mode"}: ${entryModeLabel(range.active_exit_mode)}</div>` : ""}
 	        ${range?.base_profit_target_range ? `<div class="detail-line-note">${currentLanguage === "zh" ? "基础止盈参考区" : "Base Profit Target Reference"}: ${formatCurrency(range.base_profit_target_range.low, currencyCode)} - ${formatCurrency(range.base_profit_target_range.high, currencyCode)}</div>` : range?.base_sell_range ? `<div class="detail-line-note">${currentLanguage === "zh" ? "基础卖出区" : "Base Sell Range"}: ${formatCurrency(range.base_sell_range.low, currencyCode)} - ${formatCurrency(range.base_sell_range.high, currencyCode)}</div>` : ""}
-	        <div class="detail-line-note">${currentLanguage === "zh" ? "当前可执行卖出区" : "Current Executable Exit"}: ${range?.executable_exit?.active ? `${entryModeLabel(range.executable_exit.mode)} ${formatCurrency(range.executable_exit.low, currencyCode)} - ${formatCurrency(range.executable_exit.high, currencyCode)}` : (currentLanguage === "zh" ? "未激活" : "Inactive")}</div>
+	        <div class="detail-line-note">${currentLanguage === "zh" ? "当前可执行卖出区" : "Current Executable Exit"}: ${executableActive ? `${entryModeLabel(executable.mode)} ${formatCurrency(executable.low, currencyCode)} - ${formatCurrency(executable.high, currencyCode)}` : (currentLanguage === "zh" ? "未激活" : "Inactive")}</div>
+	        ${!executableActive && referenceAvailable ? `<div class="detail-line-note">${currentLanguage === "zh" ? "等待卖出参考区" : "Reference Exit Zone"}: ${formatCurrency(referenceRange.low, currencyCode)} - ${formatCurrency(referenceRange.high, currencyCode)} · ${localizedDashboardText(referenceRange.reason || referenceRange.purpose || "")}</div>` : ""}
+	        ${!executableActive && range?.no_exit_reason ? `<div class="detail-line-note">${currentLanguage === "zh" ? "为什么现在不卖" : "Why Not Sell Now"}: ${localizedDashboardText(range.no_exit_reason)}</div>` : ""}
 	        ${renderSegmentList(range?.segments || [], range?.active_exit_mode)}
 	        ${renderReachabilityNote(range)}
 	        <div class="detail-line-note">${currentLanguage === "zh" ? "持仓 / 减仓视角" : "Position / Exit View"}: ${action?.final_action_label || t("dataUnavailable")}</div>
@@ -21298,13 +21354,14 @@ function renderDetailModal(row) {
 	        ${range?.suggested_reduction_pct ? `<div class="detail-line-note">${currentLanguage === "zh" ? "建议减仓比例" : "Suggested Reduction"}: ${range.suggested_reduction_pct}</div>` : ""}
 	        ${range?.exit_tradeoff_analysis ? `<div class="detail-line-note">${currentLanguage === "zh" ? "继续持有上行空间" : "Remaining Upside If Held"}: ${range.exit_tradeoff_analysis.remaining_upside_if_hold ?? "—"} (${range.exit_tradeoff_analysis.remaining_upside_pct ?? "—"}%) · ${currentLanguage === "zh" ? "下行风险" : "Downside Risk"}: ${range.exit_tradeoff_analysis.downside_risk_if_hold ?? "—"} (${range.exit_tradeoff_analysis.downside_risk_pct ?? "—"}%) · ${currentLanguage === "zh" ? "上行/下行比" : "Upside/Downside"}: ${range.exit_tradeoff_analysis.upside_downside_ratio ?? "—"}</div>` : ""}
 	        ${range?.exit_tradeoff_analysis ? `<div class="detail-line-note">${currentLanguage === "zh" ? "继续持有机会分" : "Hold Upside Opportunity Score"}: ${range.exit_tradeoff_analysis.hold_upside_opportunity_score ?? range.exit_tradeoff_analysis.opportunity_cost_score ?? "—"}/100</div>` : ""}
-        <div class="detail-line-note">${currentLanguage === "zh" ? "弱势冲高时动作" : "Weak Rejection Action"}: ${localizedDashboardText(range?.action_on_weak_rejection || t("dataUnavailable"))}</div>
-        <div class="detail-line-note">${currentLanguage === "zh" ? "强势突破时动作" : "Strong Breakout Action"}: ${localizedDashboardText(range?.action_on_strong_breakout || t("dataUnavailable"))}</div>
-        <div class="detail-line-note">${currentLanguage === "zh" ? "主要依据" : "Based On"}: ${(range?.based_on || range?.sources || []).map(localizedDashboardText).join(" / ") || t("dataUnavailable")}</div>
-        <div class="detail-line-note">${currentLanguage === "zh" ? "估值背景" : "Valuation Context"}: ${localizedDashboardText(range?.valuation_context || t("dataUnavailable"))}</div>
-        <div class="detail-line-note">${currentLanguage === "zh" ? "量能背景" : "Volume Context"}: ${localizedDashboardText(range?.volume_context || t("dataUnavailable"))}</div>
-      </article>
-    `;
+          <div class="detail-line-note">${currentLanguage === "zh" ? "弱势冲高时动作" : "Weak Rejection Action"}: ${localizedDashboardText(range?.action_on_weak_rejection || t("dataUnavailable"))}</div>
+          <div class="detail-line-note">${currentLanguage === "zh" ? "强势突破时动作" : "Strong Breakout Action"}: ${localizedDashboardText(range?.action_on_strong_breakout || t("dataUnavailable"))}</div>
+          <div class="detail-line-note">${currentLanguage === "zh" ? "主要依据" : "Based On"}: ${(range?.based_on || range?.sources || []).map(localizedDashboardText).join(" / ") || t("dataUnavailable")}</div>
+          <div class="detail-line-note">${currentLanguage === "zh" ? "估值背景" : "Valuation Context"}: ${localizedDashboardText(range?.valuation_context || t("dataUnavailable"))}</div>
+          <div class="detail-line-note">${currentLanguage === "zh" ? "量能背景" : "Volume Context"}: ${localizedDashboardText(range?.volume_context || t("dataUnavailable"))}</div>
+        </article>
+      `;
+    };
     return `
       <div class="decision-summary-grid">
         ${renderSellCard(currentLanguage === "zh" ? "短期止盈区间" : "Short-Term Profit-Taking Range", plan.short_term_sell_range, actionPlan?.short_term)}
