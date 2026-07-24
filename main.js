@@ -7444,17 +7444,11 @@ function forecastOpportunityType(direction, moduleScores = {}, tradeContext = {}
 function buildHorizonForecasts({ row, companyProfile, technical, fundamental, marketContext, supportResistance, tradeContext }) {
   const forecastHistory = forecastHistoryFrom(row, technical);
   const weekly = aggregateWeeklyBars(forecastHistory);
-  const price = row.price ?? null;
-  const atrValue = Number.isFinite(row?.technicals?.atr14)
-    ? row.technicals.atr14
-    : Number.isFinite(technical?.atr14)
-      ? technical.atr14
-      : Math.max((price || 1) * 0.025, 0.5);
   const result = {};
   const horizonMeta = {
-    short_term: { horizon: "1-30 days", lowMultiplier: 1.15, highMultiplier: 1.65, returnBand: 12 },
-    mid_term: { horizon: "30-90 days", lowMultiplier: 1.85, highMultiplier: 2.75, returnBand: 22 },
-    long_term: { horizon: "90-180 days", lowMultiplier: 2.75, highMultiplier: 4.25, returnBand: 34 },
+    short_term: { horizon: "1-30 days" },
+    mid_term: { horizon: "30-90 days" },
+    long_term: { horizon: "90-180 days" },
   };
   Object.entries(horizonMeta).forEach(([horizonKey, meta]) => {
     const baseWeights = STOCK_HORIZON_FORECAST_WEIGHTS[horizonKey] || {};
@@ -7470,12 +7464,6 @@ function buildHorizonForecasts({ row, companyProfile, technical, fundamental, ma
     const neutralProbability = Math.max(0, 100 - upsideProbability - downsideProbability);
     const directionBalance = score - bearishScore;
     const expectedDirection = forecastDirectionFromBalance(directionBalance);
-    const directionTilt = clamp(directionBalance / 50, -1, 1);
-    const volPct = Number.isFinite(atrValue) && Number.isFinite(price) && price > 0 ? (atrValue / price) * 100 : 3;
-    const expectedReturnLowPct = Number((-volPct * meta.lowMultiplier + Math.max(0, directionTilt) * volPct * 0.65).toFixed(1));
-    const expectedReturnHighPct = Number((volPct * meta.highMultiplier + Math.max(0, directionTilt) * volPct * 1.2).toFixed(1));
-    const expectedPriceLow = Number.isFinite(price) ? Number((price * (1 + expectedReturnLowPct / 100)).toFixed(2)) : null;
-    const expectedPriceHigh = Number.isFinite(price) ? Number((price * (1 + expectedReturnHighPct / 100)).toFixed(2)) : null;
     const bullishDrivers = Object.entries(moduleScores)
       .filter(([, value]) => (value?.score ?? 0) >= 62)
       .sort((a, b) => (b[1].score ?? 0) - (a[1].score ?? 0))
@@ -7497,11 +7485,6 @@ function buildHorizonForecasts({ row, companyProfile, technical, fundamental, ma
       upside_probability: upsideProbability,
       downside_probability: downsideProbability,
       neutral_probability: neutralProbability,
-      expected_return_low_pct: expectedReturnLowPct,
-      expected_return_high_pct: expectedReturnHighPct,
-      expected_price_low: expectedPriceLow,
-      expected_price_high: expectedPriceHigh,
-      expected_volatility: Number((volPct * meta.highMultiplier).toFixed(1)),
       trend_regime: score >= 64 ? "uptrend" : score <= 42 ? "downtrend" : "range_bound",
       opportunity_type: forecastOpportunityType(expectedDirection, moduleScores, tradeContext),
       bullish_drivers: bullishDrivers,
@@ -7528,164 +7511,6 @@ function buildHorizonForecasts({ row, companyProfile, technical, fundamental, ma
     };
   });
   return result;
-}
-
-function planAlignedRangeMidpoint(range) {
-  if (!range) return null;
-  if (Number.isFinite(range.midpoint)) return Number(range.midpoint);
-  if (Number.isFinite(range.low) && Number.isFinite(range.high)) return Number(((range.low + range.high) / 2).toFixed(2));
-  if (Number.isFinite(range.price)) return Number(range.price);
-  return null;
-}
-
-function addPlanAlignedRangeAnchor(anchors, range, source, side, weight = 1, type = "range") {
-  if (!range) return;
-  const midpoint = planAlignedRangeMidpoint(range);
-  if (!Number.isFinite(midpoint)) return;
-  anchors.push({
-    price: midpoint,
-    low: Number.isFinite(range.low) ? range.low : midpoint,
-    high: Number.isFinite(range.high) ? range.high : midpoint,
-    source,
-    side,
-    type,
-    weight,
-  });
-}
-
-function addPlanAlignedLevelAnchors(anchors, levels = [], side, horizonKey, weight = 0.85) {
-  const relevanceRank = {
-    short_term: ["short", "multi_horizon"],
-    mid_term: ["mid", "multi_horizon", "short"],
-    long_term: ["long", "multi_horizon", "mid"],
-  };
-  const allowed = relevanceRank[horizonKey] || ["multi_horizon"];
-  (levels || [])
-    .filter((level) => Number.isFinite(level?.price))
-    .filter((level) => !level?.horizon_relevance || allowed.includes(level.horizon_relevance))
-    .slice(0, horizonKey === "short_term" ? 2 : horizonKey === "mid_term" ? 3 : 4)
-    .forEach((level) => {
-      anchors.push({
-        price: level.price,
-        source: level.level || level.id || (side === "downside" ? "support" : "resistance"),
-        side,
-        type: side === "downside" ? "support" : "resistance",
-        weight: weight + Math.min(0.25, (level.strength_score || level.score || 40) / 400),
-      });
-    });
-}
-
-function addPlanAlignedExpectedMoveAnchors(anchors, expectedMove = {}, horizonKey, price) {
-  if (!Number.isFinite(price)) return;
-  const use7d = horizonKey === "short_term";
-  const lower = use7d && Number.isFinite(expectedMove.lower_7d) ? expectedMove.lower_7d : expectedMove.lower_30d;
-  const upper = use7d && Number.isFinite(expectedMove.upper_7d) ? expectedMove.upper_7d : expectedMove.upper_30d;
-  const weight = horizonKey === "short_term" ? 0.75 : horizonKey === "mid_term" ? 0.55 : 0.35;
-  if (Number.isFinite(lower)) {
-    anchors.push({ price: lower, source: use7d ? "7D Expected Move Lower" : "30D Expected Move Lower", side: "downside", type: "expected_move", weight });
-  }
-  if (Number.isFinite(upper)) {
-    anchors.push({ price: upper, source: use7d ? "7D Expected Move Upper" : "30D Expected Move Upper", side: "upside", type: "expected_move", weight });
-  }
-}
-
-function weightedPlanAlignedPrice(anchors = [], currentPrice, side, fallbackPrice) {
-  const valid = (anchors || [])
-    .filter((anchor) => Number.isFinite(anchor.price) && Number.isFinite(anchor.weight) && anchor.weight > 0)
-    .filter((anchor) => side === "downside" ? anchor.price <= currentPrice * 1.04 : anchor.price >= currentPrice * 0.96)
-    .sort((a, b) => Math.abs(a.price - currentPrice) - Math.abs(b.price - currentPrice))
-    .slice(0, 5);
-  if (!valid.length) return Number.isFinite(fallbackPrice) ? fallbackPrice : null;
-  const weightSum = valid.reduce((sum, anchor) => sum + anchor.weight, 0);
-  if (!weightSum) return Number.isFinite(fallbackPrice) ? fallbackPrice : null;
-  const weighted = valid.reduce((sum, anchor) => sum + anchor.price * anchor.weight, 0) / weightSum;
-  return Number(weighted.toFixed(2));
-}
-
-function buildPlanAlignedExpectedRange({ row, horizonKey, forecast = {}, buyRange = {}, sellRange = {}, supportResistance = {}, tradeContext = {} }) {
-  const price = finiteNumberOrNull(row?.price);
-  if (!Number.isFinite(price)) return forecast;
-  const atrValue = Number.isFinite(row?.technicals?.atr14)
-    ? row.technicals.atr14
-    : Math.max(price * 0.025, 0.5);
-  const expectedMove = tradeContext?.options_state?.expected_move || {};
-  const downsideAnchors = [];
-  const upsideAnchors = [];
-
-  addPlanAlignedRangeAnchor(downsideAnchors, buyRange?.executable_entry?.active ? buyRange.executable_entry : null, "Current Executable Entry", "downside", 1.25, "executable_entry");
-  addPlanAlignedRangeAnchor(downsideAnchors, buyRange?.waiting_entry_reference || buyRange?.base_pullback_range || buyRange?.base_range, "Buy Plan Reference", "downside", 1.05, "buy_plan");
-  addPlanAlignedLevelAnchors(downsideAnchors, supportResistance?.supports || [], "downside", horizonKey, 0.8);
-  addPlanAlignedExpectedMoveAnchors(downsideAnchors, expectedMove, horizonKey, price);
-
-  addPlanAlignedRangeAnchor(upsideAnchors, sellRange?.executable_exit?.active ? sellRange.executable_exit : null, "Current Executable Exit", "upside", 1.25, "executable_exit");
-  addPlanAlignedRangeAnchor(upsideAnchors, sellRange?.waiting_exit_reference || sellRange?.base_profit_target_range || sellRange?.base_sell_range, "Sell Plan Reference", "upside", 1.05, "sell_plan");
-  addPlanAlignedLevelAnchors(upsideAnchors, supportResistance?.resistances || [], "upside", horizonKey, 0.8);
-  addPlanAlignedExpectedMoveAnchors(upsideAnchors, expectedMove, horizonKey, price);
-
-  const fallbackLow = Number.isFinite(forecast.expected_price_low)
-    ? forecast.expected_price_low
-    : Number((price - atrValue).toFixed(2));
-  const fallbackHigh = Number.isFinite(forecast.expected_price_high)
-    ? forecast.expected_price_high
-    : Number((price + atrValue).toFixed(2));
-  let expectedLow = weightedPlanAlignedPrice(downsideAnchors, price, "downside", fallbackLow);
-  let expectedHigh = weightedPlanAlignedPrice(upsideAnchors, price, "upside", fallbackHigh);
-  if (!Number.isFinite(expectedLow)) expectedLow = fallbackLow;
-  if (!Number.isFinite(expectedHigh)) expectedHigh = fallbackHigh;
-  if (expectedLow > price) expectedLow = Math.min(price, fallbackLow);
-  if (expectedHigh < price) expectedHigh = Math.max(price, fallbackHigh);
-  if (expectedLow >= expectedHigh) {
-    expectedLow = Number(Math.min(fallbackLow, price - atrValue * 0.75).toFixed(2));
-    expectedHigh = Number(Math.max(fallbackHigh, price + atrValue * 0.75).toFixed(2));
-  }
-  const expectedReturnLowPct = Number((((expectedLow - price) / price) * 100).toFixed(1));
-  const expectedReturnHighPct = Number((((expectedHigh - price) / price) * 100).toFixed(1));
-  return {
-    ...forecast,
-    expected_return_low_pct: expectedReturnLowPct,
-    expected_return_high_pct: expectedReturnHighPct,
-    expected_price_low: expectedLow,
-    expected_price_high: expectedHigh,
-    expected_price_range_source: {
-      method: "plan_aligned_support_resistance_options",
-      previous_atr_range: {
-        low: forecast.expected_price_low ?? null,
-        high: forecast.expected_price_high ?? null,
-      },
-      downside_anchors: downsideAnchors
-        .filter((anchor) => Number.isFinite(anchor.price))
-        .sort((a, b) => Math.abs(a.price - price) - Math.abs(b.price - price))
-        .slice(0, 6),
-      upside_anchors: upsideAnchors
-        .filter((anchor) => Number.isFinite(anchor.price))
-        .sort((a, b) => Math.abs(a.price - price) - Math.abs(b.price - price))
-        .slice(0, 6),
-      options_expected_move_used: Boolean(Number.isFinite(expectedMove.lower_7d) || Number.isFinite(expectedMove.lower_30d)),
-      explanation: currentLanguage === "zh"
-        ? "展示用预期价格区间已按推荐买入/卖出计划、支撑压力与期权 Expected Move 重新校准；不直接决定操作。"
-        : "Displayed expected price range is aligned to buy/sell plans, support/resistance, and options expected move; it does not directly decide actions.",
-    },
-    forecast_explanation: currentLanguage === "zh"
-      ? `${forecast.forecast_explanation || ""} 预期价格区间已结合推荐买入计划、推荐卖出计划、支撑压力与期权 Expected Move 校准。`.trim()
-      : `${forecast.forecast_explanation || ""} Expected price range is aligned with buy/sell plans, support/resistance, and options expected move.`.trim(),
-  };
-}
-
-function alignHorizonForecastExpectedRanges({ row, horizonForecast = {}, buyPlan = {}, sellPlan = {}, supportResistance = {}, tradeContext = {} }) {
-  const aligned = { ...horizonForecast };
-  ["short_term", "mid_term", "long_term"].forEach((horizonKey) => {
-    const keys = horizonRangeKeys(horizonKey);
-    aligned[horizonKey] = buildPlanAlignedExpectedRange({
-      row,
-      horizonKey,
-      forecast: horizonForecast?.[horizonKey] || {},
-      buyRange: buyPlan?.[keys.buy] || {},
-      sellRange: sellPlan?.[keys.sell] || {},
-      supportResistance,
-      tradeContext,
-    });
-  });
-  return aligned;
 }
 
 function minimumNeutralZoneAtr(companyProfile = {}) {
@@ -7872,8 +7697,6 @@ function forecastAnchorCandidates({ row, horizonKey, supportResistance = {}, for
       add(supports[0]?.price, supports[0]?.id || "S1", "support"),
       add(resistances[0]?.price, resistances[0]?.id || "R1", "resistance"),
       add(expectedMove.upper_7d, "7D Expected Move Upper", "expected_move"),
-      add(forecast.expected_price_low, "short expected low", "forecast"),
-      add(forecast.expected_price_high, "short expected high", "forecast"),
     ].filter(Boolean);
   }
   if (horizonKey === "mid_term") {
@@ -7887,8 +7710,6 @@ function forecastAnchorCandidates({ row, horizonKey, supportResistance = {}, for
       add(resistances[1]?.price, resistances[1]?.id || "R2", "resistance"),
       add(resistances[2]?.price, resistances[2]?.id || "R3", "resistance"),
       add(expectedMove.upper_30d, "30D Expected Move Upper", "expected_move"),
-      add(forecast.expected_price_low, "mid expected low", "forecast"),
-      add(forecast.expected_price_high, "mid expected high", "forecast"),
     ].filter(Boolean);
   }
   return [
@@ -7902,8 +7723,6 @@ function forecastAnchorCandidates({ row, horizonKey, supportResistance = {}, for
     add(resistances[2]?.price, resistances[2]?.id || "R3", "resistance"),
     add(resistances[3]?.price, resistances[3]?.id || "R4", "resistance"),
     add(resistances[4]?.price, resistances[4]?.id || "R5", "resistance"),
-    add(forecast.expected_price_low, "long expected low", "forecast"),
-    add(forecast.expected_price_high, "long expected high", "forecast"),
   ].filter(Boolean);
 }
 
@@ -8004,7 +7823,7 @@ function selectForecastActiveEntry({ row, horizonKey, buyRange, sellRange, suppo
         anchor.source,
         horizonKey === "long_term" ? "long horizon independent forecast" : `${horizonKey} forecast`,
       ],
-      anchorPrices: [anchor.price, forecast.expected_price_low, forecast.expected_price_high],
+      anchorPrices: [anchor.price],
       reason: currentLanguage === "zh"
         ? `${mode === "trend" ? "趋势延续" : "Forecast"} 生成的周期独立可执行买入段：当前价格接近该周期真实结构锚点，且方向预测看涨。`
         : `${mode === "trend" ? "Trend-continuation" : "Forecast-driven"} horizon entry: price is near a real structure anchor for this horizon and the forecast is bullish.`,
@@ -8068,7 +7887,7 @@ function selectForecastActiveExit({ row, horizonKey, sellRange, buyRange, suppor
     activationThreshold: minScore,
     allocationHint: horizonKey === "short_term" ? "10-20%" : horizonKey === "mid_term" ? "20-35%" : "25-45%",
     anchorSources: [`forecast_${forecast.expected_direction}`, anchor.source || anchor.id || "horizon exit anchor"],
-    anchorPrices: [anchor.price, forecast.expected_price_low, forecast.expected_price_high],
+    anchorPrices: [anchor.price],
     reason: currentLanguage === "zh"
       ? "Forecast 生成的周期独立可执行卖出段：该周期预测转弱，且当前价格接近真实退出锚点。"
       : "Forecast-driven horizon exit: this horizon forecast weakened and price is near a real exit anchor.",
@@ -15834,9 +15653,6 @@ function buildHorizonRecommendation({
     forecast_direction: forecast?.expected_direction || "neutral",
     forecast_direction_label: forecast?.expected_direction_label || forecastDirectionLabel("neutral"),
     horizon_forecast: forecast,
-    expected_price_low: forecast?.expected_price_low ?? null,
-    expected_price_high: forecast?.expected_price_high ?? null,
-    expected_price_range_source: forecast?.expected_price_range_source || null,
     upside_probability: forecast?.upside_probability ?? null,
     downside_probability: forecast?.downside_probability ?? null,
     neutral_probability: forecast?.neutral_probability ?? null,
@@ -20789,7 +20605,7 @@ function buildDecisionModel(row) {
     ? tradeContext.post_earnings_drift_state.state
     : recentEventStateFromGapRisk(tradeContext.gap_down_risk);
   tradeContext.event_risk_application = buildEventRiskApplication(tradeContext);
-  let horizonForecast = buildHorizonForecasts({
+  const horizonForecast = buildHorizonForecasts({
     row,
     companyProfile,
     technical,
@@ -20881,16 +20697,6 @@ function buildDecisionModel(row) {
   });
   doNotBuyReasons = buildDoNotBuyReasons(row, recommendedBuyPlan, technical, fundamental, finalOptions, marketContext, supportResistance);
   neutralHoldZones = buildNeutralHoldZones(row, recommendedBuyPlan, sellPlan, companyProfile);
-  applyForecastToPlans({ buyPlan: recommendedBuyPlan, sellPlan, horizonForecast, neutralHoldZones });
-  horizonForecast = alignHorizonForecastExpectedRanges({
-    row,
-    horizonForecast,
-    buyPlan: recommendedBuyPlan,
-    sellPlan,
-    supportResistance,
-    tradeContext,
-  });
-  tradeContext.horizon_forecast = horizonForecast;
   applyForecastToPlans({ buyPlan: recommendedBuyPlan, sellPlan, horizonForecast, neutralHoldZones });
   const actionPlan = buildActionPlan(row, consistency.aiDecision, recommendedBuyPlan, sellPlan, stopLossPlan, supportResistance, technical, fundamental, marketContext, companyProfile, tradeContext, horizonForecast);
   const actionStability = buildActionStability(row, actionPlan, horizonForecast, tradeContext);
@@ -21324,12 +21130,6 @@ function renderDetailModal(row) {
     const actionScore = block.action_recommendation_score ?? block.score ?? "—";
     const reason = block.reason || (block.reasons || []).slice(0, 2).map(localizedDashboardText).join(" · ") || t("dataUnavailable");
     const directionLabel = block.forecast_direction_label || forecastDirectionLabel(block.forecast_direction || "neutral");
-    const priceRange = Number.isFinite(block.expected_price_low) && Number.isFinite(block.expected_price_high)
-      ? `${formatCurrency(block.expected_price_low, currencyCode)} - ${formatCurrency(block.expected_price_high, currencyCode)}`
-      : null;
-    const priceRangeSource = block.expected_price_range_source?.method === "plan_aligned_support_resistance_options"
-      ? (currentLanguage === "zh" ? "来源：买卖计划 / 支撑压力 / 期权 Expected Move" : "Source: buy/sell plans, support/resistance, options expected move")
-      : null;
     const probabilityLine = [block.upside_probability, block.downside_probability, block.neutral_probability].some(Number.isFinite)
       ? `${currentLanguage === "zh" ? "上/下/中" : "Up/Down/Neutral"}: ${block.upside_probability ?? "—"} / ${block.downside_probability ?? "—"} / ${block.neutral_probability ?? "—"}`
       : null;
@@ -21340,8 +21140,6 @@ function renderDetailModal(row) {
         <small>${block.horizon}</small>
         <small>${currentLanguage === "zh" ? "操作推荐评分" : "Action Score"}: ${actionScore}/100</small>
         <small>${currentLanguage === "zh" ? "走势判断" : "Forecast"}: ${directionLabel}</small>
-        ${priceRange ? `<small>${currentLanguage === "zh" ? "预期价格区间" : "Expected Range"}: ${priceRange}</small>` : ""}
-        ${priceRangeSource ? `<small>${priceRangeSource}</small>` : ""}
         ${probabilityLine ? `<small>${probabilityLine}</small>` : ""}
         <small>${reason}</small>
       </article>
