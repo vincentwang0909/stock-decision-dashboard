@@ -7530,6 +7530,164 @@ function buildHorizonForecasts({ row, companyProfile, technical, fundamental, ma
   return result;
 }
 
+function planAlignedRangeMidpoint(range) {
+  if (!range) return null;
+  if (Number.isFinite(range.midpoint)) return Number(range.midpoint);
+  if (Number.isFinite(range.low) && Number.isFinite(range.high)) return Number(((range.low + range.high) / 2).toFixed(2));
+  if (Number.isFinite(range.price)) return Number(range.price);
+  return null;
+}
+
+function addPlanAlignedRangeAnchor(anchors, range, source, side, weight = 1, type = "range") {
+  if (!range) return;
+  const midpoint = planAlignedRangeMidpoint(range);
+  if (!Number.isFinite(midpoint)) return;
+  anchors.push({
+    price: midpoint,
+    low: Number.isFinite(range.low) ? range.low : midpoint,
+    high: Number.isFinite(range.high) ? range.high : midpoint,
+    source,
+    side,
+    type,
+    weight,
+  });
+}
+
+function addPlanAlignedLevelAnchors(anchors, levels = [], side, horizonKey, weight = 0.85) {
+  const relevanceRank = {
+    short_term: ["short", "multi_horizon"],
+    mid_term: ["mid", "multi_horizon", "short"],
+    long_term: ["long", "multi_horizon", "mid"],
+  };
+  const allowed = relevanceRank[horizonKey] || ["multi_horizon"];
+  (levels || [])
+    .filter((level) => Number.isFinite(level?.price))
+    .filter((level) => !level?.horizon_relevance || allowed.includes(level.horizon_relevance))
+    .slice(0, horizonKey === "short_term" ? 2 : horizonKey === "mid_term" ? 3 : 4)
+    .forEach((level) => {
+      anchors.push({
+        price: level.price,
+        source: level.level || level.id || (side === "downside" ? "support" : "resistance"),
+        side,
+        type: side === "downside" ? "support" : "resistance",
+        weight: weight + Math.min(0.25, (level.strength_score || level.score || 40) / 400),
+      });
+    });
+}
+
+function addPlanAlignedExpectedMoveAnchors(anchors, expectedMove = {}, horizonKey, price) {
+  if (!Number.isFinite(price)) return;
+  const use7d = horizonKey === "short_term";
+  const lower = use7d && Number.isFinite(expectedMove.lower_7d) ? expectedMove.lower_7d : expectedMove.lower_30d;
+  const upper = use7d && Number.isFinite(expectedMove.upper_7d) ? expectedMove.upper_7d : expectedMove.upper_30d;
+  const weight = horizonKey === "short_term" ? 0.75 : horizonKey === "mid_term" ? 0.55 : 0.35;
+  if (Number.isFinite(lower)) {
+    anchors.push({ price: lower, source: use7d ? "7D Expected Move Lower" : "30D Expected Move Lower", side: "downside", type: "expected_move", weight });
+  }
+  if (Number.isFinite(upper)) {
+    anchors.push({ price: upper, source: use7d ? "7D Expected Move Upper" : "30D Expected Move Upper", side: "upside", type: "expected_move", weight });
+  }
+}
+
+function weightedPlanAlignedPrice(anchors = [], currentPrice, side, fallbackPrice) {
+  const valid = (anchors || [])
+    .filter((anchor) => Number.isFinite(anchor.price) && Number.isFinite(anchor.weight) && anchor.weight > 0)
+    .filter((anchor) => side === "downside" ? anchor.price <= currentPrice * 1.04 : anchor.price >= currentPrice * 0.96)
+    .sort((a, b) => Math.abs(a.price - currentPrice) - Math.abs(b.price - currentPrice))
+    .slice(0, 5);
+  if (!valid.length) return Number.isFinite(fallbackPrice) ? fallbackPrice : null;
+  const weightSum = valid.reduce((sum, anchor) => sum + anchor.weight, 0);
+  if (!weightSum) return Number.isFinite(fallbackPrice) ? fallbackPrice : null;
+  const weighted = valid.reduce((sum, anchor) => sum + anchor.price * anchor.weight, 0) / weightSum;
+  return Number(weighted.toFixed(2));
+}
+
+function buildPlanAlignedExpectedRange({ row, horizonKey, forecast = {}, buyRange = {}, sellRange = {}, supportResistance = {}, tradeContext = {} }) {
+  const price = finiteNumberOrNull(row?.price);
+  if (!Number.isFinite(price)) return forecast;
+  const atrValue = Number.isFinite(row?.technicals?.atr14)
+    ? row.technicals.atr14
+    : Math.max(price * 0.025, 0.5);
+  const expectedMove = tradeContext?.options_state?.expected_move || {};
+  const downsideAnchors = [];
+  const upsideAnchors = [];
+
+  addPlanAlignedRangeAnchor(downsideAnchors, buyRange?.executable_entry?.active ? buyRange.executable_entry : null, "Current Executable Entry", "downside", 1.25, "executable_entry");
+  addPlanAlignedRangeAnchor(downsideAnchors, buyRange?.waiting_entry_reference || buyRange?.base_pullback_range || buyRange?.base_range, "Buy Plan Reference", "downside", 1.05, "buy_plan");
+  addPlanAlignedLevelAnchors(downsideAnchors, supportResistance?.supports || [], "downside", horizonKey, 0.8);
+  addPlanAlignedExpectedMoveAnchors(downsideAnchors, expectedMove, horizonKey, price);
+
+  addPlanAlignedRangeAnchor(upsideAnchors, sellRange?.executable_exit?.active ? sellRange.executable_exit : null, "Current Executable Exit", "upside", 1.25, "executable_exit");
+  addPlanAlignedRangeAnchor(upsideAnchors, sellRange?.waiting_exit_reference || sellRange?.base_profit_target_range || sellRange?.base_sell_range, "Sell Plan Reference", "upside", 1.05, "sell_plan");
+  addPlanAlignedLevelAnchors(upsideAnchors, supportResistance?.resistances || [], "upside", horizonKey, 0.8);
+  addPlanAlignedExpectedMoveAnchors(upsideAnchors, expectedMove, horizonKey, price);
+
+  const fallbackLow = Number.isFinite(forecast.expected_price_low)
+    ? forecast.expected_price_low
+    : Number((price - atrValue).toFixed(2));
+  const fallbackHigh = Number.isFinite(forecast.expected_price_high)
+    ? forecast.expected_price_high
+    : Number((price + atrValue).toFixed(2));
+  let expectedLow = weightedPlanAlignedPrice(downsideAnchors, price, "downside", fallbackLow);
+  let expectedHigh = weightedPlanAlignedPrice(upsideAnchors, price, "upside", fallbackHigh);
+  if (!Number.isFinite(expectedLow)) expectedLow = fallbackLow;
+  if (!Number.isFinite(expectedHigh)) expectedHigh = fallbackHigh;
+  if (expectedLow > price) expectedLow = Math.min(price, fallbackLow);
+  if (expectedHigh < price) expectedHigh = Math.max(price, fallbackHigh);
+  if (expectedLow >= expectedHigh) {
+    expectedLow = Number(Math.min(fallbackLow, price - atrValue * 0.75).toFixed(2));
+    expectedHigh = Number(Math.max(fallbackHigh, price + atrValue * 0.75).toFixed(2));
+  }
+  const expectedReturnLowPct = Number((((expectedLow - price) / price) * 100).toFixed(1));
+  const expectedReturnHighPct = Number((((expectedHigh - price) / price) * 100).toFixed(1));
+  return {
+    ...forecast,
+    expected_return_low_pct: expectedReturnLowPct,
+    expected_return_high_pct: expectedReturnHighPct,
+    expected_price_low: expectedLow,
+    expected_price_high: expectedHigh,
+    expected_price_range_source: {
+      method: "plan_aligned_support_resistance_options",
+      previous_atr_range: {
+        low: forecast.expected_price_low ?? null,
+        high: forecast.expected_price_high ?? null,
+      },
+      downside_anchors: downsideAnchors
+        .filter((anchor) => Number.isFinite(anchor.price))
+        .sort((a, b) => Math.abs(a.price - price) - Math.abs(b.price - price))
+        .slice(0, 6),
+      upside_anchors: upsideAnchors
+        .filter((anchor) => Number.isFinite(anchor.price))
+        .sort((a, b) => Math.abs(a.price - price) - Math.abs(b.price - price))
+        .slice(0, 6),
+      options_expected_move_used: Boolean(Number.isFinite(expectedMove.lower_7d) || Number.isFinite(expectedMove.lower_30d)),
+      explanation: currentLanguage === "zh"
+        ? "展示用预期价格区间已按推荐买入/卖出计划、支撑压力与期权 Expected Move 重新校准；不直接决定操作。"
+        : "Displayed expected price range is aligned to buy/sell plans, support/resistance, and options expected move; it does not directly decide actions.",
+    },
+    forecast_explanation: currentLanguage === "zh"
+      ? `${forecast.forecast_explanation || ""} 预期价格区间已结合推荐买入计划、推荐卖出计划、支撑压力与期权 Expected Move 校准。`.trim()
+      : `${forecast.forecast_explanation || ""} Expected price range is aligned with buy/sell plans, support/resistance, and options expected move.`.trim(),
+  };
+}
+
+function alignHorizonForecastExpectedRanges({ row, horizonForecast = {}, buyPlan = {}, sellPlan = {}, supportResistance = {}, tradeContext = {} }) {
+  const aligned = { ...horizonForecast };
+  ["short_term", "mid_term", "long_term"].forEach((horizonKey) => {
+    const keys = horizonRangeKeys(horizonKey);
+    aligned[horizonKey] = buildPlanAlignedExpectedRange({
+      row,
+      horizonKey,
+      forecast: horizonForecast?.[horizonKey] || {},
+      buyRange: buyPlan?.[keys.buy] || {},
+      sellRange: sellPlan?.[keys.sell] || {},
+      supportResistance,
+      tradeContext,
+    });
+  });
+  return aligned;
+}
+
 function minimumNeutralZoneAtr(companyProfile = {}) {
   const tags = companyProfile?.tags || [];
   if (hasAnyTag(tags, ["Speculative", "Meme", "NewlyListed", "IPO"])) return 1.35;
@@ -15678,6 +15836,7 @@ function buildHorizonRecommendation({
     horizon_forecast: forecast,
     expected_price_low: forecast?.expected_price_low ?? null,
     expected_price_high: forecast?.expected_price_high ?? null,
+    expected_price_range_source: forecast?.expected_price_range_source || null,
     upside_probability: forecast?.upside_probability ?? null,
     downside_probability: forecast?.downside_probability ?? null,
     neutral_probability: forecast?.neutral_probability ?? null,
@@ -20630,7 +20789,7 @@ function buildDecisionModel(row) {
     ? tradeContext.post_earnings_drift_state.state
     : recentEventStateFromGapRisk(tradeContext.gap_down_risk);
   tradeContext.event_risk_application = buildEventRiskApplication(tradeContext);
-  const horizonForecast = buildHorizonForecasts({
+  let horizonForecast = buildHorizonForecasts({
     row,
     companyProfile,
     technical,
@@ -20722,6 +20881,16 @@ function buildDecisionModel(row) {
   });
   doNotBuyReasons = buildDoNotBuyReasons(row, recommendedBuyPlan, technical, fundamental, finalOptions, marketContext, supportResistance);
   neutralHoldZones = buildNeutralHoldZones(row, recommendedBuyPlan, sellPlan, companyProfile);
+  applyForecastToPlans({ buyPlan: recommendedBuyPlan, sellPlan, horizonForecast, neutralHoldZones });
+  horizonForecast = alignHorizonForecastExpectedRanges({
+    row,
+    horizonForecast,
+    buyPlan: recommendedBuyPlan,
+    sellPlan,
+    supportResistance,
+    tradeContext,
+  });
+  tradeContext.horizon_forecast = horizonForecast;
   applyForecastToPlans({ buyPlan: recommendedBuyPlan, sellPlan, horizonForecast, neutralHoldZones });
   const actionPlan = buildActionPlan(row, consistency.aiDecision, recommendedBuyPlan, sellPlan, stopLossPlan, supportResistance, technical, fundamental, marketContext, companyProfile, tradeContext, horizonForecast);
   const actionStability = buildActionStability(row, actionPlan, horizonForecast, tradeContext);
@@ -21158,6 +21327,9 @@ function renderDetailModal(row) {
     const priceRange = Number.isFinite(block.expected_price_low) && Number.isFinite(block.expected_price_high)
       ? `${formatCurrency(block.expected_price_low, currencyCode)} - ${formatCurrency(block.expected_price_high, currencyCode)}`
       : null;
+    const priceRangeSource = block.expected_price_range_source?.method === "plan_aligned_support_resistance_options"
+      ? (currentLanguage === "zh" ? "来源：买卖计划 / 支撑压力 / 期权 Expected Move" : "Source: buy/sell plans, support/resistance, options expected move")
+      : null;
     const probabilityLine = [block.upside_probability, block.downside_probability, block.neutral_probability].some(Number.isFinite)
       ? `${currentLanguage === "zh" ? "上/下/中" : "Up/Down/Neutral"}: ${block.upside_probability ?? "—"} / ${block.downside_probability ?? "—"} / ${block.neutral_probability ?? "—"}`
       : null;
@@ -21169,6 +21341,7 @@ function renderDetailModal(row) {
         <small>${currentLanguage === "zh" ? "操作推荐评分" : "Action Score"}: ${actionScore}/100</small>
         <small>${currentLanguage === "zh" ? "走势判断" : "Forecast"}: ${directionLabel}</small>
         ${priceRange ? `<small>${currentLanguage === "zh" ? "预期价格区间" : "Expected Range"}: ${priceRange}</small>` : ""}
+        ${priceRangeSource ? `<small>${priceRangeSource}</small>` : ""}
         ${probabilityLine ? `<small>${probabilityLine}</small>` : ""}
         <small>${reason}</small>
       </article>
