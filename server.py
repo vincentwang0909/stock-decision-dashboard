@@ -72,6 +72,9 @@ MARKET_DATA_MAX_LIVE_TICKERS = int(os.environ.get("MARKET_DATA_MAX_LIVE_TICKERS"
 MARKET_DATA_ROUTE_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_ROUTE_TIMEOUT_SECONDS", "18"))
 MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS", "8"))
 OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECONDS", "6"))
+# Increment when an options field changes methodology so cached synthetic data
+# cannot be presented as a current options snapshot.
+OPTIONS_SNAPSHOT_VERSION = 2
 BACKGROUND_MARKET_REFRESH_ENABLED = os.environ.get("BACKGROUND_MARKET_REFRESH_ENABLED", "true").strip().lower() not in {"0", "false", "no", "n"}
 BACKGROUND_MARKET_REFRESH_STARTUP_DELAY_SECONDS = int(os.environ.get("BACKGROUND_MARKET_REFRESH_STARTUP_DELAY_SECONDS", "15"))
 BACKGROUND_MARKET_REFRESH_AFTER_HOUR_SECONDS = int(os.environ.get("BACKGROUND_MARKET_REFRESH_AFTER_HOUR_SECONDS", "5"))
@@ -1974,12 +1977,14 @@ def get_cached_market_context():
 
 def build_unavailable_options_payload(reason, market="us"):
     return {
+        "snapshotVersion": OPTIONS_SNAPSHOT_VERSION,
         "available": False,
         "market": market,
         "reason": reason,
         "callWall": None,
         "putWall": None,
         "gammaFlip": None,
+        "gammaFlipStatus": "unavailable_no_real_gex",
         "impliedVolatility": None,
         "historicVolatility": None,
         "ivPercentile": None,
@@ -2011,6 +2016,7 @@ def build_unavailable_options_payload(reason, market="us"):
             "points": [],
         },
         "coverage": "none",
+        "wallMethod": None,
     }
 
 
@@ -2261,36 +2267,12 @@ def _build_iv_history_proxy(rolling_hv_series):
 
 def _estimate_iv_regime_metrics(current_iv, closes, highs, lows):
     historic_volatility = _estimate_historic_volatility(closes, highs, lows)
-    if current_iv is None or not math.isfinite(current_iv):
-        return {
-            "historicVolatility": historic_volatility,
-            "ivPercentile": None,
-            "ivRank": None,
-        }
-
-    rolling_hv_series = _rolling_historic_volatility_proxy(closes, highs, lows)
-    proxy_series = _build_iv_history_proxy(rolling_hv_series)
-    if not proxy_series:
-        return {
-            "historicVolatility": historic_volatility,
-            "ivPercentile": None,
-            "ivRank": None,
-        }
-
-    proxy_min = min(proxy_series)
-    proxy_max = max(proxy_series)
-    proxy_range = proxy_max - proxy_min
-    iv_rank = None
-    if proxy_range > 0:
-        iv_rank = max(0.0, min(100.0, ((current_iv - proxy_min) / proxy_range) * 100))
-
-    observations_below = sum(1 for value in proxy_series if value <= current_iv)
-    iv_percentile = max(0.0, min(100.0, (observations_below / len(proxy_series)) * 100))
-
     return {
         "historicVolatility": historic_volatility,
-        "ivPercentile": iv_percentile,
-        "ivRank": iv_rank,
+        # Historical implied-volatility observations are not available from the
+        # current chain feed. Historical realized volatility is not an IV proxy.
+        "ivPercentile": None,
+        "ivRank": None,
     }
 
 
@@ -2373,57 +2355,73 @@ def _option_mid_price(row):
     return None
 
 
-def _nearest_option_contract(frame, spot_price):
-    if frame is None or frame.empty or spot_price is None or spot_price <= 0:
+def _nearest_atm_straddle_pair(calls_frame, puts_frame, spot_price):
+    """Return a tradable same-strike ATM call/put pair, never a synthetic pair."""
+    if (
+        calls_frame is None
+        or puts_frame is None
+        or calls_frame.empty
+        or puts_frame.empty
+        or spot_price is None
+        or spot_price <= 0
+    ):
         return None
-    best = None
-    for _, row in frame.iterrows():
-        strike = _safe_float(row.get("strike"))
-        if strike is None or strike <= 0:
-            continue
-        distance = abs(strike - spot_price)
-        liquidity = (_safe_int(row.get("openInterest")) or 0) + ((_safe_int(row.get("volume")) or 0) * 0.35)
-        candidate = {
-            "row": row,
-            "strike": strike,
-            "distance": distance,
-            "liquidity": liquidity,
-        }
-        if best is None or (distance, -liquidity) < (best["distance"], -best["liquidity"]):
-            best = candidate
-    return best
+
+    def collect_contracts(frame):
+        contracts = {}
+        for _, row in frame.iterrows():
+            strike = _safe_float(row.get("strike"))
+            mid = _option_mid_price(row)
+            if strike is None or strike <= 0 or mid is None or mid <= 0:
+                continue
+            key = round(strike, 6)
+            liquidity = (_safe_int(row.get("openInterest")) or 0) + ((_safe_int(row.get("volume")) or 0) * 0.35)
+            candidate = {"row": row, "strike": strike, "mid": mid, "liquidity": liquidity}
+            existing = contracts.get(key)
+            if existing is None or candidate["liquidity"] > existing["liquidity"]:
+                contracts[key] = candidate
+        return contracts
+
+    calls = collect_contracts(calls_frame)
+    puts = collect_contracts(puts_frame)
+    common_strikes = set(calls).intersection(puts)
+    if not common_strikes:
+        return None
+
+    candidates = []
+    for key in common_strikes:
+        call_contract = calls[key]
+        put_contract = puts[key]
+        candidates.append({
+            "strike": call_contract["strike"],
+            "call": call_contract,
+            "put": put_contract,
+            "distance": abs(call_contract["strike"] - spot_price),
+            "liquidity": call_contract["liquidity"] + put_contract["liquidity"],
+        })
+    return min(candidates, key=lambda item: (item["distance"], -item["liquidity"]))
 
 
 def _estimate_expiry_expected_move(calls_frame, puts_frame, spot_price, dte, atm_iv=None):
     if spot_price is None or spot_price <= 0 or dte is None or dte < 0:
         return None
-    call_contract = _nearest_option_contract(calls_frame, spot_price)
-    put_contract = _nearest_option_contract(puts_frame, spot_price)
-    call_mid = _option_mid_price(call_contract["row"]) if call_contract else None
-    put_mid = _option_mid_price(put_contract["row"]) if put_contract else None
-    straddle_move = call_mid + put_mid if call_mid is not None and put_mid is not None else None
-    straddle_move_pct = (straddle_move / spot_price) * 100 if straddle_move is not None else None
-
-    iv_move = None
-    iv_move_pct = None
-    if atm_iv is not None and atm_iv > 0:
-        years = max(dte, 1) / 365.0
-        iv_move_pct = (atm_iv / 100.0) * math.sqrt(years) * 100
-        iv_move = spot_price * iv_move_pct / 100.0
-
-    if straddle_move is None and iv_move is None:
+    straddle_pair = _nearest_atm_straddle_pair(calls_frame, puts_frame, spot_price)
+    if straddle_pair is None:
         return None
+    straddle_move = straddle_pair["call"]["mid"] + straddle_pair["put"]["mid"]
+    straddle_move_pct = (straddle_move / spot_price) * 100
 
     return {
         "daysToExpiry": dte,
-        "callStrike": call_contract["strike"] if call_contract else None,
-        "putStrike": put_contract["strike"] if put_contract else None,
+        "callStrike": straddle_pair["strike"],
+        "putStrike": straddle_pair["strike"],
         "atmIv": round(atm_iv, 2) if atm_iv is not None else None,
-        "straddleMove": round(straddle_move, 2) if straddle_move is not None else None,
-        "straddleMovePct": round(straddle_move_pct, 2) if straddle_move_pct is not None else None,
-        "ivMove": round(iv_move, 2) if iv_move is not None else None,
-        "ivMovePct": round(iv_move_pct, 2) if iv_move_pct is not None else None,
-        "source": "atm-straddle" if straddle_move is not None else "atm-iv-fallback",
+        "straddleMove": round(straddle_move, 2),
+        "straddleMovePct": round(straddle_move_pct, 2),
+        "ivMove": None,
+        "ivMovePct": None,
+        "source": "atm-straddle",
+        "pairMethod": "same-strike-atm-call-put-mid",
     }
 
 
@@ -2477,16 +2475,14 @@ def _build_options_expected_move_payload(samples):
             "source": None,
             "samples": [],
         }
-    front = _nearest_expected_move_sample(samples, 30) or samples[0]
+    front = min(samples, key=lambda item: item.get("daysToExpiry") or 9999)
     seven_day = _nearest_expected_move_sample(samples, 7)
     thirty_day = _nearest_expected_move_sample(samples, 30)
 
     def pick_move(sample):
         if not sample:
             return None, None
-        move = sample.get("straddleMove") if sample.get("straddleMove") is not None else sample.get("ivMove")
-        move_pct = sample.get("straddleMovePct") if sample.get("straddleMovePct") is not None else sample.get("ivMovePct")
-        return move, move_pct
+        return sample.get("straddleMove"), sample.get("straddleMovePct")
 
     atm_move, atm_move_pct = pick_move(front)
     seven_move, seven_move_pct = pick_move(seven_day)
@@ -2494,11 +2490,17 @@ def _build_options_expected_move_payload(samples):
     return {
         "atmStraddleMove": atm_move,
         "atmStraddleMovePct": atm_move_pct,
+        "atmStraddleExpiry": front.get("expiry"),
+        "atmStraddleDaysToExpiry": front.get("daysToExpiry"),
         "sevenDayMove": seven_move,
         "sevenDayMovePct": seven_move_pct,
+        "sevenDayExpiry": seven_day.get("expiry") if seven_day else None,
+        "sevenDayDaysToExpiry": seven_day.get("daysToExpiry") if seven_day else None,
         "thirtyDayMove": thirty_move,
         "thirtyDayMovePct": thirty_move_pct,
-        "source": front.get("source"),
+        "thirtyDayExpiry": thirty_day.get("expiry") if thirty_day else None,
+        "thirtyDayDaysToExpiry": thirty_day.get("daysToExpiry") if thirty_day else None,
+        "source": "per-expiry-atm-straddle",
         "samples": samples[:6],
     }
 
@@ -2777,7 +2779,9 @@ def _pick_wall(bucket, spot_price, side="call", metric_key="gammaExposure"):
         "strike": strike,
         "openInterest": payload["openInterest"],
         "volume": payload["volume"],
-        "gammaExposure": round(payload.get("gammaExposure", 0.0), 2),
+        "expiryCount": payload.get("expiryCount", 0),
+        "method": "aggregated-open-interest",
+        "gammaExposure": None,
     }
 
 
@@ -3145,7 +3149,9 @@ def fetch_us_options_market(instrument, ticker, spot_price, updated_at, history_
     valid_expiries = [item for item in ranked_expiries if 0 <= item[1] <= 270] or ranked_expiries[:12]
     selected = []
     seen_expiries = set()
-    target_dtes = [7, 14, 30, 45, 60, 90, 180]
+    # Use a compact but representative term set. The longer anchor prevents
+    # structural OI walls from being dominated by only the nearest weeklies.
+    target_dtes = [7, 30, 60, 90, 180]
     for target_dte in target_dtes:
         candidates = [item for item in valid_expiries if item[1] >= 0]
         if not candidates:
@@ -3155,14 +3161,11 @@ def fetch_us_options_market(instrument, ticker, spot_price, updated_at, history_
             continue
         seen_expiries.add(expiry)
         selected.append((expiry, dte))
-        if len(selected) >= 6:
+        if len(selected) >= len(target_dtes):
             break
     wall_expiries = selected or valid_expiries[:4]
-    gamma_expiry_keys = {expiry for expiry, dte in wall_expiries if 0 <= dte <= 180}
-
     call_bucket = {}
     put_bucket = {}
-    contracts = []
     used_expiries = []
     iv_expiry_samples = []
     expected_move_samples = []
@@ -3207,29 +3210,17 @@ def fetch_us_options_market(instrument, ticker, spot_price, updated_at, history_
                 skew_sample["expiry"] = expiry
                 skew_sample["daysToExpiry"] = dte
                 skew_samples.append(skew_sample)
-        if expiry in gamma_expiry_keys:
-            _aggregate_option_metrics(calls_frame, {}, contracts, spot_price, time_years, "call")
-            _aggregate_option_metrics(puts_frame, {}, contracts, spot_price, time_years, "put")
         used_expiries.append({"expiry": expiry, "daysToExpiry": dte})
 
     if not call_bucket and not put_bucket:
         return build_unavailable_options_payload("No options chain data returned", market="us")
 
-    call_wall = _pick_wall(call_bucket, spot_price, side="call", metric_key="gammaExposure")
-    put_wall = _pick_wall(put_bucket, spot_price, side="put", metric_key="gammaExposure")
-    gamma_flip_strike_count = 51 if spot_price >= 200 else 41
-    gamma_flip = _estimate_gamma_flip(
-        contracts,
-        spot_price,
-        nearby_strike_count=gamma_flip_strike_count,
-        put_wall=put_wall,
-        call_wall=call_wall,
-    )
+    # OI identifies concentration, but not dealer positioning. It is valid for
+    # an OI wall; it cannot produce a verified Gamma Flip or net dealer GEX.
+    call_wall = _pick_wall(call_bucket, spot_price, side="call", metric_key="openInterest")
+    put_wall = _pick_wall(put_bucket, spot_price, side="put", metric_key="openInterest")
     total_call_oi = sum(item["openInterest"] for item in call_bucket.values())
     total_put_oi = sum(item["openInterest"] for item in put_bucket.values())
-    total_call_gamma = sum(item.get("gammaExposure", 0.0) for item in call_bucket.values())
-    total_put_gamma = sum(item.get("gammaExposure", 0.0) for item in put_bucket.values())
-    net_gamma = total_call_gamma - total_put_gamma
     implied_volatility = _estimate_implied_volatility(iv_expiry_samples)
     history_closes = history_frame["Close"].tolist() if history_frame is not None and "Close" in history_frame else []
     history_highs = history_frame["High"].tolist() if history_frame is not None and "High" in history_frame else []
@@ -3242,20 +3233,22 @@ def fetch_us_options_market(instrument, ticker, spot_price, updated_at, history_
     }
 
     return {
+        "snapshotVersion": OPTIONS_SNAPSHOT_VERSION,
         "available": True,
         "market": "us",
         "reason": None,
         "callWall": call_wall,
         "putWall": put_wall,
-        "gammaFlip": gamma_flip,
+        "gammaFlip": None,
+        "gammaFlipStatus": "unavailable_no_real_gex",
         "expiries": used_expiries,
         "nearestExpiry": used_expiries[0]["expiry"] if used_expiries else None,
         "updatedAt": updated_at,
         "totalCallOpenInterest": total_call_oi,
         "totalPutOpenInterest": total_put_oi,
-        "totalCallGammaExposure": round(total_call_gamma, 2),
-        "totalPutGammaExposure": round(total_put_gamma, 2),
-        "netGammaExposure": round(net_gamma, 2),
+        "totalCallGammaExposure": None,
+        "totalPutGammaExposure": None,
+        "netGammaExposure": None,
         "impliedVolatility": round(implied_volatility, 2) if implied_volatility is not None else None,
         "historicVolatility": round(iv_regime["historicVolatility"], 2) if iv_regime.get("historicVolatility") is not None else None,
         "ivPercentile": round(iv_regime["ivPercentile"], 2) if iv_regime.get("ivPercentile") is not None else None,
@@ -3263,8 +3256,9 @@ def fetch_us_options_market(instrument, ticker, spot_price, updated_at, history_
         "expectedMove": _build_options_expected_move_payload(expected_move_samples),
         "skew": skew_summary,
         "termStructure": _build_term_structure_payload(term_structure_points),
-        "coverage": "estimated-gex-nearby-expiries-atm-iv-rv-proxy-expected-move",
-        "gammaFlipStrikeCount": gamma_flip_strike_count,
+        "coverage": "aggregated-open-interest-atm-straddle-expected-move",
+        "wallMethod": "aggregated-open-interest",
+        "gammaFlipStrikeCount": None,
         "selectedExpiration": used_expiries[0]["expiry"] if used_expiries else None,
         "callsCount": total_calls_count,
         "putsCount": total_puts_count,
@@ -3701,6 +3695,12 @@ def normalize_cached_market_quote(ticker, cached, stale=False):
     normalized["cache_age_seconds"] = cached.get("cache_age_seconds") if isinstance(cached, dict) else None
     normalized["cache_updated_at"] = cached.get("updated_at") if isinstance(cached, dict) else None
     normalized["last_quote_time"] = normalized.get("updatedAt") or normalized.get("last_successful_update")
+    options_market = normalized.get("optionsMarket") if isinstance(normalized.get("optionsMarket"), dict) else None
+    if options_market and options_market.get("snapshotVersion") != OPTIONS_SNAPSHOT_VERSION:
+        normalized["optionsMarket"] = build_unavailable_options_payload(
+            "Options snapshot uses an older methodology and is being refreshed.",
+            market=normalized["market_type"],
+        )
     return normalized
 
 
@@ -3737,6 +3737,7 @@ def extract_options_fields_from_quote(quote):
     skew = options_market.get("skew") if isinstance(options_market.get("skew"), dict) else {}
     term_structure = options_market.get("termStructure") if isinstance(options_market.get("termStructure"), dict) else {}
     return {
+        "snapshot_version": options_market.get("snapshotVersion"),
         "status": "available" if options_market.get("available") else "unavailable",
         "reason": options_market.get("reason"),
         "call_wall": options_market.get("callWall"),
@@ -3752,6 +3753,8 @@ def extract_options_fields_from_quote(quote):
         "term_structure_regime": term_structure.get("regime"),
         "expiries_count": len(options_market.get("expiries") or []),
         "coverage": options_market.get("coverage"),
+        "wall_method": options_market.get("wallMethod"),
+        "gamma_flip_status": options_market.get("gammaFlipStatus"),
     }
 
 
@@ -3766,6 +3769,8 @@ def options_cache_valid(payload):
     if not isinstance(payload, dict):
         return False
     options = payload.get("options") or {}
+    if options.get("snapshot_version") != OPTIONS_SNAPSHOT_VERSION:
+        return False
     return any(options.get(key) is not None for key in ("put_wall", "call_wall", "gamma_flip")) or bool(options.get("expiries_count"))
 
 
@@ -3858,7 +3863,11 @@ def merge_quote_with_cached_modules(ticker, quote, cached):
 
     live_options = merged.get("optionsMarket") if isinstance(merged.get("optionsMarket"), dict) else {}
     cached_options = cached_quote.get("optionsMarket") if isinstance(cached_quote.get("optionsMarket"), dict) else {}
-    if cached_options and (not live_options or not live_options.get("available")):
+    if (
+        cached_options
+        and cached_options.get("snapshotVersion") == OPTIONS_SNAPSHOT_VERSION
+        and (not live_options or not live_options.get("available"))
+    ):
         restored_options = dict(cached_options)
         restored_options["stale"] = True
         restored_options["reason"] = live_options.get("reason") or "Using cached options structure because the live option chain is unavailable."
@@ -5193,9 +5202,12 @@ def api_debug_bulk_status():
                 "options": {
                     "cache_exists": bool(options_cache),
                     "cache_valid": options_cache_valid(options_cache),
+                    "snapshot_version": options_fields.get("snapshot_version"),
                     "put_wall": options_fields.get("put_wall"),
                     "call_wall": options_fields.get("call_wall"),
                     "gamma_flip": options_fields.get("gamma_flip"),
+                    "gamma_flip_status": options_fields.get("gamma_flip_status"),
+                    "wall_method": options_fields.get("wall_method"),
                     "status": options_fields.get("status") or ("available" if options_cache_valid(options_cache) else "unavailable"),
                     "updated_at": options_updated_at,
                     "age_minutes": round(options_age / 60, 2) if options_age is not None else None,

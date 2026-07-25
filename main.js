@@ -4491,9 +4491,11 @@ function buildOptionsRead(row) {
       gammaFlipDistancePct: null,
       impliedVolatility: volatilityFallback.impliedVolatility,
       historicVolatility: volatilityFallback.historicVolatility,
-      ivPercentile: volatilityFallback.ivPercentile,
-      ivRank: volatilityFallback.ivRank,
-      netGex: Number.isFinite(options?.netGammaExposure) ? options.netGammaExposure : null,
+      ivPercentile: null,
+      ivRank: null,
+      netGex: null,
+      wallMethod: null,
+      gammaFlipStatus: options?.gammaFlipStatus ?? "unavailable_no_real_gex",
     };
   }
 
@@ -4544,11 +4546,15 @@ function buildOptionsRead(row) {
     gammaFlipDistancePct,
     impliedVolatility: options.impliedVolatility ?? volatilityFallback.impliedVolatility,
     historicVolatility: options.historicVolatility ?? volatilityFallback.historicVolatility,
-    ivPercentile: options.ivPercentile ?? volatilityFallback.ivPercentile,
-    ivRank: options.ivRank ?? volatilityFallback.ivRank,
-    netGex: options.netGammaExposure ?? null,
+    // Historical IV is not supplied by this feed, so do not manufacture IV
+    // rank/percentile from realized-volatility history.
+    ivPercentile: options.ivPercentile ?? null,
+    ivRank: options.ivRank ?? null,
+    netGex: null,
     nearestExpiry: options.nearestExpiry ?? null,
     coverage: options.coverage ?? null,
+    wallMethod: options.wallMethod ?? null,
+    gammaFlipStatus: options.gammaFlipStatus ?? "unavailable_no_real_gex",
     totalCallOpenInterest: options.totalCallOpenInterest ?? null,
     totalPutOpenInterest: options.totalPutOpenInterest ?? null,
   };
@@ -5312,46 +5318,34 @@ function normalizeExpectedMove(raw = {}, currentPrice = null) {
   };
 }
 
-function estimateExpectedMoveFromIv(price, ivPercent, days) {
-  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(ivPercent) || ivPercent <= 0 || !Number.isFinite(days) || days <= 0) {
-    return { move: null, move_pct: null, source: null };
-  }
-  const movePct = (ivPercent / 100) * Math.sqrt(days / 365) * 100;
-  return {
-    move: price * movePct / 100,
-    move_pct: movePct,
-    source: "iv-fallback",
-  };
-}
-
 function buildOptionsExpectedMoveModule(row, options = {}) {
   const rawExpectedMove = row.technicals?.optionsMarket?.expectedMove || {};
   const rawSkew = row.technicals?.optionsMarket?.skew || {};
   const rawTermStructure = row.technicals?.optionsMarket?.termStructure || {};
-  const iv = Number.isFinite(options.implied_volatility)
-    ? options.implied_volatility
-    : Number.isFinite(row.technicals?.optionsMarket?.impliedVolatility)
-      ? row.technicals.optionsMarket.impliedVolatility
-      : null;
-  const fallback7 = estimateExpectedMoveFromIv(row.price, iv, 7);
-  const fallback30 = estimateExpectedMoveFromIv(row.price, iv, 30);
-  const sevenDayMovePct = rawExpectedMove.sevenDayMovePct ?? fallback7.move_pct;
-  const thirtyDayMovePct = rawExpectedMove.thirtyDayMovePct ?? fallback30.move_pct;
+  const hasChainExpectedMove = rawExpectedMove.source === "per-expiry-atm-straddle";
+  const sevenDayMovePct = hasChainExpectedMove ? rawExpectedMove.sevenDayMovePct ?? null : null;
+  const thirtyDayMovePct = hasChainExpectedMove ? rawExpectedMove.thirtyDayMovePct ?? null : null;
   const rawOutput = {
-    atm_straddle_implied_move: rawExpectedMove.atmStraddleMove ?? null,
-    atm_straddle_implied_move_pct: rawExpectedMove.atmStraddleMovePct ?? null,
-    expected_move_7d: rawExpectedMove.sevenDayMove ?? fallback7.move,
+    atm_straddle_implied_move: hasChainExpectedMove ? rawExpectedMove.atmStraddleMove ?? null : null,
+    atm_straddle_implied_move_pct: hasChainExpectedMove ? rawExpectedMove.atmStraddleMovePct ?? null : null,
+    atm_straddle_expiry: hasChainExpectedMove ? rawExpectedMove.atmStraddleExpiry ?? null : null,
+    atm_straddle_days_to_expiry: hasChainExpectedMove ? rawExpectedMove.atmStraddleDaysToExpiry ?? null : null,
+    expected_move_7d: hasChainExpectedMove ? rawExpectedMove.sevenDayMove ?? null : null,
     expected_move_7d_pct: sevenDayMovePct,
-    expected_move_30d: rawExpectedMove.thirtyDayMove ?? fallback30.move,
+    expected_move_7d_expiry: hasChainExpectedMove ? rawExpectedMove.sevenDayExpiry ?? null : null,
+    expected_move_7d_days_to_expiry: hasChainExpectedMove ? rawExpectedMove.sevenDayDaysToExpiry ?? null : null,
+    expected_move_30d: hasChainExpectedMove ? rawExpectedMove.thirtyDayMove ?? null : null,
     expected_move_30d_pct: thirtyDayMovePct,
-    iv_percentile: options.iv_percentile ?? row.technicals?.optionsMarket?.ivPercentile ?? null,
-    iv_rank: options.iv_rank ?? row.technicals?.optionsMarket?.ivRank ?? null,
+    expected_move_30d_expiry: hasChainExpectedMove ? rawExpectedMove.thirtyDayExpiry ?? null : null,
+    expected_move_30d_days_to_expiry: hasChainExpectedMove ? rawExpectedMove.thirtyDayDaysToExpiry ?? null : null,
+    iv_percentile: row.technicals?.optionsMarket?.ivPercentile ?? null,
+    iv_rank: row.technicals?.optionsMarket?.ivRank ?? null,
     skew: rawSkew.putCallIvSkew ?? null,
     skew_method: rawSkew.method ?? null,
     term_structure: rawTermStructure,
     term_structure_slope: rawTermStructure.slope ?? null,
     term_structure_regime: rawTermStructure.regime ?? null,
-    source: rawExpectedMove.source || fallback30.source || null,
+    source: hasChainExpectedMove ? rawExpectedMove.source : null,
   };
   const normalized = normalizeExpectedMove(rawOutput, row.price);
   return {
@@ -12140,6 +12134,8 @@ function buildOptionsModule(row, supportResistance, idealBuyZone, decisionHints 
     call_wall: optionsRead.available ? optionsRead.callWall : null,
     gamma_flip: optionsRead.available ? optionsRead.gammaFlip : null,
     net_gex: optionsRead.available ? optionsRead.netGex : null,
+    wall_method: optionsRead.wallMethod,
+    gamma_flip_status: optionsRead.gammaFlipStatus,
     implied_volatility: optionsRead.impliedVolatility,
     historic_volatility: optionsRead.historicVolatility,
     iv_percentile: optionsRead.ivPercentile,
@@ -21810,29 +21806,38 @@ function renderDetailModal(row) {
     </section>
   `;
 
+  const optionsWallNote = options.wall_method === "aggregated-open-interest"
+    ? (currentLanguage === "zh" ? "跨所选到期日聚合的未平仓量集中位，不代表做市商 GEX。" : "Aggregated open-interest concentration across selected expiries; not dealer GEX.")
+    : "";
+  const gammaFlipNote = options.gamma_flip_status === "unavailable_no_real_gex"
+    ? (currentLanguage === "zh" ? "无可靠真实 GEX 数据，故不估算。" : "No verified real-GEX feed, so this is not estimated.")
+    : "";
+  const expiryNote = (expiry, dte) => expiry || dte == null
+    ? [expiry, dte == null ? null : `${dte}D`].filter(Boolean).join(" · ")
+    : "";
   const optionsPanel = `
     <section class="detail-tab-section">
       <div class="detail-kpi-grid">
         <article class="detail-kpi-card ${scoreToBand(options.options_score).tone}"><span>${t("tabOptions")}</span><strong>${options.options_score}/100</strong><small>${options.summary}</small></article>
-        <article class="detail-kpi-card neutral"><span>${t("putWall")}</span><strong>${displayValue(options.put_wall, (value) => formatCurrency(value, currencyCode))}</strong><small>${options.put_wall == null ? t("dataUnavailable") : ""}</small></article>
-        <article class="detail-kpi-card neutral"><span>${t("callWall")}</span><strong>${displayValue(options.call_wall, (value) => formatCurrency(value, currencyCode))}</strong><small>${options.call_wall == null ? t("dataUnavailable") : ""}</small></article>
-        <article class="detail-kpi-card neutral"><span>${t("gammaFlip")}</span><strong>${displayValue(options.gamma_flip, (value) => formatCurrency(value, currencyCode))}</strong><small>${options.gamma_flip == null ? t("dataUnavailable") : ""}</small></article>
+        <article class="detail-kpi-card neutral"><span>${t("putWall")}</span><strong>${displayValue(options.put_wall, (value) => formatCurrency(value, currencyCode))}</strong><small>${options.put_wall == null ? t("dataUnavailable") : optionsWallNote}</small></article>
+        <article class="detail-kpi-card neutral"><span>${t("callWall")}</span><strong>${displayValue(options.call_wall, (value) => formatCurrency(value, currencyCode))}</strong><small>${options.call_wall == null ? t("dataUnavailable") : optionsWallNote}</small></article>
+        <article class="detail-kpi-card neutral"><span>${t("gammaFlip")}</span><strong>${displayValue(options.gamma_flip, (value) => formatCurrency(value, currencyCode))}</strong><small>${options.gamma_flip == null ? (gammaFlipNote || t("dataUnavailable")) : ""}</small></article>
       </div>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "期权市场结构" : "Options Market Structure"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: t("putWall"), value: displayValue(options.put_wall, (value) => formatCurrency(value, currencyCode)) },
-          { label: t("callWall"), value: displayValue(options.call_wall, (value) => formatCurrency(value, currencyCode)) },
-          { label: t("gammaFlip"), value: displayValue(options.gamma_flip, (value) => formatCurrency(value, currencyCode)) },
+          { label: t("putWall"), value: displayValue(options.put_wall, (value) => formatCurrency(value, currencyCode)), note: optionsWallNote },
+          { label: t("callWall"), value: displayValue(options.call_wall, (value) => formatCurrency(value, currencyCode)), note: optionsWallNote },
+          { label: t("gammaFlip"), value: displayValue(options.gamma_flip, (value) => formatCurrency(value, currencyCode)), note: gammaFlipNote },
           { label: t("impliedVolatility"), value: displayValue(options.implied_volatility, (value) => formatPercentValue(value)) },
         ])}</div>
       </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "期权隐含波动区间" : "Options Expected Move"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: currentLanguage === "zh" ? "ATM跨式隐含波动" : "ATM Straddle Implied Move", value: optionsExpectedMove.atm_straddle_implied_move == null && optionsExpectedMove.atm_straddle_implied_move_pct == null ? t("dataUnavailable") : `${displayValue(optionsExpectedMove.atm_straddle_implied_move, (value) => formatCurrency(value, currencyCode))} / ${displayValue(optionsExpectedMove.atm_straddle_implied_move_pct, (value) => formatPercentValue(value))}`, note: optionsExpectedMove.source ? `${t("source")}: ${optionsExpectedMove.source}` : (currentLanguage === "zh" ? "需要可用的ATM call/put报价。" : "Requires usable ATM call/put quotes.") },
-          { label: currentLanguage === "zh" ? "7日期权预期波动" : "7D Expected Move", value: optionsExpectedMove.expected_move_7d == null && optionsExpectedMove.expected_move_7d_pct == null ? t("dataUnavailable") : `${displayValue(optionsExpectedMove.expected_move_7d, (value) => formatCurrency(value, currencyCode))} / ${displayValue(optionsExpectedMove.expected_move_7d_pct, (value) => formatPercentValue(value))}` },
-          { label: currentLanguage === "zh" ? "30日期权预期波动" : "30D Expected Move", value: optionsExpectedMove.expected_move_30d == null && optionsExpectedMove.expected_move_30d_pct == null ? t("dataUnavailable") : `${displayValue(optionsExpectedMove.expected_move_30d, (value) => formatCurrency(value, currencyCode))} / ${displayValue(optionsExpectedMove.expected_move_30d_pct, (value) => formatPercentValue(value))}` },
+          { label: currentLanguage === "zh" ? "ATM跨式隐含波动" : "ATM Straddle Implied Move", value: optionsExpectedMove.atm_straddle_implied_move == null && optionsExpectedMove.atm_straddle_implied_move_pct == null ? t("dataUnavailable") : `${displayValue(optionsExpectedMove.atm_straddle_implied_move, (value) => formatCurrency(value, currencyCode))} / ${displayValue(optionsExpectedMove.atm_straddle_implied_move_pct, (value) => formatPercentValue(value))}`, note: optionsExpectedMove.source ? `${t("source")}: ${optionsExpectedMove.source}${expiryNote(optionsExpectedMove.atm_straddle_expiry, optionsExpectedMove.atm_straddle_days_to_expiry) ? ` · ${expiryNote(optionsExpectedMove.atm_straddle_expiry, optionsExpectedMove.atm_straddle_days_to_expiry)}` : ""}` : (currentLanguage === "zh" ? "需要同一执行价的可用 ATM call/put 报价。" : "Requires usable same-strike ATM call/put quotes.") },
+          { label: currentLanguage === "zh" ? "7日期权预期波动" : "7D Expected Move", value: optionsExpectedMove.expected_move_7d == null && optionsExpectedMove.expected_move_7d_pct == null ? t("dataUnavailable") : `${displayValue(optionsExpectedMove.expected_move_7d, (value) => formatCurrency(value, currencyCode))} / ${displayValue(optionsExpectedMove.expected_move_7d_pct, (value) => formatPercentValue(value))}`, note: expiryNote(optionsExpectedMove.expected_move_7d_expiry, optionsExpectedMove.expected_move_7d_days_to_expiry) },
+          { label: currentLanguage === "zh" ? "30日期权预期波动" : "30D Expected Move", value: optionsExpectedMove.expected_move_30d == null && optionsExpectedMove.expected_move_30d_pct == null ? t("dataUnavailable") : `${displayValue(optionsExpectedMove.expected_move_30d, (value) => formatCurrency(value, currencyCode))} / ${displayValue(optionsExpectedMove.expected_move_30d_pct, (value) => formatPercentValue(value))}`, note: expiryNote(optionsExpectedMove.expected_move_30d_expiry, optionsExpectedMove.expected_move_30d_days_to_expiry) },
           { label: currentLanguage === "zh" ? "IV百分位" : "IV Percentile", value: displayValue(optionsExpectedMove.iv_percentile, (value) => `${Math.round(value)}%`) },
           { label: currentLanguage === "zh" ? "IV排名" : "IV Rank", value: displayValue(optionsExpectedMove.iv_rank, (value) => `${Math.round(value)}%`) },
           { label: currentLanguage === "zh" ? "期权偏斜" : "Skew", value: displayValue(optionsExpectedMove.skew, (value) => `${value > 0 ? "+" : ""}${formatOneDecimal(value)} ${currentLanguage === "zh" ? "波动率点" : "vol pts"}`), note: optionsExpectedMove.skew_method || (currentLanguage === "zh" ? "缺少价外 call/put IV 时暂不可用。" : "Unavailable when OTM call/put IV is missing.") },
