@@ -7415,6 +7415,24 @@ function minimumNeutralZoneAtr(companyProfile = {}) {
   return 0.8;
 }
 
+function finalExecutableRangeBoundary(range = {}, side = "buy") {
+  const candidate = side === "buy"
+    ? (range.active_segment || range.active_entry_segment || range.executable_entry)
+    : (range.active_segment || range.active_exit_segment || range.executable_exit);
+  // Deactivation preserves the candidate for traceability. It must not keep
+  // defining the neutral-zone boundary after it has ceased to be executable.
+  const active = candidate?.active === false || candidate?.executable === false ? null : candidate;
+  const base = side === "buy"
+    ? (range.base_pullback_range || range.base_range || range)
+    : (range.base_profit_target_range || range.base_sell_range || range.base_range || range);
+  const value = side === "buy" ? active?.high : active?.low;
+  const fallback = side === "buy" ? base?.high : base?.low;
+  return {
+    value: finiteNumberOrNull(value) ?? finiteNumberOrNull(fallback),
+    source: Number.isFinite(value) ? "active_executable_segment" : "base_reference_range",
+  };
+}
+
 function buildNeutralHoldZones(row, buyPlan = {}, sellPlan = {}, companyProfile = {}) {
   const atrValue = Number.isFinite(row?.technicals?.atr14) ? row.technicals.atr14 : Math.max((row?.price || 1) * 0.025, 0.5);
   const minAtr = minimumNeutralZoneAtr(companyProfile);
@@ -7426,8 +7444,10 @@ function buildNeutralHoldZones(row, buyPlan = {}, sellPlan = {}, companyProfile 
   ].forEach(([horizonKey, buyKey, sellKey]) => {
     const buy = buyPlan[buyKey];
     const sell = sellPlan[sellKey];
-    const low = Number.isFinite(buy?.high) ? buy.high : null;
-    const high = Number.isFinite(sell?.low) ? sell.low : null;
+    const buyBoundary = finalExecutableRangeBoundary(buy, "buy");
+    const sellBoundary = finalExecutableRangeBoundary(sell, "sell");
+    const low = buyBoundary.value;
+    const high = sellBoundary.value;
     const width = Number.isFinite(low) && Number.isFinite(high) ? high - low : null;
     const widthInAtr = Number.isFinite(width) && Number.isFinite(atrValue) && atrValue > 0 ? width / atrValue : null;
     zones[horizonKey] = {
@@ -7437,6 +7457,8 @@ function buildNeutralHoldZones(row, buyPlan = {}, sellPlan = {}, companyProfile 
       width_pct: Number.isFinite(width) && Number.isFinite(row?.price) && row.price > 0 ? Number(((width / row.price) * 100).toFixed(2)) : null,
       width_in_atr: Number.isFinite(widthInAtr) ? Number(widthInAtr.toFixed(2)) : null,
       minimum_width_in_atr: minAtr,
+      buy_boundary_source: buyBoundary.source,
+      sell_boundary_source: sellBoundary.source,
       status: Number.isFinite(widthInAtr) ? (widthInAtr >= minAtr ? "adequate" : "too_narrow") : "unavailable",
       explanation: Number.isFinite(widthInAtr) && widthInAtr < minAtr
         ? (currentLanguage === "zh" ? "买入区与卖出区之间的观望带偏窄，短期价格噪音可能造成动作反复。" : "Neutral hold zone is narrow, so price noise can cause action churn.")
@@ -7454,8 +7476,10 @@ function enforceForecastNeutralZone({ row, buyPlan = {}, sellPlan = {}, horizonF
     const keys = horizonRangeKeys(horizonKey);
     const buyRange = buyPlan?.[keys.buy];
     const sellRange = sellPlan?.[keys.sell];
-    const buyHigh = finiteNumberOrNull(buyRange?.high);
-    const sellLow = finiteNumberOrNull(sellRange?.low);
+    const buyBoundary = finalExecutableRangeBoundary(buyRange, "buy");
+    const sellBoundary = finalExecutableRangeBoundary(sellRange, "sell");
+    const buyHigh = buyBoundary.value;
+    const sellLow = sellBoundary.value;
     const width = Number.isFinite(buyHigh) && Number.isFinite(sellLow) ? sellLow - buyHigh : null;
     const widthInAtr = Number.isFinite(width) && Number.isFinite(atrValue) && atrValue > 0 ? width / atrValue : null;
     const forecast = horizonForecast?.[horizonKey] || {};
@@ -7467,6 +7491,8 @@ function enforceForecastNeutralZone({ row, buyPlan = {}, sellPlan = {}, horizonF
       applied: false,
       width_in_atr: Number.isFinite(widthInAtr) ? Number(widthInAtr.toFixed(2)) : null,
       minimum_width_in_atr: minAtr,
+      buy_boundary_source: buyBoundary.source,
+      sell_boundary_source: sellBoundary.source,
       resolution: "not_required",
       explanation: null,
     };
@@ -7478,7 +7504,12 @@ function enforceForecastNeutralZone({ row, buyPlan = {}, sellPlan = {}, horizonF
     const sellActive = Boolean(sellRange?.active_segment);
     const direction = forecast.expected_direction || "neutral";
     let resolution = null;
-    if (buyActive && sellActive) {
+    // A current buy segment may never cross the current exit boundary. This is
+    // checked after every active range has been built, rather than against a stale base range.
+    if (buyActive && Number.isFinite(width) && width <= 0) {
+      deactivateExecutableBuyRange(buyRange, "final_active_buy_sell_overlap");
+      resolution = "deactivated_active_buy_segment_overlap";
+    } else if (buyActive && sellActive) {
       if (forecastDirectionIsBullish(direction) || buyEvidence >= sellEvidence + 5) {
         deactivateExecutableSellRange(sellRange, "neutral_zone_too_narrow_buy_evidence_stronger");
         resolution = "deactivated_active_sell_segment";
@@ -7513,8 +7544,12 @@ function enforceForecastNeutralZone({ row, buyPlan = {}, sellPlan = {}, horizonF
     action.resolution = resolution || "kept_structure_with_warning";
     action.explanation = resolution
       ? (currentLanguage === "zh"
-        ? "买入区与卖出区之间观望带过窄，已根据该周期 forecast 与证据强弱取消较弱 active 段。"
-        : "Neutral zone was too narrow; the weaker active segment was removed based on this horizon's forecast/evidence.")
+        ? (resolution === "deactivated_active_buy_segment_overlap"
+          ? "最终可执行买入段与卖出目标区重叠，已取消买入段，避免同一价格同时被定义为买入和减仓。"
+          : "买入区与卖出区之间观望带过窄，已根据该周期 forecast 与证据强弱取消较弱 active 段。")
+        : (resolution === "deactivated_active_buy_segment_overlap"
+          ? "The final executable buy segment overlapped the exit boundary, so the buy segment was removed to prevent the same price from meaning both buy and trim."
+          : "Neutral zone was too narrow; the weaker active segment was removed based on this horizon's forecast/evidence."))
       : (currentLanguage === "zh"
         ? "观望带偏窄，但当前只有一个强 active 段且证据足够，保留结构并输出警告。"
         : "Neutral zone is narrow, but only one strong active segment is present, so it is kept with a warning.");
@@ -15098,7 +15133,15 @@ function buildHorizonRecommendation({
   const rightEarly = mergedRightSide.level === "early";
   const nearSellSide = pricePosition.between_position_bucket === "near_sell_side";
   const effectiveBuyEvidence = actionEvidence.combined_buy_evidence_score;
-  const effectiveSellEvidence = actionEvidence.combined_sell_evidence_score;
+  const activeExitMode = sellRange?.active_exit_mode || sellRange?.active_segment?.mode || null;
+  const structuralExitActive = ["trailing_risk_exit", "trend_break_exit", "support_break_exit", "earnings_risk_exit"].includes(activeExitMode)
+    && Number.isFinite(sellRange?.active_segment?.evidence_score)
+    && sellRange.active_segment.evidence_score >= (thresholds.trim_execution_threshold ?? 55);
+  actionEvidence.structural_exit_active = structuralExitActive;
+  const effectiveSellEvidence = Math.max(
+    actionEvidence.combined_sell_evidence_score ?? 0,
+    structuralExitActive ? sellRange.active_segment.evidence_score : 0,
+  );
   const effectiveAvoidEvidence = actionEvidence.avoid_evidence_score;
   const rawSellScore = actionEvidence.raw_sell_score ?? 0;
   const buySellZoneAllowed = pricePosition.status !== "above_sell_range"
@@ -15113,7 +15156,8 @@ function buildHorizonRecommendation({
     && buySellZoneAllowed;
   const trimRawCorePassed = rawSellScore >= rawCoreMinimums.trim_raw_minimum
     || (pricePosition.status === "inside_sell_range" && rawSellScore >= 50)
-    || (pricePosition.status === "above_sell_range" && rawSellScore >= 45);
+    || (pricePosition.status === "above_sell_range" && rawSellScore >= 45)
+    || structuralExitActive;
   const leftStrong = effectiveBuyEvidence >= thresholds.accumulate_execution_threshold
     && accumulateRawCorePassed
     && opportunityScores.falling_knife_risk < thresholds.falling_knife_limit
@@ -15127,7 +15171,7 @@ function buildHorizonRecommendation({
   const trendStrong = actionEvidence.trend_buy_evidence >= thresholds.accumulate_trend_threshold;
   const trendExceptional = actionEvidence.trend_buy_evidence >= thresholds.strong_buy_execution_threshold;
   const sellStrong = effectiveSellEvidence >= thresholds.trim_execution_threshold
-    && actionEvidence.sell_evidence_count >= 2;
+    && (actionEvidence.sell_evidence_count >= 2 || structuralExitActive);
   const sellExtreme = effectiveSellEvidence >= thresholds.take_profit_execution_threshold
     && actionEvidence.sell_evidence_count >= 3;
   const buyRiskPass = actionEvidence.risk_filters.company_specific_risk < 70
@@ -15443,6 +15487,8 @@ function buildHorizonRecommendation({
       hold_evidence_score: actionEvidence.hold_evidence_score,
       buy_evidence_count: actionEvidence.buy_evidence_count,
       sell_evidence_count: actionEvidence.sell_evidence_count,
+      structural_exit_active: actionEvidence.structural_exit_active,
+      effective_sell_evidence: effectiveSellEvidence,
       selected_action: finalAction,
       selected_action_evidence_score: selectedActionEvidenceScore,
       profile_adjusted_threshold: selectedActionThreshold,
@@ -16153,8 +16199,10 @@ function buildPeakRiskState({ row, horizonKey, supportResistance = {}, technical
 function buildEntrySuitabilityState({ row, horizonKey, forecast = {}, buyRange = {}, sellRange = {}, peakRiskState = {}, tradeContext = {}, companyProfile = {} }) {
   const price = finiteNumberOrNull(row?.price);
   const activeEntry = buyRange?.active_segment || null;
-  const sellLow = finiteNumberOrNull(sellRange?.low);
+  const baseProfitTarget = sellRange?.base_profit_target_range || sellRange?.base_sell_range || sellRange;
+  const sellLow = finiteNumberOrNull(baseProfitTarget?.low);
   const nearestSupport = buyRange?.base_pullback_range?.high ?? buyRange?.high;
+  const atr = finiteNumberOrNull(row?.technicals?.atr14) ?? (Number.isFinite(price) ? price * 0.035 : null);
   const upsideRemaining = Number.isFinite(price) && Number.isFinite(sellLow) ? ((sellLow - price) / price) * 100 : null;
   const downsideToSupport = Number.isFinite(price) && Number.isFinite(nearestSupport) ? ((price - nearestSupport) / price) * 100 : null;
   const rr = buyRange?.reward_risk_analysis?.rr_weighted ?? buyRange?.reward_risk_ratio ?? null;
@@ -16167,16 +16215,27 @@ function buildEntrySuitabilityState({ row, horizonKey, forecast = {}, buyRange =
   const eventBlocks = ["awaiting_confirmation", "bearish_drift"].includes(postEarnings.state);
   const trendDirection = forecast?.expected_direction || "neutral";
   const bullishTrend = forecastDirectionIsBullish(trendDirection);
+  const nearProfitTarget = Number.isFinite(price) && Number.isFinite(sellLow)
+    && Number.isFinite(atr) && price >= sellLow - atr * 1.1;
+  const extendedTrend = (peakRiskState?.price_extension_score ?? 0) >= 58
+    || (peakRiskState?.drawup_score ?? 0) >= 60;
+  const stopAdding = bullishTrend
+    && extendedTrend
+    && (poorUpside || tooCloseToResistance || nearProfitTarget);
+  const longStarterEntry = horizonKey === "long_term"
+    && Boolean(activeEntry?.long_term_starter_entry);
   const newEntryAllowed = Boolean(activeEntry)
     && bullishTrend
     && !eventBlocks
     && !poorRewardRisk
+    && !stopAdding
     && !(highPeakRisk && (poorUpside || tooCloseToResistance || peakRiskState.confirmed_distribution));
   const blockingReasons = [
     !activeEntry ? "no_executable_entry" : null,
     !bullishTrend ? "forecast_not_bullish" : null,
     eventBlocks ? "post_earnings_drift_requires_confirmation" : null,
     poorRewardRisk ? "entry_rr_insufficient" : null,
+    stopAdding ? "extended_trend_near_profit_target_stop_adding" : null,
     highPeakRisk && poorUpside ? "upside_remaining_too_limited" : null,
     highPeakRisk && tooCloseToResistance ? "too_close_to_resistance" : null,
     highPeakRisk && peakRiskState.confirmed_distribution ? "distribution_risk_blocks_new_entry" : null,
@@ -16191,11 +16250,17 @@ function buildEntrySuitabilityState({ row, horizonKey, forecast = {}, buyRange =
     momentum_acceleration: peakRiskState?.drawup_score != null && peakRiskState.drawup_score >= 60,
     momentum_deceleration: peakRiskState?.momentum_deceleration_score != null && peakRiskState.momentum_deceleration_score >= 60,
     distribution_risk: Boolean(peakRiskState?.confirmed_distribution),
+    near_profit_target: nearProfitTarget,
+    extended_trend: extendedTrend,
+    stop_adding: stopAdding,
+    long_term_starter_entry: longStarterEntry,
     new_entry_allowed: newEntryAllowed,
     blocking_reasons: blockingReasons,
-    state: newEntryAllowed ? "allowed" : highPeakRisk ? "stop_adding" : "not_executable",
+    state: newEntryAllowed ? (longStarterEntry ? "long_term_starter" : "allowed") : (stopAdding || highPeakRisk) ? "stop_adding" : "not_executable",
     explanation: newEntryAllowed
-      ? (currentLanguage === "zh" ? "趋势、可执行区、RR 与顶部风险均允许当前新增。" : "Trend, executable range, RR, and peak risk allow a new entry.")
+      ? (longStarterEntry
+        ? (currentLanguage === "zh" ? "长期方向与趋势结构通过，当前仅适合 5%-10% 的首笔分批布局。" : "Long-term direction and trend structure qualify, but only a 5%-10% starter tranche is appropriate.")
+        : (currentLanguage === "zh" ? "趋势、可执行区、RR 与顶部风险均允许当前新增。" : "Trend, executable range, RR, and peak risk allow a new entry."))
       : (currentLanguage === "zh"
         ? `趋势可能仍偏多，但当前不适合新增：${blockingReasons.join(" / ") || "证据不足"}。`
         : `Trend can still be constructive, but new entry is not suitable: ${blockingReasons.join(" / ") || "insufficient evidence"}.`),
@@ -17127,7 +17192,11 @@ function annotateSellRangeSegments({
   }
   const history = forecastHistoryFrom(row, technical);
   const recentHighLookback = horizonKey === "short_term" ? 20 : horizonKey === "mid_term" ? 60 : 120;
-  const recentHigh = (history.highs || []).slice(-recentHighLookback).filter(Number.isFinite).reduce((max, value) => Math.max(max, value), -Infinity);
+  const historyHighs = (history.highs || []).filter(Number.isFinite);
+  const historyCloses = (history.closes || []).filter(Number.isFinite);
+  const recentHigh = historyHighs.slice(-recentHighLookback).reduce((max, value) => Math.max(max, value), -Infinity);
+  const priorRecentHigh = historyHighs.slice(-recentHighLookback, -1).reduce((max, value) => Math.max(max, value), -Infinity);
+  const previousClose = historyCloses.length >= 2 ? historyCloses[historyCloses.length - 2] : null;
   const drawdownFromHighPct = Number.isFinite(price) && Number.isFinite(recentHigh) && recentHigh > 0 ? ((recentHigh - price) / recentHigh) * 100 : null;
   const ma20 = finiteNumberOrNull(row?.technicals?.ma20);
   const ma50 = finiteNumberOrNull(row?.technicals?.ma50);
@@ -17137,12 +17206,34 @@ function annotateSellRangeSegments({
     || (horizonKey === "mid_term" && Number.isFinite(ma50) && price < ma50)
     || (horizonKey === "long_term" && Number.isFinite(ma100) && price < ma100)
   );
+  const drawdownTriggerPct = horizonKey === "short_term" ? 4 : horizonKey === "mid_term" ? 6 : 8;
+  const targetTestLookback = horizonKey === "short_term" ? 6 : horizonKey === "mid_term" ? 12 : 20;
+  const recentTargetHigh = historyHighs.slice(-targetTestLookback).reduce((max, value) => Math.max(max, value), -Infinity);
+  const targetWasTested = Number.isFinite(recentTargetHigh)
+    && Number.isFinite(base?.low)
+    && Number.isFinite(atr)
+    && recentTargetHigh >= base.low - atr * 0.25;
+  const resistanceWasTested = Number.isFinite(recentTargetHigh)
+    && Number.isFinite(atr)
+    && horizonAnchors.some((anchor) => Number.isFinite(anchor?.price)
+      && recentTargetHigh >= anchor.price - atr * 0.25);
+  const failedBreakoutAfterTarget = Number.isFinite(drawdownFromHighPct)
+    && drawdownFromHighPct >= drawdownTriggerPct
+    && (targetWasTested || resistanceWasTested)
+    && Number.isFinite(priorRecentHigh)
+    && Number.isFinite(atr)
+    && priorRecentHigh - price >= atr * 0.9
+    && (!Number.isFinite(previousClose) || price < previousClose)
+    && (peakRiskState.early_warning || topEvidence);
+  const structuralExitEvidence = failedBreakoutAfterTarget
+    ? Math.max(sellScore, evidence.combined_sell_after_cap ?? 0, trimThreshold)
+    : Math.max(sellScore, evidence.combined_sell_after_cap ?? 0);
   const trailingExitAllowed = Number.isFinite(atr)
     && Number.isFinite(price)
     && Number.isFinite(drawdownFromHighPct)
-    && drawdownFromHighPct >= (horizonKey === "short_term" ? 4 : horizonKey === "mid_term" ? 6 : 8)
-    && (trendBreak || peakRiskState.confirmed_distribution || tradeContext?.cycle_state?.regime === "deteriorating")
-    && (evidence.combined_sell_after_cap >= trimThreshold || sellScore >= (thresholds.trim_reduce_threshold ?? trimThreshold));
+    && drawdownFromHighPct >= drawdownTriggerPct
+    && (trendBreak || failedBreakoutAfterTarget || peakRiskState.confirmed_distribution || tradeContext?.cycle_state?.regime === "deteriorating")
+    && structuralExitEvidence >= trimThreshold;
   if (trailingExitAllowed) {
     const mode = trendBreak ? "trend_break_exit" : "trailing_risk_exit";
     const segment = makeActiveSegment({
@@ -17151,23 +17242,27 @@ function annotateSellRangeSegments({
       high: price + atr * 0.45,
       price,
       atr,
-      evidenceScore: Math.max(sellScore, evidence.combined_sell_after_cap ?? 0, peakRiskState.score),
+      evidenceScore: Math.max(structuralExitEvidence, peakRiskState.score),
       activationThreshold: trimThreshold,
       allocationHint: horizonKey === "short_term" ? "10-20%" : horizonKey === "mid_term" ? "20-35%" : "25-45%",
       anchorSources: [
         mode,
         Number.isFinite(recentHigh) ? `${recentHighLookback}D recent high` : null,
+        failedBreakoutAfterTarget ? (targetWasTested ? "failed breakout after profit-target test" : "failed breakout after nearby resistance test") : null,
         trendBreak ? (horizonKey === "short_term" ? "MA20 break" : horizonKey === "mid_term" ? "MA50 break" : "MA100 break") : null,
         peakRiskState.level !== "low" ? `peak risk ${peakRiskState.level}` : null,
         tradeContext?.cycle_state?.regime === "deteriorating" ? "cycle deterioration" : null,
       ].filter(Boolean),
       anchorPrices: [recentHigh, ma20, ma50, ma100, price].filter(Number.isFinite),
       reason: currentLanguage === "zh"
-        ? "价格已从近期高位回落且结构/分配/周期风险触发，允许低于原目标卖出区的追踪风险减仓。"
-        : "Price has pulled back from a recent high with structure/distribution/cycle risk, so a trailing-risk exit can trigger below the original target range.",
+        ? "价格在近期触及目标/压力后回落并出现突破失败或结构风险，允许低于原目标卖出区的追踪式逐步减仓。"
+        : "Price tested a recent target/resistance and then failed with structural risk, so a trailing-risk trim can trigger below the original target range.",
     });
     if (segment?.active) {
       segment.drawdown_from_recent_high_pct = Number(drawdownFromHighPct.toFixed(2));
+      segment.failed_breakout_after_target = failedBreakoutAfterTarget;
+      segment.target_was_tested = targetWasTested;
+      segment.resistance_was_tested = resistanceWasTested;
       segment.peak_risk_state = peakRiskState;
       segments.push(segment);
     }
@@ -17327,6 +17422,32 @@ function refreshActiveBuyRiskControls({ row, buyPlan, sellPlan, stopLossPlan, su
       buyRange.active_segment.position_size_adjustment = buyRange.reward_risk_analysis.position_size_adjustment;
       buyRange.active_segment.allocation_hint = buyRange.reward_risk_analysis.position_size_adjustment.suggested_allocation;
       buyRange.allocation_hint = buyRange.reward_risk_analysis.position_size_adjustment.suggested_allocation;
+    }
+    const longForecast = tradeContext?.horizon_forecast?.long_term || {};
+    const postEarningsState = tradeContext?.post_earnings_drift_state?.state
+      || tradeContext?.gap_down_risk?.post_earnings_drift_state?.state
+      || null;
+    const longStarterEligible = horizonKey === "long_term"
+      && Boolean(buyRange.active_segment)
+      && ["trend", "right_side"].includes(buyRange.active_segment?.mode)
+      && forecastDirectionIsBullish(longForecast.expected_direction)
+      && Boolean(buyRange.long_independent_evidence?.passed)
+      && Boolean(buyRange.reward_risk_analysis?.gate_passed)
+      && !["awaiting_confirmation", "bearish_drift", "deteriorating"].includes(postEarningsState);
+    if (longStarterEligible) {
+      buyRange.active_segment.long_term_starter_entry = true;
+      buyRange.active_segment.position_size_adjustment = {
+        ...(buyRange.active_segment.position_size_adjustment || {}),
+        adjustment: "long_term_starter",
+        suggested_allocation: "5-10%",
+        long_term_starter_cap: true,
+        reason: currentLanguage === "zh"
+          ? "长期趋势确认入场只作为首笔布局，建议仓位限制为 5%-10%。"
+          : "A long-term trend-confirmation entry is a starter tranche only, capped at 5%-10%.",
+      };
+      buyRange.active_segment.allocation_hint = "5-10%";
+      buyRange.allocation_hint = "5-10%";
+      buyRange.long_term_starter_entry = true;
     }
     const eventState = recentEventStateFromGapRisk(tradeContext?.gap_down_risk || {});
     if (
@@ -17598,6 +17719,20 @@ function applyActiveTradeRanges({
   });
   buyPlan.neutral_zone_enforcement = neutralZoneEnforcement;
   sellPlan.neutral_zone_enforcement = neutralZoneEnforcement;
+  bindStopsToActiveEntries(stopLossPlan, buyPlan, row, companyProfile, supportResistance);
+  refreshActiveBuyRiskControls({ row, buyPlan, sellPlan, stopLossPlan, supportResistance, companyProfile, tradeContext });
+  decorateExecutablePlanRanges(row, buyPlan, sellPlan);
+  // Risk controls and final segment decoration may change the executable state.
+  // Recheck the finished segments so a buy entry cannot remain inside an exit area.
+  const finalNeutralZoneEnforcement = enforceForecastNeutralZone({
+    row,
+    buyPlan,
+    sellPlan,
+    horizonForecast,
+    companyProfile,
+  });
+  buyPlan.neutral_zone_enforcement = finalNeutralZoneEnforcement;
+  sellPlan.neutral_zone_enforcement = finalNeutralZoneEnforcement;
   bindStopsToActiveEntries(stopLossPlan, buyPlan, row, companyProfile, supportResistance);
   refreshActiveBuyRiskControls({ row, buyPlan, sellPlan, stopLossPlan, supportResistance, companyProfile, tradeContext });
   decorateExecutablePlanRanges(row, buyPlan, sellPlan);
