@@ -15,6 +15,52 @@ const WATCHLIST_SYNC_MS = 60 * 1000;
 const MARKET_DATA_BATCH_SIZE = 25;
 const LIVE_REFRESH_BATCH_SIZE = 2;
 const REQUIRED_DEFAULT_TICKERS = ["QQQ"];
+const FIBONACCI_HORIZON_CONFIG = Object.freeze({
+  short_term: {
+    lookback: 40,
+    min_lookback: 25,
+    max_lookback: 65,
+    left_bars: 2,
+    right_bars: 2,
+    min_pivot_separation: 5,
+    min_swing_atr: 1.5,
+    min_swing_pct: 5,
+    stale_after_bars: 20,
+    proximity_atr: 0.25,
+    duration_target: 12,
+    weights: { recency: 0.35, magnitude: 0.25, pivot_strength: 0.20, duration: 0.10, trend_relevance: 0.10 },
+  },
+  mid_term: {
+    lookback: 100,
+    min_lookback: 60,
+    max_lookback: 150,
+    left_bars: 4,
+    right_bars: 4,
+    min_pivot_separation: 10,
+    min_swing_atr: 2.5,
+    min_swing_pct: 10,
+    stale_after_bars: 50,
+    proximity_atr: 0.4,
+    duration_target: 35,
+    weights: { recency: 0.25, magnitude: 0.30, pivot_strength: 0.20, duration: 0.15, trend_relevance: 0.10 },
+  },
+  long_term: {
+    lookback: 220,
+    min_lookback: 140,
+    max_lookback: Number.POSITIVE_INFINITY,
+    left_bars: 8,
+    right_bars: 8,
+    weekly_left_bars: 2,
+    weekly_right_bars: 2,
+    min_pivot_separation: 20,
+    min_swing_atr: 4,
+    min_swing_pct: 15,
+    stale_after_bars: 100,
+    proximity_atr: 0.6,
+    duration_target: 80,
+    weights: { recency: 0.15, magnitude: 0.30, pivot_strength: 0.20, duration: 0.20, trend_relevance: 0.15 },
+  },
+});
 const CALIBRATION_CONFIG = {
   rating_thresholds: {
     strong_buy: 90,
@@ -1213,7 +1259,6 @@ const INDICATOR_LABELS = {
   ema26: { en: "EMA26", zh: "EMA26" },
   macd: { en: "MACD", zh: "MACD" },
   rsi: { en: "RSI", zh: "RSI" },
-  fibonacci: { en: "Fibonacci", zh: "斐波那契" },
   ma20: { en: "MA20", zh: "MA20" },
   ma50: { en: "MA50", zh: "MA50" },
   ma200: { en: "MA200", zh: "MA200" },
@@ -1242,7 +1287,6 @@ const indicatorDefs = [
   { key: "ema26", label: "EMA26", group: "tech", format: formatCurrency },
   { key: "macd", label: "MACD", group: "tech", format: formatSignedCurrency },
   { key: "rsi", label: "RSI", group: "tech", format: formatOneDecimal },
-  { key: "fibonacci", label: "Fibonacci", group: "tech", format: formatPercentage },
   { key: "ma20", label: "MA20", group: "tech", format: formatCurrency },
   { key: "ma50", label: "MA50", group: "tech", format: formatCurrency },
   { key: "ma200", label: "MA200", group: "tech", format: formatCurrency },
@@ -1259,7 +1303,7 @@ const indicatorDefs = [
 
 const signalGroupDefs = [
   { key: "ema", label: "EMA", keys: ["ema12", "ema26"], filter: "tech" },
-  { key: "momentum", label: "Momentum", keys: ["macd", "rsi", "fibonacci"], filter: "tech" },
+  { key: "momentum", label: "Momentum", keys: ["macd", "rsi"], filter: "tech" },
   { key: "ma", label: "MA", keys: ["ma20", "ma50", "ma200"], filter: "tech" },
   { key: "volume", label: "Volume", keys: ["volume"], filter: "tech" },
   { key: "volatility", label: "Volatility", keys: ["upper", "middle", "lower"], filter: "tech" },
@@ -2494,6 +2538,394 @@ function normalizeHistory(history, fallbackPrice, volatility, ticker, allowSynth
   };
 }
 
+function fibonacciDateLabel(value) {
+  if (value == null) return null;
+  if (typeof value === "string") return value.slice(0, 10);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toISOString().slice(0, 10);
+}
+
+function fibonacciBarsFromHistory(history = {}, maxBars = Number.POSITIVE_INFINITY) {
+  const highs = Array.isArray(history.highs) ? history.highs : [];
+  const lows = Array.isArray(history.lows) ? history.lows : [];
+  const closes = Array.isArray(history.closes) ? history.closes : [];
+  const dates = Array.isArray(history.timestamps) ? history.timestamps : (Array.isArray(history.dates) ? history.dates : []);
+  const length = Math.min(highs.length, lows.length, closes.length);
+  const start = Math.max(0, length - maxBars);
+  const dateOffset = Math.max(0, dates.length - length);
+  const bars = [];
+  for (let index = start; index < length; index += 1) {
+    const high = Number(highs[index]);
+    const low = Number(lows[index]);
+    const close = Number(closes[index]);
+    if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close) || high < low || low <= 0) continue;
+    bars.push({
+      index: bars.length,
+      source_index: index,
+      high,
+      low,
+      close,
+      date: fibonacciDateLabel(dates[dateOffset + index]),
+    });
+  }
+  return bars;
+}
+
+function fibonacciLatestScaleRegime(bars = []) {
+  const scaleBreaks = [];
+  for (let index = 1; index < bars.length; index += 1) {
+    const previous = bars[index - 1]?.close;
+    const current = bars[index]?.close;
+    if (!Number.isFinite(previous) || !Number.isFinite(current) || previous <= 0 || current <= 0) continue;
+    const ratio = Math.max(current / previous, previous / current);
+    if (ratio >= 5) scaleBreaks.push({ index, date: bars[index].date, ratio });
+  }
+  const latestBreak = scaleBreaks.at(-1);
+  return {
+    bars: latestBreak ? bars.slice(latestBreak.index) : bars,
+    scale_breaks: scaleBreaks,
+  };
+}
+
+function fibonacciWindowAtr(bars = []) {
+  if (bars.length < 2) return null;
+  const ranges = bars.slice(1).map((bar, index) => {
+    const previousClose = bars[index].close;
+    return Math.max(bar.high - bar.low, Math.abs(bar.high - previousClose), Math.abs(bar.low - previousClose));
+  }).filter(Number.isFinite);
+  return ranges.length ? mean(ranges.slice(-14)) : null;
+}
+
+function fibonacciAnomalyFlags(bars, index, referenceAtr) {
+  const bar = bars[index];
+  if (!bar) return [];
+  const flags = [];
+  const range = bar.high - bar.low;
+  if (Number.isFinite(referenceAtr) && referenceAtr > 0 && range > referenceAtr * 3.5) flags.push("abnormal_range");
+  const previousClose = bars[index - 1]?.close;
+  if (Number.isFinite(referenceAtr) && referenceAtr > 0 && Number.isFinite(previousClose) && Math.abs(bar.close - previousClose) > referenceAtr * 3) flags.push("abnormal_close_gap");
+  return flags;
+}
+
+function fibonacciPivotStrength(bars, index, side, leftBars, rightBars, referenceAtr) {
+  const pivot = bars[index];
+  const neighbors = bars.slice(Math.max(0, index - leftBars), index)
+    .concat(bars.slice(index + 1, index + rightBars + 1));
+  if (!pivot || !neighbors.length) return 0;
+  const counterpart = side === "high"
+    ? Math.max(...neighbors.map((bar) => bar.high))
+    : Math.min(...neighbors.map((bar) => bar.low));
+  const prominence = side === "high" ? pivot.high - counterpart : counterpart - pivot.low;
+  const denominator = Math.max(referenceAtr || pivot.close * 0.01, pivot.close * 0.002, 0.01);
+  return clamp(Math.round(45 + (prominence / denominator) * 18), 0, 100);
+}
+
+function findConfirmedPivotHighs(bars = [], config = {}, referenceAtr = null) {
+  const leftBars = config.left_bars ?? 2;
+  const rightBars = config.right_bars ?? 2;
+  const pivots = [];
+  for (let index = leftBars; index < bars.length - rightBars; index += 1) {
+    const high = bars[index]?.high;
+    if (!Number.isFinite(high)) continue;
+    const left = bars.slice(index - leftBars, index);
+    const right = bars.slice(index + 1, index + rightBars + 1);
+    if (left.every((bar) => high > bar.high) && right.every((bar) => high > bar.high)) {
+      const anomalyFlags = fibonacciAnomalyFlags(bars, index, referenceAtr);
+      pivots.push({
+        type: "high",
+        index,
+        price: high,
+        date: bars[index].date,
+        strength: fibonacciPivotStrength(bars, index, "high", leftBars, rightBars, referenceAtr),
+        anomaly_flags: anomalyFlags,
+        confirmed: true,
+      });
+    }
+  }
+  return pivots;
+}
+
+function findConfirmedPivotLows(bars = [], config = {}, referenceAtr = null) {
+  const leftBars = config.left_bars ?? 2;
+  const rightBars = config.right_bars ?? 2;
+  const pivots = [];
+  for (let index = leftBars; index < bars.length - rightBars; index += 1) {
+    const low = bars[index]?.low;
+    if (!Number.isFinite(low)) continue;
+    const left = bars.slice(index - leftBars, index);
+    const right = bars.slice(index + 1, index + rightBars + 1);
+    if (left.every((bar) => low < bar.low) && right.every((bar) => low < bar.low)) {
+      const anomalyFlags = fibonacciAnomalyFlags(bars, index, referenceAtr);
+      pivots.push({
+        type: "low",
+        index,
+        price: low,
+        date: bars[index].date,
+        strength: fibonacciPivotStrength(bars, index, "low", leftBars, rightBars, referenceAtr),
+        anomaly_flags: anomalyFlags,
+        confirmed: true,
+      });
+    }
+  }
+  return pivots;
+}
+
+function buildSwingCandidates({ pivotHighs = [], pivotLows = [], bars = [], config = {}, referenceAtr = null }) {
+  const candidates = [];
+  const minSeparation = config.min_pivot_separation ?? 5;
+  const minRange = Math.max((referenceAtr || 0) * (config.min_swing_atr ?? 0), (bars[bars.length - 1]?.close || 0) * ((config.min_swing_pct ?? 0) / 100));
+  const addCandidate = (start, end, swingDirection) => {
+    const separation = end.index - start.index;
+    const low = swingDirection === "up_swing" ? start.price : end.price;
+    const high = swingDirection === "up_swing" ? end.price : start.price;
+    const range = high - low;
+    if (separation < minSeparation || !Number.isFinite(range) || range <= 0 || range < minRange) return;
+    candidates.push({
+      swing_direction: swingDirection,
+      start,
+      end,
+      swing_low: low,
+      swing_high: high,
+      swing_range: range,
+      swing_range_pct: low > 0 ? (range / low) * 100 : null,
+      separation,
+      bars_since_swing_end: Math.max(0, bars.length - 1 - end.index),
+      pivot_anomaly_flags: [...new Set([...(start.anomaly_flags || []), ...(end.anomaly_flags || [])])],
+    });
+  };
+  pivotLows.forEach((low) => pivotHighs.filter((high) => high.index > low.index).forEach((high) => addCandidate(low, high, "up_swing")));
+  pivotHighs.forEach((high) => pivotLows.filter((low) => low.index > high.index).forEach((low) => addCandidate(high, low, "down_swing")));
+  return candidates;
+}
+
+function scoreSwingCandidate(candidate, bars, config, weekly = null) {
+  const weights = config.weights || {};
+  const recency = clamp(100 - (candidate.bars_since_swing_end / Math.max(config.lookback, 1)) * 100, 0, 100);
+  const magnitudeFloor = Math.max((config.min_swing_pct || 0) * 1.6, 1);
+  const magnitude = clamp((candidate.swing_range_pct / magnitudeFloor) * 100, 0, 100);
+  const pivotStrength = mean([candidate.start.strength, candidate.end.strength].filter(Number.isFinite)) ?? 0;
+  const duration = clamp((candidate.separation / Math.max(config.duration_target || candidate.separation, 1)) * 100, 0, 100);
+  const currentPrice = bars[bars.length - 1]?.close;
+  const trendRelevance = candidate.swing_direction === "up_swing"
+    ? clamp(55 + ((currentPrice - candidate.swing_low) / Math.max(candidate.swing_range, 0.01)) * 20, 0, 100)
+    : clamp(55 + ((candidate.swing_high - currentPrice) / Math.max(candidate.swing_range, 0.01)) * 20, 0, 100);
+  const stalePenalty = candidate.bars_since_swing_end > (config.stale_after_bars || Number.POSITIVE_INFINITY) ? 16 : 0;
+  const anomalyPenalty = (candidate.pivot_anomaly_flags || []).length * 9;
+  const weeklyBonus = weekly?.weekly_bar_count >= 20 && config.weekly_left_bars ? 4 : 0;
+  const score = clamp(Math.round(
+    recency * (weights.recency || 0)
+    + magnitude * (weights.magnitude || 0)
+    + pivotStrength * (weights.pivot_strength || 0)
+    + duration * (weights.duration || 0)
+    + trendRelevance * (weights.trend_relevance || 0)
+    + weeklyBonus
+    - stalePenalty
+    - anomalyPenalty,
+  ), 0, 100);
+  return {
+    ...candidate,
+    score,
+    score_components: { recency, magnitude, pivot_strength: pivotStrength, duration, trend_relevance: trendRelevance, weekly_bonus: weeklyBonus, stale_penalty: stalePenalty, anomaly_penalty: anomalyPenalty },
+  };
+}
+
+function selectBestFibonacciSwing(candidates = [], bars = [], config = {}, weekly = null) {
+  const scored = candidates
+    .map((candidate) => scoreSwingCandidate(candidate, bars, config, weekly))
+    .filter((candidate) => !(
+      candidate.pivot_anomaly_flags?.includes("abnormal_range")
+      && candidate.swing_range_pct > 250
+    ))
+    .sort((left, right) => right.score - left.score || right.end.index - left.end.index || right.separation - left.separation);
+  const normalCandidates = scored.filter((candidate) => !(candidate.pivot_anomaly_flags || []).length);
+  return normalCandidates[0] || scored[0] || null;
+}
+
+function buildFibonacciLevel({ ratio, price, type, direction, currentPrice }) {
+  const distance = Number.isFinite(price) && Number.isFinite(currentPrice) ? price - currentPrice : null;
+  const validForDisplay = Number.isFinite(price) && price > 0;
+  return {
+    ratio,
+    label: `${ratio.toFixed(1)}%`,
+    price,
+    type,
+    direction,
+    valid_for_display: validForDisplay,
+    distance_from_current: distance,
+    distance_from_current_pct: Number.isFinite(distance) && currentPrice > 0 ? (distance / currentPrice) * 100 : null,
+    current_price_above: validForDisplay && Number.isFinite(currentPrice) ? currentPrice > price : null,
+    current_price_below: validForDisplay && Number.isFinite(currentPrice) ? currentPrice < price : null,
+  };
+}
+
+function fibonacciPositionLabel({ currentPrice, low, high, direction, levels, proximityDistance }) {
+  const ordered = levels.filter((level) => level.valid_for_display).sort((left, right) => left.price - right.price);
+  if (!Number.isFinite(currentPrice) || !ordered.length) return currentLanguage === "zh" ? "当前价格或斐波那契水平不可用" : "Current price or Fibonacci levels unavailable";
+  const nearest = ordered.slice().sort((left, right) => Math.abs(left.price - currentPrice) - Math.abs(right.price - currentPrice))[0];
+  if (nearest && Math.abs(nearest.price - currentPrice) <= proximityDistance) {
+    return currentLanguage === "zh" ? `接近 ${nearest.label} ${nearest.type === "extension" ? "扩展位" : "回撤位"}` : `Near the ${nearest.label} ${nearest.type}`;
+  }
+  const below = ordered.filter((level) => level.price <= currentPrice).at(-1) || null;
+  const above = ordered.find((level) => level.price >= currentPrice) || null;
+  if (direction === "up_swing" && currentPrice < low) return currentLanguage === "zh" ? "跌破 Swing Low，进入上升波段失效区域" : "Below the swing low; the up-swing structure is invalidated";
+  if (direction === "down_swing" && currentPrice > high) return currentLanguage === "zh" ? "突破 Swing High，进入下跌波段失效区域" : "Above the swing high; the down-swing structure is invalidated";
+  if (below && above && below !== above) return currentLanguage === "zh" ? `当前价格位于 ${below.label} 与 ${above.label} 之间` : `Current price is between ${below.label} and ${above.label}`;
+  if (currentPrice > high) return currentLanguage === "zh" ? "已突破 Swing High，进入上行扩展区域" : "Above the swing high in an upside extension area";
+  if (currentPrice < low) return currentLanguage === "zh" ? "跌破 Swing Low，进入下行扩展区域" : "Below the swing low in a downside extension area";
+  return currentLanguage === "zh" ? "当前价格位于所选 Swing 区间内" : "Current price is within the selected swing range";
+}
+
+function buildFibonacciHorizon(history, horizon, currentPrice, atr14 = null) {
+  const config = FIBONACCI_HORIZON_CONFIG[horizon];
+  const rawBars = fibonacciBarsFromHistory(history, config.max_lookback);
+  const scaleRegime = fibonacciLatestScaleRegime(rawBars);
+  const bars = scaleRegime.bars.slice(-(horizon === "long_term" ? Math.min(scaleRegime.bars.length, config.lookback) : config.lookback));
+  const base = {
+    horizon,
+    status: "insufficient_history",
+    data_window: `recent ${bars.length} daily bars`,
+    source_bar_count: bars.length,
+    scale_breaks: scaleRegime.scale_breaks,
+    data_quality: bars.length >= config.min_lookback ? "partial" : "insufficient",
+    pivot_method: `confirmed daily pivots (${config.left_bars}/${config.right_bars})`,
+    pivot_confirmation: `left ${config.left_bars} / right ${config.right_bars} bars confirmed`,
+    retracement_levels: {},
+    extension_levels: {},
+    current_price: Number.isFinite(currentPrice) ? currentPrice : null,
+    invalidation_reason: null,
+    explanation: scaleRegime.scale_breaks.length
+      ? (currentLanguage === "zh" ? "检测到价格尺度断层，已仅使用最近一致价格尺度的日线。" : "A price-scale break was detected; only the latest consistent price regime is used.")
+      : (currentLanguage === "zh" ? "历史日线不足，无法确认有效 Fibonacci Swing。" : "Insufficient daily history to confirm a valid Fibonacci swing."),
+  };
+  if (bars.length < config.min_lookback) return base;
+  const referenceAtr = Number.isFinite(atr14) && atr14 > 0 ? atr14 : fibonacciWindowAtr(bars);
+  const weekly = horizon === "long_term" ? aggregateWeeklyBars({
+    opens: bars.map((bar) => bar.close), highs: bars.map((bar) => bar.high), lows: bars.map((bar) => bar.low), closes: bars.map((bar) => bar.close), timestamps: bars.map((bar) => bar.date), volumes: [],
+  }) : null;
+  const pivotHighs = findConfirmedPivotHighs(bars, config, referenceAtr);
+  const pivotLows = findConfirmedPivotLows(bars, config, referenceAtr);
+  const candidate = selectBestFibonacciSwing(buildSwingCandidates({ pivotHighs, pivotLows, bars, config, referenceAtr }), bars, config, weekly);
+  if (!candidate) {
+    return {
+      ...base,
+      status: "no_valid_swing",
+      data_quality: bars.every((bar) => bar.date) ? "medium" : "low",
+      pivot_high_count: pivotHighs.length,
+      pivot_low_count: pivotLows.length,
+      explanation: currentLanguage === "zh" ? "未识别到同时满足时间顺序、幅度和确认条件的有效 Swing。" : "No swing met the time-order, magnitude, and confirmation requirements.",
+    };
+  }
+  const range = candidate.swing_range;
+  const direction = candidate.swing_direction;
+  const retracementRatios = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+  const extensionRatios = [1.272, 1.618, 2, 2.618];
+  const retracementLevels = Object.fromEntries(retracementRatios.map((ratio) => {
+    const price = direction === "up_swing"
+      ? candidate.swing_high - range * ratio
+      : candidate.swing_low + range * ratio;
+    return [(ratio * 100).toFixed(1), buildFibonacciLevel({ ratio: ratio * 100, price, type: "retracement", direction, currentPrice })];
+  }));
+  const extensionLevels = Object.fromEntries(extensionRatios.map((ratio) => {
+    const price = direction === "up_swing"
+      ? candidate.swing_low + range * ratio
+      : candidate.swing_high - range * ratio;
+    return [(ratio * 100).toFixed(1), buildFibonacciLevel({ ratio: ratio * 100, price, type: "extension", direction, currentPrice })];
+  }));
+  const allLevels = [...Object.values(retracementLevels), ...Object.values(extensionLevels)];
+  const validLevels = allLevels.filter((level) => level.valid_for_display).sort((left, right) => left.price - right.price);
+  const nearestBelow = validLevels.filter((level) => level.price <= currentPrice).at(-1) || null;
+  const nearestAbove = validLevels.find((level) => level.price >= currentPrice) || null;
+  const proximityDistance = Math.max((referenceAtr || currentPrice * 0.01) * config.proximity_atr, currentPrice * 0.0025);
+  const stale = candidate.bars_since_swing_end > config.stale_after_bars;
+  return {
+    ...base,
+    status: stale ? "stale_swing" : "available",
+    swing_direction: direction,
+    swing_start_date: candidate.start.date,
+    swing_end_date: candidate.end.date,
+    swing_low: candidate.swing_low,
+    swing_low_date: direction === "up_swing" ? candidate.start.date : candidate.end.date,
+    swing_high: candidate.swing_high,
+    swing_high_date: direction === "up_swing" ? candidate.end.date : candidate.start.date,
+    swing_range: range,
+    swing_range_pct: candidate.swing_range_pct,
+    pivot_strength: Math.round(mean([candidate.start.strength, candidate.end.strength]) ?? 0),
+    pivot_confirmation: `${base.pivot_confirmation}; ${candidate.separation} bars apart`,
+    bars_since_swing_end: candidate.bars_since_swing_end,
+    pivot_anomaly_flags: candidate.pivot_anomaly_flags,
+    pivot_high_count: pivotHighs.length,
+    pivot_low_count: pivotLows.length,
+    selected_candidate_score: candidate.score,
+    selected_candidate_components: candidate.score_components,
+    weekly_reference: horizon === "long_term" ? { weekly_bar_count: weekly?.weekly_bar_count ?? 0, status: weekly?.status || "unavailable" } : { status: "not_used" },
+    retracement_levels: retracementLevels,
+    extension_levels: extensionLevels,
+    current_position_ratio: direction === "up_swing"
+      ? (currentPrice - candidate.swing_low) / range
+      : (candidate.swing_high - currentPrice) / range,
+    current_position_label: fibonacciPositionLabel({ currentPrice, low: candidate.swing_low, high: candidate.swing_high, direction, levels: allLevels, proximityDistance }),
+    nearest_level_below: nearestBelow,
+    nearest_level_above: nearestAbove,
+    distance_to_level_below_pct: nearestBelow?.distance_from_current_pct ?? null,
+    distance_to_level_above_pct: nearestAbove?.distance_from_current_pct ?? null,
+    invalidation_reason: direction === "up_swing" && currentPrice < candidate.swing_low
+      ? "current_price_below_up_swing_low"
+      : direction === "down_swing" && currentPrice > candidate.swing_high
+        ? "current_price_above_down_swing_high"
+        : null,
+    data_quality: bars.every((bar) => bar.date) && Number.isFinite(referenceAtr) ? "high" : "medium",
+    explanation: currentLanguage === "zh"
+      ? `基于 ${bars.length} 根日线的已确认 ${direction === "up_swing" ? "上涨" : "下跌"} Swing；仅用于 Fibonacci 结构展示。`
+      : `Confirmed ${direction === "up_swing" ? "up" : "down"} swing from ${bars.length} daily bars; display-only Fibonacci structure.`,
+  };
+}
+
+function validateFibonacciHorizonIndependence(fibonacciStructure = {}) {
+  const shortTerm = fibonacciStructure.short_term;
+  const midTerm = fibonacciStructure.mid_term;
+  const longTerm = fibonacciStructure.long_term;
+  const pairs = [["short_mid", shortTerm, midTerm], ["mid_long", midTerm, longTerm], ["short_long", shortTerm, longTerm]];
+  const pairChecks = pairs.map(([pair, left, right]) => {
+    const sameObject = Boolean(left && right && left === right);
+    const sameSwing = Boolean(left?.status === "available" && right?.status === "available"
+      && left.swing_direction === right.swing_direction
+      && left.swing_start_date === right.swing_start_date
+      && left.swing_end_date === right.swing_end_date
+      && left.swing_low === right.swing_low
+      && left.swing_high === right.swing_high);
+    return {
+      pair,
+      same_object: sameObject,
+      same_window: left?.data_window === right?.data_window,
+      same_swing: sameSwing,
+      same_swing_reason: sameSwing ? "The same confirmed swing ranked highest in both independent horizon scans." : null,
+      pivot_parameters_distinct: left?.pivot_method !== right?.pivot_method,
+    };
+  });
+  const invalidStructure = [shortTerm, midTerm, longTerm].some((item) => item?.status === "available" && (!Number.isFinite(item.swing_low) || !Number.isFinite(item.swing_high) || item.swing_high <= item.swing_low));
+  const negativeExtensionDisplayed = [shortTerm, midTerm, longTerm].some((item) => Object.values(item?.extension_levels || {}).some((level) => level.price <= 0 && level.valid_for_display));
+  const nearestOrderInvalid = [shortTerm, midTerm, longTerm].some((item) => item?.nearest_level_below?.price != null && item?.nearest_level_above?.price != null && item.nearest_level_below.price > item.nearest_level_above.price);
+  return {
+    pair_checks: pairChecks,
+    exact_duplicate: pairChecks.some((item) => item.same_object),
+    same_value_swing: pairChecks.filter((item) => item.same_swing).map((item) => item.pair),
+    invalid_swing: invalidStructure,
+    negative_extension_displayed: negativeExtensionDisplayed,
+    nearest_level_order_invalid: nearestOrderInvalid,
+    conflicts: Number(invalidStructure) + Number(negativeExtensionDisplayed) + Number(nearestOrderInvalid) + pairChecks.filter((item) => item.same_object).length,
+  };
+}
+
+function buildFibonacciStructure(history, currentPrice, atr14 = null) {
+  const structure = {
+    short_term: buildFibonacciHorizon(history, "short_term", currentPrice, atr14),
+    mid_term: buildFibonacciHorizon(history, "mid_term", currentPrice, atr14),
+    long_term: buildFibonacciHorizon(history, "long_term", currentPrice, atr14),
+  };
+  structure.validation = validateFibonacciHorizonIndependence(structure);
+  return structure;
+}
+
 function classify(value, lower, upper, reversed = false) {
   if (value == null || Number.isNaN(value)) return { signal: "hold", trend: "flat" };
   if (!reversed) {
@@ -3032,6 +3464,7 @@ function computeIndicators(ticker, snapshot, profile) {
   const rangeHigh = recentHighs.length ? Math.max(...recentHighs) : close;
   const { support, resistance, analysis: srAnalysis } = deriveLevels(close, history, { ma20, ma50, ma100, ma200, upperBand, middleBand, lowerBand, rangeLow, rangeHigh });
   const fibPosition = rangeHigh > rangeLow ? (close - rangeLow) / (rangeHigh - rangeLow) : 0.5;
+  const fibonacciStructure = buildFibonacciStructure(history, close, atr14);
   const pricePressure = clamp((close - ma20) / Math.max(ma20, 1), -0.25, 0.25);
 
   const ema12Signal = close > ema12 && ema12 > ema26 ? { signal: "buy", trend: "up" } : close < ema12 && ema12 < ema26 ? { signal: "sell", trend: "down" } : { signal: "hold", trend: "flat" };
@@ -3130,6 +3563,7 @@ function computeIndicators(ticker, snapshot, profile) {
       rsi14,
       kdj: kdjValue,
       fibPosition,
+      fibonacci_structure: fibonacciStructure,
       ma10,
       ma20,
       ma50,
@@ -11574,6 +12008,7 @@ function buildTechnicalModule(row, supportResistance, companyProfile = null) {
       macd: tech.macd ?? null,
       fibonacci: tech.fibPosition ?? null,
     },
+    fibonacci_structure: tech.fibonacci_structure || null,
     momentum: {
       state: momentumScore >= 70 ? "Healthy Bullish" : momentumScore >= 55 ? "Neutral" : momentumScore >= 35 ? "Weak Momentum" : "Oversold",
       rsi: tech.rsi14 ?? null,
@@ -21447,6 +21882,62 @@ function renderDetailModal(row) {
     </section>
   `;
 
+  const renderFibonacciLevelRows = (levels = {}) => Object.values(levels)
+    .filter((level) => level?.valid_for_display)
+    .map((level) => ({
+      label: `${level.label} ${level.type === "extension" ? (currentLanguage === "zh" ? "扩展" : "Extension") : (currentLanguage === "zh" ? "回撤" : "Retracement")}`,
+      value: formatCurrency(level.price, currencyCode),
+      note: Math.abs(level.distance_from_current_pct ?? Number.POSITIVE_INFINITY) <= 0.1
+        ? (currentLanguage === "zh" ? "接近当前价格" : "Near current price")
+        : "",
+    }));
+  const renderFibonacciHorizonCard = (title, fib) => {
+    if (!fib || !["available", "stale_swing"].includes(fib.status)) {
+      const unavailableLabel = fib?.status === "no_valid_swing"
+        ? (currentLanguage === "zh" ? "暂未识别到有效波段" : "No valid swing identified")
+        : (currentLanguage === "zh" ? "Fibonacci 数据不足" : "Insufficient Fibonacci data");
+      return `
+        <article class="decision-list-card">
+          <div class="decision-list-title">${title}</div>
+          <div class="detail-line-label">${unavailableLabel}</div>
+          <div class="detail-line-note">${localizedDashboardText(fib?.explanation || "")}</div>
+        </article>
+      `;
+    }
+    const directionLabel = fib.swing_direction === "up_swing"
+      ? (currentLanguage === "zh" ? "上涨波段" : "Up Swing")
+      : (currentLanguage === "zh" ? "下跌波段" : "Down Swing");
+    const nearestBelow = fib.nearest_level_below;
+    const nearestAbove = fib.nearest_level_above;
+    return `
+      <article class="decision-list-card">
+        <div class="decision-list-title">${title}</div>
+        <div class="detail-line-label">${directionLabel}</div>
+        <div class="detail-line-note">${currentLanguage === "zh" ? "起点" : "Start"}: ${fib.swing_start_date || "—"} · ${formatCurrency(fib.swing_direction === "up_swing" ? fib.swing_low : fib.swing_high, currencyCode)}</div>
+        <div class="detail-line-note">${currentLanguage === "zh" ? "终点" : "End"}: ${fib.swing_end_date || "—"} · ${formatCurrency(fib.swing_direction === "up_swing" ? fib.swing_high : fib.swing_low, currencyCode)}</div>
+        <div class="detail-line-note">${currentLanguage === "zh" ? "数据窗口" : "Data Window"}: ${fib.data_window} · ${currentLanguage === "zh" ? "确认方法" : "Confirmation"}: ${fib.pivot_method}</div>
+        <div class="detail-line-note">${currentLanguage === "zh" ? "当前所处位置" : "Current Position"}: ${fib.current_position_label || t("dataUnavailable")}</div>
+        <div class="detail-line-note">${currentLanguage === "zh" ? "最近下方 Fib" : "Nearest Fib Below"}: ${nearestBelow ? `${nearestBelow.label} · ${formatCurrency(nearestBelow.price, currencyCode)}` : "—"}</div>
+        <div class="detail-line-note">${currentLanguage === "zh" ? "最近上方 Fib" : "Nearest Fib Above"}: ${nearestAbove ? `${nearestAbove.label} · ${formatCurrency(nearestAbove.price, currencyCode)}` : "—"}</div>
+        ${fib.status === "stale_swing" ? `<div class="detail-line-note">${currentLanguage === "zh" ? "提示" : "Note"}: ${currentLanguage === "zh" ? "该 Swing 距今较久，仅作结构参考。" : "This swing is older and is shown for structural context only."}</div>` : ""}
+        ${(fib.pivot_anomaly_flags || []).length ? `<div class="detail-line-note">${currentLanguage === "zh" ? "异常检查" : "Anomaly Check"}: ${fib.pivot_anomaly_flags.join(", ")}</div>` : ""}
+        <div class="detail-line-list">${renderMetricRows(renderFibonacciLevelRows(fib.retracement_levels))}</div>
+        <div class="detail-line-note">${currentLanguage === "zh" ? "扩展位" : "Extension Levels"}</div>
+        <div class="detail-line-list">${renderMetricRows(renderFibonacciLevelRows(fib.extension_levels))}</div>
+      </article>
+    `;
+  };
+  const renderFibonacciStructure = (structure) => `
+    <section class="detail-section-card">
+      <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "Fibonacci 结构" : "Fibonacci Structure"}</h3></div>
+      <div class="decision-summary-grid">
+        ${renderFibonacciHorizonCard(currentLanguage === "zh" ? "短期 Fibonacci" : "Short-Term Fibonacci", structure?.short_term)}
+        ${renderFibonacciHorizonCard(currentLanguage === "zh" ? "中期 Fibonacci" : "Mid-Term Fibonacci", structure?.mid_term)}
+        ${renderFibonacciHorizonCard(currentLanguage === "zh" ? "长期 Fibonacci" : "Long-Term Fibonacci", structure?.long_term)}
+      </div>
+    </section>
+  `;
+
   const technicalPanel = `
     <section class="detail-tab-section">
       <div class="decision-target-grid">
@@ -21464,10 +21955,10 @@ function renderDetailModal(row) {
           { label: "MA100", value: displayValue(technical.trend.ma100, (value) => formatCurrency(value, currencyCode)) },
           { label: "MA200", value: displayValue(technical.trend.ma200, (value) => formatCurrency(value, currencyCode)) },
           { label: "MACD", value: displayValue(technical.trend.macd, (value) => formatSignedCurrency(value, currencyCode)) },
-          { label: "Fibonacci", value: displayValue(technical.trend.fibonacci, (value) => formatPercentage(value)) },
           { label: t("summary"), value: localizedDashboardText(technical.trend.state) },
         ])}</div>
       </section>
+      ${renderFibonacciStructure(technical.fibonacci_structure || row.technicals?.fibonacci_structure)}
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("momentum")}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
