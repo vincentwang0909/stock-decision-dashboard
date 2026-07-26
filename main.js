@@ -2851,7 +2851,6 @@ function computeSupportResistanceAnalysis(close, history, technicals) {
     ...buildMovingAverageCandidates(close, technicals),
     ...buildFibonacciCandidates(close, rangeLow, rangeHigh),
     ...buildBollingerCandidates(close, technicals),
-    ...buildOptionsCandidates(close, technicals.optionsMarket),
   ];
 
   let support = clusterSideCandidates(candidates, close, "support").filter((item) => item.price <= close).slice(0, 3);
@@ -2950,7 +2949,6 @@ function makeNoDataMetrics(ticker) {
     technicals: {
       support: [],
       resistance: [],
-      optionsMarket: null,
     },
   };
 }
@@ -2995,7 +2993,6 @@ function computeIndicators(ticker, snapshot, profile) {
   if (!Number.isFinite(close)) {
     return makeNoDataMetrics(ticker);
   }
-  const optionsMarket = market.optionsMarket ?? null;
 
   const previousClose = Number.isFinite(market.previousClose) ? market.previousClose : (closes.length > 1 ? closes[closes.length - 2] : close);
   const change = close - previousClose;
@@ -3033,7 +3030,7 @@ function computeIndicators(ticker, snapshot, profile) {
   const recentHighs = highs.slice(-252).filter((value) => Number.isFinite(value));
   const rangeLow = recentLows.length ? Math.min(...recentLows) : close;
   const rangeHigh = recentHighs.length ? Math.max(...recentHighs) : close;
-  const { support, resistance, analysis: srAnalysis } = deriveLevels(close, history, { ma20, ma50, ma100, ma200, upperBand, middleBand, lowerBand, rangeLow, rangeHigh, optionsMarket });
+  const { support, resistance, analysis: srAnalysis } = deriveLevels(close, history, { ma20, ma50, ma100, ma200, upperBand, middleBand, lowerBand, rangeLow, rangeHigh });
   const fibPosition = rangeHigh > rangeLow ? (close - rangeLow) / (rangeHigh - rangeLow) : 0.5;
   const pricePressure = clamp((close - ma20) / Math.max(ma20, 1), -0.25, 0.25);
 
@@ -3082,7 +3079,6 @@ function computeIndicators(ticker, snapshot, profile) {
     ma50,
     changePercent,
     profile,
-    optionsMarket,
   });
   const dominant = action.toLowerCase();
   const note = action === "Buy"
@@ -3150,7 +3146,6 @@ function computeIndicators(ticker, snapshot, profile) {
       lowerBand,
       rangeLow,
       rangeHigh,
-      optionsMarket,
       support,
       resistance,
       history: { ...history, turnovers },
@@ -4059,13 +4054,12 @@ function formatChangePercent(value) {
   return `${numeric >= 0 ? "+" : ""}${numeric.toFixed(1)}%`;
 }
 
-function determineSetupAction({ score, srAnalysis, rsi14, fibPosition, price, ma20, ma50, changePercent, profile, optionsMarket }) {
+function determineSetupAction({ score, srAnalysis, rsi14, fibPosition, price, ma20, ma50, changePercent, profile }) {
   const supportDistance = srAnalysis?.supportDistancePct;
   const resistanceDistance = srAnalysis?.resistanceDistancePct;
   const supportStrength = srAnalysis?.supportStrength ?? 0;
   const resistanceStrength = srAnalysis?.resistanceStrength ?? 0;
   const riskReward = srAnalysis?.riskReward;
-  const optionsRead = buildOptionsRead({ price, technicals: { optionsMarket } });
 
   const nearSupport = supportDistance != null && supportDistance <= 3.2;
   const atSupport = supportDistance != null && supportDistance <= 1.2;
@@ -4079,30 +4073,24 @@ function determineSetupAction({ score, srAnalysis, rsi14, fibPosition, price, ma
   const trendBroken = price < ma50 * 0.95;
   const trendHealthy = price >= ma50 * 0.98;
   const qualityName = (profile?.quality ?? 0) >= 0.55 && (profile?.growth ?? 0) >= 0.45 && (profile?.cash ?? 0) >= 0;
-  const optionsSupportive = optionsRead.signal === "buy";
-  const optionsCapped = optionsRead.signal === "sell";
 
-  if (atSupport && strongSupport && washedOut && !extended && !trendBroken && qualityName && score >= 74 && !optionsCapped) {
+  if (atSupport && strongSupport && washedOut && !extended && !trendBroken && qualityName && score >= 74) {
     return "Strong Buy";
   }
 
-  if (nearSupport && strongSupport && goodReward && washedOut && trendHealthy && score >= 58 && !optionsCapped) {
+  if (nearSupport && strongSupport && goodReward && washedOut && trendHealthy && score >= 58) {
     return "Buy";
   }
 
-  if (score >= 72 && atSupport && !extended && trendHealthy && qualityName && !optionsCapped) {
+  if (score >= 72 && atSupport && !extended && trendHealthy && qualityName) {
     return "Buy";
-  }
-
-  if (optionsSupportive && nearSupport && trendHealthy && score >= 55 && !extended) {
-    return score >= 74 ? "Strong Buy" : "Buy";
   }
 
   if (nearResistance && strongResistance && extended && poorReward && score < 30) {
     return "Strong Sell";
   }
 
-  if ((nearResistance && strongResistance && (extended || poorReward)) || (optionsCapped && nearResistance)) {
+  if (nearResistance && strongResistance && (extended || poorReward)) {
     return "Sell";
   }
 
@@ -4592,7 +4580,6 @@ function buildLongTermResearch(row) {
   const fundamental = clamp(Math.round(((dims.fundamental * 0.45) + (qualityScore * 0.3) + (growthScore * 0.15) + (valuationScore * 0.1))), 0, 100);
   const stockType = classifyStockType(row, dims, metrics, qualityScore, growthScore, valuationScore);
   const config = stockTypeConfig(stockType);
-  const optionsRead = buildOptionsRead(row);
   const componentScores = {
     technical: dims.technical,
     fundamental,
@@ -4601,7 +4588,7 @@ function buildLongTermResearch(row) {
     growth: growthScore,
     valuation: valuationScore,
   };
-  const overallScore = clamp(weightedResearchScore(config.weights, componentScores) + optionsRead.longScoreAdjustment, 0, 100);
+  const overallScore = clamp(weightedResearchScore(config.weights, componentScores), 0, 100);
   const longTermRating = longTermActionFromScore(overallScore);
   const currentAction = determineSetupAction({
     score: overallScore,
@@ -4613,7 +4600,6 @@ function buildLongTermResearch(row) {
     ma50: row.technicals?.ma50 ?? row.price ?? 0,
     changePercent: row.changePercent ?? 0,
     profile: row.profile,
-    optionsMarket: row.technicals?.optionsMarket,
   });
   const longTermFit = longTermFitFromScore(overallScore, longTermRating);
   const thesis = buildInvestmentThesis(row, { ...dims, fundamental }, metrics, {
@@ -4640,7 +4626,6 @@ function buildLongTermResearch(row) {
     longTermFit,
     metrics,
     thesis,
-    optionsRead,
   };
 }
 
@@ -5420,7 +5405,7 @@ function buildRelativeStrengthModule(row, marketContext = {}, companyProfile = {
   };
 }
 
-function buildEarningsEventRiskModule(row, optionsExpectedMove = {}) {
+function buildEarningsEventRiskModule(row) {
   const metadata = row.metadata || {};
   const earningsDate = metadata.earningsDate || row.earnings?.earningsDate || null;
   const daysToEarnings = Number.isFinite(metadata.daysToEarnings)
@@ -5431,14 +5416,12 @@ function buildEarningsEventRiskModule(row, optionsExpectedMove = {}) {
   return {
     days_to_earnings: daysToEarnings,
     earnings_date: earningsDate,
-    expected_move_from_options: optionsExpectedMove.expected_move_30d_pct ?? optionsExpectedMove.atm_straddle_implied_move_pct ?? null,
     source_status: {
       calendar: earningsDate != null || daysToEarnings != null ? "available" : "unavailable",
-      expected_move: optionsExpectedMove.expected_move_30d_pct == null && optionsExpectedMove.atm_straddle_implied_move_pct == null ? "unavailable" : "available",
     },
     note: currentLanguage === "zh"
-      ? "财报事件风险使用财报日期、距离财报天数和期权预期波动；已移除缺少可靠来源的历史跳空/漂移字段。"
-      : "Earnings-event risk uses earnings date, days to earnings, and options expected move; unreliable historical gap/drift fields are removed.",
+      ? "财报事件风险使用财报日期、距离财报天数和日线价格行为。"
+      : "Earnings-event risk uses the earnings date, days to earnings, and daily price behavior.",
   };
 }
 
@@ -6594,12 +6577,6 @@ function buildTradeContextFieldMapping(row, context = {}) {
     ["相对QQQ 20日", "relative_strength_state.vs_qqq_20d", context.relative_strength_state?.vs_qqq_20d, "percentage points", "relative_strength_state"],
     ["相对QQQ 60日", "relative_strength_state.vs_qqq_60d", context.relative_strength_state?.vs_qqq_60d, "percentage points", "relative_strength_state"],
     ["相对QQQ 120日", "relative_strength_state.vs_qqq_120d", context.relative_strength_state?.vs_qqq_120d, "percentage points", "relative_strength_state"],
-    ["7日期权预期波动", "options_state.expected_move.move_7d_pct", context.options_state?.expected_move?.move_7d_pct, "%", "options_state"],
-    ["30日期权预期波动", "options_state.expected_move.move_30d_pct", context.options_state?.expected_move?.move_30d_pct, "%", "options_state"],
-    ["IV Percentile", "options_state.iv_percentile", context.options_state?.iv_percentile, "percentile", "options_state"],
-    ["IV Rank", "options_state.iv_rank", context.options_state?.iv_rank, "rank", "options_state"],
-    ["Options Skew", "options_state.skew", context.options_state?.skew, "vol points", "options_state"],
-    ["Options Term Structure", "options_state.term_structure", context.options_state?.term_structure, "regime", "options_state"],
     ["Forward Guidance Change", "guidance_state.direction / magnitude", context.guidance_state?.direction === "unavailable" ? null : context.guidance_state?.magnitude, "%", "guidance_state"],
   ];
   return rows.map(([standard, actual, value, unit, usage]) => ({
@@ -6620,8 +6597,6 @@ function buildTradeContext({
   marketContext,
   fundamental,
   technical,
-  optionsModule,
-  optionsExpectedMove,
   analystRevisions,
   relativeStrength,
 }) {
@@ -6631,7 +6606,6 @@ function buildTradeContext({
   const trendState = buildTrendState(row, technical);
   const relativeStrengthState = buildRelativeStrengthState(relativeStrength, companyProfile);
   const volumeState = buildVolumeState(technical);
-  const optionsState = buildOptionsState(row, optionsExpectedMove, optionsModule);
   const cycleState = buildCycleState(row, companyProfile, fundamental);
   const companyRisk = buildCompanyRiskState({
     fundamentalHealth,
@@ -6650,7 +6624,6 @@ function buildTradeContext({
     trend_state: trendState,
     relative_strength_state: relativeStrengthState,
     volume_state: volumeState,
-    options_state: optionsState,
     cycle_state: cycleState,
     company_risk: companyRisk,
     structural_levels: null,
@@ -6666,7 +6639,6 @@ const STOCK_HORIZON_FORECAST_WEIGHTS = {
     relative_strength: 0.15,
     support_resistance: 0.10,
     market_context: 0.10,
-    options_context: 0.05,
     fundamental_quality: 0.05,
     valuation: 0.05,
   },
@@ -6678,7 +6650,6 @@ const STOCK_HORIZON_FORECAST_WEIGHTS = {
     valuation: 0.10,
     market_context: 0.10,
     guidance_growth: 0.05,
-    options_context: 0.05,
   },
   long_term: {
     fundamental_quality: 0.25,
@@ -7234,7 +7205,6 @@ function buildForecastModuleScores({ row, horizonKey, supportResistance, fundame
     relative_strength: horizonRelativeStrengthScore(tradeContext, horizonKey),
     support_resistance: horizonSupportResistanceScore(row, supportResistance, horizonKey),
     market_context: horizonMarketContextScore(marketContext),
-    options_context: horizonOptionsScore(tradeContext, horizonKey),
     fundamental_quality: horizonFundamentalScore(tradeContext, fundamental),
     valuation: horizonValuationScore(tradeContext),
     guidance_growth: horizonGuidanceScore(tradeContext),
@@ -7599,7 +7569,6 @@ function forecastAnchorCandidates({ row, horizonKey, supportResistance = {}, for
   };
   const supports = supportResistance?.supports || [];
   const resistances = supportResistance?.resistances || [];
-  const expectedMove = tradeContext?.options_state?.expected_move || {};
   const history = forecastHistoryFrom(row, technical);
   const lows = history.lows || [];
   const highs = history.highs || [];
@@ -12124,30 +12093,16 @@ function buildOptionsStrategies(row, optionsRead, idealBuyZone, supportResistanc
 }
 
 function buildOptionsModule(row, supportResistance, idealBuyZone, decisionHints = {}) {
-  const optionsRead = row.research?.optionsRead || buildOptionsRead(row);
-  const strategies = buildOptionsStrategies(row, optionsRead, idealBuyZone, supportResistance, decisionHints);
-  const score = !optionsRead.available ? 50 : clamp(50 + optionsRead.scoreAdjustment * 4, 20, 85);
   return {
-    status: optionsRead.available ? "available" : "unavailable",
-    options_score: score,
-    put_wall: optionsRead.available ? optionsRead.putWall : null,
-    call_wall: optionsRead.available ? optionsRead.callWall : null,
-    gamma_flip: optionsRead.available ? optionsRead.gammaFlip : null,
-    net_gex: optionsRead.available ? optionsRead.netGex : null,
-    wall_method: optionsRead.wallMethod,
-    gamma_flip_status: optionsRead.gammaFlipStatus,
-    implied_volatility: optionsRead.impliedVolatility,
-    historic_volatility: optionsRead.historicVolatility,
-    iv_percentile: optionsRead.ivPercentile,
-    iv_rank: optionsRead.ivRank,
-    max_pain: null,
-    options_flow: null,
-    sell_put_plan: strategies.sell_put_plan,
-    covered_call_plan: strategies.covered_call_plan,
-    cash_secured_put: strategies.cash_secured_put,
-    covered_call: strategies.covered_call,
-    short_squeeze: buildShortSqueezeBlock(row),
-    summary: optionsRead.summary,
+    status: "not_collected",
+    available: false,
+    options_score: null,
+    put_wall: null,
+    call_wall: null,
+    gamma_flip: null,
+    net_gex: null,
+    expected_move: {},
+    short_squeeze: {},
   };
 }
 
@@ -13215,13 +13170,10 @@ function buildHardBearishOverride(row, modules, supportResistance, idealBuyZone)
   if ((modules.market_context.market_regime?.regime === "risk_off") && (modules.market_context.market_context_score ?? 50) <= 40) {
     pushReason("market_context", currentLanguage === "zh" ? "市场环境明显偏防守。" : "The market-context regime is clearly risk-off.");
   }
-  if ((modules.options.options_score ?? 50) <= 25 && !currentPriceInZone) {
-    pushReason("options", currentLanguage === "zh" ? "期权结构明显偏空。" : "Options structure is extremely bearish.");
-  }
   if (lowerSupportsBroken >= 2) {
     pushReason("technical", currentLanguage === "zh" ? "价格已经跌破主要支撑区。" : "Price has already broken below key support zones.");
   }
-  const nonTechnicalCount = reasonItems.filter((item) => item.category !== "technical" && item.category !== "options").length;
+  const nonTechnicalCount = reasonItems.filter((item) => item.category !== "technical").length;
   return {
     active: reasonItems.length >= 3 && nonTechnicalCount >= 1,
     reasons: reasonItems.map((item) => item.text).slice(0, 4),
@@ -13235,15 +13187,11 @@ function supportConfluenceBonus(row, idealBuyZone, supportResistance, modules, h
   let bonus = 0;
   const strongestSupport = supportResistance.supports.find((level) => level.strength === "strong") || supportResistance.supports[0];
   const nearStrongSupport = strongestSupport?.price != null && Math.abs((price - strongestSupport.price) / Math.max(price, 1)) * 100 <= 2;
-  const nearPutWall = Number.isFinite(modules.options.put_wall) && Math.abs((price - modules.options.put_wall) / Math.max(price, 1)) * 100 <= 2;
-  const nearGammaFlip = Number.isFinite(modules.options.gamma_flip) && Math.abs((price - modules.options.gamma_flip) / Math.max(price, 1)) * 100 <= 2;
   const rsi = row.technicals?.rsi14 ?? null;
 
   if (isPriceInsideIdealBuyZone(price, idealBuyZone)) bonus += 7;
   else if (isPriceNearIdealBuyZone(price, idealBuyZone, 2)) bonus += 5;
   if (nearStrongSupport) bonus += 5;
-  if (nearPutWall) bonus += 3;
-  if (nearGammaFlip && (supportResistance.supports[0]?.price ?? 0) <= price) bonus += 3;
   if ((rsi ?? 50) < 35 && nearStrongSupport) bonus += 3;
   return Math.min(15, bonus);
 }
@@ -13268,7 +13216,6 @@ function strongSellConditionCount(row, modules, supportResistance) {
     belowSupports,
     (modules.fundamental.fundamental_score ?? 50) < 35,
     (modules.market_context.market_context_score ?? 50) < 40,
-    (modules.options.options_score ?? 50) < 35,
   ];
   return checks.filter(Boolean).length;
 }
@@ -13496,7 +13443,7 @@ function buildPositionSizing(row, companyProfile, marketContext = null) {
   };
 }
 
-function buildDoNotBuyReasons(row, buyPlan, technical, fundamental, options, marketContext, supportResistance = null) {
+function buildDoNotBuyReasons(row, buyPlan, technical, fundamental, marketContext, supportResistance = null) {
   const price = row.price ?? null;
   const reasons = [];
   const shortRange = buyPlan?.short_term_buy_range || {};
@@ -13508,7 +13455,6 @@ function buildDoNotBuyReasons(row, buyPlan, technical, fundamental, options, mar
   if (["distribution_risk", "panic_selling"].includes(volume.behavior_key)) reasons.push(currentLanguage === "zh" ? "量价结构显示出货或恐慌下跌风险。" : "Volume / price behavior shows distribution or panic-selling risk.");
   if (volume.obv_trend_20d === "falling") reasons.push(currentLanguage === "zh" ? "OBV 20D 仍在下降，资金流没有确认。" : "OBV 20D is falling; money flow has not confirmed.");
   if ((fundamental.profile_fundamental?.components?.valuation_risk ?? 50) < 35) reasons.push(currentLanguage === "zh" ? "估值风险较高，需要更好的买入价。" : "Valuation risk is elevated; a better entry price is needed.");
-  if (options.status !== "available" && isUsMarket(row)) reasons.push(currentLanguage === "zh" ? "期权结构暂不可用，无法确认 Put Wall / Call Wall 支撑压力。" : "Options structure is unavailable, so put / call wall confirmation is missing.");
   if (marketContext.market_regime?.regime === "risk_off") reasons.push(currentLanguage === "zh" ? "市场环境偏防守，进攻型加仓需要更谨慎。" : "Market regime is risk-off, so aggressive adds need caution.");
   if (fundamental.profile_fundamental?.high_dividend_debt_risk) reasons.push(currentLanguage === "zh" ? "高分红同时伴随债务风险，不能只因为股息率高就买入。" : "High dividend yield comes with debt risk; do not buy on yield alone.");
   const s1 = supportResistance?.supports?.[0];
@@ -13553,7 +13499,6 @@ function buildModuleQuality(row, modules, marketType = "US") {
   const stale = [];
   const technicalStatus = modules.technical?.technical_score == null ? "unavailable" : "available";
   const fundamentalStatus = modules.fundamental?.fundamental_score == null ? "unavailable" : "available";
-  const optionsStatus = marketType === "US" ? (modules.options?.status || "unavailable") : "not_supported";
   const marketContextStatus = marketType === "US"
     ? (modules.market_context?.market_engine?.vix?.value != null
       || modules.market_context?.market_engine?.ten_year_yield?.value != null
@@ -13566,7 +13511,6 @@ function buildModuleQuality(row, modules, marketType = "US") {
   [
     ["technical", technicalStatus],
     ["fundamental", fundamentalStatus],
-    ["options", optionsStatus],
     ["market_context", marketContextStatus],
     ["sector_cycle", sectorCycleStatus],
   ].forEach(([name, status]) => {
@@ -13577,7 +13521,6 @@ function buildModuleQuality(row, modules, marketType = "US") {
   return {
     technical_status: technicalStatus,
     fundamental_status: fundamentalStatus,
-    options_status: optionsStatus,
     market_context_status: marketContextStatus,
     sector_cycle_status: sectorCycleStatus,
     unavailable_modules: [...new Set(unavailable)],
@@ -13594,7 +13537,7 @@ function buildConfidenceProfile(row, aiDecision, buyPlan, modules, moduleQuality
   const criticalPenalty = (!hasPrice ? 24 : 0) + (!hasHistory ? 12 : 0);
   const unavailablePenalty = unavailable
     .filter((item) => !["sector_cycle"].includes(item))
-    .reduce((sum, item) => sum + (item === "options" ? 6 : item === "market_context" ? 7 : 9), 0);
+    .reduce((sum, item) => sum + (item === "market_context" ? 7 : 9), 0);
   const missingDataPenalty = Math.min(18, Math.round(missingFields.length * 1.25)) + unavailablePenalty + criticalPenalty;
   const staleDataPenalty = Math.min(12, stale.length * 4);
   const dataConfidence = clamp(95 - missingDataPenalty - staleDataPenalty, hasPrice ? 45 : 20, 96);
@@ -14180,7 +14123,6 @@ function buildTrendEntryModel({ row, sellRange, technical, fundamental, marketCo
   const guidance = tradeContext?.guidance_state || {};
   const valuation = tradeContext?.valuation_state || {};
   const trend = tradeContext?.trend_state || {};
-  const options = tradeContext?.options_state || {};
   const price = finiteNumberOrNull(row.price);
   const atr = finiteNumberOrNull(row.technicals?.atr14) ?? (Number.isFinite(price) ? price * 0.035 : null);
   const sellDistance = rangeIsAvailable(sellRange) && Number.isFinite(price)
@@ -14211,8 +14153,7 @@ function buildTrendEntryModel({ row, sellRange, technical, fundamental, marketCo
     + components.market_support * 0.05
   );
   const penalty = (tooCloseToSellRange ? 12 : 0)
-    + (valuation.regime === "extreme" ? 12 : 0)
-    + (options.iv_regime?.combined_state === "extreme" && options.term_structure === "backwardation" ? 10 : 0);
+    + (valuation.regime === "extreme" ? 12 : 0);
   const finalScore = clamp(score - penalty, 0, 100);
   return {
     active: finalScore >= highThreshold,
@@ -14423,11 +14364,6 @@ function buildOpportunityScores({ row, horizon, buyRange, sellRange, pricePositi
   const guidanceDeterioration = tradeContext?.guidance_state?.direction === "lowered" ? 84 : 35;
   const marketOverheat = marketRegimeFromContext(marketContext) === "overheated" ? 82 : 42;
   const cyclePeakRisk = tradeContext?.cycle_state?.regime === "deteriorating" ? 74 : 42;
-  const optionsDownsideRisk = tradeContext?.options_state?.term_structure === "backwardation"
-    || tradeContext?.options_state?.iv_regime?.combined_state === "extreme"
-    || Number(tradeContext?.options_state?.skew) > 8
-    ? 72
-    : 42;
   const sellExitScore = clamp(Math.round(
     sellProximity * 0.15
     + resistanceStrength * 0.15
@@ -14437,8 +14373,7 @@ function buildOpportunityScores({ row, horizon, buyRange, sellRange, pricePositi
     + valuationExcess * 0.10
     + guidanceDeterioration * 0.10
     + marketOverheat * 0.05
-    + cyclePeakRisk * 0.05
-    + optionsDownsideRisk * 0.05
+    + cyclePeakRisk * 0.10
   ), 0, 100);
   let fallingKnifeRisk = 0;
   if (tradeContext?.guidance_state?.direction === "lowered") fallingKnifeRisk += 22;
@@ -16042,8 +15977,6 @@ function buildModeSpecificEntryTargets({
     { price: sellRange?.midpoint, source: `${horizonKey} sell range midpoint`, tier: "second" },
     { price: sellRange?.high, source: `${horizonKey} sell range high`, tier: "stretch" },
     { price: nextSell?.low, source: `${nextSellKey} low`, tier: "stretch" },
-    { price: expectedMove.upper_7d, source: "7D expected move upper", tier: "second" },
-    { price: expectedMove.upper_30d, source: "30D expected move upper", tier: "second" },
     ...resistances.slice(resistanceStart, resistanceStart + 4).map((level, index) => ({
       price: level?.price,
       source: level?.id || level?.level || `R${resistanceStart + index + 1}`,
@@ -18331,7 +18264,6 @@ function validateNoMissingCriticalFields(decision = {}) {
   if (!decision.sell_plan?.short_term_sell_range || !decision.sell_plan?.mid_term_sell_range || !decision.sell_plan?.long_term_sell_range) missing.push("sell ranges");
   if (!decision.stop_loss_plan?.short_term_stop || !decision.stop_loss_plan?.mid_term_stop || !decision.stop_loss_plan?.long_term_stop) missing.push("stops");
   if (!decision.support_resistance?.supports?.length || !decision.support_resistance?.resistances?.length) missing.push("support / resistance");
-  if (!decision.options_strategy_plan?.sell_put_plan || !decision.options_strategy_plan?.covered_call_plan) missing.push("options strategy plan");
   return {
     passed: missing.length === 0,
     missing,
@@ -18767,7 +18699,7 @@ function buildLeveragedETFRisk(row, etfProfile, trendEfficiency, benchmarkContex
   };
 }
 
-function buildETFOpportunityScores({ row, horizonKey, etfProfile, benchmarkContext, underlyingContext, breadthContext, relativeStrength, trendEfficiency, supportResistance, marketContext, optionsState, leveragedRisk }) {
+function buildETFOpportunityScores({ row, horizonKey, etfProfile, benchmarkContext, underlyingContext, breadthContext, relativeStrength, trendEfficiency, supportResistance, marketContext, leveragedRisk }) {
   const price = finiteNumberOrNull(row.price);
   const tech = row.technicals || {};
   const ma20 = finiteNumberOrNull(tech.ma20);
@@ -18793,7 +18725,6 @@ function buildETFOpportunityScores({ row, horizonKey, etfProfile, benchmarkConte
     ? (underlyingBear ? 76 : underlyingBull ? 24 : 45)
     : (underlyingBull ? 76 : underlyingBear ? 28 : 52);
   if (etfProfile.daily_reset) directionalEvidence = Math.round(directionalEvidence * 0.65 + efficiencyScore * 0.35);
-  const optionsContext = optionsState?.iv_regime?.combined_state === "extreme" || optionsState?.term_structure === "backwardation" ? 38 : 55;
   const breadthScore = Number.isFinite(breadthContext?.breadth_score) ? breadthContext.breadth_score : null;
   const valuationContextScore = null;
   const flowScore = null;
@@ -18808,7 +18739,6 @@ function buildETFOpportunityScores({ row, horizonKey, etfProfile, benchmarkConte
       underlying_context: 0.24,
       breadth: 0.1,
       market_regime: 0.08,
-      options_context: 0.04,
       trend_efficiency: 0.12,
       volatility_drag: 0.1,
       choppiness: 0.06,
@@ -18821,7 +18751,6 @@ function buildETFOpportunityScores({ row, horizonKey, etfProfile, benchmarkConte
         underlying_context: 0.1,
         breadth: 0.1,
         market_regime: 0.15,
-        options_context: 0.05,
       }
       : horizonKey === "mid_term"
         ? {
@@ -18850,7 +18779,6 @@ function buildETFOpportunityScores({ row, horizonKey, etfProfile, benchmarkConte
     underlying_context: underlyingContext?.score,
     breadth: breadthScore,
     market_regime: marketRegimeScore,
-    options_context: optionsContext,
     trend_efficiency: efficiencyScore,
     volatility_drag: volatilityDragScore,
     choppiness: choppinessScore,
@@ -18910,7 +18838,6 @@ function buildETFOpportunityScores({ row, horizonKey, etfProfile, benchmarkConte
     flow_score: flowScore,
     risk_score: riskScore,
     directional_evidence_score: directionalEvidence,
-    options_context_score: optionsContext,
     technical_structure_score: technicalStructure,
     money_flow_volume_score: clamp(Math.round(moneyFlowVolume), 0, 100),
     trend_efficiency_score: efficiencyScore,
@@ -18955,7 +18882,7 @@ function makeETFActionBlock({ horizonKey, etfProfile, finalAction, score, buyRan
   };
 }
 
-function buildETFPlansAndActions({ row, etfProfile, supportResistance, technical, marketContext, optionsState, relativeStrength, trendEfficiency, leveragedRisk, benchmarkContext, underlyingContext, breadthContext, gapDownRisk }) {
+function buildETFPlansAndActions({ row, etfProfile, supportResistance, technical, marketContext, relativeStrength, trendEfficiency, leveragedRisk, benchmarkContext, underlyingContext, breadthContext, gapDownRisk }) {
   const price = finiteNumberOrNull(row.price);
   const atr = finiteNumberOrNull(row.technicals?.atr14) ?? (Number.isFinite(price) ? price * 0.035 : null);
   const supports = supportResistance.supports || [];
@@ -19019,7 +18946,7 @@ function buildETFPlansAndActions({ row, etfProfile, supportResistance, technical
     };
     sellRange.buy_sell_separation = buyRange.buy_sell_separation;
 
-    const scores = buildETFOpportunityScores({ row, horizonKey, etfProfile, benchmarkContext, underlyingContext, breadthContext, relativeStrength, trendEfficiency, supportResistance, marketContext, optionsState, leveragedRisk });
+    const scores = buildETFOpportunityScores({ row, horizonKey, etfProfile, benchmarkContext, underlyingContext, breadthContext, relativeStrength, trendEfficiency, supportResistance, marketContext, leveragedRisk });
     const bestBuyScore = Math.max(scores.pullback_entry_score, scores.right_side_confirmation_score, scores.trend_leadership_score);
     const buyThreshold = leveraged ? (horizonKey === "long_term" ? 82 : 74) : 68;
     const strongThreshold = leveraged ? 88 : 84;
@@ -19336,16 +19263,7 @@ function buildETFDecisionModel(row, research, companyProfile, etfProfile) {
   const supportResistance = buildSupportResistanceSchema(row, companyProfile, null);
   const technical = buildTechnicalModule(row, supportResistance, companyProfile);
   const marketContext = buildMarketContextModule(row, companyProfile);
-  const optionsModule = buildOptionsModule(row, supportResistance, null, {
-    shortTermRating: "Hold-Watch",
-    midTermRating: "Hold-Watch",
-    longTermRating: "Hold-Watch",
-    technical,
-    companyProfile,
-  });
-  const optionsExpectedMove = buildOptionsExpectedMoveModule(row, optionsModule);
   const relativeStrength = buildRelativeStrengthModule(row, marketContext, companyProfile);
-  const optionsState = buildOptionsState(row, optionsExpectedMove, optionsModule);
   const benchmarkContext = buildETFBenchmarkContext(row, etfProfile, marketContext);
   const trendEfficiency = computeTrendEfficiency(row.technicals?.history?.closes || [], 20);
   const underlyingContext = buildETFUnderlyingContext(row, etfProfile, marketContext, trendEfficiency, relativeStrength);
@@ -19392,7 +19310,6 @@ function buildETFDecisionModel(row, research, companyProfile, etfProfile) {
     trend_state: buildTrendState(row, technical),
     relative_strength_state: buildRelativeStrengthState(relativeStrength, companyProfile),
     volume_state: buildVolumeState(technical),
-    options_state: optionsState,
     underlying_context: underlyingContext,
     breadth_context: breadthContext,
     cycle_state: { profile: "etf", score: null, regime: "not_applicable" },
@@ -19411,7 +19328,6 @@ function buildETFDecisionModel(row, research, companyProfile, etfProfile) {
     supportResistance,
     technical,
     marketContext,
-    optionsState,
     relativeStrength,
     trendEfficiency,
     leveragedRisk,
@@ -19484,41 +19400,10 @@ function buildETFDecisionModel(row, research, companyProfile, etfProfile) {
     deprecated_composite_score: true,
   };
   aiDecision.overall_action = plans.actionPlan.overall_action;
-  let optionsStrategyPlan = buildUnifiedOptionsStrategyPlan({
-    row,
-    optionsModule,
-    supportResistance,
-    buyPlan: plans.buyPlan,
-    sellPlan: plans.sellPlan,
-    stopLossPlan: plans.stopLossPlan,
-    actionPlan: plans.actionPlan,
-    technical,
-    fundamental: etfFundamental,
-    marketContext,
-    companyProfile,
-    tradeContext,
-  });
-  if (etfProfile.daily_reset || etfProfile.direction === "inverse") {
-    optionsStrategyPlan = {
-      ...optionsStrategyPlan,
-      sell_put_plan: {
-        ...optionsStrategyPlan.sell_put_plan,
-        recommendation: "Avoid",
-        suitability: "Avoid",
-        recommendation_label: optionPlanRecommendationLabel("Avoid"),
-        risk_level: "high",
-        avoid_conditions: uniqueText([
-          ...(optionsStrategyPlan.sell_put_plan?.avoid_conditions || []),
-          currentLanguage === "zh" ? "杠杆 / 反向 ETF 默认不推荐激进 Sell Put。" : "Leveraged / inverse ETFs default to avoiding aggressive sell puts.",
-        ]),
-      },
-    };
-  }
   const validation = {
     action_consistency: validateActionConsistency(plans.actionPlan),
     action_range_consistency: validateActionRangeConsistency(plans.actionPlan),
     sell_horizon_separation: validateSellRangeHorizonSeparation(plans.sellPlan),
-    options_consistency: validateOptionsConsistency(plans.actionPlan, optionsStrategyPlan),
     paired_etf_consistency: validatePairedETFConsistency({ etf_decision: { etf_profile: etfProfile, benchmark_context: benchmarkContext } }),
     etf_buy_sell_separation: validateETFBuySellRangeSeparation(plans.buyPlan, plans.sellPlan),
     etf_buy_horizon_separation: validateETFBuyHorizonSeparation(plans.buyPlan, etfProfile),
@@ -19528,7 +19413,6 @@ function buildETFDecisionModel(row, research, companyProfile, etfProfile) {
       sell_plan: plans.sellPlan,
       stop_loss_plan: plans.stopLossPlan,
       support_resistance: supportResistance,
-      options_strategy_plan: optionsStrategyPlan,
     }),
   };
   const etfDecision = {
@@ -19595,7 +19479,6 @@ function buildETFDecisionModel(row, research, companyProfile, etfProfile) {
       buy_plan: plans.buyPlan,
       sell_plan: plans.sellPlan,
       stop_loss_plan: plans.stopLossPlan,
-      options_strategy_plan: optionsStrategyPlan,
       action_plan: plans.actionPlan,
       entry_action: plans.actionPlan.entry_action,
       position_management_action: plans.actionPlan.position_management_action,
@@ -19617,8 +19500,6 @@ function buildETFDecisionModel(row, research, companyProfile, etfProfile) {
     resistance_levels: supportResistance.resistances,
     technical,
     fundamental: etfFundamental,
-    options: { ...optionsModule, expected_move: optionsExpectedMove, options_strategy_plan: optionsStrategyPlan },
-    options_strategy_plan: optionsStrategyPlan,
     market_context: marketContext,
     relative_strength: relativeStrength,
     data_quality: dataQuality,
@@ -19639,10 +19520,10 @@ function horizonWeights(companyProfile, horizon, marketType = "US") {
   const profileWeights = normalizeScoringWeights(companyProfile?.scoring_weights, horizon);
   if (profileWeights) return profileWeights;
   return horizon === "short"
-      ? { technical: 0.55, options: 0.2, market_context: 0.1, fundamental: 0.15 }
+      ? { technical: 0.65, market_context: 0.15, fundamental: 0.20 }
       : horizon === "mid"
-        ? { technical: 0.4, fundamental: 0.35, options: 0.15, market_context: 0.1 }
-        : { fundamental: 0.5, long_term_technical: 0.3, market_context: 0.15, options: 0.05 };
+        ? { technical: 0.45, fundamental: 0.40, market_context: 0.15 }
+        : { fundamental: 0.55, long_term_technical: 0.30, market_context: 0.15 };
 }
 
 function profileScoreAdjustment(companyProfile, fundamental, technical, horizon) {
@@ -19740,7 +19621,6 @@ function buildPenaltyItems(row, horizon, companyProfile, modules, decisionContex
   const tech = row.technicals || {};
   const fundamental = modules.fundamental;
   const market = modules.market_context;
-  const options = modules.options;
   const tags = companyProfile.tags || [];
   const items = [];
   const add = (category, name, rawScore, reason) => {
@@ -19801,17 +19681,6 @@ function buildPenaltyItems(row, horizon, companyProfile, modules, decisionContex
     add("fundamental", "cash_flow_instability", 2, currentLanguage === "zh" ? "现金流改善趋势还不稳定。" : "Cash flow improvement still looks unstable.");
   }
 
-  if (Number.isFinite(options.gamma_flip) && Number.isFinite(price) && price < options.gamma_flip * 0.99) {
-    add("options", "price_below_gamma_flip", 2, currentLanguage === "zh" ? "价格仍在 Gamma Flip 下方。" : "Price is still below the gamma flip.");
-  }
-  if ((options.options_score ?? 50) < 40) add("options", "bearish_options_structure", 3, currentLanguage === "zh" ? "期权结构暂时偏空。" : "Options structure still leans bearish.");
-  if (Number.isFinite(options.call_wall) && Number.isFinite(price) && ((options.call_wall - price) / Math.max(price, 1)) * 100 <= 2.5 && horizon === "short") {
-    add("options", "call_wall_too_close", 2, currentLanguage === "zh" ? "上方 Call Wall 很近，短线容易受压。" : "The call wall sits close overhead, limiting short-term upside.");
-  }
-  if (Number.isFinite(options.put_wall) && Number.isFinite(price) && price < options.put_wall * 0.985) {
-    add("options", "put_wall_broken", 2, currentLanguage === "zh" ? "价格跌破 Put Wall 支撑。" : "Price has slipped below the put wall support.");
-  }
-
   if (market.market_regime?.regime === "risk_off") {
     add("market_context", "risk_off_regime", horizon === "short" ? 4 : horizon === "mid" ? 3 : 2, currentLanguage === "zh" ? "当前市场环境偏防守，主动进攻型仓位需要更谨慎。" : "The market regime is risk-off, so aggressive risk-taking needs more caution.");
   }
@@ -19852,12 +19721,6 @@ function buildBonusItems(row, horizon, companyProfile, modules, decisionContext 
   }
   if (strongestSupport?.price != null && Number.isFinite(price) && Math.abs((price - strongestSupport.price) / Math.max(price, 1)) * 100 <= 2) {
     add("technical", "near_strong_support", 5, currentLanguage === "zh" ? "价格靠近强支撑位。" : "Price is trading near a strong support.");
-  }
-  if (Number.isFinite(modules.options.put_wall) && Number.isFinite(price) && Math.abs((price - modules.options.put_wall) / Math.max(price, 1)) * 100 <= 2) {
-    add("technical", "near_put_wall", 3, currentLanguage === "zh" ? "价格靠近 Put Wall 支撑。" : "Price is near put-wall support.");
-  }
-  if (Number.isFinite(modules.options.gamma_flip) && Number.isFinite(price) && Math.abs((price - modules.options.gamma_flip) / Math.max(price, 1)) * 100 <= 2.5 && (decisionContext.supportResistance?.supports?.[0]?.price ?? 0) <= price) {
-    add("technical", "near_gamma_flip_support", 3, currentLanguage === "zh" ? "Gamma Flip 与支撑区接近。" : "Gamma flip is sitting near a support zone.");
   }
   if ((tech.rsi14 ?? 50) < 35 && strongestSupport?.price != null && Math.abs((price - strongestSupport.price) / Math.max(price, 1)) * 100 <= 2.5) {
     add("technical", "oversold_at_support", 3, currentLanguage === "zh" ? "RSI 偏低且接近支撑，短线风险收益比改善。" : "RSI is soft while price sits near support, improving near-term risk/reward.");
@@ -19922,16 +19785,10 @@ function buildShortSetup(row, companyProfile, modules, supportResistance, idealB
   const nearStrongSupport = supportResistance.supports.some((level) => level.strength === "strong" && Number.isFinite(level.price) && Number.isFinite(price) && Math.abs((price - level.price) / Math.max(price, 1)) * 100 <= 2);
   const insideBuyZone = isPriceInsideIdealBuyZone(price, idealBuyZone);
   const nearBuyZone = isPriceNearIdealBuyZone(price, idealBuyZone, 2);
-  const squeezeRiskRaw = modules.options.short_squeeze?.squeeze_risk || null;
-  const squeezeRisk = squeezeRiskRaw ? String(squeezeRiskRaw).toLowerCase() : "unavailable";
-  const squeezeBlocksShort = ["high", "extreme"].includes(squeezeRisk);
+  const squeezeRisk = "unavailable";
+  const squeezeBlocksShort = false;
   const riskOnTape = modules.market_context.market_regime?.regime === "risk_on";
-  const nearPutWallSupport = marketType === "US"
-    && Number.isFinite(modules.options.put_wall)
-    && Number.isFinite(price)
-    && Math.abs((price - modules.options.put_wall) / Math.max(price, 1)) * 100 <= 2.5
-    && Number.isFinite(modules.options.gamma_flip)
-    && price >= modules.options.gamma_flip;
+  const nearPutWallSupport = false;
   const nextSupport = supportResistance.supports.find((level) => Number.isFinite(level?.price) && Number.isFinite(price) && level.price < price);
   const nextResistance = supportResistance.resistances.find((level) => Number.isFinite(level?.price) && Number.isFinite(price) && level.price > price);
   const roomToSupportPct = nextSupport?.price && Number.isFinite(price) ? ((price - nextSupport.price) / Math.max(price, 1)) * 100 : null;
@@ -19965,7 +19822,6 @@ function buildShortSetup(row, companyProfile, modules, supportResistance, idealB
   if (rsiOversold) riskWarnings.push(currentLanguage === "zh" ? "RSI 已严重超卖，缺少反弹失败确认时不适合追空。" : "RSI is deeply oversold; avoid shorting without failed-bounce confirmation.");
   if (kdjExtreme) riskWarnings.push(currentLanguage === "zh" ? "KDJ J 已极端超卖。" : "KDJ J is extremely oversold.");
   if (squeezeBlocksShort) riskWarnings.push(currentLanguage === "zh" ? "逼空风险高或极高，不允许推荐主动做空。" : "Short-squeeze risk is high or extreme, so active short is not allowed.");
-  if (nearPutWallSupport) riskWarnings.push(currentLanguage === "zh" ? "价格接近 Put Wall 且 Gamma 结构可能提供支撑。" : "Price is near put-wall / gamma support.");
   if (riskOnTape) riskWarnings.push(currentLanguage === "zh" ? "市场环境明显 risk-on，不适合主动做空。" : "Risk-on market tape blocks an active short rating.");
   if (megaCapCashCow && !(belowMa200 && fundamentalRisk && modules.market_context.market_regime?.regime === "risk_off")) {
     riskWarnings.push(currentLanguage === "zh" ? "Mega Cap / Cash Cow 做空门槛更高，当前证据不足。" : "Mega-cap / cash-cow names require a higher short threshold.");
@@ -20024,7 +19880,6 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
   );
   const profileFundamental = modules.fundamental.profile_fundamental || buildProfileFundamentalScore(row, modules.fundamental, companyProfile);
   const fundamentalScore = neutralScore(profileFundamental.score ?? modules.fundamental.fundamental_score);
-  const optionsScore = neutralScore(modules.options.options_score);
   const marketScore = neutralScore(modules.market_context.horizon_scores?.[horizon] ?? modules.market_context.market_context_score);
   const sectorThemeScore = neutralScore(modules.market_context.sector_score ?? (companyProfile.tags?.length ? 58 : 50));
   const marketBreakdown = modules.market_context.horizon_breakdown?.[horizon] || null;
@@ -20033,7 +19888,6 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
     technical: technicalScore,
     long_term_technical: longTermTechnicalScore,
     fundamental: fundamentalScore,
-    options: optionsScore,
     market_context: marketScore,
     sector_theme: sectorThemeScore,
   };
@@ -20049,7 +19903,6 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
     technical: Number.isFinite(technicalScore),
     long_term_technical: Number.isFinite(longTermTechnicalScore),
     fundamental: (profileFundamental.confidence ?? 0) > 0,
-    options: marketType === "US" && modules.options.status === "available",
     market_context: hasMarketContextData,
     sector_theme: marketType !== "US" || (modules.market_context.sector_score ?? null) != null,
   };
@@ -20063,7 +19916,6 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
     : { technical: 1 };
   const staleModules = [];
   if (row.dataStaleness === "stale" || row.marketStatus === "closed") staleModules.push("price");
-  if (modules.options.status === "stale") staleModules.push("options");
   if (modules.market_context.status === "stale") staleModules.push("market_context");
 
   const contributions = Object.fromEntries(
@@ -20104,7 +19956,6 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
     marketType === "US" && modules.market_context.market_engine?.vix?.value == null,
     marketType === "US" && modules.market_context.market_engine?.fear_greed?.value == null,
     marketType === "US" && modules.market_context.market_engine?.ten_year_yield?.value == null,
-    marketType === "US" && modules.options.put_wall == null,
     ...(companyProfile.missing_classification_data || []).map(() => true),
   ].filter(Boolean).length;
   const dataCoverage = Math.round(clamp(rawActiveWeight * 100, 0, 100));
@@ -20112,9 +19963,9 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
   const confidence = Math.round(Math.min(baseConfidence, dataCoverage || baseConfidence));
   const reasons = [];
   if (horizon === "short") {
-    reasons.push(modules.technical.summary, modules.options.summary, row.changePercent != null ? `${t("dayMove")} ${formatChangePercent(row.changePercent)}` : null);
+    reasons.push(modules.technical.summary, row.changePercent != null ? `${t("dayMove")} ${formatChangePercent(row.changePercent)}` : null);
   } else if (horizon === "mid") {
-    reasons.push(modules.technical.summary, modules.fundamental.summary, modules.options.summary);
+    reasons.push(modules.technical.summary, modules.fundamental.summary);
   } else {
     reasons.push(modules.fundamental.summary, modules.market_context.summary, modules.technical.summary);
   }
@@ -20133,7 +19984,6 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
     technical: contributions.technical ?? 0,
     long_term_technical: contributions.long_term_technical ?? 0,
     fundamental: contributions.fundamental ?? 0,
-    options: contributions.options ?? 0,
     market_context: contributions.market_context ?? 0,
     sector_theme: contributions.sector_theme ?? 0,
     market_context_details: marketBreakdown,
@@ -20330,14 +20180,12 @@ function buildStrategyMatrix(row, aiDecision, idealBuyZone, supportResistance, o
   };
 }
 
-function buildDataQuality(row, optionsModule, marketContext, idealBuyZone = null, companyProfile = null) {
+function buildDataQuality(row, marketContext, idealBuyZone = null, companyProfile = null) {
   const missingFields = [];
   const warnings = [];
   const staleFields = [];
   const isUs = isUsMarket(row);
   const profileMissing = companyProfile?.missing_classification_data || [];
-  if (isUs && !optionsModule.put_wall) missingFields.push("options.put_wall");
-  if (isUs && !optionsModule.call_wall) missingFields.push("options.call_wall");
   if (isUs && marketContext.market_engine?.vix?.value == null) missingFields.push("market_context.vix");
   if (isUs && marketContext.market_engine?.fear_greed?.value == null) missingFields.push("market_context.fear_greed");
   if (isUs && marketContext.market_engine?.ten_year_yield?.value == null) missingFields.push("market_context.ten_year_yield");
@@ -20420,7 +20268,7 @@ function buildDecisionModel(row) {
   technical.relative_strength = relativeStrength;
   let earningsEventRisk = buildEarningsEventRiskModule(row, preliminaryOptionsExpectedMove);
   marketContext.earnings_event_risk = earningsEventRisk;
-  let dataQuality = buildDataQuality(row, refreshedOptions, marketContext, idealBuyZone, companyProfile);
+  let dataQuality = buildDataQuality(row, marketContext, idealBuyZone, companyProfile);
   const tradeContext = buildTradeContext({
     row,
     companyProfile,
@@ -20533,8 +20381,8 @@ function buildDecisionModel(row) {
   const accumulationPlan = buildAccumulationPlan(row, companyProfile, recommendedBuyPlan, consistency.aiDecision, marketContext, technical);
   const positionSizing = buildPositionSizing(row, companyProfile, marketContext);
   const decisionTriggers = buildDecisionTriggers(row, supportResistance, technical, marketContext, fundamental);
-  let doNotBuyReasons = buildDoNotBuyReasons(row, recommendedBuyPlan, technical, fundamental, finalOptions, marketContext, supportResistance);
-  dataQuality = buildDataQuality(row, finalOptions, marketContext, idealBuyZone, companyProfile);
+  let doNotBuyReasons = buildDoNotBuyReasons(row, recommendedBuyPlan, technical, fundamental, marketContext, supportResistance);
+  dataQuality = buildDataQuality(row, marketContext, idealBuyZone, companyProfile);
   tradeContext.data_quality = dataQuality;
   if (consistency.conflict_warning) dataQuality.warnings.unshift(consistency.conflict_warning.message);
   const confidenceProfile = buildConfidenceProfile(row, consistency.aiDecision, recommendedBuyPlan, { technical, fundamental, options: finalOptions, market_context: marketContext }, moduleQuality, dataQuality);
@@ -20552,7 +20400,7 @@ function buildDecisionModel(row) {
     preliminaryActionPlan,
     horizonForecast,
   });
-  doNotBuyReasons = buildDoNotBuyReasons(row, recommendedBuyPlan, technical, fundamental, finalOptions, marketContext, supportResistance);
+  doNotBuyReasons = buildDoNotBuyReasons(row, recommendedBuyPlan, technical, fundamental, marketContext, supportResistance);
   neutralHoldZones = buildNeutralHoldZones(row, recommendedBuyPlan, sellPlan, companyProfile);
   applyForecastToPlans({ buyPlan: recommendedBuyPlan, sellPlan, horizonForecast, neutralHoldZones });
   const actionPlan = buildActionPlan(row, consistency.aiDecision, recommendedBuyPlan, sellPlan, stopLossPlan, supportResistance, technical, fundamental, marketContext, companyProfile, tradeContext, horizonForecast);
@@ -20597,43 +20445,16 @@ function buildDecisionModel(row) {
   consistency.aiDecision.overall_confidence = confidenceProfile.recommendation_confidence;
   consistency.aiDecision.confidence = confidenceProfile;
   consistency.aiDecision.overall_action = actionPlan.overall_action;
-  const optionsStrategyPlan = buildUnifiedOptionsStrategyPlan({
-    row,
-    optionsModule: finalOptions,
-    supportResistance,
-    buyPlan: recommendedBuyPlan,
-    sellPlan,
-    stopLossPlan,
-    actionPlan,
-    technical,
-    fundamental,
-    marketContext,
-    companyProfile,
-    tradeContext,
-  });
-  finalOptions = {
-    ...finalOptions,
-    gamma_flip: optionsStrategyPlan.gamma_flip,
-    sell_put_plan: optionsStrategyPlan.sell_put_plan,
-    covered_call_plan: optionsStrategyPlan.covered_call_plan,
-    options_strategy_plan: optionsStrategyPlan,
-  };
-  const optionsExpectedMove = buildOptionsExpectedMoveModule(row, finalOptions);
-  finalOptions.expected_move = optionsExpectedMove;
-  finalOptions.options_expected_move = optionsExpectedMove;
   fundamental.analyst_revisions = analystRevisions;
   technical.relative_strength = relativeStrength;
-  earningsEventRisk = buildEarningsEventRiskModule(row, optionsExpectedMove);
+  earningsEventRisk = buildEarningsEventRiskModule(row, {});
   marketContext.earnings_event_risk = earningsEventRisk;
-  tradeContext.options_state = buildOptionsState(row, optionsExpectedMove, finalOptions);
   tradeContext.field_mapping = buildTradeContextFieldMapping(row, tradeContext);
-  optionsStrategyPlan.options_state = tradeContext.options_state;
 		  const validation = {
 		    action_consistency: validateActionConsistency(actionPlan),
 		    action_range_consistency: validateActionRangeConsistency(actionPlan),
 		    buy_horizon_separation: validateBuyRangeHorizonSeparation(recommendedBuyPlan),
 		    sell_horizon_separation: validateSellRangeHorizonSeparation(sellPlan),
-		    options_consistency: validateOptionsConsistency(actionPlan, optionsStrategyPlan),
     critical_fields: validateNoMissingCriticalFields({
       action_plan: actionPlan,
       buy_plan: recommendedBuyPlan,
@@ -20643,7 +20464,6 @@ function buildDecisionModel(row) {
         supports: supportResistance.supports,
         resistances: supportResistance.resistances,
       },
-      options_strategy_plan: optionsStrategyPlan,
     }),
     buy_range_ordering: validateBuyRangeOrdering(recommendedBuyPlan),
     sell_range_ordering: validateSellRangeOrdering(sellPlan),
@@ -20688,12 +20508,6 @@ function buildDecisionModel(row) {
       sell_plan: sellPlan,
       neutral_hold_zones: neutralHoldZones,
       stop_loss_plan: stopLossPlan,
-      options_strategy_plan: {
-        options_state: tradeContext.options_state,
-        sell_put_plan: optionsStrategyPlan.sell_put_plan,
-        covered_call_plan: optionsStrategyPlan.covered_call_plan,
-        gamma_flip: optionsStrategyPlan.gamma_flip,
-      },
       action_plan: actionPlan,
       action_stability: actionStability,
       forecast_plan_trace: forecastPlanTrace,
@@ -20728,7 +20542,6 @@ function buildDecisionModel(row) {
     do_not_buy_reasons: doNotBuyReasons,
     upgrade_triggers: decisionTriggers.upgrade_triggers,
     downgrade_triggers: decisionTriggers.downgrade_triggers,
-    options_strategy_plan: optionsStrategyPlan,
     support_resistance: {
       supports: supportResistance.supports,
       resistances: supportResistance.resistances,
@@ -20775,12 +20588,10 @@ function buildDecisionModel(row) {
     module_quality: moduleQuality,
     technical,
     fundamental,
-    options: finalOptions,
     market_context: marketContext,
     analyst_revisions: analystRevisions,
     relative_strength: relativeStrength,
     earnings_event_risk: earningsEventRisk,
-    options_expected_move: optionsExpectedMove,
     conflict_warning: consistency.conflict_warning,
     hard_bearish_override: consistency.hard_bearish_override,
     data_quality: dataQuality,
@@ -20817,31 +20628,21 @@ function renderDetailModal(row) {
   const fundamentalGrowth = fundamental?.growth || {};
   const fundamentalValuation = fundamental?.valuation || {};
   const fundamentalFinancialHealth = fundamental?.financial_health || {};
-  const options = decision.options;
   const marketContext = decision.market_context;
   const marketEngine = marketContext.market_engine || {};
   const analystRevisions = fundamental.analyst_revisions || decision.analyst_revisions || {};
   const relativeStrength = technical.relative_strength || decision.relative_strength || {};
   const earningsEventRisk = marketContext.earnings_event_risk || decision.earnings_event_risk || {};
-  const optionsExpectedMove = options.expected_move || decision.options_expected_move || {};
   const profile = decision.company_profile;
-  const isUsStock = decision.market_type === "US";
   const changeTone = Number.isFinite(row.changePercent) ? (row.changePercent >= 0 ? "buy" : "sell") : "hold";
   const tabItems = [
     { key: "summary", label: t("aiDecision") },
     { key: "technical", label: t("tabTechnical") },
     { key: "fundamental", label: t("tabFundamental") },
-    ...(isUsStock ? [{ key: "options", label: t("tabOptions") }] : []),
     { key: "news", label: t("tabNews") },
   ];
+  if (!tabItems.some((item) => item.key === detailActiveTab)) detailActiveTab = "summary";
 
-  const localizedStrategyAction = (value) => {
-    if (value === "Recommended") return t("recommended");
-    if (value === "Conservative") return currentLanguage === "zh" ? "保守考虑" : "Conservative";
-    if (value === "Neutral") return t("neutral");
-    if (value === "Avoid") return t("avoid");
-    return value || t("dataUnavailable");
-  };
   const displayValue = (value, formatter, fallback = t("dataUnavailable")) => (
     value == null || (typeof value === "number" && !Number.isFinite(value)) ? fallback : formatter(value)
   );
@@ -21555,12 +21356,6 @@ function renderDetailModal(row) {
           </div>
         </div>
       </section>
-      ${isUsStock ? `
-        <section class="detail-section-card">
-          <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "期权策略计划" : "Options Strategy Plan"}</h3></div>
-          ${renderUnifiedOptionsStrategyPlan(decision.options_strategy_plan || options.options_strategy_plan)}
-        </section>
-      ` : ""}
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("topReasons")}</h3></div>
         <div class="decision-summary-grid">
@@ -21806,6 +21601,7 @@ function renderDetailModal(row) {
     </section>
   `;
 
+  /* Options-market UI is disabled until a verified data source is available.
   const optionsWallNote = options.wall_method === "aggregated-open-interest"
     ? (currentLanguage === "zh" ? "跨所选到期日聚合的未平仓量集中位，不代表做市商 GEX。" : "Aggregated open-interest concentration across selected expiries; not dealer GEX.")
     : "";
@@ -21850,6 +21646,7 @@ function renderDetailModal(row) {
       </section>
     </section>
   `;
+  */
 
   const newsPanel = `
     <section class="detail-tab-section">
@@ -21873,7 +21670,6 @@ function renderDetailModal(row) {
         <div class="detail-line-list">${renderMetricRows([
           { label: currentLanguage === "zh" ? "财报日期" : "Earnings Date", value: earningsEventRisk.earnings_date ? formatSnapshotTimestamp(earningsEventRisk.earnings_date) : t("dataUnavailable"), note: earningsEventRisk.source_status?.calendar === "unavailable" ? (currentLanguage === "zh" ? "财报日源暂不可用。" : "Earnings calendar source unavailable.") : "" },
           { label: currentLanguage === "zh" ? "距离财报天数" : "Days to Earnings", value: earningsEventRisk.days_to_earnings == null ? t("dataUnavailable") : `${earningsEventRisk.days_to_earnings} ${currentLanguage === "zh" ? "天" : "days"}` },
-          { label: currentLanguage === "zh" ? "期权隐含财报波动参考" : "Expected Move from Options", value: displayValue(earningsEventRisk.expected_move_from_options, (value) => formatPercentValue(value)), note: earningsEventRisk.source_status?.expected_move === "unavailable" ? (currentLanguage === "zh" ? "期权 expected move 暂不可用。" : "Options expected move unavailable.") : "" },
         ])}</div>
       </section>
       <section class="detail-section-card">
@@ -21917,7 +21713,6 @@ function renderDetailModal(row) {
     summary: summaryPanel,
     technical: technicalPanel,
     fundamental: fundamentalPanel,
-    options: optionsPanel,
     news: newsPanel,
   };
 
