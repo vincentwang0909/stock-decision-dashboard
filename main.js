@@ -7587,7 +7587,6 @@ function forecastAnchorCandidates({ row, horizonKey, supportResistance = {}, for
       add(tech.ma50, "MA50", "technical"),
       add(supports[0]?.price, supports[0]?.id || "S1", "support"),
       add(resistances[0]?.price, resistances[0]?.id || "R1", "resistance"),
-      add(expectedMove.upper_7d, "7D Expected Move Upper", "expected_move"),
     ].filter(Boolean);
   }
   if (horizonKey === "mid_term") {
@@ -7600,7 +7599,6 @@ function forecastAnchorCandidates({ row, horizonKey, supportResistance = {}, for
       add(supports[2]?.price, supports[2]?.id || "S3", "support"),
       add(resistances[1]?.price, resistances[1]?.id || "R2", "resistance"),
       add(resistances[2]?.price, resistances[2]?.id || "R3", "resistance"),
-      add(expectedMove.upper_30d, "30D Expected Move Upper", "expected_move"),
     ].filter(Boolean);
   }
   return [
