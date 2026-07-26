@@ -61,6 +61,18 @@ const FIBONACCI_HORIZON_CONFIG = Object.freeze({
     weights: { recency: 0.15, magnitude: 0.30, pivot_strength: 0.20, duration: 0.20, trend_relevance: 0.15 },
   },
 });
+// Display/debug-only technical structure. These parameters intentionally do not
+// feed the forecast or execution engines until a separately validated change.
+const TECHNICAL_STRUCTURE_CONFIG = Object.freeze({
+  short_term: { window: "1D/5D/20D", ma_periods: [10, 20, 50], slope_bars: [5, 10, 20], rsi_periods: [6, 9, 14], roc_periods: [5, 10, 20], obv_periods: [5, 20], volume_periods: [5, 20], atr_percentiles: [60, 120], bollinger_period: 20, bollinger_stddev: 2, adx_period: 14 },
+  mid_term: { window: "20D/60D", ma_periods: [20, 50, 100], slope_bars: [10, 20, 20], rsi_periods: [14, 21, 50], roc_periods: [20, 60], obv_periods: [20, 60], volume_periods: [20, 60], atr_percentiles: [120, 250], bollinger_period: 50, bollinger_stddev: 2, adx_period: 20 },
+  long_term: { window: "60D/120D/weekly", ma_periods: [50, 100, 200], slope_bars: [20, 60, 60], rsi_periods: [21, 50], roc_periods: [60, 120], obv_periods: [60, 120], volume_periods: [60, 120, 250], atr_percentiles: [120, 250], bollinger_period: 20, bollinger_stddev: 2, adx_period: 14, weekly: true },
+});
+const MACD_HORIZON_CONFIG = Object.freeze({
+  short_term: { primary: [12, 26, 9], alternate: [8, 17, 9], window: "daily" },
+  mid_term: { primary: [12, 26, 9], alternate: [19, 39, 9], window: "daily" },
+  long_term: { primary: [12, 26, 9], window: "weekly" },
+});
 const CALIBRATION_CONFIG = {
   rating_thresholds: {
     strong_buy: 90,
@@ -1730,6 +1742,382 @@ function computeKdj(highs, lows, closes, period = 9) {
   }
   const j = 3 * k - 2 * d;
   return { k, d, j };
+}
+
+function technicalFiniteSeries(values = []) {
+  return Array.isArray(values) ? values.map(Number).filter(Number.isFinite) : [];
+}
+
+function technicalSmaSeries(values = [], period = 20) {
+  const source = technicalFiniteSeries(values);
+  return source.map((_, index) => index + 1 < period ? null : mean(source.slice(index - period + 1, index + 1)));
+}
+
+function technicalEmaSeries(values = [], period = 20) {
+  const source = technicalFiniteSeries(values);
+  if (!source.length) return [];
+  const multiplier = 2 / (period + 1);
+  let value = source[0];
+  return source.map((close, index) => {
+    value = index === 0 ? close : (close - value) * multiplier + value;
+    return index + 1 >= period ? value : null;
+  });
+}
+
+function technicalValueAgo(series = [], bars = 0) {
+  const index = series.length - 1 - bars;
+  const value = index >= 0 ? series[index] : null;
+  return Number.isFinite(value) ? value : null;
+}
+
+function technicalSlope(series = [], bars = 5, referenceAtr = null) {
+  const current = technicalValueAgo(series, 0);
+  const prior = technicalValueAgo(series, bars);
+  if (!Number.isFinite(current) || !Number.isFinite(prior)) return { current_value: current, value_bars_ago: prior, slope_abs: null, slope_pct: null, slope_normalized_by_atr: null, slope_direction: "unavailable" };
+  const slopeAbs = current - prior;
+  const slopePct = prior !== 0 ? (slopeAbs / Math.abs(prior)) * 100 : null;
+  const normalized = Number.isFinite(referenceAtr) && referenceAtr > 0 ? slopeAbs / referenceAtr : null;
+  const magnitude = Math.abs(normalized ?? (slopePct ?? 0));
+  const direction = slopeAbs === 0 ? "flat" : magnitude >= 0.85 ? (slopeAbs > 0 ? "strong_up" : "strong_down") : magnitude >= 0.18 ? (slopeAbs > 0 ? "up" : "down") : "flat";
+  return { current_value: current, value_bars_ago: prior, slope_abs: slopeAbs, slope_pct: slopePct, slope_normalized_by_atr: normalized, slope_direction: direction };
+}
+
+function technicalReturn(values = [], period = 20) {
+  const source = technicalFiniteSeries(values);
+  if (source.length <= period) return null;
+  const current = source.at(-1);
+  const prior = source.at(-1 - period);
+  return Number.isFinite(current) && Number.isFinite(prior) && prior !== 0 ? ((current - prior) / Math.abs(prior)) * 100 : null;
+}
+
+function technicalRsi(values = [], period = 14) {
+  const source = technicalFiniteSeries(values);
+  return source.length > period ? rsi(source, period) : null;
+}
+
+function technicalRsiSeries(values = [], period = 14) {
+  const source = technicalFiniteSeries(values);
+  return source.map((_, index) => index < period ? null : technicalRsi(source.slice(0, index + 1), period));
+}
+
+function technicalObvSeries(closes = [], volumes = []) {
+  const value = [];
+  let running = 0;
+  for (let index = 0; index < closes.length; index += 1) {
+    if (index > 0 && Number.isFinite(volumes[index])) {
+      if (closes[index] > closes[index - 1]) running += volumes[index];
+      else if (closes[index] < closes[index - 1]) running -= volumes[index];
+    }
+    value.push(running);
+  }
+  return value;
+}
+
+function technicalPercentile(value, values = []) {
+  const valid = technicalFiniteSeries(values);
+  if (!Number.isFinite(value) || !valid.length) return null;
+  return (valid.filter((item) => item <= value).length / valid.length) * 100;
+}
+
+function technicalTrendLabel(score) {
+  if (!Number.isFinite(score)) return "unavailable";
+  if (score >= 78) return "strong_bullish";
+  if (score >= 60) return "bullish";
+  if (score <= 22) return "strong_bearish";
+  if (score <= 40) return "bearish";
+  return "mixed";
+}
+
+function technicalWeeklyHistory(history = {}) {
+  const weekly = aggregateWeeklyBars(history);
+  if (weekly?.status !== "available" || !Array.isArray(weekly.bars)) return { closes: [], highs: [], lows: [], volumes: [], bars: [] };
+  return {
+    closes: weekly.bars.map((bar) => bar.close).filter(Number.isFinite),
+    highs: weekly.bars.map((bar) => bar.high).filter(Number.isFinite),
+    lows: weekly.bars.map((bar) => bar.low).filter(Number.isFinite),
+    volumes: weekly.bars.map((bar) => bar.volume).filter(Number.isFinite),
+    bars: weekly.bars,
+  };
+}
+
+function buildTechnicalMacd(values = [], config = {}) {
+  const [fast, slow, signal] = config.primary || [12, 26, 9];
+  const source = technicalFiniteSeries(values);
+  if (source.length < slow + signal) return { status: "unavailable", macd_line: null, signal_line: null, histogram: null, cross_state: "unavailable", bars_since_cross: null, zero_line_state: "unavailable", momentum_state: "unavailable" };
+  const fastSeries = technicalEmaSeries(source, fast);
+  const slowSeries = technicalEmaSeries(source, slow);
+  const macdSeries = source.map((_, index) => Number.isFinite(fastSeries[index]) && Number.isFinite(slowSeries[index]) ? fastSeries[index] - slowSeries[index] : null);
+  const signalSource = macdSeries.map((value) => Number.isFinite(value) ? value : 0);
+  const signalSeries = technicalEmaSeries(signalSource, signal);
+  const histogramSeries = macdSeries.map((value, index) => Number.isFinite(value) && Number.isFinite(signalSeries[index]) ? value - signalSeries[index] : null);
+  let crossIndex = null;
+  let crossState = "none";
+  for (let index = histogramSeries.length - 1; index > 0; index -= 1) {
+    const now = histogramSeries[index];
+    const prior = histogramSeries[index - 1];
+    if (!Number.isFinite(now) || !Number.isFinite(prior) || (now >= 0) === (prior >= 0)) continue;
+    crossIndex = index;
+    crossState = now > 0 ? "bullish_cross" : "bearish_cross";
+    break;
+  }
+  const histogram = histogramSeries.at(-1);
+  const macdLine = macdSeries.at(-1);
+  const signalLine = signalSeries.at(-1);
+  const histogramSlope = technicalSlope(histogramSeries, 3, null);
+  const momentumState = !Number.isFinite(histogram) ? "unavailable"
+    : histogram > 0 && histogramSlope.slope_abs > 0 ? "accelerating_bullish"
+      : histogram > 0 ? "decelerating_bullish"
+        : histogramSlope.slope_abs > 0 ? "recovering_bearish" : "accelerating_bearish";
+  return {
+    status: "available",
+    parameters: `${fast}/${slow}/${signal}`,
+    macd_line: macdLine,
+    signal_line: signalLine,
+    histogram,
+    macd_line_slope: technicalSlope(macdSeries, 3, null),
+    signal_line_slope: technicalSlope(signalSeries, 3, null),
+    histogram_slope: histogramSlope,
+    histogram_change_1: Number.isFinite(histogram) && Number.isFinite(technicalValueAgo(histogramSeries, 1)) ? histogram - technicalValueAgo(histogramSeries, 1) : null,
+    histogram_change_3: Number.isFinite(histogram) && Number.isFinite(technicalValueAgo(histogramSeries, 3)) ? histogram - technicalValueAgo(histogramSeries, 3) : null,
+    histogram_change_5: Number.isFinite(histogram) && Number.isFinite(technicalValueAgo(histogramSeries, 5)) ? histogram - technicalValueAgo(histogramSeries, 5) : null,
+    cross_state: crossState,
+    bars_since_cross: crossIndex == null ? null : histogramSeries.length - 1 - crossIndex,
+    zero_line_state: !Number.isFinite(macdLine) ? "unavailable" : macdLine > 0 ? "above_zero" : macdLine < 0 ? "below_zero" : "at_zero",
+    momentum_state: momentumState,
+    momentum_acceleration: histogramSlope.slope_abs != null && histogramSlope.slope_abs > 0,
+    momentum_deceleration: histogramSlope.slope_abs != null && histogramSlope.slope_abs < 0,
+  };
+}
+
+function buildTechnicalAdx(highs = [], lows = [], closes = [], period = 14) {
+  const length = Math.min(highs.length, lows.length, closes.length);
+  if (length < period * 2 + 1) return { status: "unavailable", adx: null, plus_di: null, minus_di: null, trend_strength: "unavailable", direction: "unavailable" };
+  const tr = [null]; const plusDm = [null]; const minusDm = [null];
+  for (let index = 1; index < length; index += 1) {
+    const upMove = highs[index] - highs[index - 1];
+    const downMove = lows[index - 1] - lows[index];
+    tr.push(Math.max(highs[index] - lows[index], Math.abs(highs[index] - closes[index - 1]), Math.abs(lows[index] - closes[index - 1])));
+    plusDm.push(upMove > downMove && upMove > 0 ? upMove : 0);
+    minusDm.push(downMove > upMove && downMove > 0 ? downMove : 0);
+  }
+  const dx = [];
+  const plusSeries = []; const minusSeries = [];
+  for (let index = period; index < length; index += 1) {
+    const trAvg = mean(tr.slice(index - period + 1, index + 1).filter(Number.isFinite));
+    const plus = trAvg ? 100 * (mean(plusDm.slice(index - period + 1, index + 1)) || 0) / trAvg : null;
+    const minus = trAvg ? 100 * (mean(minusDm.slice(index - period + 1, index + 1)) || 0) / trAvg : null;
+    plusSeries.push(plus); minusSeries.push(minus);
+    dx.push(Number.isFinite(plus) && Number.isFinite(minus) && plus + minus > 0 ? (100 * Math.abs(plus - minus)) / (plus + minus) : null);
+  }
+  const adxSeries = dx.map((_, index) => index + 1 < period ? null : mean(dx.slice(index - period + 1, index + 1).filter(Number.isFinite)));
+  const adx = adxSeries.at(-1); const plusDi = plusSeries.at(-1); const minusDi = minusSeries.at(-1);
+  const direction = !Number.isFinite(plusDi) || !Number.isFinite(minusDi) ? "unavailable" : plusDi > minusDi ? "bullish" : minusDi > plusDi ? "bearish" : "mixed";
+  const trendStrength = !Number.isFinite(adx) ? "unavailable" : adx < 15 ? "no_trend" : adx < 22 ? "weak" : adx < 30 ? "developing" : adx < 40 ? "strong" : "very_strong";
+  let crossIndex = null;
+  for (let index = plusSeries.length - 1; index > 0; index -= 1) if ((plusSeries[index] >= minusSeries[index]) !== (plusSeries[index - 1] >= minusSeries[index - 1])) { crossIndex = index; break; }
+  return { status: "available", period, adx, plus_di: plusDi, minus_di: minusDi, adx_slope: technicalSlope(adxSeries, 3, null), di_spread: Number.isFinite(plusDi) && Number.isFinite(minusDi) ? plusDi - minusDi : null, di_cross: crossIndex == null ? "none" : plusSeries[crossIndex] > minusSeries[crossIndex] ? "bullish_cross" : "bearish_cross", bars_since_di_cross: crossIndex == null ? null : plusSeries.length - 1 - crossIndex, trend_strength: trendStrength, direction };
+}
+
+function technicalCrosses(maSeriesByPeriod = {}, dates = []) {
+  const pairs = [[10, 20], [10, 50], [20, 50], [20, 100], [50, 100], [50, 200], [100, 200]];
+  return pairs.map(([fast, slow]) => {
+    const left = maSeriesByPeriod[fast]; const right = maSeriesByPeriod[slow];
+    if (!left?.length || !right?.length) return { pair: `MA${fast}/MA${slow}`, type: "unavailable", cross_date: null, bars_since_cross: null, confirmed: false, follow_through: false, failed_cross: false, spread_pct: null, spread_trend: "unavailable" };
+    let index = null;
+    for (let cursor = Math.min(left.length, right.length) - 1; cursor > 0; cursor -= 1) {
+      if (![left[cursor], right[cursor], left[cursor - 1], right[cursor - 1]].every(Number.isFinite)) continue;
+      if ((left[cursor] >= right[cursor]) !== (left[cursor - 1] >= right[cursor - 1])) { index = cursor; break; }
+    }
+    const currentLeft = left.at(-1); const currentRight = right.at(-1);
+    const spread = Number.isFinite(currentLeft) && Number.isFinite(currentRight) && currentRight !== 0 ? ((currentLeft - currentRight) / Math.abs(currentRight)) * 100 : null;
+    const priorSpread = technicalValueAgo(left, 5) != null && technicalValueAgo(right, 5) != null && technicalValueAgo(right, 5) !== 0
+      ? ((technicalValueAgo(left, 5) - technicalValueAgo(right, 5)) / Math.abs(technicalValueAgo(right, 5))) * 100 : null;
+    const type = index == null ? "none" : left[index] > right[index] ? "bullish_cross" : "bearish_cross";
+    const bars = index == null ? null : left.length - 1 - index;
+    return { pair: `MA${fast}/MA${slow}`, type, cross_date: index == null ? null : (dates[index] || `bar_${index}`), bars_since_cross: bars, confirmed: bars != null && bars >= 2, follow_through: bars != null && Math.abs(spread ?? 0) > Math.abs(priorSpread ?? 0), failed_cross: bars != null && ((type === "bullish_cross" && (spread ?? 0) <= 0) || (type === "bearish_cross" && (spread ?? 0) >= 0)), spread_pct: spread, spread_trend: !Number.isFinite(spread) || !Number.isFinite(priorSpread) ? "unavailable" : Math.abs(spread) > Math.abs(priorSpread) ? "widening" : "narrowing" };
+  });
+}
+
+function buildTechnicalMaStructure({ closes = [], currentPrice = null, atr14 = null, horizon = "short_term", dates = [], profileTags = [] }) {
+  const config = TECHNICAL_STRUCTURE_CONFIG[horizon];
+  const periods = config.ma_periods;
+  const seriesByPeriod = Object.fromEntries([10, 20, 50, 100, 200].map((period) => [period, technicalSmaSeries(closes, period)]));
+  const relevant = periods.map((period, index) => {
+    const series = seriesByPeriod[period]; const value = series.at(-1);
+    const slope = technicalSlope(series, config.slope_bars[index], atr14);
+    const distancePct = Number.isFinite(currentPrice) && Number.isFinite(value) && value !== 0 ? ((currentPrice - value) / Math.abs(value)) * 100 : null;
+    const distanceAtr = Number.isFinite(currentPrice) && Number.isFinite(value) && Number.isFinite(atr14) && atr14 > 0 ? (currentPrice - value) / atr14 : null;
+    return { period, current_value: value, value_5_bars_ago: technicalValueAgo(series, 5), value_10_bars_ago: technicalValueAgo(series, 10), value_20_bars_ago: technicalValueAgo(series, 20), ...slope, price_above: Number.isFinite(currentPrice) && Number.isFinite(value) ? currentPrice > value : null, distance_pct: distancePct, distance_in_atr: distanceAtr };
+  });
+  const values = relevant.map((item) => item.current_value);
+  const slopes = relevant.map((item) => item.slope_abs).filter(Number.isFinite);
+  const allUp = slopes.length === relevant.length && slopes.every((value) => value > 0);
+  const allDown = slopes.length === relevant.length && slopes.every((value) => value < 0);
+  const orderedUp = values.every((value, index) => index === 0 || values[index - 1] > value);
+  const orderedDown = values.every((value, index) => index === 0 || values[index - 1] < value);
+  const score = (orderedUp ? 28 : orderedDown ? -28 : 0) + (allUp ? 20 : allDown ? -20 : 0) + relevant.reduce((sum, item) => sum + (item.price_above === true ? 8 : item.price_above === false ? -8 : 0), 0);
+  const alignment = score >= 40 ? "strong_bullish" : score >= 16 ? "bullish" : score <= -40 ? "strong_bearish" : score <= -16 ? "bearish" : "mixed";
+  const distances = relevant.filter((item) => Number.isFinite(item.distance_pct));
+  const nearest = distances.slice().sort((left, right) => Math.abs(left.distance_pct) - Math.abs(right.distance_pct))[0] || null;
+  const spread = values.every(Number.isFinite) ? Math.max(...values) - Math.min(...values) : null;
+  const spreadAtr = Number.isFinite(spread) && Number.isFinite(atr14) && atr14 > 0 ? spread / atr14 : null;
+  const priorValues = periods.map((period) => technicalValueAgo(seriesByPeriod[period], 10));
+  const priorSpread = priorValues.every(Number.isFinite) ? Math.max(...priorValues) - Math.min(...priorValues) : null;
+  const compression = !Number.isFinite(spreadAtr) ? "unavailable" : spreadAtr < 0.9 ? "tight" : Number.isFinite(priorSpread) && spread < priorSpread * 0.85 ? "compressing" : spreadAtr > 3 ? "widely_separated" : Number.isFinite(priorSpread) && spread > priorSpread * 1.15 ? "expanding" : "normal";
+  const volatileProfile = profileTags.includes("HighVolatility") || profileTags.includes("HighGrowth") || profileTags.includes("Speculative");
+  const extensionMultiplier = volatileProfile ? 1.35 : 1;
+  const extension = nearest?.distance_in_atr == null ? "unavailable" : nearest.distance_in_atr <= -2.2 * extensionMultiplier ? "deep_below" : nearest.distance_in_atr < -0.45 * extensionMultiplier ? "below" : Math.abs(nearest.distance_in_atr) <= 0.45 * extensionMultiplier ? "near" : nearest.distance_in_atr <= 1.5 * extensionMultiplier ? "above" : nearest.distance_in_atr <= 3 * extensionMultiplier ? "extended" : "extremely_extended";
+  const events = periods.map((period) => {
+    const series = seriesByPeriod[period]; const value = series.at(-1); const prior = technicalValueAgo(series, 1); const priorPrice = technicalValueAgo(closes, 1);
+    const reclaim = Number.isFinite(currentPrice) && Number.isFinite(value) && Number.isFinite(priorPrice) && Number.isFinite(prior) && currentPrice > value && priorPrice <= prior;
+    const breakdown = Number.isFinite(currentPrice) && Number.isFinite(value) && Number.isFinite(priorPrice) && Number.isFinite(prior) && currentPrice < value && priorPrice >= prior;
+    return { ma: `MA${period}`, reclaim: reclaim ? { event_date: dates.at(-1) || "latest_bar", bars_since_event: 0, close_confirmation: true, volume_confirmation: null, follow_through: null, failed_reclaim: false } : null, breakdown: breakdown ? { event_date: dates.at(-1) || "latest_bar", bars_since_event: 0, close_confirmation: true, volume_confirmation: null, follow_through: null, false_breakdown: false } : null };
+  });
+  return { horizon, current_price: currentPrice, relevant_mas: relevant, price_above_ma: relevant.filter((item) => item.price_above).map((item) => `MA${item.period}`), price_below_ma: relevant.filter((item) => item.price_above === false).map((item) => `MA${item.period}`), ma_alignment: alignment, ma_alignment_score: clamp(Math.round(50 + score), 0, 100), fast_ma_slope: relevant[0]?.slope_direction ?? "unavailable", medium_ma_slope: relevant[1]?.slope_direction ?? "unavailable", slow_ma_slope: relevant[2]?.slope_direction ?? "unavailable", slope_period_bars: config.slope_bars, distance_to_fast_ma_pct: relevant[0]?.distance_pct ?? null, distance_to_medium_ma_pct: relevant[1]?.distance_pct ?? null, distance_to_slow_ma_pct: relevant[2]?.distance_pct ?? null, nearest_ma: nearest ? `MA${nearest.period}` : null, nearest_ma_distance_pct: nearest?.distance_pct ?? null, bullish_crosses: technicalCrosses(seriesByPeriod, dates).filter((item) => item.type === "bullish_cross"), bearish_crosses: technicalCrosses(seriesByPeriod, dates).filter((item) => item.type === "bearish_cross"), recent_reclaims: events.filter((item) => item.reclaim), recent_breakdowns: events.filter((item) => item.breakdown), compression_state: compression, expansion_state: compression === "expanding" || compression === "widely_separated", extension_state: extension, trend_state: alignment, trend_strength: Math.abs(score), explanation: `MA${periods.join("/")} ${alignment}; ${compression} spacing.` };
+}
+
+function buildTechnicalRsiStructure(values = [], horizon = "short_term", weeklyValues = []) {
+  const config = TECHNICAL_STRUCTURE_CONFIG[horizon];
+  const source = horizon === "long_term" && weeklyValues.length ? weeklyValues : values;
+  const rsiValues = Object.fromEntries(config.rsi_periods.map((period) => [`RSI${period}`, technicalRsi(source, period)]));
+  const primaryPeriod = horizon === "short_term" ? 14 : horizon === "mid_term" ? 21 : weeklyValues.length ? 14 : 50;
+  const primary = horizon === "long_term" && weeklyValues.length ? technicalRsi(weeklyValues, 14) : (rsiValues[`RSI${primaryPeriod}`] ?? Object.values(rsiValues).find(Number.isFinite) ?? null);
+  const series = technicalRsiSeries(source, horizon === "long_term" && weeklyValues.length ? 14 : primaryPeriod);
+  const slope = technicalSlope(series, horizon === "short_term" ? 3 : 5, null);
+  const average = mean(Object.values(rsiValues).filter(Number.isFinite));
+  const state = !Number.isFinite(primary) ? "unavailable" : primary <= 20 ? "extreme_oversold" : primary <= 35 ? "oversold" : primary < 45 ? "weak" : primary < 58 ? "neutral" : primary < 70 ? "strong" : primary < 80 ? "overbought" : "extreme_overbought";
+  const regime = !Number.isFinite(primary) ? "unavailable" : primary >= 55 ? "bull_range" : primary <= 45 ? "bear_range" : "neutral_range";
+  const recent = series.slice(-10).filter(Number.isFinite);
+  return { values: rsiValues, weekly_rsi14: weeklyValues.length ? technicalRsi(weeklyValues, 14) : null, primary_rsi: primary, average_rsi: average, slope, acceleration: slope.slope_abs != null && slope.slope_abs > 0, state, range_regime: regime, divergence: "not_evaluated", failure_swing: "not_evaluated", bars_in_overbought: recent.filter((value) => value >= 70).length, bars_in_oversold: recent.filter((value) => value <= 30).length, explanation: `${horizon} RSI is ${state.replaceAll("_", " ")}.` };
+}
+
+function buildTechnicalObvStructure(closes = [], volumes = [], horizon = "short_term", weekly = {}) {
+  const config = TECHNICAL_STRUCTURE_CONFIG[horizon];
+  const sourceCloses = horizon === "long_term" && weekly.closes?.length ? weekly.closes : closes;
+  const sourceVolumes = horizon === "long_term" && weekly.volumes?.length ? weekly.volumes : volumes;
+  if (sourceCloses.length < Math.max(...config.obv_periods) + 1 || sourceVolumes.length !== sourceCloses.length) return { status: "unavailable", trend: "unavailable", slope: null, normalized_slope: null, new_high: null, new_low: null, breakout: null, breakdown: null, price_obv_divergence: "unavailable", confirmation_state: "unavailable", explanation: "OBV history is insufficient." };
+  const series = technicalObvSeries(sourceCloses, sourceVolumes);
+  const period = Math.max(...config.obv_periods);
+  const slope = technicalSlope(series, period, mean(sourceVolumes.slice(-period)) || null);
+  const current = series.at(-1); const previous = technicalValueAgo(series, period);
+  const priorSeries = series.slice(-period - 1, -1);
+  const newHigh = Number.isFinite(current) && priorSeries.length ? current > Math.max(...priorSeries) : null;
+  const newLow = Number.isFinite(current) && priorSeries.length ? current < Math.min(...priorSeries) : null;
+  const priceReturn = technicalReturn(sourceCloses, period); const obvDirection = slope.slope_abs ?? 0;
+  const divergence = Number.isFinite(priceReturn) ? priceReturn > 0 && obvDirection < 0 ? "bearish_divergence" : priceReturn < 0 && obvDirection > 0 ? "bullish_divergence" : "none" : "unavailable";
+  const trend = obvDirection > 0 ? "rising" : obvDirection < 0 ? "falling" : "flat";
+  return { status: "available", periods: config.obv_periods, trend, slope: slope.slope_abs, normalized_slope: slope.slope_normalized_by_atr, new_high: newHigh, new_low: newLow, breakout: newHigh, breakdown: newLow, price_obv_divergence: divergence, confirmation_state: divergence === "none" ? (trend === "rising" ? "confirming_uptrend" : trend === "falling" ? "confirming_downtrend" : "neutral") : "divergent", explanation: `${horizon} OBV is ${trend}.` };
+}
+
+function buildTechnicalVolumeStructure(closes = [], volumes = [], horizon = "short_term", weekly = {}) {
+  const config = TECHNICAL_STRUCTURE_CONFIG[horizon];
+  const sourceVolumes = horizon === "long_term" && weekly.volumes?.length ? weekly.volumes : volumes;
+  const sourceCloses = horizon === "long_term" && weekly.closes?.length ? weekly.closes : closes;
+  if (!sourceVolumes.length || sourceVolumes.length !== sourceCloses.length) return { status: "unavailable", explanation: "Volume history is unavailable." };
+  const latestVolume = sourceVolumes.at(-1);
+  const averages = Object.fromEntries(config.volume_periods.map((period) => [`avg_${period}d`, sourceVolumes.length >= period ? mean(sourceVolumes.slice(-period)) : null]));
+  const ratios = Object.fromEntries(config.volume_periods.map((period) => [`ratio_${period}d`, Number.isFinite(averages[`avg_${period}d`]) && averages[`avg_${period}d`] > 0 ? latestVolume / averages[`avg_${period}d`] : null]));
+  const lookback = Math.min(horizon === "short_term" ? 20 : 60, sourceVolumes.length - 1);
+  let up = 0; let down = 0;
+  for (let index = sourceCloses.length - lookback; index < sourceCloses.length; index += 1) { if (sourceCloses[index] > sourceCloses[index - 1]) up += sourceVolumes[index] || 0; else if (sourceCloses[index] < sourceCloses[index - 1]) down += sourceVolumes[index] || 0; }
+  const upDownRatio = down > 0 ? up / down : up > 0 ? null : 1;
+  const primaryRatio = Object.values(ratios).find(Number.isFinite);
+  const recentSpike = Number.isFinite(primaryRatio) && primaryRatio >= 1.8;
+  const state = !Number.isFinite(primaryRatio) ? "unavailable" : primaryRatio <= 0.65 ? "dry_up" : primaryRatio >= 2.5 ? "climax_volume" : primaryRatio >= 1.35 && (upDownRatio ?? 1) >= 1.15 ? "breakout_volume" : primaryRatio >= 1.2 ? "expanding" : upDownRatio != null && upDownRatio <= 0.8 ? "distribution" : upDownRatio != null && upDownRatio >= 1.25 ? "accumulation" : "normal";
+  return { status: "available", latest_volume: latestVolume, averages, ratios, up_down_volume_ratio: upDownRatio, recent_volume_spikes: recentSpike, state, accumulation_distribution_balance: upDownRatio == null ? "unavailable" : upDownRatio >= 1.2 ? "accumulation" : upDownRatio <= 0.8 ? "distribution" : "balanced", explanation: `${horizon} volume is ${state.replaceAll("_", " ")}.` };
+}
+
+function buildTechnicalAtrStructure(highs = [], lows = [], closes = [], horizon = "short_term") {
+  const config = TECHNICAL_STRUCTURE_CONFIG[horizon];
+  const atrSeries = closes.map((_, index) => index < 14 ? null : atr(highs.slice(0, index + 1), lows.slice(0, index + 1), closes.slice(0, index + 1), 14));
+  const current = atrSeries.at(-1);
+  const atrPct = Number.isFinite(current) && Number.isFinite(closes.at(-1)) && closes.at(-1) > 0 ? (current / closes.at(-1)) * 100 : null;
+  const percentile = (period) => atrSeries.filter(Number.isFinite).length >= period ? technicalPercentile(current, atrSeries.filter(Number.isFinite).slice(-period)) : null;
+  const p60 = percentile(60); const p120 = percentile(120); const p250 = percentile(250);
+  const relevantPercentile = p60 ?? p120 ?? p250;
+  const state = relevantPercentile == null ? "unavailable" : relevantPercentile <= 20 ? "compressed" : relevantPercentile <= 40 ? "low" : relevantPercentile <= 70 ? "normal" : relevantPercentile <= 88 ? "elevated" : "extreme";
+  const slope = technicalSlope(atrSeries, horizon === "short_term" ? 5 : 20, null);
+  return { ATR14: current, ATR_pct: atrPct, ATR_5D_change: Number.isFinite(current) && Number.isFinite(technicalValueAgo(atrSeries, 5)) ? ((current - technicalValueAgo(atrSeries, 5)) / Math.max(technicalValueAgo(atrSeries, 5), 0.0001)) * 100 : null, ATR_20D_change: Number.isFinite(current) && Number.isFinite(technicalValueAgo(atrSeries, 20)) ? ((current - technicalValueAgo(atrSeries, 20)) / Math.max(technicalValueAgo(atrSeries, 20), 0.0001)) * 100 : null, ATR_60D_change: Number.isFinite(current) && Number.isFinite(technicalValueAgo(atrSeries, 60)) ? ((current - technicalValueAgo(atrSeries, 60)) / Math.max(technicalValueAgo(atrSeries, 60), 0.0001)) * 100 : null, ATR_percentile_60D: p60, ATR_percentile_120D: p120, ATR_percentile_250D: p250, volatility_state: state, volatility_trend: slope.slope_abs == null ? "unavailable" : slope.slope_abs > 0 ? "expanding" : slope.slope_abs < 0 ? "contracting" : "stable", range_efficiency: "not_evaluated", explanation: `${horizon} volatility is ${state}.` };
+}
+
+function buildTechnicalMomentumStructure(closes = [], horizon = "short_term") {
+  const config = TECHNICAL_STRUCTURE_CONFIG[horizon];
+  const rocs = Object.fromEntries(config.roc_periods.map((period) => [`ROC${period}`, technicalReturn(closes, period)]));
+  const values = Object.values(rocs).filter(Number.isFinite);
+  const average = mean(values);
+  const previous = technicalReturn(closes.slice(0, -5), config.roc_periods.at(-1));
+  const acceleration = Number.isFinite(average) && Number.isFinite(previous) ? average - previous : null;
+  return { values: rocs, momentum_direction: !Number.isFinite(average) ? "unavailable" : average > 1 ? "up" : average < -1 ? "down" : "flat", momentum_strength: !Number.isFinite(average) ? "unavailable" : Math.abs(average) >= 15 ? "strong" : Math.abs(average) >= 5 ? "moderate" : "weak", acceleration, deceleration: Number.isFinite(acceleration) && acceleration < 0, inflection: Number.isFinite(acceleration) && Math.abs(acceleration) >= 3 ? (acceleration > 0 ? "upward" : "downward") : "none", consistency: values.length < config.roc_periods.length ? "partial" : values.every((value) => value > 0) || values.every((value) => value < 0) ? "consistent" : "mixed", explanation: `${horizon} momentum is ${!Number.isFinite(average) ? "unavailable" : average > 0 ? "positive" : "negative"}.` };
+}
+
+function buildTechnicalBollingerStructure(closes = [], currentPrice = null, horizon = "short_term", weekly = {}) {
+  const config = TECHNICAL_STRUCTURE_CONFIG[horizon];
+  const source = horizon === "long_term" && weekly.closes?.length ? weekly.closes : closes;
+  const period = config.bollinger_period;
+  if (source.length < period || !Number.isFinite(currentPrice)) return { status: "unavailable", middle_band: null, upper_band: null, lower_band: null, explanation: "Bollinger history is insufficient." };
+  const middle = mean(source.slice(-period)); const deviation = stdDev(source.slice(-period)); const upper = middle + deviation * config.bollinger_stddev; const lower = middle - deviation * config.bollinger_stddev;
+  const width = upper - lower; const widthPct = middle ? (width / middle) * 100 : null; const percentB = width > 0 ? (currentPrice - lower) / width : null;
+  const widths = source.map((_, index) => index + 1 < period ? null : (() => { const sample = source.slice(index - period + 1, index + 1); const mid = mean(sample); return mid ? ((stdDev(sample) * config.bollinger_stddev * 2) / mid) * 100 : null; })()).filter(Number.isFinite);
+  const widthPercentile = widths.length >= 60 ? technicalPercentile(widthPct, widths.slice(-60)) : null;
+  const priorWidth = widths.at(-6); const squeeze = widthPercentile != null && widthPercentile <= 20 ? "squeeze" : widthPercentile != null && widthPercentile >= 80 ? "expanded" : "normal";
+  const walk = currentPrice >= upper ? "upper_band_walk" : currentPrice <= lower ? "lower_band_walk" : Math.abs(currentPrice - middle) <= width * 0.15 ? "middle_band" : "none";
+  return { status: "available", period, middle_band: middle, upper_band: upper, lower_band: lower, band_width: width, band_width_pct: widthPct, percent_b: percentB, band_width_percentile: widthPercentile, band_expansion: Number.isFinite(priorWidth) ? widthPct > priorWidth : null, band_compression: Number.isFinite(priorWidth) ? widthPct < priorWidth : null, squeeze_state: squeeze, band_walk_state: walk, explanation: `${horizon} bands are ${squeeze}.` };
+}
+
+function buildTechnicalKdjStructure(highs = [], lows = [], closes = [], horizon = "short_term", weekly = {}) {
+  const sourceHighs = horizon === "long_term" && weekly.highs?.length ? weekly.highs : highs;
+  const sourceLows = horizon === "long_term" && weekly.lows?.length ? weekly.lows : lows;
+  const sourceCloses = horizon === "long_term" && weekly.closes?.length ? weekly.closes : closes;
+  if (sourceCloses.length < 12) return { status: "unavailable", k: null, d: null, j: null, cross_state: "unavailable", explanation: "KDJ history is insufficient." };
+  const snapshots = sourceCloses.map((_, index) => index < 8 ? null : computeKdj(sourceHighs.slice(0, index + 1), sourceLows.slice(0, index + 1), sourceCloses.slice(0, index + 1)));
+  const current = snapshots.at(-1); const previous = snapshots.at(-2);
+  const kSeries = snapshots.map((item) => item?.k ?? null); const dSeries = snapshots.map((item) => item?.d ?? null); const jSeries = snapshots.map((item) => item?.j ?? null);
+  let crossIndex = null;
+  for (let index = snapshots.length - 1; index > 0; index -= 1) if (snapshots[index] && snapshots[index - 1] && ((snapshots[index].k >= snapshots[index].d) !== (snapshots[index - 1].k >= snapshots[index - 1].d))) { crossIndex = index; break; }
+  const persistentOverbought = jSeries.slice(-5).filter(Number.isFinite).every((value) => value >= 80);
+  const persistentOversold = jSeries.slice(-5).filter(Number.isFinite).every((value) => value <= 20);
+  return { status: "available", k: current?.k ?? null, d: current?.d ?? null, j: current?.j ?? null, k_slope: technicalSlope(kSeries, 3, null), d_slope: technicalSlope(dSeries, 3, null), j_slope: technicalSlope(jSeries, 3, null), cross_state: crossIndex == null ? "none" : snapshots[crossIndex].k > snapshots[crossIndex].d ? "bullish_cross" : "bearish_cross", bars_since_cross: crossIndex == null ? null : snapshots.length - 1 - crossIndex, overbought_state: current?.j >= 80, oversold_state: current?.j <= 20, persistent_overbought: persistentOverbought, persistent_oversold: persistentOversold, momentum_turn: current && previous ? current.j > previous.j ? "up" : current.j < previous.j ? "down" : "flat" : "unavailable", false_cross: false, explanation: `${horizon} KDJ is ${current?.j >= 80 ? "overbought" : current?.j <= 20 ? "oversold" : "neutral"}.` };
+}
+
+function buildTechnicalRelativeStrengthStructure(relativeStrength = {}, horizon = "short_term") {
+  const periods = horizon === "short_term" ? [20] : horizon === "mid_term" ? [20, 60] : [60, 120];
+  const pick = (prefix) => Object.fromEntries(periods.map((period) => [`${prefix}_${period}d`, relativeStrength[`${prefix}_${period}d`] ?? null]));
+  const absolute = pick("stock_return"); const spy = pick("stock_vs_spy"); const qqq = pick("stock_vs_qqq");
+  const benchmarkValues = [...Object.values(spy), ...Object.values(qqq)].filter(Number.isFinite);
+  const average = mean(benchmarkValues);
+  const shortValue = average;
+  const longValue = periods.length > 1 ? mean([spy[`stock_vs_spy_${periods.at(-1)}d`], qqq[`stock_vs_qqq_${periods.at(-1)}d`]].filter(Number.isFinite)) : null;
+  const consistency = Number.isFinite(shortValue) && Number.isFinite(longValue) ? shortValue > longValue + 1 ? "improving" : shortValue < longValue - 1 ? "deteriorating" : "stable" : "unavailable";
+  return { absolute_return: absolute, vs_spy: spy, vs_qqq: qqq, rs_slope: Number.isFinite(shortValue) && Number.isFinite(longValue) ? shortValue - longValue : null, rs_acceleration: consistency === "improving", rs_deceleration: consistency === "deteriorating", rs_breakout: Number.isFinite(average) ? average >= 8 : null, rs_breakdown: Number.isFinite(average) ? average <= -8 : null, regime: !Number.isFinite(average) ? "unavailable" : average >= 3 ? "outperforming" : average <= -3 ? "underperforming" : "neutral", consistency, explanation: !Number.isFinite(average) ? "Relative-strength benchmark history is unavailable." : `${horizon} relative strength is ${average >= 3 ? "outperforming" : average <= -3 ? "underperforming" : "neutral"}.` };
+}
+
+function buildTechnicalIndicatorStructure({ history = {}, currentPrice = null, atr14 = null, relativeStrength = {}, profileTags = [] } = {}) {
+  const closes = technicalFiniteSeries(history.closes); const highs = technicalFiniteSeries(history.highs); const lows = technicalFiniteSeries(history.lows); const volumes = technicalFiniteSeries(history.volumes);
+  const weekly = technicalWeeklyHistory(history);
+  const buildHorizon = (horizon) => {
+    const config = TECHNICAL_STRUCTURE_CONFIG[horizon];
+    const source = horizon === "long_term" && weekly.closes.length ? weekly : { closes, highs, lows, volumes };
+    const modules = {
+      ma: buildTechnicalMaStructure({ closes, currentPrice, atr14, horizon, dates: history.timestamps || history.dates || [], profileTags }),
+      rsi: buildTechnicalRsiStructure(closes, horizon, weekly.closes),
+      macd: buildTechnicalMacd(source.closes, MACD_HORIZON_CONFIG[horizon]),
+      // Long-horizon OBV/volume/ROC retain their 60/120/250D daily windows;
+      // weekly bars are reserved for the indicators explicitly configured as weekly.
+      obv: buildTechnicalObvStructure(closes, volumes, horizon, {}),
+      relative_strength: buildTechnicalRelativeStrengthStructure(relativeStrength, horizon),
+      volume: buildTechnicalVolumeStructure(closes, volumes, horizon, {}),
+      atr: buildTechnicalAtrStructure(closes, highs, lows, horizon),
+      momentum: buildTechnicalMomentumStructure(closes, horizon),
+      adx: buildTechnicalAdx(source.highs, source.lows, source.closes, config.adx_period),
+      bollinger: buildTechnicalBollingerStructure(closes, currentPrice, horizon, weekly),
+      kdj: buildTechnicalKdjStructure(closes, highs, lows, horizon, weekly),
+    };
+    const missing = Object.entries(modules).filter(([, value]) => value.status === "unavailable" || value.primary_rsi == null && value.values && !Object.values(value.values).some(Number.isFinite)).map(([key]) => key);
+    const used = Object.keys(modules).filter((key) => !missing.includes(key));
+    const quality = used.length ? Math.round((used.length / Object.keys(modules).length) * 100) : 0;
+    return { ...modules, used_indicators: used, missing_indicators: missing, data_window: config.window, bar_count: source.closes.length, daily_bar_count: closes.length, weekly_bar_count: weekly.closes.length, data_quality: quality >= 85 ? "high" : quality >= 60 ? "partial" : "limited", summary: `${horizon}: ${modules.ma.trend_state}, RSI ${modules.rsi.state}, MACD ${modules.macd.momentum_state}.` };
+  };
+  return { short_term: buildHorizon("short_term"), mid_term: buildHorizon("mid_term"), long_term: buildHorizon("long_term"), configuration: { ma_periods: [10, 20, 50, 100, 200], macd: MACD_HORIZON_CONFIG } };
 }
 
 function localizedProfileTag(tag) {
@@ -3465,6 +3853,12 @@ function computeIndicators(ticker, snapshot, profile) {
   const { support, resistance, analysis: srAnalysis } = deriveLevels(close, history, { ma20, ma50, ma100, ma200, upperBand, middleBand, lowerBand, rangeLow, rangeHigh });
   const fibPosition = rangeHigh > rangeLow ? (close - rangeLow) / (rangeHigh - rangeLow) : 0.5;
   const fibonacciStructure = buildFibonacciStructure(history, close, atr14);
+  const technicalIndicatorStructure = buildTechnicalIndicatorStructure({
+    history: { ...history, turnovers },
+    currentPrice: close,
+    atr14,
+    profileTags: profile?.tags || [],
+  });
   const pricePressure = clamp((close - ma20) / Math.max(ma20, 1), -0.25, 0.25);
 
   const ema12Signal = close > ema12 && ema12 > ema26 ? { signal: "buy", trend: "up" } : close < ema12 && ema12 < ema26 ? { signal: "sell", trend: "down" } : { signal: "hold", trend: "flat" };
@@ -3564,6 +3958,7 @@ function computeIndicators(ticker, snapshot, profile) {
       kdj: kdjValue,
       fibPosition,
       fibonacci_structure: fibonacciStructure,
+      technical_indicator_structure: technicalIndicatorStructure,
       ma10,
       ma20,
       ma50,
@@ -12009,6 +12404,7 @@ function buildTechnicalModule(row, supportResistance, companyProfile = null) {
       fibonacci: tech.fibPosition ?? null,
     },
     fibonacci_structure: tech.fibonacci_structure || null,
+    technical_indicator_structure: tech.technical_indicator_structure || null,
     momentum: {
       state: momentumScore >= 70 ? "Healthy Bullish" : momentumScore >= 55 ? "Neutral" : momentumScore >= 35 ? "Weak Momentum" : "Oversold",
       rsi: tech.rsi14 ?? null,
@@ -19697,6 +20093,15 @@ function buildETFDecisionModel(row, research, companyProfile, etfProfile) {
   const technical = buildTechnicalModule(row, supportResistance, companyProfile);
   const marketContext = buildMarketContextModule(row, companyProfile);
   const relativeStrength = buildRelativeStrengthModule(row, marketContext, companyProfile);
+  row.technicals = row.technicals || {};
+  row.technicals.technical_indicator_structure = buildTechnicalIndicatorStructure({
+    history: row.technicals?.history || {},
+    currentPrice: row.price,
+    atr14: row.technicals?.atr14,
+    relativeStrength,
+    profileTags: companyProfile.tags || [],
+  });
+  technical.technical_indicator_structure = row.technicals.technical_indicator_structure;
   const benchmarkContext = buildETFBenchmarkContext(row, etfProfile, marketContext);
   const trendEfficiency = computeTrendEfficiency(row.technicals?.history?.closes || [], 20);
   const underlyingContext = buildETFUnderlyingContext(row, etfProfile, marketContext, trendEfficiency, relativeStrength);
@@ -20699,6 +21104,15 @@ function buildDecisionModel(row) {
   fundamental.analyst_revisions = analystRevisions;
   const relativeStrength = buildRelativeStrengthModule(row, marketContext, companyProfile);
   technical.relative_strength = relativeStrength;
+  row.technicals = row.technicals || {};
+  row.technicals.technical_indicator_structure = buildTechnicalIndicatorStructure({
+    history: row.technicals?.history || {},
+    currentPrice: row.price,
+    atr14: row.technicals?.atr14,
+    relativeStrength,
+    profileTags: companyProfile.tags || [],
+  });
+  technical.technical_indicator_structure = row.technicals.technical_indicator_structure;
   let earningsEventRisk = buildEarningsEventRiskModule(row, preliminaryOptionsExpectedMove);
   marketContext.earnings_event_risk = earningsEventRisk;
   let dataQuality = buildDataQuality(row, marketContext, idealBuyZone, companyProfile);
@@ -21937,6 +22351,51 @@ function renderDetailModal(row) {
       </div>
     </section>
   `;
+  const renderTechnicalStructureCard = (label, structure) => {
+    if (!structure) return `<article class="decision-list-card"><div class="decision-list-title">${label}</div><div class="detail-line-note">${t("dataUnavailable")}</div></article>`;
+    const ma = structure.ma || {}; const rsi = structure.rsi || {}; const macd = structure.macd || {}; const obv = structure.obv || {}; const rs = structure.relative_strength || {}; const volume = structure.volume || {}; const atr = structure.atr || {}; const momentum = structure.momentum || {}; const adx = structure.adx || {}; const bollinger = structure.bollinger || {}; const kdj = structure.kdj || {};
+    const rsiValues = Object.entries(rsi.values || {}).filter(([, value]) => Number.isFinite(value)).map(([key, value]) => `${key} ${formatOneDecimal(value)}`).join(" / ") || "—";
+    const maValues = (ma.relevant_mas || []).map((item) => `MA${item.period} ${formatCurrency(item.current_value, currencyCode)}`).join(" / ") || "—";
+    const rsValue = Object.values(rs.vs_spy || {}).find(Number.isFinite) ?? Object.values(rs.vs_qqq || {}).find(Number.isFinite);
+    return `
+      <article class="decision-list-card">
+        <div class="decision-list-title">${label}</div>
+        <div class="detail-line-note">${currentLanguage === "zh" ? "数据窗口" : "Data Window"}: ${structure.data_window} · ${currentLanguage === "zh" ? "质量" : "Quality"}: ${structure.data_quality}</div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: "MA", value: ma.ma_alignment || "—", note: maValues },
+          { label: "RSI", value: rsi.state || "—", note: rsiValues },
+          { label: "MACD", value: macd.momentum_state || "—", note: Number.isFinite(macd.histogram) ? `${currentLanguage === "zh" ? "柱体" : "Histogram"} ${formatSignedCurrency(macd.histogram, currencyCode)}` : "" },
+          { label: "OBV", value: obv.trend || "—", note: obv.price_obv_divergence || "" },
+          { label: currentLanguage === "zh" ? "相对强度" : "Relative Strength", value: rs.regime || "—", note: Number.isFinite(rsValue) ? formatChangePercent(rsValue) : rs.explanation || "" },
+          { label: currentLanguage === "zh" ? "量能" : "Volume", value: volume.state || "—", note: volume.accumulation_distribution_balance || "" },
+          { label: "ATR", value: atr.volatility_state || "—", note: Number.isFinite(atr.ATR_pct) ? `${formatOneDecimal(atr.ATR_pct)}% · ${atr.volatility_trend || "—"}` : "" },
+          { label: currentLanguage === "zh" ? "动能" : "Momentum", value: momentum.momentum_direction || "—", note: momentum.momentum_strength || "" },
+          { label: "ADX", value: adx.trend_strength || "—", note: adx.direction || "" },
+          { label: currentLanguage === "zh" ? "布林带" : "Bollinger", value: bollinger.band_walk_state || "—", note: bollinger.squeeze_state || "" },
+          { label: "KDJ", value: kdj.status === "available" ? `K ${formatOneDecimal(kdj.k)} / D ${formatOneDecimal(kdj.d)} / J ${formatOneDecimal(kdj.j)}` : "—", note: kdj.cross_state || "" },
+        ])}</div>
+        <details class="detail-disclosure"><summary>${currentLanguage === "zh" ? "展开完整数值" : "Show detailed values"}</summary><div class="detail-line-list">${renderMetricRows([
+          { label: currentLanguage === "zh" ? "均线结构" : "MA Structure", value: ma.trend_state || "—", note: `${currentLanguage === "zh" ? "最近均线" : "Nearest"}: ${ma.nearest_ma || "—"} · ${currentLanguage === "zh" ? "扩展" : "Extension"}: ${ma.extension_state || "—"}` },
+          { label: currentLanguage === "zh" ? "均线压缩" : "MA Compression", value: ma.compression_state || "—", note: (ma.bullish_crosses || []).map((item) => item.pair).join(", ") || "" },
+          { label: currentLanguage === "zh" ? "MACD 线 / 信号" : "MACD / Signal", value: `${displayValue(macd.macd_line, (value) => formatSignedCurrency(value, currencyCode))} / ${displayValue(macd.signal_line, (value) => formatSignedCurrency(value, currencyCode))}`, note: `${macd.cross_state || "—"} · ${macd.zero_line_state || "—"}` },
+          { label: currentLanguage === "zh" ? "ATR 百分位" : "ATR Percentile", value: `${displayValue(atr.ATR_percentile_60D, (value) => formatOneDecimal(value))} / ${displayValue(atr.ATR_percentile_120D, (value) => formatOneDecimal(value))} / ${displayValue(atr.ATR_percentile_250D, (value) => formatOneDecimal(value))}`, note: "60D / 120D / 250D" },
+          { label: currentLanguage === "zh" ? "布林 %B" : "Bollinger %B", value: displayValue(bollinger.percent_b, (value) => formatOneDecimal(value)), note: Number.isFinite(bollinger.band_width_pct) ? `${currentLanguage === "zh" ? "带宽" : "Width"} ${formatOneDecimal(bollinger.band_width_pct)}%` : "" },
+          { label: currentLanguage === "zh" ? "缺失指标" : "Missing Indicators", value: (structure.missing_indicators || []).join(", ") || (currentLanguage === "zh" ? "无" : "None") },
+        ])}</div></details>
+      </article>
+    `;
+  };
+  const renderTechnicalIndicatorStructure = (structure) => `
+    <section class="detail-section-card">
+      <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "多周期技术结构" : "Multi-Horizon Technical Structure"}</h3></div>
+      <div class="detail-line-note">${currentLanguage === "zh" ? "仅用于详情页解释与调试；本轮未计入预测、买卖区间或操作评分。" : "Display/debug only. This structure is not used by forecasts, ranges, or action scores in this release."}</div>
+      <div class="decision-summary-grid">
+        ${renderTechnicalStructureCard(currentLanguage === "zh" ? "短期技术结构" : "Short-Term Structure", structure?.short_term)}
+        ${renderTechnicalStructureCard(currentLanguage === "zh" ? "中期技术结构" : "Mid-Term Structure", structure?.mid_term)}
+        ${renderTechnicalStructureCard(currentLanguage === "zh" ? "长期技术结构" : "Long-Term Structure", structure?.long_term)}
+      </div>
+    </section>
+  `;
 
   const technicalPanel = `
     <section class="detail-tab-section">
@@ -21959,6 +22418,7 @@ function renderDetailModal(row) {
         ])}</div>
       </section>
       ${renderFibonacciStructure(technical.fibonacci_structure || row.technicals?.fibonacci_structure)}
+      ${renderTechnicalIndicatorStructure(technical.technical_indicator_structure || row.technicals?.technical_indicator_structure)}
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("momentum")}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
