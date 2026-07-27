@@ -613,7 +613,6 @@ const I18N = {
     longResistanceShort: "Long R",
     newlyListedType: "Newly Listed",
     newlyListedModel: "Newly Listed Model",
-    technicalSummary: "Technical Summary",
     fundamentalSummary: "Fundamental Summary",
     moneyFlowSummary: "Money Flow Summary",
     qualitySummary: "Quality Summary",
@@ -675,7 +674,6 @@ const I18N = {
     volumeConfirmation: "Volume Confirmation",
     trend: "Trend",
     momentum: "Momentum",
-    technicalSummaryTitle: "Technical Summary",
     quality: "Quality",
     growth: "Growth",
     financialHealth: "Financial Health",
@@ -998,7 +996,6 @@ const I18N = {
     longResistanceShort: "长R",
     newlyListedType: "新上市",
     newlyListedModel: "新股模型",
-    technicalSummary: "技术面总结",
     fundamentalSummary: "基本面总结",
     moneyFlowSummary: "资金面总结",
     qualitySummary: "质量总结",
@@ -1060,7 +1057,6 @@ const I18N = {
     volumeConfirmation: "量能确认",
     trend: "趋势",
     momentum: "动量",
-    technicalSummaryTitle: "技术面总结",
     quality: "质量",
     growth: "成长",
     financialHealth: "财务健康",
@@ -1819,6 +1815,27 @@ function technicalPercentile(value, values = []) {
   return (valid.filter((item) => item <= value).length / valid.length) * 100;
 }
 
+function technicalRecentDivergence(prices = [], oscillator = [], lookback = 12) {
+  const paired = prices.map((price, index) => ({ price, oscillator: oscillator[index] }))
+    .filter(({ price, oscillator: value }) => Number.isFinite(price) && Number.isFinite(value));
+  if (paired.length < Math.max(6, lookback)) return "unavailable";
+  const sample = paired.slice(-lookback);
+  const split = Math.floor(sample.length / 2);
+  const earlier = sample.slice(0, split);
+  const recent = sample.slice(split);
+  const earlierHigh = Math.max(...earlier.map((item) => item.price));
+  const recentHigh = Math.max(...recent.map((item) => item.price));
+  const earlierLow = Math.min(...earlier.map((item) => item.price));
+  const recentLow = Math.min(...recent.map((item) => item.price));
+  const earlierOscHigh = Math.max(...earlier.map((item) => item.oscillator));
+  const recentOscHigh = Math.max(...recent.map((item) => item.oscillator));
+  const earlierOscLow = Math.min(...earlier.map((item) => item.oscillator));
+  const recentOscLow = Math.min(...recent.map((item) => item.oscillator));
+  if (recentHigh > earlierHigh && recentOscHigh < earlierOscHigh) return "bearish_divergence";
+  if (recentLow < earlierLow && recentOscLow > earlierOscLow) return "bullish_divergence";
+  return "none";
+}
+
 function technicalTrendLabel(score) {
   if (!Number.isFinite(score)) return "unavailable";
   if (score >= 78) return "strong_bullish";
@@ -1978,23 +1995,34 @@ function buildTechnicalMaStructure({ closes = [], currentPrice = null, atr14 = n
 
 function buildTechnicalRsiStructure(values = [], horizon = "short_term", weeklyValues = []) {
   const config = TECHNICAL_STRUCTURE_CONFIG[horizon];
-  const source = horizon === "long_term" && weeklyValues.length ? weeklyValues : values;
-  const rsiValues = Object.fromEntries(config.rsi_periods.map((period) => [`RSI${period}`, technicalRsi(source, period)]));
-  const primaryPeriod = horizon === "short_term" ? 14 : horizon === "mid_term" ? 21 : weeklyValues.length ? 14 : 50;
-  const primary = horizon === "long_term" && weeklyValues.length ? technicalRsi(weeklyValues, 14) : (rsiValues[`RSI${primaryPeriod}`] ?? Object.values(rsiValues).find(Number.isFinite) ?? null);
-  const series = technicalRsiSeries(source, horizon === "long_term" && weeklyValues.length ? 14 : primaryPeriod);
+  // Daily RSI values stay visible for every horizon; long-term additionally
+  // uses weekly RSI14 as its primary structural reading when enough bars exist.
+  const rsiValues = Object.fromEntries(config.rsi_periods.map((period) => [`RSI${period}`, technicalRsi(values, period)]));
+  const primaryPeriod = horizon === "short_term" ? 14 : horizon === "mid_term" ? 21 : 50;
+  const weeklyRsi14 = weeklyValues.length ? technicalRsi(weeklyValues, 14) : null;
+  const primary = horizon === "long_term" && Number.isFinite(weeklyRsi14)
+    ? weeklyRsi14
+    : (rsiValues[`RSI${primaryPeriod}`] ?? Object.values(rsiValues).find(Number.isFinite) ?? null);
+  const source = horizon === "long_term" && Number.isFinite(weeklyRsi14) ? weeklyValues : values;
+  const series = technicalRsiSeries(source, horizon === "long_term" && Number.isFinite(weeklyRsi14) ? 14 : primaryPeriod);
   const slope = technicalSlope(series, horizon === "short_term" ? 3 : 5, null);
   const average = mean(Object.values(rsiValues).filter(Number.isFinite));
   const state = !Number.isFinite(primary) ? "unavailable" : primary <= 20 ? "extreme_oversold" : primary <= 35 ? "oversold" : primary < 45 ? "weak" : primary < 58 ? "neutral" : primary < 70 ? "strong" : primary < 80 ? "overbought" : "extreme_overbought";
   const regime = !Number.isFinite(primary) ? "unavailable" : primary >= 55 ? "bull_range" : primary <= 45 ? "bear_range" : "neutral_range";
   const recent = series.slice(-10).filter(Number.isFinite);
-  return { values: rsiValues, weekly_rsi14: weeklyValues.length ? technicalRsi(weeklyValues, 14) : null, primary_rsi: primary, average_rsi: average, slope, acceleration: slope.slope_abs != null && slope.slope_abs > 0, state, range_regime: regime, divergence: "not_evaluated", failure_swing: "not_evaluated", bars_in_overbought: recent.filter((value) => value >= 70).length, bars_in_oversold: recent.filter((value) => value <= 30).length, explanation: `${horizon} RSI is ${state.replaceAll("_", " ")}.` };
+  const priceSource = horizon === "long_term" && Number.isFinite(weeklyRsi14) ? weeklyValues : values;
+  const divergence = technicalRecentDivergence(priceSource, series, horizon === "short_term" ? 10 : 12);
+  const failureSwing = !Number.isFinite(primary) ? "unavailable"
+    : primary >= 70 && slope.slope_abs < 0 ? "bearish_failure_swing_watch"
+      : primary <= 30 && slope.slope_abs > 0 ? "bullish_failure_swing_watch"
+        : "none";
+  return { values: rsiValues, weekly_rsi14: weeklyRsi14, primary_rsi: primary, average_rsi: average, slope, acceleration: slope.slope_abs != null && slope.slope_abs > 0, state, range_regime: regime, divergence, failure_swing: failureSwing, bars_in_overbought: recent.filter((value) => value >= 70).length, bars_in_oversold: recent.filter((value) => value <= 30).length, explanation: `${horizon} RSI is ${state.replaceAll("_", " ")}.` };
 }
 
 function buildTechnicalObvStructure(closes = [], volumes = [], horizon = "short_term", weekly = {}) {
   const config = TECHNICAL_STRUCTURE_CONFIG[horizon];
-  const sourceCloses = horizon === "long_term" && weekly.closes?.length ? weekly.closes : closes;
-  const sourceVolumes = horizon === "long_term" && weekly.volumes?.length ? weekly.volumes : volumes;
+  const sourceCloses = closes;
+  const sourceVolumes = volumes;
   if (sourceCloses.length < Math.max(...config.obv_periods) + 1 || sourceVolumes.length !== sourceCloses.length) return { status: "unavailable", trend: "unavailable", slope: null, normalized_slope: null, new_high: null, new_low: null, breakout: null, breakdown: null, price_obv_divergence: "unavailable", confirmation_state: "unavailable", explanation: "OBV history is insufficient." };
   const series = technicalObvSeries(sourceCloses, sourceVolumes);
   const period = Math.max(...config.obv_periods);
@@ -2006,13 +2034,18 @@ function buildTechnicalObvStructure(closes = [], volumes = [], horizon = "short_
   const priceReturn = technicalReturn(sourceCloses, period); const obvDirection = slope.slope_abs ?? 0;
   const divergence = Number.isFinite(priceReturn) ? priceReturn > 0 && obvDirection < 0 ? "bearish_divergence" : priceReturn < 0 && obvDirection > 0 ? "bullish_divergence" : "none" : "unavailable";
   const trend = obvDirection > 0 ? "rising" : obvDirection < 0 ? "falling" : "flat";
-  return { status: "available", periods: config.obv_periods, trend, slope: slope.slope_abs, normalized_slope: slope.slope_normalized_by_atr, new_high: newHigh, new_low: newLow, breakout: newHigh, breakdown: newLow, price_obv_divergence: divergence, confirmation_state: divergence === "none" ? (trend === "rising" ? "confirming_uptrend" : trend === "falling" ? "confirming_downtrend" : "neutral") : "divergent", explanation: `${horizon} OBV is ${trend}.` };
+  const weeklySeries = weekly.closes?.length === weekly.volumes?.length && weekly.closes.length >= 6
+    ? technicalObvSeries(weekly.closes, weekly.volumes)
+    : [];
+  const weeklySlope = weeklySeries.length ? technicalSlope(weeklySeries, Math.min(4, weeklySeries.length - 1), mean(weekly.volumes.slice(-4)) || null) : null;
+  const weeklyTrend = !weeklySlope || weeklySlope.slope_abs == null ? "unavailable" : weeklySlope.slope_abs > 0 ? "rising" : weeklySlope.slope_abs < 0 ? "falling" : "flat";
+  return { status: "available", periods: config.obv_periods, trend, slope: slope.slope_abs, normalized_slope: slope.slope_normalized_by_atr, new_high: newHigh, new_low: newLow, breakout: newHigh, breakdown: newLow, price_obv_divergence: divergence, weekly_obv_trend: weeklyTrend, weekly_obv_slope: weeklySlope, confirmation_state: divergence === "none" ? (trend === "rising" ? "confirming_uptrend" : trend === "falling" ? "confirming_downtrend" : "neutral") : "divergent", explanation: `${horizon} OBV is ${trend}.` };
 }
 
-function buildTechnicalVolumeStructure(closes = [], volumes = [], horizon = "short_term", weekly = {}) {
+function buildTechnicalVolumeStructure(closes = [], volumes = [], horizon = "short_term", weekly = {}, turnovers = []) {
   const config = TECHNICAL_STRUCTURE_CONFIG[horizon];
-  const sourceVolumes = horizon === "long_term" && weekly.volumes?.length ? weekly.volumes : volumes;
-  const sourceCloses = horizon === "long_term" && weekly.closes?.length ? weekly.closes : closes;
+  const sourceVolumes = volumes;
+  const sourceCloses = closes;
   if (!sourceVolumes.length || sourceVolumes.length !== sourceCloses.length) return { status: "unavailable", explanation: "Volume history is unavailable." };
   const latestVolume = sourceVolumes.at(-1);
   const averages = Object.fromEntries(config.volume_periods.map((period) => [`avg_${period}d`, sourceVolumes.length >= period ? mean(sourceVolumes.slice(-period)) : null]));
@@ -2024,7 +2057,15 @@ function buildTechnicalVolumeStructure(closes = [], volumes = [], horizon = "sho
   const primaryRatio = Object.values(ratios).find(Number.isFinite);
   const recentSpike = Number.isFinite(primaryRatio) && primaryRatio >= 1.8;
   const state = !Number.isFinite(primaryRatio) ? "unavailable" : primaryRatio <= 0.65 ? "dry_up" : primaryRatio >= 2.5 ? "climax_volume" : primaryRatio >= 1.35 && (upDownRatio ?? 1) >= 1.15 ? "breakout_volume" : primaryRatio >= 1.2 ? "expanding" : upDownRatio != null && upDownRatio <= 0.8 ? "distribution" : upDownRatio != null && upDownRatio >= 1.25 ? "accumulation" : "normal";
-  return { status: "available", latest_volume: latestVolume, averages, ratios, up_down_volume_ratio: upDownRatio, recent_volume_spikes: recentSpike, state, accumulation_distribution_balance: upDownRatio == null ? "unavailable" : upDownRatio >= 1.2 ? "accumulation" : upDownRatio <= 0.8 ? "distribution" : "balanced", explanation: `${horizon} volume is ${state.replaceAll("_", " ")}.` };
+  const weeklyVolumes = weekly.volumes || [];
+  const weeklyTrend = weeklyVolumes.length >= 8
+    ? technicalSlope(weeklyVolumes, Math.min(4, weeklyVolumes.length - 1), null)
+    : null;
+  const validTurnovers = technicalFiniteSeries(turnovers);
+  const turnoverPeriod = horizon === "short_term" ? 5 : horizon === "mid_term" ? 20 : 60;
+  const turnoverLatest = validTurnovers.at(-1) ?? null;
+  const turnoverAverage = validTurnovers.length >= turnoverPeriod ? mean(validTurnovers.slice(-turnoverPeriod)) : null;
+  return { status: "available", latest_volume: latestVolume, averages, ratios, turnover_latest: turnoverLatest, turnover_average: turnoverAverage, turnover_period: turnoverPeriod, up_down_volume_ratio: upDownRatio, recent_volume_spikes: recentSpike, weekly_volume_trend: weeklyTrend?.slope_direction ?? "unavailable", weekly_volume_slope: weeklyTrend, state, accumulation_distribution_balance: upDownRatio == null ? "unavailable" : upDownRatio >= 1.2 ? "accumulation" : upDownRatio <= 0.8 ? "distribution" : "balanced", explanation: `${horizon} volume is ${state.replaceAll("_", " ")}.` };
 }
 
 function buildTechnicalAtrStructure(highs = [], lows = [], closes = [], horizon = "short_term") {
@@ -2037,7 +2078,13 @@ function buildTechnicalAtrStructure(highs = [], lows = [], closes = [], horizon 
   const relevantPercentile = p60 ?? p120 ?? p250;
   const state = relevantPercentile == null ? "unavailable" : relevantPercentile <= 20 ? "compressed" : relevantPercentile <= 40 ? "low" : relevantPercentile <= 70 ? "normal" : relevantPercentile <= 88 ? "elevated" : "extreme";
   const slope = technicalSlope(atrSeries, horizon === "short_term" ? 5 : 20, null);
-  return { ATR14: current, ATR_pct: atrPct, ATR_5D_change: Number.isFinite(current) && Number.isFinite(technicalValueAgo(atrSeries, 5)) ? ((current - technicalValueAgo(atrSeries, 5)) / Math.max(technicalValueAgo(atrSeries, 5), 0.0001)) * 100 : null, ATR_20D_change: Number.isFinite(current) && Number.isFinite(technicalValueAgo(atrSeries, 20)) ? ((current - technicalValueAgo(atrSeries, 20)) / Math.max(technicalValueAgo(atrSeries, 20), 0.0001)) * 100 : null, ATR_60D_change: Number.isFinite(current) && Number.isFinite(technicalValueAgo(atrSeries, 60)) ? ((current - technicalValueAgo(atrSeries, 60)) / Math.max(technicalValueAgo(atrSeries, 60), 0.0001)) * 100 : null, ATR_percentile_60D: p60, ATR_percentile_120D: p120, ATR_percentile_250D: p250, volatility_state: state, volatility_trend: slope.slope_abs == null ? "unavailable" : slope.slope_abs > 0 ? "expanding" : slope.slope_abs < 0 ? "contracting" : "stable", range_efficiency: "not_evaluated", explanation: `${horizon} volatility is ${state}.` };
+  const efficiencyPeriod = horizon === "short_term" ? 10 : horizon === "mid_term" ? 20 : 60;
+  const sample = closes.slice(-efficiencyPeriod - 1);
+  const pathLength = sample.slice(1).reduce((sum, value, index) => sum + Math.abs(value - sample[index]), 0);
+  const netMove = sample.length >= 2 ? Math.abs(sample.at(-1) - sample[0]) : null;
+  const efficiency = Number.isFinite(netMove) && pathLength > 0 ? netMove / pathLength : null;
+  const rangeEfficiency = efficiency == null ? "unavailable" : efficiency >= 0.55 ? "trend_volatility" : efficiency <= 0.32 ? "choppy_volatility" : "mixed_volatility";
+  return { ATR14: current, ATR_pct: atrPct, ATR_5D_change: Number.isFinite(current) && Number.isFinite(technicalValueAgo(atrSeries, 5)) ? ((current - technicalValueAgo(atrSeries, 5)) / Math.max(technicalValueAgo(atrSeries, 5), 0.0001)) * 100 : null, ATR_20D_change: Number.isFinite(current) && Number.isFinite(technicalValueAgo(atrSeries, 20)) ? ((current - technicalValueAgo(atrSeries, 20)) / Math.max(technicalValueAgo(atrSeries, 20), 0.0001)) * 100 : null, ATR_60D_change: Number.isFinite(current) && Number.isFinite(technicalValueAgo(atrSeries, 60)) ? ((current - technicalValueAgo(atrSeries, 60)) / Math.max(technicalValueAgo(atrSeries, 60), 0.0001)) * 100 : null, ATR_percentile_60D: p60, ATR_percentile_120D: p120, ATR_percentile_250D: p250, volatility_state: state, volatility_trend: slope.slope_abs == null ? "unavailable" : slope.slope_abs > 0 ? "expanding" : slope.slope_abs < 0 ? "contracting" : "stable", range_efficiency: rangeEfficiency, range_efficiency_ratio: efficiency, explanation: `${horizon} volatility is ${state}.` };
 }
 
 function buildTechnicalMomentumStructure(closes = [], horizon = "short_term") {
@@ -2079,10 +2126,11 @@ function buildTechnicalKdjStructure(highs = [], lows = [], closes = [], horizon 
   return { status: "available", k: current?.k ?? null, d: current?.d ?? null, j: current?.j ?? null, k_slope: technicalSlope(kSeries, 3, null), d_slope: technicalSlope(dSeries, 3, null), j_slope: technicalSlope(jSeries, 3, null), cross_state: crossIndex == null ? "none" : snapshots[crossIndex].k > snapshots[crossIndex].d ? "bullish_cross" : "bearish_cross", bars_since_cross: crossIndex == null ? null : snapshots.length - 1 - crossIndex, overbought_state: current?.j >= 80, oversold_state: current?.j <= 20, persistent_overbought: persistentOverbought, persistent_oversold: persistentOversold, momentum_turn: current && previous ? current.j > previous.j ? "up" : current.j < previous.j ? "down" : "flat" : "unavailable", false_cross: false, explanation: `${horizon} KDJ is ${current?.j >= 80 ? "overbought" : current?.j <= 20 ? "oversold" : "neutral"}.` };
 }
 
-function buildTechnicalRelativeStrengthStructure(relativeStrength = {}, horizon = "short_term") {
+function buildTechnicalRelativeStrengthStructure(relativeStrength = {}, horizon = "short_term", closes = []) {
   const periods = horizon === "short_term" ? [20] : horizon === "mid_term" ? [20, 60] : [60, 120];
   const pick = (prefix) => Object.fromEntries(periods.map((period) => [`${prefix}_${period}d`, relativeStrength[`${prefix}_${period}d`] ?? null]));
-  const absolute = pick("stock_return"); const spy = pick("stock_vs_spy"); const qqq = pick("stock_vs_qqq");
+  const absolute = { ...(horizon === "short_term" ? { stock_return_5d: technicalReturn(closes, 5) } : {}), ...pick("stock_return") };
+  const spy = pick("stock_vs_spy"); const qqq = pick("stock_vs_qqq");
   const benchmarkValues = [...Object.values(spy), ...Object.values(qqq)].filter(Number.isFinite);
   const average = mean(benchmarkValues);
   const shortValue = average;
@@ -2102,10 +2150,10 @@ function buildTechnicalIndicatorStructure({ history = {}, currentPrice = null, a
       rsi: buildTechnicalRsiStructure(closes, horizon, weekly.closes),
       macd: buildTechnicalMacd(source.closes, MACD_HORIZON_CONFIG[horizon]),
       // Long-horizon OBV/volume/ROC retain their 60/120/250D daily windows;
-      // weekly bars are reserved for the indicators explicitly configured as weekly.
-      obv: buildTechnicalObvStructure(closes, volumes, horizon, {}),
-      relative_strength: buildTechnicalRelativeStrengthStructure(relativeStrength, horizon),
-      volume: buildTechnicalVolumeStructure(closes, volumes, horizon, {}),
+      // weekly confirmation is emitted alongside them rather than replacing them.
+      obv: buildTechnicalObvStructure(closes, volumes, horizon, weekly),
+      relative_strength: buildTechnicalRelativeStrengthStructure(relativeStrength, horizon, closes),
+      volume: buildTechnicalVolumeStructure(closes, volumes, horizon, weekly, history.turnovers || []),
       atr: buildTechnicalAtrStructure(closes, highs, lows, horizon),
       momentum: buildTechnicalMomentumStructure(closes, horizon),
       adx: buildTechnicalAdx(source.highs, source.lows, source.closes, config.adx_period),
@@ -12492,6 +12540,190 @@ function buildFundamentalModule(row, research) {
   };
 }
 
+function formatAnalysisStatus(status) {
+  if (status === "beat") return currentLanguage === "zh" ? "超预期" : "Beat";
+  if (status === "miss") return currentLanguage === "zh" ? "不及预期" : "Miss";
+  if (status === "in_line") return currentLanguage === "zh" ? "符合预期" : "In line";
+  return currentLanguage === "zh" ? "数据暂不可用" : "Data unavailable";
+}
+
+function compareActualToEstimate(actual, estimate) {
+  if (!Number.isFinite(actual) || !Number.isFinite(estimate)) return "unavailable";
+  const tolerance = Math.max(Math.abs(estimate) * 0.015, 0.01);
+  if (actual > estimate + tolerance) return "beat";
+  if (actual < estimate - tolerance) return "miss";
+  return "in_line";
+}
+
+function buildBasicFundamentalAnalysis(row) {
+  const raw = row.metadata?.companyAnalysis;
+  if (!raw || raw.status !== "available") {
+    return {
+      status: raw?.status || "unavailable",
+      source: raw?.source || "yfinance financial statements",
+      cash_flow: {},
+      capital_allocation: {},
+      balance_sheet: {},
+      guidance: { source_status: "unavailable" },
+      quality_summary: { status: "unavailable", explanation: currentLanguage === "zh" ? "未获得可验证的公司财务报表数据。" : "Verified company financial statements are unavailable." },
+    };
+  }
+  const cashFlow = raw.cashFlow || {};
+  const capital = raw.capitalAllocation || {};
+  const balanceSheet = raw.balanceSheet || {};
+  const fcfTrend = !Number.isFinite(cashFlow.freeCashFlowYoyGrowth)
+    ? "unavailable"
+    : cashFlow.freeCashFlowYoyGrowth >= 10 ? "improving" : cashFlow.freeCashFlowYoyGrowth <= -10 ? "weakening" : "stable";
+  const cashGeneration = Number.isFinite(cashFlow.operatingCashFlow) && Number.isFinite(cashFlow.freeCashFlow)
+    ? (cashFlow.operatingCashFlow > 0 && cashFlow.freeCashFlow > 0 ? "strong" : "weak")
+    : "unavailable";
+  const capitalEfficiency = Number.isFinite(cashFlow.freeCashFlowMargin)
+    ? (cashFlow.freeCashFlowMargin >= 0.15 ? "strong" : cashFlow.freeCashFlowMargin >= 0 ? "adequate" : "weak")
+    : "unavailable";
+  const shareholderReturn = Number.isFinite(capital.sharesOutstandingYoy)
+    ? (capital.sharesOutstandingYoy < -1 ? "returning_capital" : capital.sharesOutstandingYoy > 1 ? "diluting" : "stable")
+    : Number.isFinite(capital.buybackTtm) ? "buyback_reported" : "unavailable";
+  const earningsQuality = cashGeneration === "strong" && capitalEfficiency !== "weak"
+    ? "strong"
+    : cashGeneration === "weak" || capitalEfficiency === "weak" ? "watch" : "unavailable";
+  return {
+    status: "available",
+    source: raw.source,
+    annual_period_end: raw.annualPeriodEnd || null,
+    cash_flow: { ...cashFlow, fcf_trend: fcfTrend },
+    capital_allocation: capital,
+    balance_sheet: balanceSheet,
+    guidance: raw.guidance || { source_status: "unavailable" },
+    quality_summary: {
+      status: "available",
+      cash_generation: cashGeneration,
+      capital_efficiency: capitalEfficiency,
+      shareholder_return: shareholderReturn,
+      earnings_quality: earningsQuality,
+      explanation: currentLanguage === "zh"
+        ? "以下结论仅根据可获得的报表现金流、资本开支、资产负债表与股本数据生成，不参与本轮操作评分。"
+        : "This summary uses available statement cash flow, capital allocation, balance-sheet, and share-count data only. It is not used in action scoring.",
+    },
+  };
+}
+
+function buildEarningsAnalysis(row) {
+  const raw = row.metadata?.companyAnalysis?.latestEarnings || {};
+  const hasReport = Object.values(raw).some((value) => value != null);
+  if (!hasReport) {
+    return {
+      status: "unavailable",
+      explanation: currentLanguage === "zh" ? "没有可验证的最近财报实际值/预期值快照。" : "No verified latest earnings actual/estimate snapshot is available.",
+      beat_miss: {},
+      management: {},
+      why_stock_moved: currentLanguage === "zh" ? "缺少可验证的财报与管理层说明，无法归因股价变动。" : "A verified earnings and management record is unavailable, so price movement is not attributed.",
+    };
+  }
+  const epsStatus = compareActualToEstimate(raw.reportedEps ?? raw.epsActual, raw.epsEstimate);
+  const marginSummary = [
+    Number.isFinite(raw.grossMargin) ? `${currentLanguage === "zh" ? "毛利率" : "Gross margin"} ${(raw.grossMargin * 100).toFixed(1)}%` : null,
+    Number.isFinite(raw.operatingMargin) ? `${currentLanguage === "zh" ? "营业利润率" : "Operating margin"} ${(raw.operatingMargin * 100).toFixed(1)}%` : null,
+    Number.isFinite(raw.revenueYoyGrowth) ? `${currentLanguage === "zh" ? "营收同比" : "Revenue YoY"} ${raw.revenueYoyGrowth >= 0 ? "+" : ""}${raw.revenueYoyGrowth.toFixed(1)}%` : null,
+  ].filter(Boolean);
+  const whyParts = [
+    epsStatus !== "unavailable" ? `${currentLanguage === "zh" ? "EPS" : "EPS"} ${formatAnalysisStatus(epsStatus)}` : null,
+    ...marginSummary,
+    Number.isFinite(raw.freeCashFlow) ? `${currentLanguage === "zh" ? "季度自由现金流已披露" : "Quarterly free cash flow reported"}` : null,
+    Number.isFinite(raw.capitalExpenditure) ? `${currentLanguage === "zh" ? "季度资本开支已披露" : "Quarterly capex reported"}` : null,
+  ].filter(Boolean);
+  return {
+    status: "available",
+    event_date: raw.eventDate || null,
+    period_end: row.metadata?.companyAnalysis?.quarterlyPeriodEnd || null,
+    beat_miss: {
+      revenue: "unavailable",
+      eps: epsStatus,
+      gross_margin: "unavailable",
+      operating_margin: "unavailable",
+      free_cash_flow: "unavailable",
+      capex: "unavailable",
+    },
+    actuals: raw,
+    management: {
+      guidance: row.metadata?.companyAnalysis?.guidance?.managementOutlook || "unavailable",
+      ai_spending: "unavailable",
+      major_business_commentary: "unavailable",
+    },
+    why_stock_moved: whyParts.length
+      ? (currentLanguage === "zh"
+        ? `最近财报可验证信息：${whyParts.join("；")}。缺少完整市场预期、电话会与新闻归因时，不把该摘要当作唯一股价原因。`
+        : `Verified latest-report inputs: ${whyParts.join("; ")}. Without complete consensus, call commentary, and news attribution, this is not presented as the sole cause of the price move.`)
+      : (currentLanguage === "zh" ? "最近财报只有部分实际值，无法可靠归因股价变化。" : "Only partial latest-report actuals are available; price movement is not reliably attributed."),
+  };
+}
+
+const INDUSTRY_ETF_RULES = [
+  { etf: "SMH", pattern: /semiconductor|memory|chip|electronics/i },
+  { etf: "IGV", pattern: /software|information technology services/i },
+  { etf: "XLK", pattern: /technology|internet|communication equipment/i },
+  { etf: "XLY", pattern: /retail|consumer cyclical|auto|ecommerce|internet retail/i },
+  { etf: "XLF", pattern: /financial|insurance|bank|asset management/i },
+  { etf: "XLV", pattern: /healthcare|health care|biotech|medical/i },
+];
+
+function industryEtfForRow(row) {
+  const text = `${row.metadata?.sector || ""} ${row.metadata?.industry || ""}`;
+  return INDUSTRY_ETF_RULES.find((rule) => rule.pattern.test(text))?.etf || null;
+}
+
+function buildMarketEnvironmentAnalysis(row, marketContext = {}) {
+  const engine = marketContext.market_engine || {};
+  const sectorTrends = engine.sector_trends || marketContext.market_regime?.sector_trends || {};
+  const sectorEtf = industryEtfForRow(row);
+  const sector = sectorEtf ? sectorTrends[sectorEtf] || null : null;
+  const closes = row.technicals?.history?.closes || [];
+  const stockReturns = {
+    "5d": computeReturnPct(closes, 5),
+    "20d": computeReturnPct(closes, 20),
+    "60d": computeReturnPct(closes, 60),
+  };
+  const relativeReturns = {
+    "5d": Number.isFinite(stockReturns["5d"]) && Number.isFinite(sector?.change_5d_pct) ? stockReturns["5d"] - sector.change_5d_pct : null,
+    "20d": Number.isFinite(stockReturns["20d"]) && Number.isFinite(sector?.change_20d_pct) ? stockReturns["20d"] - sector.change_20d_pct : null,
+    "60d": Number.isFinite(stockReturns["60d"]) && Number.isFinite(sector?.change_60d_pct) ? stockReturns["60d"] - sector.change_60d_pct : null,
+  };
+  const relativeAverage = mean(Object.values(relativeReturns).filter(Number.isFinite));
+  const companyVsSector = !Number.isFinite(relativeAverage)
+    ? "unavailable"
+    : relativeAverage >= 2 ? "outperforming" : relativeAverage <= -2 ? "underperforming" : "in_line";
+  const spy = engine.equity_trend?.spy || {};
+  const qqq = engine.equity_trend?.qqq || {};
+  const narratives = [];
+  if (marketContext.market_regime?.regime === "risk_off") narratives.push("risk_off");
+  if (marketContext.market_regime?.regime === "risk_on") narratives.push("risk_on");
+  if (Number.isFinite(sector?.change_20d_pct) && Number.isFinite(spy.change_20d_pct) && sector.change_20d_pct - spy.change_20d_pct >= 2) {
+    if (["XLK", "SMH", "IGV"].includes(sectorEtf)) narratives.push("ai_rotation");
+    if (sectorEtf === "XLV") narratives.push("defensive_rotation");
+    if (sectorEtf === "XLY") narratives.push("consumer_leadership");
+  }
+  if (Number.isFinite(qqq.change_20d_pct) && Number.isFinite(spy.change_20d_pct) && qqq.change_20d_pct - spy.change_20d_pct <= -2) narratives.push("growth_selloff");
+  return {
+    status: sector ? "available" : "partial",
+    market_narratives: [...new Set(narratives)],
+    sector_relative_performance: sector ? {
+      etf: sectorEtf,
+      label: sector.label || sectorEtf,
+      return_5d: sector.change_5d_pct ?? null,
+      return_20d: sector.change_20d_pct ?? null,
+      return_60d: sector.change_60d_pct ?? null,
+      source: "Yahoo Finance sector ETF history",
+    } : null,
+    company_vs_sector: {
+      status: companyVsSector,
+      stock_returns: stockReturns,
+      relative_returns: relativeReturns,
+      explanation: sector
+        ? (currentLanguage === "zh" ? "公司相对行业 ETF 的 5/20/60 日回报差。" : "5/20/60D company return minus the mapped industry ETF return.")
+        : (currentLanguage === "zh" ? "未找到可验证的行业 ETF 映射或行情。" : "No verified industry ETF mapping or quote is available."),
+    },
+  };
+}
+
 function weightedAvailableScore(components, weights, fallback = 50) {
   const valid = Object.entries(weights || {})
     .map(([key, weight]) => ({ key, weight, value: components?.[key] }))
@@ -21322,6 +21554,11 @@ function buildDecisionModel(row) {
     momentum_entry: buyZones.momentum_entry_zone,
     deep_pullback_zone: buyZones.deep_pullback_zone,
   };
+  // Display-only analysis. These structures intentionally stay outside the
+  // forecast, range, and action paths so newly available data cannot change a recommendation.
+  const basicAnalysis = buildBasicFundamentalAnalysis(row);
+  const earningsAnalysis = buildEarningsAnalysis(row);
+  const marketEnvironmentAnalysis = buildMarketEnvironmentAnalysis(row, marketContext);
 
   return {
     ticker: row.ticker,
@@ -21435,6 +21672,9 @@ function buildDecisionModel(row) {
     module_quality: moduleQuality,
     technical,
     fundamental,
+    basic_analysis: basicAnalysis,
+    earnings_analysis: earningsAnalysis,
+    market_environment_analysis: marketEnvironmentAnalysis,
     market_context: marketContext,
     analyst_revisions: analystRevisions,
     relative_strength: relativeStrength,
@@ -21474,10 +21714,12 @@ function renderDetailModal(row) {
   const fundamentalQuality = fundamental?.quality || {};
   const fundamentalGrowth = fundamental?.growth || {};
   const fundamentalValuation = fundamental?.valuation || {};
-  const fundamentalFinancialHealth = fundamental?.financial_health || {};
+  const basicAnalysis = decision.basic_analysis || {};
+  const earningsAnalysis = decision.earnings_analysis || {};
+  const marketEnvironmentAnalysis = decision.market_environment_analysis || {};
   const marketContext = decision.market_context;
   const marketEngine = marketContext.market_engine || {};
-  const analystRevisions = fundamental.analyst_revisions || decision.analyst_revisions || {};
+  const companyNews = marketContext.news_sentiment || row.companyNews || {};
   const relativeStrength = technical.relative_strength || decision.relative_strength || {};
   const earningsEventRisk = marketContext.earnings_event_risk || decision.earnings_event_risk || {};
   const profile = decision.company_profile;
@@ -22377,9 +22619,21 @@ function renderDetailModal(row) {
         <details class="detail-disclosure"><summary>${currentLanguage === "zh" ? "展开完整数值" : "Show detailed values"}</summary><div class="detail-line-list">${renderMetricRows([
           { label: currentLanguage === "zh" ? "均线结构" : "MA Structure", value: ma.trend_state || "—", note: `${currentLanguage === "zh" ? "最近均线" : "Nearest"}: ${ma.nearest_ma || "—"} · ${currentLanguage === "zh" ? "扩展" : "Extension"}: ${ma.extension_state || "—"}` },
           { label: currentLanguage === "zh" ? "均线压缩" : "MA Compression", value: ma.compression_state || "—", note: (ma.bullish_crosses || []).map((item) => item.pair).join(", ") || "" },
+          { label: currentLanguage === "zh" ? "均线斜率" : "MA Slopes", value: `${ma.fast_ma_slope || "—"} / ${ma.medium_ma_slope || "—"} / ${ma.slow_ma_slope || "—"}`, note: currentLanguage === "zh" ? "快 / 中 / 慢均线" : "Fast / medium / slow MA" },
+          { label: currentLanguage === "zh" ? "近期收复 / 跌破" : "Recent Reclaims / Breakdowns", value: `${(ma.recent_reclaims || []).map((item) => item.ma).join(", ") || "—"} / ${(ma.recent_breakdowns || []).map((item) => item.ma).join(", ") || "—"}`, note: currentLanguage === "zh" ? "仅记录最近一个日线事件" : "Only the latest daily event is recorded" },
+          { label: currentLanguage === "zh" ? "RSI 区间 / 背离" : "RSI Regime / Divergence", value: `${rsi.range_regime || "—"} / ${rsi.divergence || "—"}`, note: `${currentLanguage === "zh" ? "失效摆动" : "Failure swing"}: ${rsi.failure_swing || "—"}` },
           { label: currentLanguage === "zh" ? "MACD 线 / 信号" : "MACD / Signal", value: `${displayValue(macd.macd_line, (value) => formatSignedCurrency(value, currencyCode))} / ${displayValue(macd.signal_line, (value) => formatSignedCurrency(value, currencyCode))}`, note: `${macd.cross_state || "—"} · ${macd.zero_line_state || "—"}` },
+          { label: currentLanguage === "zh" ? "MACD 柱体变化" : "MACD Histogram Change", value: `${displayValue(macd.histogram_change_1, (value) => formatSignedCurrency(value, currencyCode))} / ${displayValue(macd.histogram_change_3, (value) => formatSignedCurrency(value, currencyCode))} / ${displayValue(macd.histogram_change_5, (value) => formatSignedCurrency(value, currencyCode))}`, note: "1D / 3D / 5D" },
+          { label: currentLanguage === "zh" ? "OBV 确认" : "OBV Confirmation", value: obv.confirmation_state || "—", note: `${currentLanguage === "zh" ? "周线" : "Weekly"}: ${obv.weekly_obv_trend || "—"}` },
+          { label: currentLanguage === "zh" ? "相对强度一致性" : "RS Consistency", value: rs.consistency || "—", note: `${currentLanguage === "zh" ? "斜率" : "Slope"}: ${displayValue(rs.rs_slope, (value) => formatOneDecimal(value))}` },
+          { label: currentLanguage === "zh" ? "量能结构" : "Volume Structure", value: volume.accumulation_distribution_balance || "—", note: `${currentLanguage === "zh" ? "上涨/下跌量比" : "Up/down volume"}: ${displayValue(volume.up_down_volume_ratio, (value) => formatRatio(value))} · ${currentLanguage === "zh" ? "周线" : "Weekly"}: ${volume.weekly_volume_trend || "—"}` },
+          { label: currentLanguage === "zh" ? "换手率" : "Turnover", value: `${displayValue(volume.turnover_latest, (value) => formatPercentValue(value))} / ${displayValue(volume.turnover_average, (value) => formatPercentValue(value))}`, note: `${currentLanguage === "zh" ? "当前 /" : "Current /"} ${volume.turnover_period || "—"}D ${currentLanguage === "zh" ? "平均" : "average"}` },
           { label: currentLanguage === "zh" ? "ATR 百分位" : "ATR Percentile", value: `${displayValue(atr.ATR_percentile_60D, (value) => formatOneDecimal(value))} / ${displayValue(atr.ATR_percentile_120D, (value) => formatOneDecimal(value))} / ${displayValue(atr.ATR_percentile_250D, (value) => formatOneDecimal(value))}`, note: "60D / 120D / 250D" },
+          { label: currentLanguage === "zh" ? "波动效率" : "Volatility Efficiency", value: atr.range_efficiency || "—", note: displayValue(atr.range_efficiency_ratio, (value) => formatOneDecimal(value)) },
+          { label: currentLanguage === "zh" ? "自身动能" : "Price Momentum", value: momentum.consistency || "—", note: Object.entries(momentum.values || {}).filter(([, value]) => Number.isFinite(value)).map(([key, value]) => `${key} ${formatChangePercent(value)}`).join(" / ") || "—" },
+          { label: currentLanguage === "zh" ? "ADX / DI" : "ADX / DI", value: `${displayValue(adx.adx, (value) => formatOneDecimal(value))} / ${displayValue(adx.plus_di, (value) => formatOneDecimal(value))} / ${displayValue(adx.minus_di, (value) => formatOneDecimal(value))}`, note: `${adx.di_cross || "—"} · ${adx.trend_strength || "—"}` },
           { label: currentLanguage === "zh" ? "布林 %B" : "Bollinger %B", value: displayValue(bollinger.percent_b, (value) => formatOneDecimal(value)), note: Number.isFinite(bollinger.band_width_pct) ? `${currentLanguage === "zh" ? "带宽" : "Width"} ${formatOneDecimal(bollinger.band_width_pct)}%` : "" },
+          { label: currentLanguage === "zh" ? "KDJ 斜率 / 持续状态" : "KDJ Slopes / Persistence", value: `${kdj.k_slope?.slope_direction || "—"} / ${kdj.d_slope?.slope_direction || "—"} / ${kdj.j_slope?.slope_direction || "—"}`, note: kdj.persistent_overbought ? (currentLanguage === "zh" ? "持续超买" : "Persistent overbought") : kdj.persistent_oversold ? (currentLanguage === "zh" ? "持续超卖" : "Persistent oversold") : "—" },
           { label: currentLanguage === "zh" ? "缺失指标" : "Missing Indicators", value: (structure.missing_indicators || []).join(", ") || (currentLanguage === "zh" ? "无" : "None") },
         ])}</div></details>
       </article>
@@ -22400,34 +22654,13 @@ function renderDetailModal(row) {
   const technicalPanel = `
     <section class="detail-tab-section">
       <div class="decision-target-grid">
-        <article class="detail-kpi-card ${scoreToBand(technical.technical_score).tone}"><span>${t("technicalScore")}</span><strong>${technical.technical_score}/100</strong><small>${localizedDashboardText(technical.summary)}</small></article>
+        <article class="detail-kpi-card ${scoreToBand(technical.technical_score).tone}"><span>${t("technicalScore")}</span><strong>${technical.technical_score}/100</strong><small>${currentLanguage === "zh" ? "现有执行模型的技术评分" : "Technical score used by the current execution model"}</small></article>
         <article class="detail-kpi-card ${scoreToBand(technical.trend_score).tone}"><span>${t("trendScore")}</span><strong>${technical.trend_score}/100</strong><small>${localizedDashboardText(technical.trend.state)}</small></article>
         <article class="detail-kpi-card ${scoreToBand(technical.momentum_score).tone}"><span>${t("momentumScore")}</span><strong>${technical.momentum_score}/100</strong><small>${localizedDashboardText(technical.momentum.state)}</small></article>
         <article class="detail-kpi-card ${scoreToBand(technical.volume_confirmation_score).tone}"><span>${t("volumeConfirmationScore")}</span><strong>${technical.volume_confirmation_score}/100</strong><small>${currentLanguage === "zh" ? "已计入操作推荐评分" : "Included in action score"}</small></article>
       </div>
-      <section class="detail-section-card">
-        <div class="detail-section-head"><h3>${t("trend")}</h3></div>
-        <div class="detail-line-list">${renderMetricRows([
-          { label: "MA10", value: displayValue(technical.trend.ma10, (value) => formatCurrency(value, currencyCode)) },
-          { label: "MA20", value: displayValue(technical.trend.ma20, (value) => formatCurrency(value, currencyCode)) },
-          { label: "MA50", value: displayValue(technical.trend.ma50, (value) => formatCurrency(value, currencyCode)) },
-          { label: "MA100", value: displayValue(technical.trend.ma100, (value) => formatCurrency(value, currencyCode)) },
-          { label: "MA200", value: displayValue(technical.trend.ma200, (value) => formatCurrency(value, currencyCode)) },
-          { label: "MACD", value: displayValue(technical.trend.macd, (value) => formatSignedCurrency(value, currencyCode)) },
-          { label: t("summary"), value: localizedDashboardText(technical.trend.state) },
-        ])}</div>
-      </section>
       ${renderFibonacciStructure(technical.fibonacci_structure || row.technicals?.fibonacci_structure)}
       ${renderTechnicalIndicatorStructure(technical.technical_indicator_structure || row.technicals?.technical_indicator_structure)}
-      <section class="detail-section-card">
-        <div class="detail-section-head"><h3>${t("momentum")}</h3></div>
-        <div class="detail-line-list">${renderMetricRows([
-          { label: "RSI", value: displayValue(technical.momentum.rsi, (value) => formatOneDecimal(value)), note: technical.momentum.rsi_state },
-          { label: "KDJ", value: technical.momentum.kdj ? `K ${formatOneDecimal(technical.momentum.kdj.k)} / D ${formatOneDecimal(technical.momentum.kdj.d)} / J ${formatOneDecimal(technical.momentum.kdj.j)}` : t("dataUnavailable"), note: technical.momentum.kdj_state },
-          { label: t("macdHistogram"), value: displayValue(technical.momentum.macd_histogram, (value) => formatSignedCurrency(value, currencyCode)) },
-          { label: currentLanguage === "zh" ? "布林带位置" : "Bollinger Position", value: technical.momentum.bollinger_position },
-        ])}</div>
-      </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("volumeConfirmation")}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
@@ -22460,12 +22693,100 @@ function renderDetailModal(row) {
           { label: currentLanguage === "zh" ? "相对 QQQ 20 / 60 / 120日" : "Stock vs QQQ 20 / 60 / 120D", value: `${displayValue(relativeStrength.stock_vs_qqq_20d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_qqq_60d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_qqq_120d, (value) => formatChangePercent(value))}`, note: relativeStrength.source_status?.qqq !== "available" ? (currentLanguage === "zh" ? "QQQ 基准 60/120日序列缺失时对应周期显示暂不可用；手动刷新会重建新版市场缓存。" : "Missing QQQ 60/120D benchmark history leaves those horizons unavailable; manual refresh rebuilds the market cache.") : "" },
         ])}</div>
       </section>
-      <section class="detail-section-card">
-        <div class="detail-section-head"><h3>${t("technicalSummaryTitle")}</h3></div>
-        <div class="decision-bullets"><div class="decision-bullet">• ${localizedDashboardText(technical.summary)}</div></div>
-      </section>
     </section>
   `;
+
+  const analysisStateLabel = (value) => ({
+    strong: currentLanguage === "zh" ? "强" : "Strong",
+    adequate: currentLanguage === "zh" ? "一般" : "Adequate",
+    weak: currentLanguage === "zh" ? "偏弱" : "Weak",
+    improving: currentLanguage === "zh" ? "改善" : "Improving",
+    stable: currentLanguage === "zh" ? "稳定" : "Stable",
+    weakening: currentLanguage === "zh" ? "走弱" : "Weakening",
+    returning_capital: currentLanguage === "zh" ? "回购/回报股东" : "Returning capital",
+    diluting: currentLanguage === "zh" ? "股本稀释" : "Diluting",
+    buyback_reported: currentLanguage === "zh" ? "已披露回购" : "Buyback reported",
+    watch: currentLanguage === "zh" ? "需要观察" : "Watch",
+    raised: currentLanguage === "zh" ? "上调" : "Raised",
+    maintained: currentLanguage === "zh" ? "维持" : "Maintained",
+    lowered: currentLanguage === "zh" ? "下调" : "Lowered",
+    unavailable: t("dataUnavailable"),
+  }[value] || value || t("dataUnavailable"));
+  const renderBasicFundamentalAnalysis = (analysis) => {
+    const cashFlow = analysis.cash_flow || {};
+    const capital = analysis.capital_allocation || {};
+    const balance = analysis.balance_sheet || {};
+    const guidance = analysis.guidance || {};
+    const quality = analysis.quality_summary || {};
+    return `
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "基础基本面" : "Basic Fundamentals"}</h3></div>
+        <div class="detail-line-note">${analysis.status === "available" ? (currentLanguage === "zh" ? `报表期末：${analysis.annual_period_end || "—"} · 来源：${analysis.source || "—"} · 仅作展示，不计入本轮操作评分。` : `Statement period end: ${analysis.annual_period_end || "—"} · Source: ${analysis.source || "—"} · Display only; not used in this release's action score.`) : localizedDashboardText(quality.explanation || (currentLanguage === "zh" ? "报表数据暂不可用。" : "Statement data is unavailable."))}</div>
+        <div class="decision-summary-grid">
+          <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "现金流" : "Cash Flow"}</div><div class="detail-line-list">${renderMetricRows([
+            { label: currentLanguage === "zh" ? "经营现金流" : "Operating Cash Flow", value: displayValue(cashFlow.operatingCashFlow, (value) => formatBillions(value, currencyCode)) },
+            { label: currentLanguage === "zh" ? "自由现金流" : "Free Cash Flow", value: displayValue(cashFlow.freeCashFlow, (value) => formatBillions(value, currencyCode)) },
+            { label: currentLanguage === "zh" ? "自由现金流利润率" : "FCF Margin", value: displayValue(cashFlow.freeCashFlowMargin, (value) => formatPercentage(value)) },
+            { label: currentLanguage === "zh" ? "自由现金流同比" : "FCF YoY Growth", value: displayValue(cashFlow.freeCashFlowYoyGrowth, (value) => formatChangePercent(value)) },
+            { label: currentLanguage === "zh" ? "FCF 趋势" : "FCF Trend", value: analysisStateLabel(cashFlow.fcf_trend) },
+          ])}</div></article>
+          <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "资本配置" : "Capital Allocation"}</div><div class="detail-line-list">${renderMetricRows([
+            { label: "CapEx", value: displayValue(capital.capitalExpenditure, (value) => formatBillions(value, currencyCode)) },
+            { label: currentLanguage === "zh" ? "CapEx / 营收" : "CapEx / Revenue", value: displayValue(capital.capexToRevenue, (value) => formatPercentage(value)) },
+            { label: currentLanguage === "zh" ? "回购（TTM）" : "Buyback (TTM)", value: displayValue(capital.buybackTtm, (value) => formatBillions(value, currencyCode)) },
+            { label: currentLanguage === "zh" ? "流通股本" : "Shares Outstanding", value: displayValue(capital.sharesOutstanding, (value) => formatCompactVolume(value)) },
+            { label: currentLanguage === "zh" ? "股本同比" : "Shares Outstanding YoY", value: displayValue(capital.sharesOutstandingYoy, (value) => formatChangePercent(value)) },
+          ])}</div></article>
+          <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "资产负债表" : "Balance Sheet"}</div><div class="detail-line-list">${renderMetricRows([
+            { label: currentLanguage === "zh" ? "现金" : "Cash", value: displayValue(balance.cash, (value) => formatBillions(value, currencyCode)) },
+            { label: currentLanguage === "zh" ? "总债务" : "Total Debt", value: displayValue(balance.totalDebt, (value) => formatBillions(value, currencyCode)) },
+            { label: currentLanguage === "zh" ? "净现金" : "Net Cash", value: displayValue(balance.netCash, (value) => formatBillions(value, currencyCode)) },
+          ])}</div></article>
+          <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "管理层指引" : "Guidance"}</div><div class="detail-line-list">${renderMetricRows([
+            { label: currentLanguage === "zh" ? "营收指引" : "Revenue Guidance", value: displayValue(guidance.revenueGuidance, (value) => formatBillions(value, currencyCode)) },
+            { label: currentLanguage === "zh" ? "EPS 指引" : "EPS Guidance", value: displayValue(guidance.epsGuidance, (value) => formatRatio(value)) },
+            { label: currentLanguage === "zh" ? "CapEx 指引" : "CapEx Guidance", value: displayValue(guidance.capexGuidance, (value) => formatBillions(value, currencyCode)) },
+            { label: currentLanguage === "zh" ? "管理层展望" : "Management Outlook", value: analysisStateLabel(guidance.managementOutlook), note: guidance.sourceStatus === "unavailable" ? (currentLanguage === "zh" ? "当前数据源未提供可验证的管理层措辞。" : "The current source does not provide verified management commentary.") : "" },
+          ])}</div></article>
+        </div>
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "质量摘要" : "Quality Summary"}</h3></div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: currentLanguage === "zh" ? "现金创造" : "Cash Generation", value: analysisStateLabel(quality.cash_generation) },
+          { label: currentLanguage === "zh" ? "资本效率" : "Capital Efficiency", value: analysisStateLabel(quality.capital_efficiency) },
+          { label: currentLanguage === "zh" ? "股东回报" : "Shareholder Return", value: analysisStateLabel(quality.shareholder_return) },
+          { label: currentLanguage === "zh" ? "盈利质量" : "Earnings Quality", value: analysisStateLabel(quality.earnings_quality), note: localizedDashboardText(quality.explanation || "") },
+        ])}</div>
+      </section>
+    `;
+  };
+  const renderEarningsAnalysis = (analysis) => {
+    const actuals = analysis.actuals || {};
+    const beatMiss = analysis.beat_miss || {};
+    const management = analysis.management || {};
+    return `
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "财报分析" : "Earnings Analysis"}</h3></div>
+        <div class="detail-line-note">${analysis.status === "available" ? `${currentLanguage === "zh" ? "事件日期" : "Event date"}: ${analysis.event_date || "—"} · ${currentLanguage === "zh" ? "财报期末" : "Period end"}: ${analysis.period_end || "—"}` : localizedDashboardText(analysis.explanation || "")}</div>
+        <div class="decision-summary-grid">
+          <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "超预期 / 不及预期" : "Beat / Miss"}</div><div class="detail-line-list">${renderMetricRows([
+            { label: currentLanguage === "zh" ? "营收" : "Revenue", value: formatAnalysisStatus(beatMiss.revenue), note: displayValue(actuals.revenueActual, (value) => formatBillions(value, currencyCode)) },
+            { label: "EPS", value: formatAnalysisStatus(beatMiss.eps), note: `${displayValue(actuals.reportedEps ?? actuals.epsActual, (value) => formatRatio(value))} / ${displayValue(actuals.epsEstimate, (value) => formatRatio(value))}` },
+            { label: currentLanguage === "zh" ? "毛利率" : "Gross Margin", value: formatAnalysisStatus(beatMiss.gross_margin), note: displayValue(actuals.grossMargin, (value) => formatPercentage(value)) },
+            { label: currentLanguage === "zh" ? "营业利润率" : "Operating Margin", value: formatAnalysisStatus(beatMiss.operating_margin), note: displayValue(actuals.operatingMargin, (value) => formatPercentage(value)) },
+            { label: currentLanguage === "zh" ? "自由现金流" : "Free Cash Flow", value: formatAnalysisStatus(beatMiss.free_cash_flow), note: displayValue(actuals.freeCashFlow, (value) => formatBillions(value, currencyCode)) },
+            { label: "CapEx", value: formatAnalysisStatus(beatMiss.capex), note: displayValue(actuals.capitalExpenditure, (value) => formatBillions(value, currencyCode)) },
+          ])}</div></article>
+          <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "管理层" : "Management"}</div><div class="detail-line-list">${renderMetricRows([
+            { label: currentLanguage === "zh" ? "指引" : "Guidance", value: analysisStateLabel(management.guidance) },
+            { label: currentLanguage === "zh" ? "AI 投入" : "AI Spending", value: analysisStateLabel(management.ai_spending) },
+            { label: currentLanguage === "zh" ? "核心业务评论" : "Major Business Commentary", value: analysisStateLabel(management.major_business_commentary) },
+          ])}</div></article>
+        </div>
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "股价变动的可验证线索" : "Verified Clues Behind the Move"}</h3></div>
+        <div class="detail-line-note">${localizedDashboardText(analysis.why_stock_moved || "")}</div>
+      </section>
+    `;
+  };
 
   const fundamentalPanel = `
     <section class="detail-tab-section">
@@ -22496,6 +22817,8 @@ function renderDetailModal(row) {
           </div>
         </div>
       </section>
+      ${renderBasicFundamentalAnalysis(basicAnalysis)}
+      ${renderEarningsAnalysis(earningsAnalysis)}
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("quality")}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
@@ -22514,15 +22837,6 @@ function renderDetailModal(row) {
           { label: currentLanguage === "zh" ? "每股收益增长" : "EPS Growth", value: displayValue(fundamentalGrowth.eps_growth, (value) => formatPercentage(value)) },
           { label: currentLanguage === "zh" ? "自由现金流增长" : "FCF Growth", value: displayValue(fundamentalGrowth.free_cash_flow_growth, (value) => formatPercentage(value)) },
           { label: currentLanguage === "zh" ? "管理层指引" : "Forward Guidance", value: displayValue(fundamentalGrowth.forward_guidance, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "分析师预期" : "Analyst Growth", value: displayValue(fundamentalGrowth.analyst_growth_expectation, (value) => formatPercentage(value)) },
-        ])}</div>
-      </section>
-      <section class="detail-section-card">
-        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "前瞻指引与目标价" : "Forward Guidance & Target Snapshot"}</h3></div>
-        <div class="detail-line-list">${renderMetricRows([
-          { label: currentLanguage === "zh" ? "下一年EPS增长" : "Next-Year EPS Growth", value: displayValue(analystRevisions.next_year_eps_growth, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "前瞻指引变化" : "Forward Guidance Changes", value: displayValue(analystRevisions.forward_guidance_changes, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "当前目标价快照" : "Current Target Snapshot", value: `${displayValue(analystRevisions.target_mean_price, (value) => formatCurrency(value, currencyCode))} / ${displayValue(analystRevisions.target_median_price, (value) => formatCurrency(value, currencyCode))}`, note: currentLanguage === "zh" ? "仅保留目标价水平；目标价修正趋势已从模型和 UI 移除。" : "Only target-price levels remain; target revision trend is removed from the model and UI." },
         ])}</div>
       </section>
       <section class="detail-section-card">
@@ -22535,16 +22849,6 @@ function renderDetailModal(row) {
           { label: "EV / EBITDA", value: displayValue(fundamentalValuation.ev_ebitda, (value) => formatRatio(value)) },
           { label: "Price / FCF", value: displayValue(fundamentalValuation.price_fcf, (value) => formatRatio(value)) },
           { label: t("summary"), value: fundamentalValuation.state || t("dataUnavailable") },
-        ])}</div>
-      </section>
-      <section class="detail-section-card">
-        <div class="detail-section-head"><h3>${t("financialHealth")}</h3></div>
-        <div class="detail-line-list">${renderMetricRows([
-          { label: t("freeCashFlow"), value: displayValue(fundamentalFinancialHealth.free_cash_flow, (value) => formatBillions(value, currencyCode)) },
-          { label: currentLanguage === "zh" ? "现金储备" : "Cash Reserve", value: displayValue(fundamentalFinancialHealth.cash_reserve, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "债务" : "Debt", value: displayValue(fundamentalFinancialHealth.debt, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "资本开支" : "CapEx", value: displayValue(fundamentalFinancialHealth.capital_expenditure, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "现金流稳定性" : "Cash Flow Stability", value: displayValue(fundamentalFinancialHealth.cash_flow_stability, (value) => `${Math.round(value)}/100`) },
         ])}</div>
       </section>
     </section>
@@ -22597,6 +22901,34 @@ function renderDetailModal(row) {
   `;
   */
 
+  const marketNarrativeLabel = (value) => ({
+    ai_rotation: currentLanguage === "zh" ? "AI / 科技轮动" : "AI / Technology Rotation",
+    risk_on: currentLanguage === "zh" ? "风险偏好回升" : "Risk-On",
+    risk_off: currentLanguage === "zh" ? "风险规避" : "Risk-Off",
+    defensive_rotation: currentLanguage === "zh" ? "防御板块轮动" : "Defensive Rotation",
+    consumer_leadership: currentLanguage === "zh" ? "可选消费领涨" : "Consumer Leadership",
+    growth_selloff: currentLanguage === "zh" ? "成长股回调" : "Growth Selloff",
+  }[value] || value);
+  const renderMarketEnvironmentAnalysis = (analysis) => {
+    const sector = analysis.sector_relative_performance || {};
+    const companySector = analysis.company_vs_sector || {};
+    const relative = companySector.relative_returns || {};
+    return `
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "市场叙事与行业环境" : "Market Narrative & Sector Environment"}</h3></div>
+        <div class="decision-summary-grid">
+          <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "市场叙事" : "Market Narrative"}</div><div class="detail-line-label">${(analysis.market_narratives || []).length ? analysis.market_narratives.map(marketNarrativeLabel).join(" · ") : (currentLanguage === "zh" ? "当前没有足够数据确认单一市场叙事" : "No single market narrative is confirmed by available data")}</div><div class="detail-line-note">${currentLanguage === "zh" ? "根据市场状态及行业 ETF 相对 SPY 的表现生成；仅作环境解释。" : "Derived from market regime and sector-ETF performance versus SPY; context only."}</div></article>
+          <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "公司相对行业" : "Company vs Sector"}</div><div class="detail-line-label">${analysisStateLabel(companySector.status)}</div><div class="detail-line-note">${localizedDashboardText(companySector.explanation || "")}</div></article>
+        </div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: currentLanguage === "zh" ? "行业 ETF" : "Industry ETF", value: sector.etf || t("dataUnavailable"), note: sector.label || "" },
+          { label: currentLanguage === "zh" ? "行业 5 / 20 / 60日回报" : "Sector 5 / 20 / 60D Return", value: `${displayValue(sector.return_5d, (value) => formatChangePercent(value))} / ${displayValue(sector.return_20d, (value) => formatChangePercent(value))} / ${displayValue(sector.return_60d, (value) => formatChangePercent(value))}`, note: sector.source || "" },
+          { label: currentLanguage === "zh" ? "公司相对行业 5 / 20 / 60日" : "Company vs Sector 5 / 20 / 60D", value: `${displayValue(relative["5d"], (value) => formatChangePercent(value))} / ${displayValue(relative["20d"], (value) => formatChangePercent(value))} / ${displayValue(relative["60d"], (value) => formatChangePercent(value))}` },
+        ])}</div>
+      </section>
+    `;
+  };
+
   const newsPanel = `
     <section class="detail-tab-section">
       <div class="detail-kpi-grid">
@@ -22605,6 +22937,12 @@ function renderDetailModal(row) {
         <article class="detail-kpi-card neutral"><span>${t("macroScore")}</span><strong>${marketContext.market_regime?.score == null ? t("dataUnavailable") : `${marketContext.market_regime.score}/100`}</strong><small>${currentLanguage === "zh" ? "宏观 / 市场环境总分" : "Macro and market-context score"}</small></article>
         <article class="detail-kpi-card neutral"><span>${t("confidencePct")}</span><strong>${marketContext.market_regime?.confidence == null ? t("dataUnavailable") : `${marketContext.market_regime.confidence}%`}</strong><small>${currentLanguage === "zh" ? "缺数据时会降低置信度，但不会自动转空。" : "Missing data lowers confidence without forcing a bearish call."}</small></article>
       </div>
+      ${renderMarketEnvironmentAnalysis(marketEnvironmentAnalysis)}
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${t("companyNews")}</h3></div>
+        <div class="detail-line-note">${localizedDashboardText(companyNews.summary || t("dataUnavailable"))}</div>
+        <div class="detail-line-list">${renderNewsRows(companyNews.latest_news || [])}</div>
+      </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "市场状态" : "Market Regime"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([

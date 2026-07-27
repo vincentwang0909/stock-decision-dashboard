@@ -818,6 +818,157 @@ def merge_yahoo_fallback_info(symbol, info):
     return merged, quote_snapshot, quote_summary
 
 
+def _statement_value(frame, labels, period_index=0):
+    """Read a finite value from a yfinance statement without assuming a schema."""
+    try:
+        if frame is None or getattr(frame, "empty", True):
+            return None
+        columns = list(frame.columns)
+        if not columns:
+            return None
+        column = columns[min(max(0, period_index), len(columns) - 1)]
+        index = set(str(value) for value in frame.index)
+        for label in labels:
+            if label in index:
+                return _safe_float(frame.loc[label, column])
+    except Exception:
+        return None
+    return None
+
+
+def _statement_period_end(frame, period_index=0):
+    try:
+        columns = list(frame.columns)
+        if not columns:
+            return None
+        value = columns[min(max(0, period_index), len(columns) - 1)]
+        if hasattr(value, "date"):
+            return value.date().isoformat()
+        return str(value)[:10]
+    except Exception:
+        return None
+
+
+def _safe_statement_frame(instrument, attribute):
+    try:
+        frame = getattr(instrument, attribute, None)
+        return frame if frame is not None and not getattr(frame, "empty", True) else None
+    except Exception:
+        return None
+
+
+def _latest_earnings_dates(instrument):
+    try:
+        frame = instrument.get_earnings_dates(limit=8)
+        if frame is None or getattr(frame, "empty", True):
+            return {}
+        frame = frame.sort_index(ascending=False)
+        latest = frame.iloc[0]
+        event_date = frame.index[0]
+        return {
+            "eventDate": event_date.date().isoformat() if hasattr(event_date, "date") else str(event_date)[:10],
+            "epsEstimate": _safe_float(latest.get("EPS Estimate")),
+            "epsActual": _safe_float(latest.get("Reported EPS")),
+            "epsSurprisePct": _safe_float(latest.get("Surprise(%)")),
+        }
+    except Exception:
+        return {}
+
+
+def fetch_company_analysis_snapshot(instrument, quote_type, info):
+    """Build display-only statement facts from the existing Yahoo/yfinance source."""
+    if str(quote_type or "").upper() not in {"", "EQUITY"}:
+        return {"status": "not_applicable", "source": "yfinance financial statements"}
+
+    annual_income = _safe_statement_frame(instrument, "income_stmt")
+    annual_cashflow = _safe_statement_frame(instrument, "cashflow")
+    annual_balance = _safe_statement_frame(instrument, "balance_sheet")
+    quarterly_income = _safe_statement_frame(instrument, "quarterly_income_stmt")
+    quarterly_cashflow = _safe_statement_frame(instrument, "quarterly_cashflow")
+
+    revenue = _statement_value(annual_income, ["Total Revenue", "Operating Revenue"])
+    operating_cash_flow = _statement_value(annual_cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"])
+    free_cash_flow = _statement_value(annual_cashflow, ["Free Cash Flow"])
+    prior_free_cash_flow = _statement_value(annual_cashflow, ["Free Cash Flow"], 1)
+    capex_raw = _statement_value(annual_cashflow, ["Capital Expenditure", "Capital Expenditures"])
+    buyback_raw = _statement_value(annual_cashflow, ["Repurchase Of Capital Stock"])
+    cash = _statement_value(annual_balance, ["Cash Cash Equivalents And Short Term Investments", "Cash And Cash Equivalents", "Cash Financial"])
+    total_debt = _statement_value(annual_balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"])
+    shares_current = _statement_value(annual_balance, ["Ordinary Shares Number", "Share Issued"])
+    shares_prior = _statement_value(annual_balance, ["Ordinary Shares Number", "Share Issued"], 1)
+
+    # Yahoo info is a useful fallback when one statement table is unavailable.
+    revenue = revenue if revenue is not None else _safe_float(info.get("totalRevenue"))
+    operating_cash_flow = operating_cash_flow if operating_cash_flow is not None else _safe_float(info.get("operatingCashflow"))
+    free_cash_flow = free_cash_flow if free_cash_flow is not None else _safe_float(info.get("freeCashflow"))
+    capex_raw = capex_raw if capex_raw is not None else _safe_float(info.get("capitalExpenditure"))
+    cash = cash if cash is not None else _safe_float(info.get("totalCash"))
+    total_debt = total_debt if total_debt is not None else _safe_float(info.get("totalDebt"))
+    shares_current = shares_current if shares_current is not None else _safe_float(info.get("sharesOutstanding"))
+
+    quarter_revenue = _statement_value(quarterly_income, ["Total Revenue", "Operating Revenue"])
+    quarter_revenue_prior = _statement_value(quarterly_income, ["Total Revenue", "Operating Revenue"], 4)
+    quarter_gross_profit = _statement_value(quarterly_income, ["Gross Profit"])
+    quarter_operating_income = _statement_value(quarterly_income, ["Operating Income"])
+    quarter_fcf = _statement_value(quarterly_cashflow, ["Free Cash Flow"])
+    quarter_capex_raw = _statement_value(quarterly_cashflow, ["Capital Expenditure", "Capital Expenditures"])
+    quarter_eps = _statement_value(quarterly_income, ["Diluted EPS", "Basic EPS"])
+    earnings = _latest_earnings_dates(instrument)
+
+    fcf_growth = _pct_change_from_current(free_cash_flow, prior_free_cash_flow)
+    fcf_margin = (free_cash_flow / revenue) if free_cash_flow is not None and revenue not in (None, 0) else None
+    capex = abs(capex_raw) if capex_raw is not None else None
+    capex_to_revenue = (capex / revenue) if capex is not None and revenue not in (None, 0) else None
+    buyback = abs(buyback_raw) if buyback_raw is not None and buyback_raw < 0 else None
+    shares_yoy = _pct_change_from_current(shares_current, shares_prior)
+    quarter_gross_margin = (quarter_gross_profit / quarter_revenue) if quarter_gross_profit is not None and quarter_revenue not in (None, 0) else None
+    quarter_operating_margin = (quarter_operating_income / quarter_revenue) if quarter_operating_income is not None and quarter_revenue not in (None, 0) else None
+    quarter_revenue_yoy = _pct_change_from_current(quarter_revenue, quarter_revenue_prior)
+
+    available = any(value is not None for value in [operating_cash_flow, free_cash_flow, revenue, cash, total_debt, quarter_revenue, earnings.get("epsActual")])
+    return {
+        "status": "available" if available else "unavailable",
+        "source": "yfinance financial statements / earnings calendar",
+        "annualPeriodEnd": _statement_period_end(annual_income) or _statement_period_end(annual_cashflow),
+        "quarterlyPeriodEnd": _statement_period_end(quarterly_income) or _statement_period_end(quarterly_cashflow),
+        "cashFlow": {
+            "operatingCashFlow": operating_cash_flow,
+            "freeCashFlow": free_cash_flow,
+            "freeCashFlowMargin": fcf_margin,
+            "freeCashFlowYoyGrowth": fcf_growth,
+        },
+        "capitalAllocation": {
+            "capitalExpenditure": capex,
+            "capexToRevenue": capex_to_revenue,
+            "buybackTtm": buyback,
+            "sharesOutstanding": shares_current,
+            "sharesOutstandingYoy": shares_yoy,
+        },
+        "balanceSheet": {
+            "cash": cash,
+            "totalDebt": total_debt,
+            "netCash": (cash - total_debt) if cash is not None and total_debt is not None else None,
+        },
+        "guidance": {
+            "revenueGuidance": None,
+            "epsGuidance": None,
+            "capexGuidance": None,
+            "managementOutlook": None,
+            "sourceStatus": "unavailable",
+        },
+        "latestEarnings": {
+            **earnings,
+            "revenueActual": quarter_revenue,
+            "revenueYoyGrowth": quarter_revenue_yoy,
+            "grossMargin": quarter_gross_margin,
+            "operatingMargin": quarter_operating_margin,
+            "freeCashFlow": quarter_fcf,
+            "capitalExpenditure": abs(quarter_capex_raw) if quarter_capex_raw is not None else None,
+            "reportedEps": quarter_eps if quarter_eps is not None else earnings.get("epsActual"),
+        },
+    }
+
+
 def fetch_fred_series_points(series_id, limit=120):
     try:
         csv_text = http_get_text(f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}", timeout=8)
@@ -1604,6 +1755,16 @@ def build_strategy_impact_summary(regime, fed_event, fear_greed_label_value):
     }
 
 
+SECTOR_ETF_BENCHMARKS = {
+    "XLK": "Technology",
+    "SMH": "Semiconductors",
+    "IGV": "Software",
+    "XLY": "Consumer Discretionary",
+    "XLF": "Financials",
+    "XLV": "Healthcare",
+}
+
+
 def fetch_market_context_core_sources():
     tasks = {
         "vix_points": lambda: (
@@ -1615,6 +1776,8 @@ def fetch_market_context_core_sources():
         "spy_trend": lambda: build_index_trend("SPY", "SPY"),
         "qqq_trend": lambda: build_index_trend("QQQ", "QQQ"),
     }
+    for symbol in SECTOR_ETF_BENCHMARKS:
+        tasks[f"sector_{symbol.lower()}"] = lambda symbol=symbol: build_index_trend(symbol, symbol)
     defaults = {
         "vix_points": [],
         "treasury_points": [],
@@ -1629,6 +1792,8 @@ def fetch_market_context_core_sources():
         "spy_trend": build_unavailable_market_trend("SPY"),
         "qqq_trend": build_unavailable_market_trend("QQQ"),
     }
+    for symbol in SECTOR_ETF_BENCHMARKS:
+        defaults[f"sector_{symbol.lower()}"] = build_unavailable_market_trend(symbol)
     results = dict(defaults)
     executor = ThreadPoolExecutor(max_workers=len(tasks))
     futures = {executor.submit(task): name for name, task in tasks.items()}
@@ -1686,6 +1851,10 @@ def fetch_market_context_payload():
     active_event = find_active_market_event(load_market_events(), datetime.now(timezone.utc).date(), lookback_days=3)
     spy_trend = core_sources["spy_trend"]
     qqq_trend = core_sources["qqq_trend"]
+    sector_trends = {
+        symbol: core_sources.get(f"sector_{symbol.lower()}") or build_unavailable_market_trend(symbol)
+        for symbol in SECTOR_ETF_BENCHMARKS
+    }
     # News and Fed event scraping are intentionally excluded from the fast
     # market-context refresh. The stable core is VIX, 10Y, sentiment and indices.
     macro_articles = []
@@ -1874,6 +2043,7 @@ def fetch_market_context_payload():
             "summary": trend_summary,
             "impact": "supportive" if equity_trend_delta > 0 else "cautious" if equity_trend_delta < 0 else "neutral",
         },
+        "sector_trends": sector_trends,
         "summary": market_summary,
         "breakdown": {
             "base": base_score,
@@ -1901,6 +2071,7 @@ def fetch_market_context_payload():
             "ten_year_yield": build_source_info("Live" if treasury_yield is not None else "Data unavailable", missing_source="FRED DGS10 / Yahoo Finance ^TNX", suggested_source="FRED DGS10 / Yahoo Finance ^TNX / Alpha Vantage", source_name="FRED DGS10"),
             "fed_event": build_source_info("Live", missing_source="Economic calendar / market_events.json", suggested_source="FMP Economic Calendar / Alpha Vantage / market_events.json", source_name="market_events.json"),
             "equity_trend": build_source_info("Live" if spy_trend.get("value") is not None or qqq_trend.get("value") is not None else "Data unavailable", missing_source="Yahoo Finance SPY / QQQ", suggested_source="Yahoo Finance SPY / QQQ", source_name="Yahoo Finance"),
+            "sector_trends": build_source_info("Live" if any((trend or {}).get("value") is not None for trend in sector_trends.values()) else "Data unavailable", missing_source="Yahoo Finance sector ETFs", suggested_source="Yahoo Finance XLK / SMH / IGV / XLY / XLF / XLV", source_name="Yahoo Finance"),
         },
     }
 
@@ -2069,6 +2240,7 @@ def build_unavailable_quote(ticker, reason, stale_value=None):
             "ipoDate": metadata.get("ipoDate"),
             "floatShares": metadata.get("floatShares"),
             "sharesOutstanding": metadata.get("sharesOutstanding"),
+            "companyAnalysis": metadata.get("companyAnalysis"),
         },
         "history": {
             "timestamps": history.get("timestamps", []),
@@ -3364,6 +3536,12 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         quote_summary_attempted = True
         info, quote_snapshot, quote_summary = merge_yahoo_fallback_info(symbol, info)
 
+    company_analysis = fetch_company_analysis_snapshot(
+        instrument,
+        info.get("quoteType"),
+        info,
+    )
+
     latest_row = history.iloc[-1]
     previous_row = history.iloc[-2] if len(history) > 1 else latest_row
     regular_close = _safe_float(latest_row["Close"])
@@ -3473,6 +3651,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
             "ipoDate": iso_from_epoch(info.get("firstTradeDateEpochUtc")),
             "floatShares": _safe_int(info.get("floatShares")) or _safe_int(info.get("sharesFloat")) or _safe_int(info.get("publicFloat")) or _safe_int(fast_info.get("float_shares")),
             "sharesOutstanding": _safe_int(info.get("sharesOutstanding")) or _safe_int(info.get("impliedSharesOutstanding")) or _safe_int(fast_info.get("shares")),
+            "companyAnalysis": company_analysis,
         },
         "earnings": {
             "earningsDate": earnings_date,
@@ -3485,6 +3664,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
             "yfinance_import_success": True,
             "yfinance_fields_found": [field for field in fallback_fields if info.get(field) is not None],
             "yahoo_quote_summary_attempt": quote_summary_attempted,
+            "company_analysis_status": company_analysis.get("status"),
             "yahoo_quote_snapshot_attempt": bool(quote_snapshot),
             "raw_keys_sample": sorted(list(info.keys()))[:20],
             "quote_summary_keys_sample": sorted(list(quote_summary.keys()))[:20] if quote_summary else [],
@@ -3688,6 +3868,9 @@ def extract_fundamental_fields_from_quote(quote):
         metadata = {}
     market_cap = quote.get("marketCap") if isinstance(quote, dict) else None
     free_cashflow = metadata.get("freeCashflow")
+    company_analysis = metadata.get("companyAnalysis") if isinstance(metadata.get("companyAnalysis"), dict) else {}
+    cash_flow = company_analysis.get("cashFlow") if isinstance(company_analysis.get("cashFlow"), dict) else {}
+    balance_sheet = company_analysis.get("balanceSheet") if isinstance(company_analysis.get("balanceSheet"), dict) else {}
     price_fcf = None
     if _safe_float(market_cap) not in (None, 0) and _safe_float(free_cashflow) not in (None, 0):
         try:
@@ -3704,6 +3887,10 @@ def extract_fundamental_fields_from_quote(quote):
         "revenue_growth": metadata.get("revenueGrowth"),
         "profit_margins": metadata.get("profitMargins"),
         "free_cashflow": free_cashflow,
+        "operating_cash_flow": cash_flow.get("operatingCashFlow"),
+        "free_cash_flow_margin": cash_flow.get("freeCashFlowMargin"),
+        "cash": balance_sheet.get("cash"),
+        "total_debt": balance_sheet.get("totalDebt"),
     }
 
 
@@ -3920,6 +4107,7 @@ def build_unavailable_market_context(reason="Market context skipped for fast mar
                 "summary": reason,
                 "impact": "neutral",
             },
+            "sector_trends": {},
             "summary": reason,
             "breakdown": {"base": 50, "final_score": 50},
             "strategy_impact": {},
