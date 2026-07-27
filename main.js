@@ -12592,6 +12592,20 @@ function compareActualToEstimate(actual, estimate) {
   return "in_line";
 }
 
+function validateFundamentalUIDuplicates(sectionMetrics = {}) {
+  const seen = new Map();
+  const duplicates = [];
+  Object.entries(sectionMetrics).forEach(([section, metrics]) => {
+    (metrics || []).forEach((metric) => {
+      if (!metric?.name || !metric?.period) return;
+      const key = `${metric.name}:${metric.period}`;
+      if (seen.has(key)) duplicates.push({ key, sections: [seen.get(key), section] });
+      else seen.set(key, section);
+    });
+  });
+  return { duplicate_count: duplicates.length, duplicates, status: duplicates.length ? "duplicates_detected" : "clear" };
+}
+
 function buildBasicFundamentalAnalysis(row) {
   const raw = row.metadata?.companyAnalysis;
   if (raw?.status === "not_applicable") {
@@ -12611,32 +12625,79 @@ function buildBasicFundamentalAnalysis(row) {
   const facts = raw.financialFacts || {};
   const cashFlow = facts.cashFlow || {};
   const ttm = cashFlow.ttm || {};
-  const quarter = cashFlow.quarter || {};
+  const quarter = cashFlow.quarterly || cashFlow.quarter || {};
+  const fiscalYear = cashFlow.fiscalYear || {};
   const growth = cashFlow.growth || {};
+  const comparisons = cashFlow.comparisons || {};
   const balanceSheet = facts.balanceSheet || {};
   const capitalReturn = facts.capitalReturn || {};
   const shareCount = facts.shareCount || {};
   const cashFlowSemantic = facts.cashFlowSemantic || {};
+  const earningsQualitySource = raw.earningsQuality || {};
+  const equitySecuritiesGain = earningsQualitySource.equitySecuritiesGain || {};
   const recordValue = (record) => Number.isFinite(record?.raw_value) ? record.raw_value : null;
-  const trendFromChanges = (yoy, qoq) => {
-    const changes = [yoy, qoq].filter(Number.isFinite);
-    if (!changes.length) return "unavailable";
-    const average = mean(changes);
-    return average >= 20 ? "strongly_improving" : average >= 6 ? "improving" : average <= -20 ? "strongly_weakening" : average <= -6 ? "weakening" : "stable";
-  };
+  const quarterlyFcf = recordValue(quarter.freeCashFlow);
+  const quarterlyOcf = recordValue(quarter.operatingCashFlow);
+  const quarterlyCapex = recordValue(quarter.capitalExpenditure);
+  const ttmFcf = recordValue(ttm.freeCashFlow);
+  const ttmOcf = recordValue(ttm.operatingCashFlow);
+  const ttmCapex = recordValue(ttm.capitalExpenditure);
+  const quarterFcfUnderInvestmentPressure = quarterlyOcf > 0 && quarterlyFcf < 0 && quarterlyCapex >= quarterlyOcf;
   const cashFlowStructure = {
-    operating_cash_flow: { current: ttm.operatingCashFlow || null, yoy: growth.operatingCashFlowYoy ?? null, qoq: growth.operatingCashFlowQoq ?? null, trend: trendFromChanges(growth.operatingCashFlowYoy, growth.operatingCashFlowQoq) },
-    capex: { current: ttm.capitalExpenditure || null, yoy: growth.capexYoy ?? null, qoq: growth.capexQoq ?? null, trend: trendFromChanges(growth.capexYoy, growth.capexQoq) },
-    free_cash_flow: { current: ttm.freeCashFlow || null, yoy: growth.freeCashFlowYoy ?? null, qoq: growth.freeCashFlowQoq ?? null, margin: ttm.fcfMargin ?? null, quarterly_margin: quarter.fcfMargin ?? null, margin_change: Number.isFinite(ttm.fcfMargin) && Number.isFinite(quarter.fcfMargin) ? quarter.fcfMargin - ttm.fcfMargin : null, trend: trendFromChanges(growth.freeCashFlowYoy, growth.freeCashFlowQoq) },
-    interpretation: currentLanguage === "zh"
-      ? "经营现金流、资本支出与自由现金流分别评估；资本开支上升并不自动等于经营质量恶化。"
-      : "Operating cash flow, capital expenditure, and free cash flow are assessed separately; higher capex is not automatically weaker operating quality.",
+    quarterly: { period_end_date: quarter.freeCashFlow?.period_end_date || quarter.operatingCashFlow?.period_end_date || null, operating_cash_flow: quarter.operatingCashFlow, capex: quarter.capitalExpenditure, free_cash_flow: quarter.freeCashFlow, revenue: quarter.revenue, fcf_margin: quarter.fcfMargin ?? null, capex_to_revenue: quarter.capexToRevenue ?? null, capex_to_operating_cash_flow: quarter.capexToOperatingCashFlow ?? null },
+    ttm: { period_end_date: ttm.freeCashFlow?.period_end_date || ttm.operatingCashFlow?.period_end_date || null, operating_cash_flow: ttm.operatingCashFlow, capex: ttm.capitalExpenditure, free_cash_flow: ttm.freeCashFlow, revenue: ttm.revenue, fcf_margin: ttm.fcfMargin ?? null, capex_to_revenue: ttm.capexToRevenue ?? null, capex_to_operating_cash_flow: ttm.capexToOperatingCashFlow ?? null },
+    fiscal_year: { period_end_date: fiscalYear.freeCashFlow?.period_end_date || fiscalYear.operatingCashFlow?.period_end_date || null, operating_cash_flow: fiscalYear.operatingCashFlow, capex: fiscalYear.capitalExpenditure, free_cash_flow: fiscalYear.freeCashFlow, revenue: fiscalYear.revenue, fcf_margin: fiscalYear.fcfMargin ?? null, capex_to_revenue: fiscalYear.capexToRevenue ?? null, capex_to_operating_cash_flow: fiscalYear.capexToOperatingCashFlow ?? null },
+    trend: { quarterly_fcf_yoy: comparisons.quarterlyFcfYoy || null, quarterly_fcf_qoq: comparisons.quarterlyFcfQoq || null, ttm_fcf_yoy: comparisons.ttmFcfYoy || null, quarterly_capex_yoy: comparisons.quarterlyCapexYoy || null, quarterly_capex_qoq: comparisons.quarterlyCapexQoq || null, ttm_capex_yoy: comparisons.ttmCapexYoy || null, quarterly_ocf_yoy: comparisons.quarterlyOcfYoy || null, ttm_ocf_yoy: comparisons.ttmOcfYoy || null },
+    interpretation: currentLanguage === "zh" ? "季度、TTM 与财年现金流分别保留；任何比率只在分子与分母属于同一期间时计算。" : "Quarterly, TTM, and fiscal-year cash flow remain separate; ratios are calculated only when their numerator and denominator share a period.",
   };
   const usesReitCashFlowSemantics = cashFlowSemantic.model === "reit_cash_flow_limited";
-  const cashGeneration = usesReitCashFlowSemantics ? "unavailable" : recordValue(ttm.operatingCashFlow) > 0 && recordValue(ttm.freeCashFlow) > 0 ? "strong" : recordValue(ttm.operatingCashFlow) != null ? "weak" : "unavailable";
-  const capitalEfficiency = usesReitCashFlowSemantics ? "unavailable" : Number.isFinite(ttm.fcfMargin) ? (ttm.fcfMargin >= 0.15 ? "strong" : ttm.fcfMargin >= 0 ? "adequate" : "weak") : "unavailable";
+  const cashGeneration = usesReitCashFlowSemantics
+    ? "unavailable"
+    : ttmOcf > 0 && ttmFcf > 0 && quarterlyOcf > 0 && quarterlyFcf >= 0
+      ? "strong"
+      : ttmOcf > 0 && ttmFcf > 0 && (quarterFcfUnderInvestmentPressure || quarterlyFcf < 0)
+        ? "healthy_but_under_investment_pressure"
+        : ttmOcf > 0 && (ttmFcf > 0 || quarterlyOcf > 0)
+          ? "mixed"
+          : ttmOcf != null || quarterlyOcf != null ? "weakening" : "unavailable";
+  const capitalEfficiency = usesReitCashFlowSemantics
+    ? "unavailable"
+    : quarterFcfUnderInvestmentPressure || quarter.capexToOperatingCashFlow >= 1
+      ? "under_investment_pressure"
+      : Number.isFinite(ttm.fcfMargin)
+        ? (ttm.fcfMargin >= 0.15 ? "strong" : ttm.fcfMargin >= 0 ? "adequate" : "weak")
+        : "unavailable";
   const shareholderReturn = shareCount.repurchaseEffectiveness === "effective_reduction" ? "returning_capital" : shareCount.repurchaseEffectiveness === "dilution_continues" ? "diluting" : shareCount.repurchaseEffectiveness === "mostly_offsets_sbc" ? "watch" : recordValue(capitalReturn.shareRepurchasesTtm) != null ? "buyback_reported" : "unavailable";
-  const earningsQuality = cashGeneration === "strong" && capitalEfficiency !== "weak" ? "strong" : cashGeneration === "weak" || capitalEfficiency === "weak" ? "watch" : "unavailable";
+  const earningsQuality = usesReitCashFlowSemantics
+    ? "unavailable"
+    : earningsQualitySource.label || (cashGeneration === "strong" && capitalEfficiency !== "weak" ? "strong" : cashGeneration === "weakening" || capitalEfficiency === "weak" ? "watch" : "unavailable");
+  const cashFlowInterpretation = {
+    operating_cash_generation: ttmOcf > 0 && quarterlyOcf > 0 ? "strong" : ttmOcf > 0 ? "mixed" : "weak",
+    capital_spending_pressure: quarterFcfUnderInvestmentPressure || quarter.capexToOperatingCashFlow >= 1 ? "high" : Number.isFinite(ttm.capexToOperatingCashFlow) && ttm.capexToOperatingCashFlow >= 0.7 ? "elevated" : "normal",
+    free_cash_flow_direction: quarterlyFcf < 0 && ttmFcf > 0 ? "quarterly_negative_ttm_positive" : ttmFcf > 0 ? "positive" : quarterlyFcf < 0 ? "negative" : "unavailable",
+    near_term_pressure: quarterFcfUnderInvestmentPressure || quarterlyFcf < 0,
+    long_term_capacity: ttmOcf > 0 && ttmFcf > 0 ? "positive" : "uncertain",
+    headline: currentLanguage === "zh"
+      ? (quarterFcfUnderInvestmentPressure ? "经营现金流强，但高资本支出正在压缩最近季度自由现金流。" : ttmFcf > 0 ? "TTM 自由现金流为正，季度现金流结构继续观察。" : "可用现金流数据不足以形成稳定判断。")
+      : (quarterFcfUnderInvestmentPressure ? "Operating cash flow is strong, but high capex is compressing latest-quarter free cash flow." : ttmFcf > 0 ? "TTM free cash flow is positive; quarterly cash-flow structure still needs monitoring." : "Available cash-flow data is insufficient for a stable conclusion."),
+    explanation: currentLanguage === "zh" ? "季度负 FCF 与 TTM 正 FCF 可以同时成立，二者反映的期间不同，不会互相覆盖。" : "Negative quarterly FCF and positive TTM FCF can coexist because they describe different periods and are not merged.",
+  };
+  const equitySecuritiesQualityNote = (() => {
+    const pretax = recordValue(equitySecuritiesGain.pretax_equity_securities_gain);
+    if (!Number.isFinite(pretax)) return null;
+    const label = currentLanguage === "zh" ? "股权证券投资收益（含已实现与未实现）" : "Equity Securities Gain (realized and unrealized)";
+    const afterTax = recordValue(equitySecuritiesGain.after_tax_net_income_contribution);
+    const epsContribution = recordValue(equitySecuritiesGain.diluted_eps_contribution);
+    if (Number.isFinite(afterTax)) {
+      return `${label}：${currentLanguage === "zh" ? "税前" : "Pretax"} ${formatFinancialAmount(pretax)}；${currentLanguage === "zh" ? "税后净利润贡献" : "After-tax net-income contribution"} ${formatFinancialAmount(afterTax)}${Number.isFinite(equitySecuritiesGain.net_income_contribution_pct) ? `（${formatPercentage(equitySecuritiesGain.net_income_contribution_pct)}）` : ""}${Number.isFinite(epsContribution) ? `；${currentLanguage === "zh" ? "稀释 EPS 贡献" : "Diluted EPS contribution"} ${formatCurrency(epsContribution)}` : ""}`;
+    }
+    return `${label}：${currentLanguage === "zh" ? "税前" : "Pretax"} ${formatFinancialAmount(pretax)}；${currentLanguage === "zh" ? "税前投资收益金额可用，但缺少税后贡献，无法与净利润直接比较。" : "Pretax amount is available, but after-tax contribution is unavailable and cannot be compared directly with net income."}`;
+  })();
+  const earningsQualityExplanation = earningsQualitySource.label === "strong_but_non_operating_boost"
+    ? (currentLanguage === "zh"
+      ? "核心经营表现强，但本季度 reported net income 和 EPS 受到大额股权证券投资收益显著提升。"
+      : "Core operating performance is strong, but this quarter's reported net income and EPS were materially lifted by equity securities investment gains.")
+    : earningsQualitySource.explanation || null;
   const auditedRecords = {
     operating_cash_flow_ttm: ttm.operatingCashFlow,
     free_cash_flow_ttm: ttm.freeCashFlow,
@@ -12644,7 +12705,8 @@ function buildBasicFundamentalAnalysis(row) {
     revenue_ttm: ttm.revenue,
     quarterly_capex: quarter.capitalExpenditure,
     quarterly_revenue: quarter.revenue,
-    cash: balanceSheet.cash,
+    cash_and_cash_equivalents: balanceSheet.cashAndCashEquivalents || balanceSheet.cash,
+    total_cash_and_marketable_securities: balanceSheet.totalCashAndMarketableSecurities,
     total_debt: balanceSheet.totalDebt,
     net_cash: balanceSheet.netCash,
     share_repurchases_ttm: capitalReturn.shareRepurchasesTtm,
@@ -12662,14 +12724,32 @@ function buildBasicFundamentalAnalysis(row) {
     capital_return: capitalReturn,
     share_count_structure: shareCount,
     balance_sheet: balanceSheet,
+    liquidity_structure: balanceSheet.liquidityStructure || {},
     guidance: raw.guidance || { sourceStatus: "unavailable", unavailableReason: "unavailable" },
+    earnings_quality_structure: earningsQualitySource,
+    cash_flow_interpretation: cashFlowInterpretation,
+    fundamental_ui_validation: validateFundamentalUIDuplicates({
+      cash_flow: [
+        { name: "operating_cash_flow", period: "ttm" },
+        { name: "free_cash_flow", period: "ttm" },
+        { name: "free_cash_flow", period: "quarter" },
+      ],
+      capex: [
+        { name: "capital_expenditure", period: "ttm" },
+        { name: "capital_expenditure", period: "quarter" },
+      ],
+      earnings: [
+        { name: "revenue", period: "quarter" },
+        { name: "eps", period: "quarter" },
+      ],
+    }),
     financial_unit_audit: Object.fromEntries(Object.entries(auditedRecords).map(([key, record]) => [key, buildFinancialUnitAudit(record)])),
     quality_summary: {
       status: "available",
-      cash_generation: { label: cashGeneration, score: cashGeneration === "strong" ? 80 : cashGeneration === "weak" ? 35 : null, supporting_metrics: ["operating_cash_flow_ttm", "free_cash_flow_ttm"] },
-      capital_efficiency: { label: capitalEfficiency, score: capitalEfficiency === "strong" ? 80 : capitalEfficiency === "adequate" ? 55 : capitalEfficiency === "weak" ? 30 : null, supporting_metrics: ["ttm_fcf_margin", "ttm_capex_to_revenue"] },
-      shareholder_return: { label: shareholderReturn, score: shareholderReturn === "returning_capital" ? 75 : shareholderReturn === "diluting" ? 30 : shareholderReturn === "watch" ? 45 : null, supporting_metrics: ["share_repurchases_ttm", "dividends_paid_ttm", "shares_outstanding_yoy"] },
-      earnings_quality: { label: earningsQuality, score: earningsQuality === "strong" ? 75 : earningsQuality === "watch" ? 40 : null, supporting_metrics: ["operating_cash_flow_ttm", "free_cash_flow_ttm", "ttm_fcf_margin"] },
+      cash_generation: { label: cashGeneration, score: cashGeneration === "strong" ? 80 : cashGeneration === "healthy_but_under_investment_pressure" ? 62 : cashGeneration === "mixed" ? 50 : cashGeneration === "weakening" ? 35 : null, supporting_metrics: [ttmOcf != null ? `${currentLanguage === "zh" ? "TTM 经营现金流" : "TTM Operating Cash Flow"} ${formatFinancialAmount(ttmOcf)}` : null, ttmFcf != null ? `${currentLanguage === "zh" ? "TTM 自由现金流" : "TTM Free Cash Flow"} ${formatFinancialAmount(ttmFcf)}` : null, quarterlyFcf != null ? `${currentLanguage === "zh" ? "最近季度自由现金流" : "Latest Quarterly Free Cash Flow"} ${formatFinancialAmount(quarterlyFcf)}` : null, quarterFcfUnderInvestmentPressure ? (currentLanguage === "zh" ? "高资本支出正在压缩短期自由现金流" : "High capex is compressing near-term free cash flow") : null].filter(Boolean) },
+      capital_efficiency: { label: capitalEfficiency, score: capitalEfficiency === "strong" ? 80 : capitalEfficiency === "adequate" ? 55 : capitalEfficiency === "under_investment_pressure" ? 40 : capitalEfficiency === "weak" ? 30 : null, supporting_metrics: [Number.isFinite(ttm.fcfMargin) ? `${currentLanguage === "zh" ? "TTM FCF Margin" : "TTM FCF Margin"} ${formatPercentage(ttm.fcfMargin)}` : null, Number.isFinite(ttm.capexToRevenue) ? `${currentLanguage === "zh" ? "TTM CapEx / 营收" : "TTM CapEx / Revenue"} ${formatPercentage(ttm.capexToRevenue)}` : null, Number.isFinite(quarter.capexToRevenue) ? `${currentLanguage === "zh" ? "最近季度 CapEx / 营收" : "Latest Quarter CapEx / Revenue"} ${formatPercentage(quarter.capexToRevenue)}` : null].filter(Boolean) },
+      shareholder_return: { label: shareholderReturn, score: shareholderReturn === "returning_capital" ? 75 : shareholderReturn === "diluting" ? 30 : shareholderReturn === "watch" ? 45 : null, supporting_metrics: [recordValue(capitalReturn.shareRepurchasesTtm) != null ? `${currentLanguage === "zh" ? "TTM 股票回购" : "TTM Share Repurchases"} ${formatFinancialAmount(recordValue(capitalReturn.shareRepurchasesTtm))}` : null, recordValue(capitalReturn.dividendsPaidTtm) != null ? `${currentLanguage === "zh" ? "TTM 现金股息" : "TTM Cash Dividends"} ${formatFinancialAmount(recordValue(capitalReturn.dividendsPaidTtm))}` : null, shareCount.audit?.sameScope && Number.isFinite(shareCount.yoyChangePct) ? `${currentLanguage === "zh" ? "流通股本同比" : "Shares Outstanding YoY"} ${formatPercentValue(shareCount.yoyChangePct, 2)}` : null].filter(Boolean) },
+      earnings_quality: { label: earningsQuality, score: earningsQuality === "strong_core" || earningsQuality === "strong" ? 75 : earningsQuality === "strong_but_non_operating_boost" ? 55 : earningsQuality === "mixed" || earningsQuality === "watch" ? 40 : null, supporting_metrics: [usesReitCashFlowSemantics ? (currentLanguage === "zh" ? "REIT 普通 FCF 不等同于 FFO/AFFO，不生成普通公司盈利质量结论。" : "REIT ordinary FCF is not equivalent to FFO/AFFO; no standard corporate earnings-quality conclusion is generated.") : earningsQualityExplanation, !usesReitCashFlowSemantics ? equitySecuritiesQualityNote : null].filter(Boolean) },
       data_quality: "display_only_statement_snapshot",
       missing_inputs: Object.entries(auditedRecords).filter(([, record]) => !Number.isFinite(recordValue(record))).map(([key]) => key),
       explanation: usesReitCashFlowSemantics
@@ -12730,14 +12810,14 @@ function buildEarningsAnalysis(row) {
     beat_miss: Object.fromEntries(Object.entries(earningsMetrics).map(([key, metric]) => [key, metric.comparison_status])),
     actuals: raw,
     management: {
-      guidance: row.metadata?.companyAnalysis?.guidance?.managementOutlook || "unavailable",
+      guidance: row.metadata?.companyAnalysis?.guidance?.managementOutlook?.value || "unavailable",
       ai_spending: "unavailable",
       major_business_commentary: "unavailable",
     },
     earnings_move_explanation: {
       positive_drivers: [earningsMetrics.eps.comparison_status === "beat" ? "eps_beat" : null, Number.isFinite(raw.revenueYoyGrowth) && raw.revenueYoyGrowth > 0 ? "revenue_growth_positive" : null, Number.isFinite(raw.freeCashFlow) && raw.freeCashFlow > 0 ? "quarterly_fcf_positive" : null].filter(Boolean),
       negative_drivers: [Number.isFinite(raw.capitalExpenditure) && raw.capitalExpenditure > 0 ? "capital_expenditure_reported" : null, Number.isFinite(raw.freeCashFlow) && raw.freeCashFlow < 0 ? "quarterly_fcf_negative" : null].filter(Boolean),
-      uncertain_drivers: [Object.values(earningsMetrics).some((metric) => metric.data_status === "actual_only") ? "consensus_estimates_missing" : null, companyAnalysis.guidance?.sourceStatus === "unavailable" ? "management_guidance_unavailable" : null].filter(Boolean),
+      uncertain_drivers: [Object.values(earningsMetrics).some((metric) => metric.data_status === "actual_only") ? "consensus_estimates_missing" : null, companyAnalysis.guidance?.sourceStatus === "source_not_supported" ? "structured_management_guidance_not_parsed" : null].filter(Boolean),
       primary_driver: earningsMetrics.eps.comparison_status === "beat" ? "eps_beat" : Number.isFinite(raw.capitalExpenditure) ? "capital_expenditure_reported" : "partial_report_data",
       confidence: Object.values(earningsMetrics).filter((metric) => metric.data_status === "actual_and_estimate_available").length >= 2 ? "medium" : "low",
       data_limitations: ["no_unverified_price_attribution", ...(Object.values(earningsMetrics).some((metric) => metric.data_status === "actual_only") ? ["estimates_missing_for_some_metrics"] : [])],
@@ -22466,7 +22546,7 @@ function renderDetailModal(row) {
     if (/options|volatility|short interest/i.test(headline)) return "期权、波动率或做空相关消息";
     return "公司新闻";
   };
-  const renderMetricRows = (rows) => rows.map((entry) => {
+  const renderMetricRows = (rows) => rows.filter((entry) => entry && !entry.hidden).map((entry) => {
     const value = typeof entry.value === "string" ? localizedDashboardText(entry.value) : entry.value;
     const note = typeof entry.note === "string" ? localizedDashboardText(entry.note) : entry.note;
     return `
@@ -22868,32 +22948,43 @@ function renderDetailModal(row) {
     stable: currentLanguage === "zh" ? "稳定" : "Stable",
     weakening: currentLanguage === "zh" ? "走弱" : "Weakening",
     high: currentLanguage === "zh" ? "高" : "High",
+    elevated: currentLanguage === "zh" ? "偏高" : "Elevated",
+    normal: currentLanguage === "zh" ? "正常" : "Normal",
     medium: currentLanguage === "zh" ? "中等" : "Medium",
     low: currentLanguage === "zh" ? "低" : "Low",
     returning_capital: currentLanguage === "zh" ? "回购/回报股东" : "Returning capital",
     diluting: currentLanguage === "zh" ? "股本稀释" : "Diluting",
     buyback_reported: currentLanguage === "zh" ? "已披露回购" : "Buyback reported",
     watch: currentLanguage === "zh" ? "需要观察" : "Watch",
+    mixed: currentLanguage === "zh" ? "混合" : "Mixed",
+    healthy_but_under_investment_pressure: currentLanguage === "zh" ? "经营强、短期 FCF 承压" : "Healthy, under investment pressure",
+    under_investment_pressure: currentLanguage === "zh" ? "资本开支压力" : "Investment pressure",
+    strong_core: currentLanguage === "zh" ? "核心经营强" : "Strong core earnings",
+    strong_but_non_operating_boost: currentLanguage === "zh" ? "核心强，但含非经营性收益" : "Strong, with non-operating boost",
     raised: currentLanguage === "zh" ? "上调" : "Raised",
     maintained: currentLanguage === "zh" ? "维持" : "Maintained",
     lowered: currentLanguage === "zh" ? "下调" : "Lowered",
     unavailable: t("dataUnavailable"),
   }[value] || value || t("dataUnavailable"));
   const renderBasicFundamentalAnalysis = (analysis) => {
-    if (analysis.status === "not_applicable") return "";
+    if (analysis.status !== "available") return "";
     const cashFlow = analysis.cash_flow || {};
     const ttm = cashFlow.ttm || {};
-    const quarter = cashFlow.quarter || {};
-    const growth = cashFlow.growth || {};
+    const quarter = cashFlow.quarterly || cashFlow.quarter || {};
+    const comparisons = cashFlow.comparisons || {};
     const consistency = cashFlow.consistency || {};
     const cashFlowSemantic = analysis.cash_flow_semantic || {};
     const capitalReturn = analysis.capital_return || {};
     const shareCount = analysis.share_count_structure || {};
     const balance = analysis.balance_sheet || {};
+    const liquidity = analysis.liquidity_structure || balance.liquidityStructure || {};
     const guidance = analysis.guidance || {};
     const quality = analysis.quality_summary || {};
-    const recordValue = (record) => record?.raw_value;
+    const recordValue = (record) => Number.isFinite(record?.raw_value) ? record.raw_value : null;
+    const hasRecord = (record) => Number.isFinite(recordValue(record));
     const financialRecord = (record) => formatFinancialAmount(recordValue(record), { currency: record?.currency || currencyCode });
+    const recordRow = (label, record, note = "") => ({ label, value: financialRecord(record), note, hidden: !hasRecord(record) });
+    const valueRow = (label, value, formatter, note = "") => ({ label, value: formatter(value), note, hidden: !Number.isFinite(value) });
     const statementPeriodSuffix = (record) => {
       if (record?.period_type === "ttm") return "TTM";
       if (record?.period_type === "quarter") return currentLanguage === "zh" ? "最近季度" : "Latest Quarter";
@@ -22915,8 +23006,22 @@ function renderDetailModal(row) {
         : value?.status === "mismatch"
           ? (currentLanguage === "zh" ? "报表值与 OCF - CapEx 不一致，已保留原始披露值" : "Reported value differs from OCF - CapEx; the reported value is retained")
           : "";
-    const guidanceReason = guidance.unavailableReason === "current_fast_source_does_not_provide_verified_management_guidance"
-      ? (currentLanguage === "zh" ? "当前快速数据源未提供可验证的管理层指引；未以缺失值推断中性。" : "The current fast source does not provide verified management guidance; missing data is not treated as neutral.")
+    const comparisonText = (comparison) => {
+      if (!comparison || comparison.current == null || comparison.prior == null) return null;
+      const currentText = formatFinancialAmount(comparison.current, { currency: currencyCode, signed: true });
+      const priorText = formatFinancialAmount(comparison.prior, { currency: currencyCode, signed: true });
+      if (!comparison.pct_change_valid) {
+        const state = comparison.state === "turned_negative" ? (currentLanguage === "zh" ? "由正转负" : "Turned negative")
+          : comparison.state === "turned_positive" ? (currentLanguage === "zh" ? "由负转正" : "Turned positive")
+            : currentLanguage === "zh" ? "跨越零点，不突出百分比变化" : "Crossed zero; percent change is not emphasized";
+        return `${state}：${priorText} → ${currentText}`;
+      }
+      return `${priorText} → ${currentText}（${formatChangePercent(comparison.pct_change)}）`;
+    };
+    const guidanceFields = [guidance.revenueGuidance, guidance.epsGuidance, guidance.capexGuidance, guidance.managementOutlook].filter(Boolean);
+    const availableGuidance = guidanceFields.filter((field) => field?.status === "available" && field?.value != null);
+    const guidanceStatusMessage = guidance.sourceStatus === "source_not_supported"
+      ? (currentLanguage === "zh" ? "当前数据源未解析管理层结构化指引；这不代表公司没有提供指引。" : "The current source has not parsed structured management guidance; this does not mean the company gave no guidance.")
       : guidance.unavailableReason || "";
     const qualityValue = (item) => analysisStateLabel(item?.label);
     return `
@@ -22925,54 +23030,78 @@ function renderDetailModal(row) {
         <div class="detail-line-note">${analysis.status === "available" ? (currentLanguage === "zh" ? `来源：${analysis.source || "—"} · 更新：${analysis.source_timestamp || "—"} · 以下仅作展示与数据审计，不计入本轮操作评分。` : `Source: ${analysis.source || "—"} · Updated: ${analysis.source_timestamp || "—"} · Display and data-audit only; not used in this release's action score.`) : localizedDashboardText(quality.explanation || (currentLanguage === "zh" ? "报表数据暂不可用。" : "Statement data is unavailable."))}</div>
         <div class="decision-summary-grid">
           <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "现金流" : "Cash Flow"}</div><div class="detail-line-list">${renderMetricRows([
-            { label: currentLanguage === "zh" ? `经营现金流（${statementPeriodSuffix(ttm.operatingCashFlow)}）` : `Operating Cash Flow (${statementPeriodSuffix(ttm.operatingCashFlow)})`, value: financialRecord(ttm.operatingCashFlow), note: periodLabel(ttm.operatingCashFlow) },
-            { label: currentLanguage === "zh" ? `自由现金流（${statementPeriodSuffix(ttm.freeCashFlow)}）` : `Free Cash Flow (${statementPeriodSuffix(ttm.freeCashFlow)})`, value: financialRecord(ttm.freeCashFlow), note: `${periodLabel(ttm.freeCashFlow)}${consistencyNote(consistency.freeCashFlowTtm) ? ` · ${consistencyNote(consistency.freeCashFlowTtm)}` : ""}` },
-            { label: currentLanguage === "zh" ? `FCF Margin（${statementPeriodSuffix(ttm.freeCashFlow)}）` : `FCF Margin (${statementPeriodSuffix(ttm.freeCashFlow)})`, value: displayValue(ttm.fcfMargin, (value) => formatPercentage(value)), note: growth.periodMismatchWarning ? (currentLanguage === "zh" ? "FCF 与营收期间不一致，未计算比率。" : "FCF and revenue periods differ; no ratio is calculated.") : "" },
-            { label: currentLanguage === "zh" ? "FCF 同比 / 环比" : "FCF YoY / QoQ", value: `${displayValue(growth.freeCashFlowYoy, (value) => formatChangePercent(value))} / ${displayValue(growth.freeCashFlowQoq, (value) => formatChangePercent(value))}`, note: analysisStateLabel(analysis.cash_flow_structure?.free_cash_flow?.trend) },
-          ])}</div>${cashFlowSemantic.warning === "reit_fcf_is_not_a_substitute_for_ffo_or_affo" ? `<div class="detail-line-note">${currentLanguage === "zh" ? "REIT 提示：普通 FCF 不等同于 FFO/AFFO，不能按一般公司现金流语义解读。" : "REIT note: ordinary FCF is not equivalent to FFO/AFFO and should not be interpreted as standard corporate cash flow."}</div>` : ""}</article>
+            recordRow(currentLanguage === "zh" ? "经营现金流（TTM）" : "Operating Cash Flow (TTM)", ttm.operatingCashFlow, periodLabel(ttm.operatingCashFlow)),
+            recordRow(currentLanguage === "zh" ? "自由现金流（TTM）" : "Free Cash Flow (TTM)", ttm.freeCashFlow, `${periodLabel(ttm.freeCashFlow)}${consistencyNote(consistency.freeCashFlowTtm) ? ` · ${consistencyNote(consistency.freeCashFlowTtm)}` : ""}`),
+            valueRow(currentLanguage === "zh" ? "FCF Margin（TTM）" : "FCF Margin (TTM)", ttm.fcfMargin, formatPercentage),
+            recordRow(currentLanguage === "zh" ? "经营现金流（最近季度）" : "Operating Cash Flow (Latest Quarter)", quarter.operatingCashFlow, periodLabel(quarter.operatingCashFlow)),
+            recordRow(currentLanguage === "zh" ? "自由现金流（最近季度）" : "Free Cash Flow (Latest Quarter)", quarter.freeCashFlow, `${periodLabel(quarter.freeCashFlow)}${consistencyNote(consistency.freeCashFlowQuarter) ? ` · ${consistencyNote(consistency.freeCashFlowQuarter)}` : ""}`),
+            valueRow(currentLanguage === "zh" ? "FCF Margin（最近季度）" : "FCF Margin (Latest Quarter)", quarter.fcfMargin, formatPercentage),
+            { label: currentLanguage === "zh" ? "季度 FCF 同比" : "Quarterly FCF YoY", value: comparisonText(comparisons.quarterlyFcfYoy), hidden: !comparisonText(comparisons.quarterlyFcfYoy) },
+            { label: currentLanguage === "zh" ? "季度 FCF 环比" : "Quarterly FCF QoQ", value: comparisonText(comparisons.quarterlyFcfQoq), hidden: !comparisonText(comparisons.quarterlyFcfQoq) },
+            { label: currentLanguage === "zh" ? "TTM FCF 同比" : "TTM FCF YoY", value: comparisonText(comparisons.ttmFcfYoy), hidden: !comparisonText(comparisons.ttmFcfYoy) },
+          ])}</div>${analysis.cash_flow_interpretation?.headline ? `<div class="detail-line-note">${analysis.cash_flow_interpretation.headline}</div>` : ""}${cashFlowSemantic.warning === "reit_fcf_is_not_a_substitute_for_ffo_or_affo" ? `<div class="detail-line-note">${currentLanguage === "zh" ? "REIT 提示：普通 FCF 不等同于 FFO/AFFO，不能按一般公司现金流语义解读。" : "REIT note: ordinary FCF is not equivalent to FFO/AFFO and should not be interpreted as standard corporate cash flow."}</div>` : ""}</article>
           <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "资本支出" : "Capital Expenditure"}</div><div class="detail-line-list">${renderMetricRows([
-            { label: currentLanguage === "zh" ? `CapEx（${statementPeriodSuffix(ttm.capitalExpenditure)}）` : `CapEx (${statementPeriodSuffix(ttm.capitalExpenditure)})`, value: financialRecord(ttm.capitalExpenditure), note: periodLabel(ttm.capitalExpenditure) },
-            { label: currentLanguage === "zh" ? `CapEx / 营收（${statementPeriodSuffix(ttm.capitalExpenditure)}）` : `CapEx / Revenue (${statementPeriodSuffix(ttm.capitalExpenditure)})`, value: displayValue(ttm.capexToRevenue, (value) => formatPercentage(value)) },
-            { label: currentLanguage === "zh" ? "最近季度 CapEx" : "Latest Quarterly CapEx", value: financialRecord(quarter.capitalExpenditure), note: periodLabel(quarter.capitalExpenditure) },
-            { label: currentLanguage === "zh" ? "最近季度 CapEx / 营收" : "Latest Quarter CapEx / Revenue", value: displayValue(quarter.capexToRevenue, (value) => formatPercentage(value)), note: analysisStateLabel(growth.capexState) },
-            { label: currentLanguage === "zh" ? "CapEx 同比 / 环比" : "CapEx YoY / QoQ", value: `${displayValue(growth.capexYoy, (value) => formatChangePercent(value))} / ${displayValue(growth.capexQoq, (value) => formatChangePercent(value))}`, note: analysisStateLabel(analysis.cash_flow_structure?.capex?.trend) },
+            recordRow(currentLanguage === "zh" ? "CapEx（TTM）" : "CapEx (TTM)", ttm.capitalExpenditure, periodLabel(ttm.capitalExpenditure)),
+            valueRow(currentLanguage === "zh" ? "CapEx / 营收（TTM）" : "CapEx / Revenue (TTM)", ttm.capexToRevenue, formatPercentage),
+            valueRow(currentLanguage === "zh" ? "CapEx / 经营现金流（TTM）" : "CapEx / Operating Cash Flow (TTM)", ttm.capexToOperatingCashFlow, formatPercentage),
+            recordRow(currentLanguage === "zh" ? "最近季度 CapEx" : "Latest Quarterly CapEx", quarter.capitalExpenditure, periodLabel(quarter.capitalExpenditure)),
+            valueRow(currentLanguage === "zh" ? "最近季度 CapEx / 营收" : "Latest Quarter CapEx / Revenue", quarter.capexToRevenue, formatPercentage),
+            valueRow(currentLanguage === "zh" ? "最近季度 CapEx / 经营现金流" : "Latest Quarter CapEx / Operating Cash Flow", quarter.capexToOperatingCashFlow, formatPercentage),
+            { label: currentLanguage === "zh" ? "季度 CapEx 同比" : "Quarterly CapEx YoY", value: comparisonText(comparisons.quarterlyCapexYoy), hidden: !comparisonText(comparisons.quarterlyCapexYoy) },
+            { label: currentLanguage === "zh" ? "季度 CapEx 环比" : "Quarterly CapEx QoQ", value: comparisonText(comparisons.quarterlyCapexQoq), hidden: !comparisonText(comparisons.quarterlyCapexQoq) },
           ])}</div></article>
           <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "资产负债表" : "Balance Sheet"}</div><div class="detail-line-list">${renderMetricRows([
-            { label: currentLanguage === "zh" ? "现金" : "Cash", value: financialRecord(balance.cash), note: periodLabel(balance.cash) },
-            { label: currentLanguage === "zh" ? "总债务" : "Total Debt", value: financialRecord(balance.totalDebt), note: periodLabel(balance.totalDebt) },
-            { label: currentLanguage === "zh" ? "净现金" : "Net Cash", value: financialRecord(balance.netCash), note: `${periodLabel(balance.netCash)}${consistencyNote(balance.consistency?.netCash) ? ` · ${consistencyNote(balance.consistency.netCash)}` : ""}` },
+            recordRow(currentLanguage === "zh" ? "现金及现金等价物" : "Cash & Cash Equivalents", liquidity.cashAndCashEquivalents || balance.cash, periodLabel(liquidity.cashAndCashEquivalents || balance.cash)),
+            recordRow(currentLanguage === "zh" ? "短期投资" : "Short-Term Investments", liquidity.shortTermInvestments, periodLabel(liquidity.shortTermInvestments)),
+            recordRow(currentLanguage === "zh" ? "有价证券" : "Marketable Securities", liquidity.marketableSecurities, periodLabel(liquidity.marketableSecurities)),
+            recordRow(
+              liquidity.totalLiquidityLabel === "cash_and_short_term_investments"
+                ? (currentLanguage === "zh" ? "现金及短期投资合计" : "Cash & Short-Term Investments")
+                : (currentLanguage === "zh" ? "现金及有价证券合计" : "Cash & Marketable Securities"),
+              liquidity.totalCashAndMarketableSecurities,
+              periodLabel(liquidity.totalCashAndMarketableSecurities),
+            ),
+            recordRow(currentLanguage === "zh" ? "总债务" : "Total Debt", liquidity.totalDebt || balance.totalDebt, periodLabel(liquidity.totalDebt || balance.totalDebt)),
+            recordRow(currentLanguage === "zh" ? "净现金（窄口径）" : "Net Cash (Narrow)", liquidity.netCashNarrow || balance.netCash, `${periodLabel(liquidity.netCashNarrow || balance.netCash)}${balance.consistency?.netCash?.status === "period_mismatch" ? (currentLanguage === "zh" ? " · 期间不一致，未计算" : " · not calculated: period mismatch") : ""}`),
+            recordRow(currentLanguage === "zh" ? "净流动性" : "Net Liquidity", liquidity.netLiquidity, `${periodLabel(liquidity.netLiquidity)}${balance.consistency?.netLiquidity?.status === "period_mismatch" ? (currentLanguage === "zh" ? " · 期间不一致，未计算" : " · not calculated: period mismatch") : ""}`),
           ])}</div></article>
           <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "资本回报与股本" : "Capital Return & Shares"}</div><div class="detail-line-list">${renderMetricRows([
-            { label: currentLanguage === "zh" ? `股票回购（${statementPeriodSuffix(capitalReturn.shareRepurchasesTtm)}）` : `Share Repurchases (${statementPeriodSuffix(capitalReturn.shareRepurchasesTtm)})`, value: financialRecord(capitalReturn.shareRepurchasesTtm), note: capitalReturn.sourceFields?.repurchases || "" },
-            { label: currentLanguage === "zh" ? `现金股息（${statementPeriodSuffix(capitalReturn.dividendsPaidTtm)}）` : `Cash Dividends (${statementPeriodSuffix(capitalReturn.dividendsPaidTtm)})`, value: financialRecord(capitalReturn.dividendsPaidTtm), note: capitalReturn.sourceFields?.dividends || "" },
-            { label: currentLanguage === "zh" ? "股东回报合计（同口径）" : "Total Shareholder Return (Same Period)", value: financialRecord(capitalReturn.totalShareholderReturnTtm), note: capitalReturn.classificationStatus === "separate_components" ? (currentLanguage === "zh" ? "回购与股息均为同一 TTM 期间，已合计。" : "Repurchases and dividends share the same TTM period and are summed.") : capitalReturn.classificationStatus === "mixed_period_components" ? (currentLanguage === "zh" ? "回购与股息期间不同，未合计。" : "Repurchases and dividends use different periods, so they are not summed.") : "" },
-            { label: currentLanguage === "zh" ? "流通股本" : "Shares Outstanding", value: displayValue(recordValue(shareCount.currentShares), (value) => formatCompactVolume(value)), note: periodLabel(shareCount.currentShares) },
-            { label: currentLanguage === "zh" ? "股本同比" : "Shares Outstanding YoY", value: displayValue(shareCount.yoyChangePct, (value) => formatPercentValue(value, 2)), note: `${analysisStateLabel(shareCount.repurchaseEffectiveness)}${shareCount.comparisonStatus === "comparable_one_year_history" ? (currentLanguage === "zh" ? " · 来自可比一年期股本序列" : " · comparable one-year share history") : shareCount.comparisonStatus === "fiscal_year_statement_fallback" ? (currentLanguage === "zh" ? " · 最近财年报表比较，非实时一年期序列" : " · fiscal-year statement comparison, not a live one-year series") : shareCount.comparisonStatus === "prior_year_unavailable" ? (currentLanguage === "zh" ? " · 缺少一年前可比股本，未计算同比" : " · no comparable prior-year share count; YoY is not calculated") : ""}${shareCount.unitWarning === "unusually_large_one_year_change_requires_verification" ? (currentLanguage === "zh" ? " · 变动幅度异常大，建议与公司申报文件复核" : " · unusually large change; verify against company filings") : ""}` },
+            recordRow(currentLanguage === "zh" ? "股票回购（TTM）" : "Share Repurchases (TTM)", capitalReturn.shareRepurchasesTtm, capitalReturn.sourceFields?.repurchases || ""),
+            recordRow(currentLanguage === "zh" ? "现金股息（TTM）" : "Cash Dividends (TTM)", capitalReturn.dividendsPaidTtm, capitalReturn.sourceFields?.dividends || ""),
+            recordRow(currentLanguage === "zh" ? "股东回报合计（同口径）" : "Total Shareholder Return (Same Period)", capitalReturn.totalShareholderReturnTtm, capitalReturn.classificationStatus === "separate_components" ? (currentLanguage === "zh" ? "回购与股息均为同一 TTM 期间，已合计。" : "Repurchases and dividends share the same TTM period and are summed.") : ""),
+            { label: currentLanguage === "zh" ? "流通股本" : "Shares Outstanding", value: displayValue(recordValue(shareCount.currentShares), (value) => formatCompactVolume(value)), note: periodLabel(shareCount.currentShares), hidden: !hasRecord(shareCount.currentShares) },
+            { label: currentLanguage === "zh" ? "股本同比" : "Shares Outstanding YoY", value: formatPercentValue(shareCount.yoyChangePct, 2), note: `${analysisStateLabel(shareCount.repurchaseEffectiveness)}${shareCount.audit?.warning ? ` · ${currentLanguage === "zh" ? "股本口径待复核，未将该同比作为结论依据" : "Share-count scope needs verification; this YoY is not used as a conclusion."}` : ""}`, hidden: !shareCount.audit?.sameScope || !Number.isFinite(shareCount.yoyChangePct) },
           ])}</div></article>
-          <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "管理层指引" : "Guidance"}</div><div class="detail-line-list">${renderMetricRows([
-            { label: currentLanguage === "zh" ? "营收指引" : "Revenue Guidance", value: displayValue(guidance.revenueGuidance, (value) => formatFinancialAmount(value, { currency: currencyCode })) },
-            { label: currentLanguage === "zh" ? "EPS 指引" : "EPS Guidance", value: displayValue(guidance.epsGuidance, (value) => formatRatio(value)) },
-            { label: currentLanguage === "zh" ? "CapEx 指引" : "CapEx Guidance", value: displayValue(guidance.capexGuidance, (value) => formatFinancialAmount(value, { currency: currencyCode })) },
-            { label: currentLanguage === "zh" ? "管理层展望" : "Management Outlook", value: analysisStateLabel(guidance.managementOutlook), note: guidance.sourceStatus === "unavailable" ? guidanceReason : "" },
-          ])}</div></article>
+          ${(availableGuidance.length || guidanceStatusMessage) ? `<article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "管理层指引" : "Guidance"}</div><div class="detail-line-list">${availableGuidance.length ? renderMetricRows([
+            availableGuidance.includes(guidance.revenueGuidance) ? { label: currentLanguage === "zh" ? "营收指引" : "Revenue Guidance", value: String(guidance.revenueGuidance.value) } : null,
+            availableGuidance.includes(guidance.epsGuidance) ? { label: currentLanguage === "zh" ? "EPS 指引" : "EPS Guidance", value: String(guidance.epsGuidance.value) } : null,
+            availableGuidance.includes(guidance.capexGuidance) ? { label: currentLanguage === "zh" ? "CapEx 指引" : "CapEx Guidance", value: String(guidance.capexGuidance.value) } : null,
+            availableGuidance.includes(guidance.managementOutlook) ? { label: currentLanguage === "zh" ? "管理层展望" : "Management Outlook", value: analysisStateLabel(guidance.managementOutlook.value) } : null,
+          ]) : `<div class="detail-line-note">${guidanceStatusMessage}</div>`}</div></article>` : ""}
         </div>
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "质量摘要" : "Quality Summary"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: currentLanguage === "zh" ? "现金创造" : "Cash Generation", value: qualityValue(quality.cash_generation), note: (quality.cash_generation?.supporting_metrics || []).join(" / ") },
-          { label: currentLanguage === "zh" ? "资本效率" : "Capital Efficiency", value: qualityValue(quality.capital_efficiency), note: (quality.capital_efficiency?.supporting_metrics || []).join(" / ") },
-          { label: currentLanguage === "zh" ? "股东回报" : "Shareholder Return", value: qualityValue(quality.shareholder_return), note: (quality.shareholder_return?.supporting_metrics || []).join(" / ") },
-          { label: currentLanguage === "zh" ? "盈利质量" : "Earnings Quality", value: qualityValue(quality.earnings_quality), note: localizedDashboardText(quality.explanation || "") },
+          { label: currentLanguage === "zh" ? "现金创造" : "Cash Generation", value: qualityValue(quality.cash_generation), note: (quality.cash_generation?.supporting_metrics || []).join(" · ") },
+          { label: currentLanguage === "zh" ? "资本效率" : "Capital Efficiency", value: qualityValue(quality.capital_efficiency), note: (quality.capital_efficiency?.supporting_metrics || []).join(" · ") },
+          { label: currentLanguage === "zh" ? "股东回报" : "Shareholder Return", value: qualityValue(quality.shareholder_return), note: (quality.shareholder_return?.supporting_metrics || []).join(" · ") },
+          { label: currentLanguage === "zh" ? "盈利质量" : "Earnings Quality", value: qualityValue(quality.earnings_quality), note: (quality.earnings_quality?.supporting_metrics || []).join(" · ") },
         ])}</div>
       </section>
     `;
   };
   const renderEarningsAnalysis = (analysis) => {
-    if (analysis.status === "not_applicable") return "";
+    if (analysis.status !== "available") return "";
     const metrics = analysis.earnings_metrics || {};
     const management = analysis.management || {};
+    const managementRows = [
+      management.guidance && management.guidance !== "unavailable" ? { label: currentLanguage === "zh" ? "指引" : "Guidance", value: analysisStateLabel(management.guidance) } : null,
+      management.ai_spending && management.ai_spending !== "unavailable" ? { label: currentLanguage === "zh" ? "AI 投入" : "AI Spending", value: analysisStateLabel(management.ai_spending) } : null,
+      management.major_business_commentary && management.major_business_commentary !== "unavailable" ? { label: currentLanguage === "zh" ? "核心业务评论" : "Major Business Commentary", value: analysisStateLabel(management.major_business_commentary) } : null,
+    ].filter(Boolean);
     const metricRow = (label, metric, formatter) => {
       const actual = metric?.actual;
       const estimate = metric?.estimate;
+      if (!Number.isFinite(actual) && !Number.isFinite(estimate)) return null;
       const result = metric?.comparison_status === "beat"
         ? (currentLanguage === "zh" ? `高于预期 ${formatPercentValue(metric.surprise_pct, 1)}` : `Beat by ${formatPercentValue(metric.surprise_pct, 1)}`)
         : metric?.comparison_status === "miss"
@@ -22981,7 +23110,11 @@ function renderDetailModal(row) {
             ? (currentLanguage === "zh" ? "符合预期" : "In line")
             : (currentLanguage === "zh" ? "无法比较" : "Cannot compare");
       const period = metric?.period?.period_end_date || analysis.period_end || "—";
-      return { label, value: result, note: `${currentLanguage === "zh" ? "实际" : "Actual"}: ${displayValue(actual, formatter)} · ${currentLanguage === "zh" ? "预期" : "Estimate"}: ${displayValue(estimate, formatter)} · ${currentLanguage === "zh" ? "期间" : "Period"}: ${period}` };
+      const estimateText = Number.isFinite(estimate)
+        ? `${currentLanguage === "zh" ? "预期" : "Estimate"}: ${formatter(estimate)}`
+        : `${currentLanguage === "zh" ? "市场预期：未取得" : "Market estimate: not obtained"}`;
+      const actualText = Number.isFinite(actual) ? `${currentLanguage === "zh" ? "实际" : "Actual"}: ${formatter(actual)}` : `${currentLanguage === "zh" ? "实际：未取得" : "Actual: not obtained"}`;
+      return { label, value: result, note: `${actualText} · ${estimateText} · ${currentLanguage === "zh" ? "期间" : "Period"}: ${period}` };
     };
     return `
       <section class="detail-section-card">
@@ -22996,11 +23129,7 @@ function renderDetailModal(row) {
             metricRow(currentLanguage === "zh" ? "季度自由现金流" : "Quarterly Free Cash Flow", metrics.free_cash_flow, (value) => formatFinancialAmount(value, { currency: currencyCode })),
             metricRow(currentLanguage === "zh" ? "季度 CapEx" : "Quarterly CapEx", metrics.capex, (value) => formatFinancialAmount(value, { currency: currencyCode })),
           ])}</div></article>
-          <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "管理层" : "Management"}</div><div class="detail-line-list">${renderMetricRows([
-            { label: currentLanguage === "zh" ? "指引" : "Guidance", value: analysisStateLabel(management.guidance) },
-            { label: currentLanguage === "zh" ? "AI 投入" : "AI Spending", value: analysisStateLabel(management.ai_spending) },
-            { label: currentLanguage === "zh" ? "核心业务评论" : "Major Business Commentary", value: analysisStateLabel(management.major_business_commentary) },
-          ])}</div></article>
+          ${managementRows.length ? `<article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "管理层" : "Management"}</div><div class="detail-line-list">${renderMetricRows(managementRows)}</div></article>` : ""}
         </div>
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "股价变动的可验证线索" : "Verified Clues Behind the Move"}</h3></div>
         <div class="detail-line-note">${localizedDashboardText(analysis.why_stock_moved || "")}</div>

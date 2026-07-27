@@ -929,6 +929,45 @@ def _statement_quarter_record(frame, labels):
     return _period_record(value["raw_value"], "quarter", value["period_end_date"], value["source_field"])
 
 
+def _statement_fiscal_year_record(frame, labels):
+    values = _statement_values(frame, labels, 0, 1)
+    if not values:
+        return _period_record(None, "unavailable")
+    value = values[0]
+    return _period_record(value["raw_value"], "fiscal_year", value["period_end_date"], value["source_field"])
+
+
+def _safe_growth_comparison(current_value, prior_value):
+    """Keep crossed-zero cash-flow changes interpretable instead of misleading."""
+    current = _safe_float(current_value)
+    prior = _safe_float(prior_value)
+    result = {
+        "current": current,
+        "prior": prior,
+        "absolute_change": current - prior if current is not None and prior is not None else None,
+        "pct_change": None,
+        "pct_change_valid": False,
+        "state": "unavailable",
+        "invalid_reason": "missing_comparable_period",
+    }
+    if current is None or prior is None:
+        return result
+    if prior > 0 and current < 0:
+        result.update({"state": "turned_negative", "invalid_reason": "crossed_zero"})
+        return result
+    if prior < 0 and current > 0:
+        result.update({"state": "turned_positive", "invalid_reason": "crossed_zero"})
+        return result
+    if prior == 0:
+        result.update({"state": "changed_from_zero", "invalid_reason": "zero_denominator"})
+        return result
+    result["pct_change"] = ((current - prior) / abs(prior)) * 100
+    result["pct_change_valid"] = True
+    result["invalid_reason"] = None
+    result["state"] = "improved" if current > prior else "weakened" if current < prior else "unchanged"
+    return result
+
+
 def _previous_ttm_value(frame, labels):
     quarters = _statement_values(frame, labels, 4, 4)
     return sum(item["raw_value"] for item in quarters) if len(quarters) == 4 else None
@@ -1097,6 +1136,7 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
     annual_balance = _safe_statement_frame(instrument, "balance_sheet")
     quarterly_income = _safe_statement_frame(instrument, "quarterly_income_stmt")
     quarterly_cashflow = _safe_statement_frame(instrument, "quarterly_cashflow")
+    quarterly_balance = _safe_statement_frame(instrument, "quarterly_balance_sheet")
 
     revenue_labels = ["Total Revenue", "Operating Revenue"]
     ocf_labels = ["Operating Cash Flow", "Total Cash From Operating Activities"]
@@ -1154,6 +1194,10 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
     ttm_capex = absolute_record(_statement_ttm_record(quarterly_cashflow, capex_labels, annual_cashflow, info.get("capitalExpenditure")))
     ttm_buyback = absolute_record(_statement_ttm_record(quarterly_cashflow, repurchase_labels, annual_cashflow))
     ttm_dividends = absolute_record(_statement_ttm_record(quarterly_cashflow, dividend_labels, annual_cashflow))
+    fiscal_revenue = _statement_fiscal_year_record(annual_income, revenue_labels)
+    fiscal_ocf = _statement_fiscal_year_record(annual_cashflow, ocf_labels)
+    fiscal_fcf = _statement_fiscal_year_record(annual_cashflow, fcf_labels)
+    fiscal_capex = absolute_record(_statement_fiscal_year_record(annual_cashflow, capex_labels))
     quarter_revenue = _statement_quarter_record(quarterly_income, revenue_labels)
     quarter_ocf = _statement_quarter_record(quarterly_cashflow, ocf_labels)
     quarter_fcf = _statement_quarter_record(quarterly_cashflow, fcf_labels)
@@ -1161,6 +1205,18 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
     quarter_gross_profit = _statement_quarter_record(quarterly_income, ["Gross Profit"])
     quarter_operating_income = _statement_quarter_record(quarterly_income, ["Operating Income"])
     quarter_eps = _statement_quarter_record(quarterly_income, ["Diluted EPS", "Basic EPS"])
+    quarter_net_income = _statement_quarter_record(quarterly_income, ["Net Income Common Stockholders", "Net Income"])
+    quarter_equity_securities_gain = _statement_quarter_record(quarterly_income, [
+        "Gain On Equity Securities",
+        "Gain On Sale Of Securities",
+        "Gain On Sale Of Security",
+        "Gain Loss On Investments",
+    ])
+    quarter_investment_income = _statement_quarter_record(quarterly_income, ["Investment Income", "Interest Income"])
+    quarter_asset_sale_gain = _statement_quarter_record(quarterly_income, ["Gain On Sale Of PPE", "Gain On Sale Of Business", "Gain On Sale Of Asset"])
+    quarter_other_non_operating = _statement_quarter_record(quarterly_income, ["Other Income Expense", "Other Non Operating Income Expenses"])
+    quarter_after_tax_equity_contribution = _statement_quarter_record(quarterly_income, ["After Tax Gain On Equity Securities", "After Tax Investment Gain"])
+    quarter_diluted_eps_equity_contribution = _statement_quarter_record(quarterly_income, ["Diluted EPS From Equity Securities Gain", "EPS From Investment Gain"])
     earnings = _latest_earnings_dates(instrument)
 
     ttm_ocf_value = record_value(ttm_ocf)
@@ -1171,6 +1227,10 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
     quarter_ocf_value = record_value(quarter_ocf)
     quarter_fcf_value = record_value(quarter_fcf)
     quarter_capex_value = record_value(quarter_capex)
+    fiscal_revenue_value = record_value(fiscal_revenue)
+    fiscal_ocf_value = record_value(fiscal_ocf)
+    fiscal_fcf_value = record_value(fiscal_fcf)
+    fiscal_capex_value = record_value(fiscal_capex)
     reported_ttm_fcf = ttm_fcf_value
     calculated_ttm_fcf = ttm_ocf_value - ttm_capex_value if ttm_ocf_value is not None and ttm_capex_value is not None else None
     calculated_quarter_fcf = quarter_ocf_value - quarter_capex_value if quarter_ocf_value is not None and quarter_capex_value is not None else None
@@ -1192,35 +1252,100 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
     previous_ttm_fcf = _previous_ttm_value(quarterly_cashflow, fcf_labels)
     previous_ttm_ocf = _previous_ttm_value(quarterly_cashflow, ocf_labels)
     previous_ttm_capex = _previous_ttm_value(quarterly_cashflow, capex_labels)
-    fcf_yoy = _pct_change_from_current(ttm_fcf_value, previous_ttm_fcf)
-    ocf_yoy = _pct_change_from_current(ttm_ocf_value, previous_ttm_ocf)
-    capex_yoy = _pct_change_from_current(ttm_capex_value, abs(previous_ttm_capex) if previous_ttm_capex is not None else None)
-    fcf_qoq = _quarter_change(quarterly_cashflow, fcf_labels)
-    ocf_qoq = _quarter_change(quarterly_cashflow, ocf_labels)
-    capex_qoq = _quarter_change(quarterly_cashflow, capex_labels)
+    quarterly_fcf_values = _statement_values(quarterly_cashflow, fcf_labels, 0, 5)
+    quarterly_ocf_values = _statement_values(quarterly_cashflow, ocf_labels, 0, 5)
+    quarterly_capex_values = _statement_values(quarterly_cashflow, capex_labels, 0, 5)
+    quarterly_fcf_qoq = _safe_growth_comparison(
+        quarterly_fcf_values[0]["raw_value"] if len(quarterly_fcf_values) > 0 else None,
+        quarterly_fcf_values[1]["raw_value"] if len(quarterly_fcf_values) > 1 else None,
+    )
+    quarterly_fcf_yoy = _safe_growth_comparison(
+        quarterly_fcf_values[0]["raw_value"] if len(quarterly_fcf_values) > 0 else None,
+        quarterly_fcf_values[4]["raw_value"] if len(quarterly_fcf_values) > 4 else None,
+    )
+    quarterly_ocf_yoy = _safe_growth_comparison(
+        quarterly_ocf_values[0]["raw_value"] if len(quarterly_ocf_values) > 0 else None,
+        quarterly_ocf_values[4]["raw_value"] if len(quarterly_ocf_values) > 4 else None,
+    )
+    quarterly_capex_qoq = _safe_growth_comparison(
+        abs(quarterly_capex_values[0]["raw_value"]) if len(quarterly_capex_values) > 0 else None,
+        abs(quarterly_capex_values[1]["raw_value"]) if len(quarterly_capex_values) > 1 else None,
+    )
+    quarterly_capex_yoy = _safe_growth_comparison(
+        abs(quarterly_capex_values[0]["raw_value"]) if len(quarterly_capex_values) > 0 else None,
+        abs(quarterly_capex_values[4]["raw_value"]) if len(quarterly_capex_values) > 4 else None,
+    )
+    ttm_fcf_yoy = _safe_growth_comparison(ttm_fcf_value, previous_ttm_fcf)
+    ttm_ocf_yoy = _safe_growth_comparison(ttm_ocf_value, previous_ttm_ocf)
+    ttm_capex_yoy = _safe_growth_comparison(ttm_capex_value, abs(previous_ttm_capex) if previous_ttm_capex is not None else None)
+    fcf_yoy = ttm_fcf_yoy["pct_change"]
+    ocf_yoy = ttm_ocf_yoy["pct_change"]
+    capex_yoy = ttm_capex_yoy["pct_change"]
+    fcf_qoq = quarterly_fcf_qoq["pct_change"]
+    ocf_qoq = _safe_growth_comparison(
+        quarterly_ocf_values[0]["raw_value"] if len(quarterly_ocf_values) > 0 else None,
+        quarterly_ocf_values[1]["raw_value"] if len(quarterly_ocf_values) > 1 else None,
+    )["pct_change"]
+    capex_qoq = quarterly_capex_qoq["pct_change"]
     quarter_revenue_prior = _statement_value(quarterly_income, revenue_labels, 4)
     quarter_revenue_yoy = _pct_change_from_current(quarter_revenue_value, quarter_revenue_prior)
     ttm_fcf_margin = ttm_fcf_value / ttm_revenue_value if ttm_fcf_value is not None and ttm_revenue_value not in (None, 0) and ttm_fcf.get("period_type") == ttm_revenue.get("period_type") else None
     quarter_fcf_margin = quarter_fcf_value / quarter_revenue_value if quarter_fcf_value is not None and quarter_revenue_value not in (None, 0) and quarter_fcf.get("period_end_date") == quarter_revenue.get("period_end_date") else None
     ttm_capex_to_revenue = ttm_capex_value / ttm_revenue_value if ttm_capex_value is not None and ttm_revenue_value not in (None, 0) and ttm_capex.get("period_type") == ttm_revenue.get("period_type") else None
     quarter_capex_to_revenue = quarter_capex_value / quarter_revenue_value if quarter_capex_value is not None and quarter_revenue_value not in (None, 0) and quarter_capex.get("period_end_date") == quarter_revenue.get("period_end_date") else None
+    ttm_capex_to_ocf = ttm_capex_value / ttm_ocf_value if ttm_capex_value is not None and ttm_ocf_value not in (None, 0) and ttm_capex.get("period_type") == ttm_ocf.get("period_type") else None
+    quarter_capex_to_ocf = quarter_capex_value / quarter_ocf_value if quarter_capex_value is not None and quarter_ocf_value not in (None, 0) and quarter_capex.get("period_end_date") == quarter_ocf.get("period_end_date") else None
+    fiscal_fcf_margin = fiscal_fcf_value / fiscal_revenue_value if fiscal_fcf_value is not None and fiscal_revenue_value not in (None, 0) and fiscal_fcf.get("period_end_date") == fiscal_revenue.get("period_end_date") else None
+    fiscal_capex_to_revenue = fiscal_capex_value / fiscal_revenue_value if fiscal_capex_value is not None and fiscal_revenue_value not in (None, 0) and fiscal_capex.get("period_end_date") == fiscal_revenue.get("period_end_date") else None
+    fiscal_capex_to_ocf = fiscal_capex_value / fiscal_ocf_value if fiscal_capex_value is not None and fiscal_ocf_value not in (None, 0) and fiscal_capex.get("period_end_date") == fiscal_ocf.get("period_end_date") else None
     period_mismatch_warning = any([
         ttm_fcf_value is not None and ttm_revenue_value is not None and ttm_fcf.get("period_type") != ttm_revenue.get("period_type"),
         ttm_capex_value is not None and ttm_revenue_value is not None and ttm_capex.get("period_type") != ttm_revenue.get("period_type"),
         quarter_fcf_value is not None and quarter_revenue_value is not None and quarter_fcf.get("period_end_date") != quarter_revenue.get("period_end_date"),
     ])
 
-    cash_record = _statement_quarter_record(annual_balance, ["Cash Cash Equivalents And Short Term Investments", "Cash And Cash Equivalents", "Cash Financial"])
-    debt_record = _statement_quarter_record(annual_balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"])
-    cash_record["period_type"] = "point_in_time"
-    debt_record["period_type"] = "point_in_time"
-    if record_value(cash_record) is None:
-        cash_record = _period_record(info.get("totalCash"), "point_in_time", None, "Yahoo quote summary", source="Yahoo Finance quote summary")
+    liquidity_frame = quarterly_balance if quarterly_balance is not None and not getattr(quarterly_balance, "empty", True) else annual_balance
+    liquidity_period_type = "point_in_time"
+    cash_equivalents_record = _statement_quarter_record(liquidity_frame, ["Cash And Cash Equivalents", "Cash Financial"])
+    short_investments_record = _statement_quarter_record(liquidity_frame, ["Other Short Term Investments", "Short Term Investments"])
+    marketable_securities_record = _statement_quarter_record(liquidity_frame, ["Available For Sale Securities", "Investmentin Financial Assets"])
+    cash_and_marketables_record = _statement_quarter_record(liquidity_frame, ["Cash Cash Equivalents And Short Term Investments"])
+    debt_record = _statement_quarter_record(liquidity_frame, ["Total Debt"])
+    for record in [cash_equivalents_record, short_investments_record, marketable_securities_record, cash_and_marketables_record, debt_record]:
+        record["period_type"] = liquidity_period_type
+    if record_value(cash_equivalents_record) is None and record_value(cash_and_marketables_record) is None:
+        cash_equivalents_record = _period_record(info.get("totalCash"), "point_in_time", None, "Yahoo quote summary totalCash", source="Yahoo Finance quote summary")
     if record_value(debt_record) is None:
-        debt_record = _period_record(info.get("totalDebt"), "point_in_time", None, "Yahoo quote summary", source="Yahoo Finance quote summary")
-    cash_value = record_value(cash_record)
+        debt_record = _period_record(info.get("totalDebt"), "point_in_time", None, "Yahoo quote summary totalDebt", source="Yahoo Finance quote summary")
+    combined_cash_value = record_value(cash_and_marketables_record)
+    if combined_cash_value is None and record_value(cash_equivalents_record) is not None and record_value(short_investments_record) is not None and cash_equivalents_record.get("period_end_date") == short_investments_record.get("period_end_date"):
+        combined_cash_value = record_value(cash_equivalents_record) + record_value(short_investments_record)
+        cash_and_marketables_record = _period_record(combined_cash_value, "point_in_time", cash_equivalents_record.get("period_end_date"), "Cash And Cash Equivalents + Other Short Term Investments", calculation_method="same_period_sum")
+    total_liquidity_label = (
+        "cash_and_short_term_investments"
+        if "Short Term Investments" in str(cash_and_marketables_record.get("source_field") or "")
+        else "cash_and_marketable_securities"
+    )
+    cash_value = record_value(cash_equivalents_record)
     debt_value = record_value(debt_record)
-    net_cash_record = _period_record(cash_value - debt_value if cash_value is not None and debt_value is not None else None, "point_in_time", cash_record.get("period_end_date") or debt_record.get("period_end_date"), "Cash - Total Debt", calculation_method="cash_minus_total_debt")
+    same_narrow_period = cash_value is not None and debt_value is not None and cash_equivalents_record.get("period_end_date") == debt_record.get("period_end_date")
+    same_liquidity_period = combined_cash_value is not None and debt_value is not None and cash_and_marketables_record.get("period_end_date") == debt_record.get("period_end_date")
+    net_cash_record = _period_record(cash_value - debt_value if same_narrow_period else None, "point_in_time", cash_equivalents_record.get("period_end_date") if same_narrow_period else None, "Cash And Cash Equivalents - Total Debt", calculation_method="same_period_cash_minus_debt")
+    net_liquidity_record = _period_record(combined_cash_value - debt_value if same_liquidity_period else None, "point_in_time", cash_and_marketables_record.get("period_end_date") if same_liquidity_period else None, "Cash And Short-Term Investments - Total Debt", calculation_method="same_period_liquidity_minus_debt")
+    narrow_balance_consistency = {
+        "cash_period": cash_equivalents_record.get("period_end_date"),
+        "debt_period": debt_record.get("period_end_date"),
+        "same_period": same_narrow_period,
+        "calculated_net_cash": record_value(net_cash_record),
+        "status": "matched" if same_narrow_period else "period_mismatch" if cash_value is not None and debt_value is not None else "insufficient_data",
+    }
+    liquidity_balance_consistency = {
+        "cash_period": cash_and_marketables_record.get("period_end_date"),
+        "debt_period": debt_record.get("period_end_date"),
+        "same_period": same_liquidity_period,
+        "calculated_net_cash": record_value(net_liquidity_record),
+        "status": "matched" if same_liquidity_period else "period_mismatch" if combined_cash_value is not None and debt_value is not None else "insufficient_data",
+    }
     share_history = _share_count_history(instrument)
     share_values = _statement_values(annual_balance, ["Ordinary Shares Number", "Share Issued"], 0, 2)
     shares_current = share_history.get("current") if share_history else _safe_float(info.get("sharesOutstanding"))
@@ -1254,7 +1379,55 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
     is_reit = bool(re.search(r"\breit\b|real estate", f"{info.get('sector', '')} {info.get('industry', '')}", re.I))
     earnings = _latest_earnings_dates(instrument)
     quarter_eps_value = record_value(quarter_eps) if record_value(quarter_eps) is not None else earnings.get("epsActual")
+    quarter_net_income_value = record_value(quarter_net_income)
+    pretax_equity_securities_gain = record_value(quarter_equity_securities_gain)
+    after_tax_equity_contribution = record_value(quarter_after_tax_equity_contribution)
+    diluted_eps_equity_contribution = record_value(quarter_diluted_eps_equity_contribution)
+    net_income_contribution_pct = (
+        after_tax_equity_contribution / quarter_net_income_value
+        if after_tax_equity_contribution is not None and quarter_net_income_value not in (None, 0)
+        else None
+    )
+    eps_contribution_pct = (
+        diluted_eps_equity_contribution / quarter_eps_value
+        if diluted_eps_equity_contribution is not None and quarter_eps_value not in (None, 0)
+        else None
+    )
+    pretax_equity_gain_to_operating_income = (
+        pretax_equity_securities_gain / abs(record_value(quarter_operating_income))
+        if pretax_equity_securities_gain is not None and record_value(quarter_operating_income) not in (None, 0)
+        else None
+    )
+    material_equity_securities_gain = (
+        pretax_equity_securities_gain is not None
+        and pretax_equity_securities_gain > 0
+        and (pretax_equity_gain_to_operating_income is None or pretax_equity_gain_to_operating_income >= 0.10)
+    )
+    reported_eps_quality = (
+        "strong_but_non_operating_boost"
+        if material_equity_securities_gain
+        else "strong_core" if quarter_operating_margin is not None and quarter_operating_margin > 0
+        else "mixed" if quarter_net_income_value is not None
+        else "unavailable"
+    )
+    earnings_quality_explanation = (
+        "Core operating performance is strong, but this quarter's reported net income and EPS were materially lifted by equity securities investment gains. The source provides a pretax amount only, so no direct after-tax net-income or EPS contribution percentage is calculated."
+        if material_equity_securities_gain and after_tax_equity_contribution is None and diluted_eps_equity_contribution is None
+        else "Core operating performance is strong, but this quarter's reported net income and EPS were materially lifted by equity securities investment gains."
+        if material_equity_securities_gain
+        else "Operating profitability is available, but the data source does not provide a complete normalized-EPS bridge."
+        if reported_eps_quality == "strong_core"
+        else "Insufficient comparable operating and non-operating data to assess reported earnings quality."
+    )
+    guidance_source = "Yahoo Finance statements / fast market-data source"
+    guidance_unavailable_reason = "current_source_has_no_verified_structured_guidance_parser"
     source_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    guidance_fields = {
+        "revenueGuidance": {"value": None, "status": "source_not_supported", "unavailable_reason": guidance_unavailable_reason, "source": guidance_source, "source_timestamp": source_timestamp},
+        "epsGuidance": {"value": None, "status": "source_not_supported", "unavailable_reason": guidance_unavailable_reason, "source": guidance_source, "source_timestamp": source_timestamp},
+        "capexGuidance": {"value": None, "status": "source_not_supported", "unavailable_reason": guidance_unavailable_reason, "source": guidance_source, "source_timestamp": source_timestamp},
+        "managementOutlook": {"value": None, "status": "source_not_supported", "unavailable_reason": guidance_unavailable_reason, "source": guidance_source, "source_timestamp": source_timestamp},
+    }
     available = any(value is not None for value in [ttm_ocf_value, ttm_fcf_value, ttm_revenue_value, cash_value, debt_value, quarter_revenue_value, earnings.get("epsActual")])
     return {
         "status": "available" if available else "unavailable",
@@ -1268,20 +1441,34 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
         "balanceSheet": {"cash": cash_value, "totalDebt": debt_value, "netCash": record_value(net_cash_record)},
         "financialFacts": {
             "cashFlow": {
-                "ttm": {"revenue": ttm_revenue, "operatingCashFlow": ttm_ocf, "freeCashFlow": ttm_fcf, "capitalExpenditure": ttm_capex, "fcfMargin": ttm_fcf_margin, "capexToRevenue": ttm_capex_to_revenue},
-                "quarter": {"revenue": quarter_revenue, "operatingCashFlow": quarter_ocf, "freeCashFlow": quarter_fcf, "capitalExpenditure": quarter_capex, "fcfMargin": quarter_fcf_margin, "capexToRevenue": quarter_capex_to_revenue},
+                "ttm": {"revenue": ttm_revenue, "operatingCashFlow": ttm_ocf, "freeCashFlow": ttm_fcf, "capitalExpenditure": ttm_capex, "fcfMargin": ttm_fcf_margin, "capexToRevenue": ttm_capex_to_revenue, "capexToOperatingCashFlow": ttm_capex_to_ocf},
+                "quarterly": {"revenue": quarter_revenue, "operatingCashFlow": quarter_ocf, "freeCashFlow": quarter_fcf, "capitalExpenditure": quarter_capex, "fcfMargin": quarter_fcf_margin, "capexToRevenue": quarter_capex_to_revenue, "capexToOperatingCashFlow": quarter_capex_to_ocf},
+                "quarter": {"revenue": quarter_revenue, "operatingCashFlow": quarter_ocf, "freeCashFlow": quarter_fcf, "capitalExpenditure": quarter_capex, "fcfMargin": quarter_fcf_margin, "capexToRevenue": quarter_capex_to_revenue, "capexToOperatingCashFlow": quarter_capex_to_ocf},
+                "fiscalYear": {"revenue": fiscal_revenue, "operatingCashFlow": fiscal_ocf, "freeCashFlow": fiscal_fcf, "capitalExpenditure": fiscal_capex, "fcfMargin": fiscal_fcf_margin, "capexToRevenue": fiscal_capex_to_revenue, "capexToOperatingCashFlow": fiscal_capex_to_ocf},
                 "growth": {"operatingCashFlowYoy": ocf_yoy, "operatingCashFlowQoq": ocf_qoq, "freeCashFlowYoy": fcf_yoy, "freeCashFlowQoq": fcf_qoq, "capexYoy": capex_yoy, "capexQoq": capex_qoq, "quarterRevenueYoy": quarter_revenue_yoy, "capexState": capex_state, "periodMismatchWarning": period_mismatch_warning},
+                "comparisons": {"quarterlyFcfYoy": quarterly_fcf_yoy, "quarterlyFcfQoq": quarterly_fcf_qoq, "ttmFcfYoy": ttm_fcf_yoy, "quarterlyCapexYoy": quarterly_capex_yoy, "quarterlyCapexQoq": quarterly_capex_qoq, "ttmCapexYoy": ttm_capex_yoy, "quarterlyOcfYoy": quarterly_ocf_yoy, "ttmOcfYoy": ttm_ocf_yoy},
                 "consistency": {"freeCashFlowTtm": consistency(calculated_ttm_fcf, reported_ttm_fcf), "freeCashFlowQuarter": consistency(calculated_quarter_fcf, record_value(quarter_fcf))},
             },
             "cashFlowSemantic": {
                 "model": "reit_cash_flow_limited" if is_reit else "corporate_cash_flow",
                 "warning": "reit_fcf_is_not_a_substitute_for_ffo_or_affo" if is_reit else None,
             },
-            "balanceSheet": {"cash": cash_record, "totalDebt": debt_record, "netCash": net_cash_record, "consistency": {"netCash": consistency(cash_value - debt_value if cash_value is not None and debt_value is not None else None, record_value(net_cash_record))}},
+            "balanceSheet": {
+                "cash": cash_equivalents_record,
+                "cashAndCashEquivalents": cash_equivalents_record,
+                "shortTermInvestments": short_investments_record,
+                "marketableSecurities": marketable_securities_record,
+                "totalCashAndMarketableSecurities": cash_and_marketables_record,
+                "totalDebt": debt_record,
+                "netCash": net_cash_record,
+                "netLiquidity": net_liquidity_record,
+                "liquidityStructure": {"cashAndCashEquivalents": cash_equivalents_record, "shortTermInvestments": short_investments_record, "marketableSecurities": marketable_securities_record, "totalCashAndMarketableSecurities": cash_and_marketables_record, "totalLiquidityLabel": total_liquidity_label, "totalDebt": debt_record, "netCashNarrow": net_cash_record, "netLiquidity": net_liquidity_record, "periodEndDate": cash_equivalents_record.get("period_end_date") or cash_and_marketables_record.get("period_end_date"), "sourceFields": {"cashAndCashEquivalents": cash_equivalents_record.get("source_field"), "shortTermInvestments": short_investments_record.get("source_field"), "marketableSecurities": marketable_securities_record.get("source_field"), "totalLiquidity": cash_and_marketables_record.get("source_field"), "totalDebt": debt_record.get("source_field")}, "scopeLabel": "cash_and_marketables_separated_by_source_field", "dataQuality": "high" if same_narrow_period or same_liquidity_period else "partial" if cash_value is not None or combined_cash_value is not None else "unavailable"},
+                "consistency": {"netCash": narrow_balance_consistency, "netLiquidity": liquidity_balance_consistency},
+            },
             "capitalReturn": {"shareRepurchasesTtm": ttm_buyback, "dividendsPaidTtm": ttm_dividends, "totalShareholderReturnTtm": _period_record(total_shareholder_return, "ttm" if capital_return_periods_match else "unavailable", ttm_buyback.get("period_end_date") if capital_return_periods_match else None, "share repurchases + dividends paid", calculation_method="sum_same_period_components"), "sourceFields": {"repurchases": ttm_buyback.get("source_field"), "dividends": ttm_dividends.get("source_field")}, "classificationStatus": "separate_components" if capital_return_periods_match else "mixed_period_components" if buyback_value is not None or record_value(ttm_dividends) is not None else "unavailable"},
-            "shareCount": {"currentShares": _period_record(shares_current, "point_in_time", shares_period, "Yahoo shares history / shares outstanding"), "priorYearShares": _period_record(shares_prior, "point_in_time", shares_prior_period, "Yahoo shares history / annual statement fallback"), "yoyChangePct": shares_yoy, "trend": share_trend, "repurchaseEffectiveness": repurchase_effectiveness, "comparisonStatus": share_comparison_status, "unitWarning": share_count_warning},
+            "shareCount": {"currentShares": _period_record(shares_current, "point_in_time", shares_period, "Yahoo shares history / shares outstanding"), "priorYearShares": _period_record(shares_prior, "point_in_time", shares_prior_period, "Yahoo shares history / annual statement fallback"), "yoyChangePct": shares_yoy, "trend": share_trend, "repurchaseEffectiveness": repurchase_effectiveness, "comparisonStatus": share_comparison_status, "unitWarning": share_count_warning, "audit": {"current": shares_current, "prior": shares_prior, "shareClassScope": "provider_reported_common_shares", "basicOrDiluted": "share_count_not_eps_weighted_average", "sameScope": bool(share_comparison_status == "comparable_one_year_history" and not share_count_warning), "samePeriodBasis": bool(shares_period and shares_prior_period), "yoyChangePct": shares_yoy, "warning": share_count_warning or ("share_count_scope_not_verified" if share_comparison_status != "comparable_one_year_history" else None)}},
         },
-        "guidance": {"revenueGuidance": None, "epsGuidance": None, "capexGuidance": None, "managementOutlook": None, "sourceStatus": "unavailable", "unavailableReason": "current_fast_source_does_not_provide_verified_management_guidance"},
+        "guidance": {**guidance_fields, "sourceStatus": "source_not_supported", "unavailableReason": guidance_unavailable_reason},
         "earningsMetrics": {
             "revenue": metric(quarter_revenue),
             "eps": metric(_period_record(quarter_eps_value, "quarter", quarter_eps.get("period_end_date") or _statement_period_end(quarterly_income), "Diluted EPS / earnings calendar"), earnings.get("epsEstimate")),
@@ -1289,6 +1476,29 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
             "operatingMargin": metric(_period_record(quarter_operating_margin, "quarter", quarter_revenue.get("period_end_date"), "Operating Income / Revenue", calculation_method="operating_income_divided_by_revenue")),
             "freeCashFlow": metric(quarter_fcf),
             "capitalExpenditure": metric(quarter_capex),
+        },
+        "earningsQuality": {
+            "operatingIncomeGrowth": _safe_growth_comparison(record_value(quarter_operating_income), _statement_value(quarterly_income, ["Operating Income"], 4)),
+            "operatingMargin": quarter_operating_margin,
+            "netIncome": quarter_net_income,
+            "equitySecuritiesGain": {
+                "label": "equity_securities_gain",
+                "pretax_equity_securities_gain": quarter_equity_securities_gain,
+                "after_tax_net_income_contribution": quarter_after_tax_equity_contribution,
+                "diluted_eps_contribution": quarter_diluted_eps_equity_contribution,
+                "net_income_contribution_pct": net_income_contribution_pct,
+                "eps_contribution_pct": eps_contribution_pct,
+                "pretax_gain_to_operating_income_pct": pretax_equity_gain_to_operating_income,
+                "materiality_status": "material" if material_equity_securities_gain else "reported_not_material_or_unverified" if pretax_equity_securities_gain is not None else "unavailable",
+                "comparison_status": "after_tax_contribution_available" if after_tax_equity_contribution is not None else "pretax_only_cannot_compare_to_net_income" if pretax_equity_securities_gain is not None else "unavailable",
+            },
+            "investmentIncome": quarter_investment_income,
+            "assetSaleGain": quarter_asset_sale_gain,
+            "otherNonOperatingIncome": quarter_other_non_operating,
+            "coreEpsProxyStatus": "operating_income_and_margin_available" if record_value(quarter_operating_income) is not None else "unavailable",
+            "reportedEpsQuality": reported_eps_quality,
+            "label": reported_eps_quality,
+            "explanation": earnings_quality_explanation,
         },
         "latestEarnings": {**earnings, "revenueActual": quarter_revenue_value, "revenueYoyGrowth": quarter_revenue_yoy, "grossMargin": quarter_gross_margin, "operatingMargin": quarter_operating_margin, "freeCashFlow": quarter_fcf_value, "capitalExpenditure": quarter_capex_value, "reportedEps": quarter_eps_value},
     }
