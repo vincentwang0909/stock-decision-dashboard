@@ -1375,6 +1375,10 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
 
     quarter_gross_margin = record_value(quarter_gross_profit) / quarter_revenue_value if record_value(quarter_gross_profit) is not None and quarter_revenue_value not in (None, 0) else None
     quarter_operating_margin = record_value(quarter_operating_income) / quarter_revenue_value if record_value(quarter_operating_income) is not None and quarter_revenue_value not in (None, 0) else None
+    quarter_prior_operating_income = _statement_value(quarterly_income, ["Operating Income"], 4)
+    quarter_prior_operating_margin = quarter_prior_operating_income / quarter_revenue_prior if quarter_prior_operating_income is not None and quarter_revenue_prior not in (None, 0) else None
+    quarter_operating_margin_change_pp = quarter_operating_margin - quarter_prior_operating_margin if quarter_operating_margin is not None and quarter_prior_operating_margin is not None else None
+    quarter_net_margin = record_value(quarter_net_income) / quarter_revenue_value if record_value(quarter_net_income) is not None and quarter_revenue_value not in (None, 0) else None
     capex_state = "rapidly_accelerating" if (capex_yoy is not None and capex_yoy >= 30) or (capex_qoq is not None and capex_qoq >= 20) else "high" if ttm_capex_to_revenue is not None and ttm_capex_to_revenue >= 0.25 else "elevated" if ttm_capex_to_revenue is not None and ttm_capex_to_revenue >= 0.15 else "normal" if ttm_capex_to_revenue is not None else "unavailable"
     is_reit = bool(re.search(r"\breit\b|real estate", f"{info.get('sector', '')} {info.get('industry', '')}", re.I))
     earnings = _latest_earnings_dates(instrument)
@@ -1480,6 +1484,8 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
         "earningsQuality": {
             "operatingIncomeGrowth": _safe_growth_comparison(record_value(quarter_operating_income), _statement_value(quarterly_income, ["Operating Income"], 4)),
             "operatingMargin": quarter_operating_margin,
+            "operatingMarginChangePp": quarter_operating_margin_change_pp,
+            "netMargin": quarter_net_margin,
             "netIncome": quarter_net_income,
             "equitySecuritiesGain": {
                 "label": "equity_securities_gain",

@@ -12643,6 +12643,33 @@ function buildBasicFundamentalAnalysis(row) {
   const ttmOcf = recordValue(ttm.operatingCashFlow);
   const ttmCapex = recordValue(ttm.capitalExpenditure);
   const quarterFcfUnderInvestmentPressure = quarterlyOcf > 0 && quarterlyFcf < 0 && quarterlyCapex >= quarterlyOcf;
+  const qualityClassifier = globalThis.FinancialQualitySummary;
+  const epsMetric = raw.earningsMetrics?.eps || {};
+  const qualityInput = {
+    ttmOcf,
+    ttmFcf,
+    ttmFcfMargin: ttm.fcfMargin ?? null,
+    quarterOcf: quarterlyOcf,
+    quarterFcf: quarterlyFcf,
+    quarterFcfMargin: quarter.fcfMargin ?? null,
+    quarterFcfYoy: comparisons.quarterlyFcfYoy || null,
+    ttmCapexToOcf: ttm.capexToOperatingCashFlow ?? null,
+    quarterCapexToOcf: quarter.capexToOperatingCashFlow ?? null,
+    capexYoy: comparisons.quarterlyCapexYoy || comparisons.ttmCapexYoy || null,
+    repurchases: recordValue(capitalReturn.shareRepurchasesTtm),
+    dividends: recordValue(capitalReturn.dividendsPaidTtm),
+    shareChangePct: shareCount.yoyChangePct ?? null,
+    shareCountComparable: Boolean(shareCount.audit?.sameScope),
+    operatingMargin: earningsQualitySource.operatingMargin ?? null,
+    operatingMarginChangePp: earningsQualitySource.operatingMarginChangePp ?? null,
+    netMargin: earningsQualitySource.netMargin ?? null,
+    epsSurprisePct: epsMetric.surprise_pct ?? null,
+    normalizedBridgeAvailable: earningsQualitySource.coreEpsProxyStatus === "operating_income_and_margin_available",
+    materialNonOperatingBoost: earningsQualitySource.label === "strong_but_non_operating_boost",
+  };
+  const classifiedQuality = qualityClassifier?.buildFinancialQuality
+    ? qualityClassifier.buildFinancialQuality(qualityInput)
+    : {};
   const cashFlowStructure = {
     quarterly: { period_end_date: quarter.freeCashFlow?.period_end_date || quarter.operatingCashFlow?.period_end_date || null, operating_cash_flow: quarter.operatingCashFlow, capex: quarter.capitalExpenditure, free_cash_flow: quarter.freeCashFlow, revenue: quarter.revenue, fcf_margin: quarter.fcfMargin ?? null, capex_to_revenue: quarter.capexToRevenue ?? null, capex_to_operating_cash_flow: quarter.capexToOperatingCashFlow ?? null },
     ttm: { period_end_date: ttm.freeCashFlow?.period_end_date || ttm.operatingCashFlow?.period_end_date || null, operating_cash_flow: ttm.operatingCashFlow, capex: ttm.capitalExpenditure, free_cash_flow: ttm.freeCashFlow, revenue: ttm.revenue, fcf_margin: ttm.fcfMargin ?? null, capex_to_revenue: ttm.capexToRevenue ?? null, capex_to_operating_cash_flow: ttm.capexToOperatingCashFlow ?? null },
@@ -12651,26 +12678,12 @@ function buildBasicFundamentalAnalysis(row) {
     interpretation: currentLanguage === "zh" ? "季度、TTM 与财年现金流分别保留；任何比率只在分子与分母属于同一期间时计算。" : "Quarterly, TTM, and fiscal-year cash flow remain separate; ratios are calculated only when their numerator and denominator share a period.",
   };
   const usesReitCashFlowSemantics = cashFlowSemantic.model === "reit_cash_flow_limited";
-  const cashGeneration = usesReitCashFlowSemantics
-    ? "unavailable"
-    : ttmOcf > 0 && ttmFcf > 0 && quarterlyOcf > 0 && quarterlyFcf >= 0
-      ? "strong"
-      : ttmOcf > 0 && ttmFcf > 0 && (quarterFcfUnderInvestmentPressure || quarterlyFcf < 0)
-        ? "healthy_but_under_investment_pressure"
-        : ttmOcf > 0 && (ttmFcf > 0 || quarterlyOcf > 0)
-          ? "mixed"
-          : ttmOcf != null || quarterlyOcf != null ? "weakening" : "unavailable";
-  const capitalEfficiency = usesReitCashFlowSemantics
-    ? "unavailable"
-    : quarterFcfUnderInvestmentPressure || quarter.capexToOperatingCashFlow >= 1
-      ? "under_investment_pressure"
-      : Number.isFinite(ttm.fcfMargin)
-        ? (ttm.fcfMargin >= 0.15 ? "strong" : ttm.fcfMargin >= 0 ? "adequate" : "weak")
-        : "unavailable";
-  const shareholderReturn = shareCount.repurchaseEffectiveness === "effective_reduction" ? "returning_capital" : shareCount.repurchaseEffectiveness === "dilution_continues" ? "diluting" : shareCount.repurchaseEffectiveness === "mostly_offsets_sbc" ? "watch" : recordValue(capitalReturn.shareRepurchasesTtm) != null ? "buyback_reported" : "unavailable";
+  const cashGeneration = usesReitCashFlowSemantics ? "unavailable" : (classifiedQuality.cashGeneration || "unavailable");
+  const capitalEfficiency = usesReitCashFlowSemantics ? "unavailable" : (classifiedQuality.capitalEfficiency || "unavailable");
+  const shareholderReturn = classifiedQuality.shareholderReturn || "unavailable";
   const earningsQuality = usesReitCashFlowSemantics
     ? "unavailable"
-    : earningsQualitySource.label || (cashGeneration === "strong" && capitalEfficiency !== "weak" ? "strong" : cashGeneration === "weakening" || capitalEfficiency === "weak" ? "watch" : "unavailable");
+    : (classifiedQuality.earningsQuality || "unavailable");
   const cashFlowInterpretation = {
     operating_cash_generation: ttmOcf > 0 && quarterlyOcf > 0 ? "strong" : ttmOcf > 0 ? "mixed" : "weak",
     capital_spending_pressure: quarterFcfUnderInvestmentPressure || quarter.capexToOperatingCashFlow >= 1 ? "high" : Number.isFinite(ttm.capexToOperatingCashFlow) && ttm.capexToOperatingCashFlow >= 0.7 ? "elevated" : "normal",
@@ -12698,6 +12711,15 @@ function buildBasicFundamentalAnalysis(row) {
       ? "核心经营表现强，但本季度 reported net income 和 EPS 受到大额股权证券投资收益显著提升。"
       : "Core operating performance is strong, but this quarter's reported net income and EPS were materially lifted by equity securities investment gains.")
     : earningsQualitySource.explanation || null;
+  const cashGenerationExplanation = currentLanguage === "zh"
+    ? `TTM 经营现金流 ${formatFinancialAmount(ttmOcf)}，TTM 自由现金流 ${formatFinancialAmount(ttmFcf)}，最近季度自由现金流 ${formatFinancialAmount(quarterlyFcf)}${Number.isFinite(quarter.fcfMargin) ? `（FCF Margin ${formatPercentage(quarter.fcfMargin)}）` : ""}${quarterFcfUnderInvestmentPressure ? "；资本开支已消耗大部分经营现金流。" : "。"}`
+    : `TTM operating cash flow ${formatFinancialAmount(ttmOcf)}, TTM free cash flow ${formatFinancialAmount(ttmFcf)}, and latest-quarter free cash flow ${formatFinancialAmount(quarterlyFcf)}${Number.isFinite(quarter.fcfMargin) ? ` (FCF margin ${formatPercentage(quarter.fcfMargin)})` : ""}${quarterFcfUnderInvestmentPressure ? "; capex is consuming most operating cash flow." : "."}`;
+  const capitalEfficiencyExplanation = currentLanguage === "zh"
+    ? `TTM CapEx / 经营现金流 ${Number.isFinite(ttm.capexToOperatingCashFlow) ? formatPercentage(ttm.capexToOperatingCashFlow) : "未取得"}，最近季度 CapEx / 经营现金流 ${Number.isFinite(quarter.capexToOperatingCashFlow) ? formatPercentage(quarter.capexToOperatingCashFlow) : "未取得"}。`
+    : `TTM CapEx / operating cash flow ${Number.isFinite(ttm.capexToOperatingCashFlow) ? formatPercentage(ttm.capexToOperatingCashFlow) : "not obtained"}, latest-quarter CapEx / operating cash flow ${Number.isFinite(quarter.capexToOperatingCashFlow) ? formatPercentage(quarter.capexToOperatingCashFlow) : "not obtained"}.`;
+  const shareholderReturnExplanation = currentLanguage === "zh"
+    ? `TTM 股票回购 ${formatFinancialAmount(recordValue(capitalReturn.shareRepurchasesTtm))}，TTM 现金股息 ${formatFinancialAmount(recordValue(capitalReturn.dividendsPaidTtm))}${shareCount.audit?.sameScope && Number.isFinite(shareCount.yoyChangePct) ? `，流通股本同比 ${formatPercentValue(shareCount.yoyChangePct, 2)}` : "；股本口径不足，未下结论"}。`
+    : `TTM repurchases ${formatFinancialAmount(recordValue(capitalReturn.shareRepurchasesTtm))}, TTM dividends ${formatFinancialAmount(recordValue(capitalReturn.dividendsPaidTtm))}${shareCount.audit?.sameScope && Number.isFinite(shareCount.yoyChangePct) ? `, shares outstanding YoY ${formatPercentValue(shareCount.yoyChangePct, 2)}` : "; share-count scope is insufficient for a conclusion"}.`;
   const auditedRecords = {
     operating_cash_flow_ttm: ttm.operatingCashFlow,
     free_cash_flow_ttm: ttm.freeCashFlow,
@@ -12746,10 +12768,10 @@ function buildBasicFundamentalAnalysis(row) {
     financial_unit_audit: Object.fromEntries(Object.entries(auditedRecords).map(([key, record]) => [key, buildFinancialUnitAudit(record)])),
     quality_summary: {
       status: "available",
-      cash_generation: { label: cashGeneration, score: cashGeneration === "strong" ? 80 : cashGeneration === "healthy_but_under_investment_pressure" ? 62 : cashGeneration === "mixed" ? 50 : cashGeneration === "weakening" ? 35 : null, supporting_metrics: [ttmOcf != null ? `${currentLanguage === "zh" ? "TTM 经营现金流" : "TTM Operating Cash Flow"} ${formatFinancialAmount(ttmOcf)}` : null, ttmFcf != null ? `${currentLanguage === "zh" ? "TTM 自由现金流" : "TTM Free Cash Flow"} ${formatFinancialAmount(ttmFcf)}` : null, quarterlyFcf != null ? `${currentLanguage === "zh" ? "最近季度自由现金流" : "Latest Quarterly Free Cash Flow"} ${formatFinancialAmount(quarterlyFcf)}` : null, quarterFcfUnderInvestmentPressure ? (currentLanguage === "zh" ? "高资本支出正在压缩短期自由现金流" : "High capex is compressing near-term free cash flow") : null].filter(Boolean) },
-      capital_efficiency: { label: capitalEfficiency, score: capitalEfficiency === "strong" ? 80 : capitalEfficiency === "adequate" ? 55 : capitalEfficiency === "under_investment_pressure" ? 40 : capitalEfficiency === "weak" ? 30 : null, supporting_metrics: [Number.isFinite(ttm.fcfMargin) ? `${currentLanguage === "zh" ? "TTM FCF Margin" : "TTM FCF Margin"} ${formatPercentage(ttm.fcfMargin)}` : null, Number.isFinite(ttm.capexToRevenue) ? `${currentLanguage === "zh" ? "TTM CapEx / 营收" : "TTM CapEx / Revenue"} ${formatPercentage(ttm.capexToRevenue)}` : null, Number.isFinite(quarter.capexToRevenue) ? `${currentLanguage === "zh" ? "最近季度 CapEx / 营收" : "Latest Quarter CapEx / Revenue"} ${formatPercentage(quarter.capexToRevenue)}` : null].filter(Boolean) },
-      shareholder_return: { label: shareholderReturn, score: shareholderReturn === "returning_capital" ? 75 : shareholderReturn === "diluting" ? 30 : shareholderReturn === "watch" ? 45 : null, supporting_metrics: [recordValue(capitalReturn.shareRepurchasesTtm) != null ? `${currentLanguage === "zh" ? "TTM 股票回购" : "TTM Share Repurchases"} ${formatFinancialAmount(recordValue(capitalReturn.shareRepurchasesTtm))}` : null, recordValue(capitalReturn.dividendsPaidTtm) != null ? `${currentLanguage === "zh" ? "TTM 现金股息" : "TTM Cash Dividends"} ${formatFinancialAmount(recordValue(capitalReturn.dividendsPaidTtm))}` : null, shareCount.audit?.sameScope && Number.isFinite(shareCount.yoyChangePct) ? `${currentLanguage === "zh" ? "流通股本同比" : "Shares Outstanding YoY"} ${formatPercentValue(shareCount.yoyChangePct, 2)}` : null].filter(Boolean) },
-      earnings_quality: { label: earningsQuality, score: earningsQuality === "strong_core" || earningsQuality === "strong" ? 75 : earningsQuality === "strong_but_non_operating_boost" ? 55 : earningsQuality === "mixed" || earningsQuality === "watch" ? 40 : null, supporting_metrics: [usesReitCashFlowSemantics ? (currentLanguage === "zh" ? "REIT 普通 FCF 不等同于 FFO/AFFO，不生成普通公司盈利质量结论。" : "REIT ordinary FCF is not equivalent to FFO/AFFO; no standard corporate earnings-quality conclusion is generated.") : earningsQualityExplanation, !usesReitCashFlowSemantics ? equitySecuritiesQualityNote : null].filter(Boolean) },
+      cash_generation: { label: cashGeneration, score: cashGeneration === "strong" ? 80 : cashGeneration === "long_term_strong_short_term_pressure" || cashGeneration === "operating_cash_flow_strong_fcf_under_pressure" ? 55 : cashGeneration === "operating_cash_flow_adequate_short_term_fcf_pressure" || cashGeneration === "mixed" ? 45 : cashGeneration === "weak" ? 25 : null, supporting_metrics: [cashGenerationExplanation, comparisons.quarterlyFcfYoy?.state === "turned_negative" ? (currentLanguage === "zh" ? "最近季度 FCF 由正转负" : "Latest-quarter FCF turned negative") : null].filter(Boolean) },
+      capital_efficiency: { label: capitalEfficiency, score: capitalEfficiency === "strong" ? 80 : capitalEfficiency === "adequate" ? 55 : capitalEfficiency === "capital_investment_period" || capitalEfficiency === "capital_expenditure_pressure" ? 35 : null, supporting_metrics: [capitalEfficiencyExplanation, quarterFcfUnderInvestmentPressure ? (currentLanguage === "zh" ? "公司经营现金流仍然强劲，但资本开支已消耗大部分经营现金流，导致近期自由现金流明显承压。" : "Operating cash flow remains healthy, but capex has consumed most operating cash flow and materially pressured recent free cash flow.") : null].filter(Boolean) },
+      shareholder_return: { label: shareholderReturn, score: shareholderReturn === "strong_shareholder_return" ? 75 : shareholderReturn === "ongoing_return_not_fully_offset_dilution" ? 55 : shareholderReturn === "share_dilution" ? 30 : null, supporting_metrics: [shareholderReturnExplanation].filter(Boolean) },
+      earnings_quality: { label: earningsQuality, score: earningsQuality === "strong_core_earnings" ? 75 : earningsQuality === "core_earnings_strong_but_realization_pressure" ? 55 : earningsQuality === "earnings_quality_under_pressure" ? 30 : earningsQuality === "mixed" ? 45 : null, supporting_metrics: [usesReitCashFlowSemantics ? (currentLanguage === "zh" ? "REIT 普通 FCF 不等同于 FFO/AFFO，不生成普通公司盈利质量结论。" : "REIT ordinary FCF is not equivalent to FFO/AFFO; no standard corporate earnings-quality conclusion is generated.") : earningsQualityExplanation, !usesReitCashFlowSemantics ? equitySecuritiesQualityNote : null, Number.isFinite(epsMetric.surprise_pct) ? `${currentLanguage === "zh" ? "EPS 相对预期" : "EPS versus estimate"} ${formatPercentValue(epsMetric.surprise_pct, 1)}` : null].filter(Boolean) },
       data_quality: "display_only_statement_snapshot",
       missing_inputs: Object.entries(auditedRecords).filter(([, record]) => !Number.isFinite(recordValue(record))).map(([key]) => key),
       explanation: usesReitCashFlowSemantics
@@ -22957,6 +22979,17 @@ function renderDetailModal(row) {
     buyback_reported: currentLanguage === "zh" ? "已披露回购" : "Buyback reported",
     watch: currentLanguage === "zh" ? "需要观察" : "Watch",
     mixed: currentLanguage === "zh" ? "混合" : "Mixed",
+    long_term_strong_short_term_pressure: currentLanguage === "zh" ? "长期强，短期明显承压" : "Long-term strong, short-term pressured",
+    operating_cash_flow_strong_fcf_under_pressure: currentLanguage === "zh" ? "经营现金流强，但自由现金流承压" : "Operating cash flow strong, free cash flow pressured",
+    operating_cash_flow_adequate_short_term_fcf_pressure: currentLanguage === "zh" ? "经营现金流尚可，短期 FCF 承压" : "Operating cash flow adequate, short-term FCF pressured",
+    capital_expenditure_pressure: currentLanguage === "zh" ? "资本开支压力" : "Capital expenditure pressure",
+    capital_investment_period: currentLanguage === "zh" ? "资本投入期" : "Capital investment period",
+    strong_shareholder_return: currentLanguage === "zh" ? "股东回报强" : "Strong shareholder return",
+    ongoing_return_not_fully_offset_dilution: currentLanguage === "zh" ? "持续回报，但未完全抵消稀释" : "Ongoing return, dilution not fully offset",
+    share_dilution: currentLanguage === "zh" ? "股本稀释" : "Share dilution",
+    strong_core_earnings: currentLanguage === "zh" ? "核心经营强" : "Strong core earnings",
+    core_earnings_strong_but_realization_pressure: currentLanguage === "zh" ? "核心经营仍强，但盈利兑现承压" : "Core earnings strong, realization pressured",
+    earnings_quality_under_pressure: currentLanguage === "zh" ? "盈利质量承压" : "Earnings quality under pressure",
     healthy_but_under_investment_pressure: currentLanguage === "zh" ? "经营强、短期 FCF 承压" : "Healthy, under investment pressure",
     under_investment_pressure: currentLanguage === "zh" ? "资本开支压力" : "Investment pressure",
     strong_core: currentLanguage === "zh" ? "核心经营强" : "Strong core earnings",
