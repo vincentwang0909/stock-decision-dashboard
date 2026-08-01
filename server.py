@@ -94,6 +94,8 @@ MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TIC
 OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECONDS", "6"))
 FINANCIAL_STATEMENT_CACHE_SECONDS = int(os.environ.get("FINANCIAL_STATEMENT_CACHE_SECONDS", str(12 * 60 * 60)))
 FINANCIAL_STATEMENT_EARNINGS_CHECK_SECONDS = int(os.environ.get("FINANCIAL_STATEMENT_EARNINGS_CHECK_SECONDS", str(2 * 60 * 60)))
+FINANCIAL_STATEMENT_SCHEMA_VERSION = 2
+FINANCIAL_DEBUG_ENABLED = os.environ.get("FINANCIAL_DEBUG_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
 SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT", "Stock Decision Dashboard contact@stock-decision-dashboard.local")
 # Increment when an options field changes methodology so cached synthetic data
 # cannot be presented as a current options snapshot.
@@ -1538,14 +1540,30 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
     ticker = normalize_ticker_input(info.get("symbol") or getattr(instrument, "ticker", ""))
     if ticker:
         try:
+            # Never use the income/EPS date as a proxy for the entire statement.
+            # The fallback decision is based on the cash-flow, balance-sheet and
+            # TTM periods that the detail panel actually displays.
+            primary_display_audit = build_financial_display_audit(snapshot)
+            primary_display_period = primary_display_audit.get("displayed_complete_period_end") or snapshot.get("quarterlyPeriodEnd")
             freshness_result = fetch_financial_statement_freshness(
                 ticker,
-                snapshot.get("quarterlyPeriodEnd"),
+                primary_display_period,
                 snapshot.get("sourceTimestamp"),
                 earnings,
                 info,
             )
             snapshot = apply_sec_financial_report(snapshot, freshness_result.get("report"), freshness_result.get("freshness") or {}, info)
+            snapshot = apply_financial_display_status(snapshot, freshness_result.get("freshness") or {}, freshness_result.get("report"))
+            ttm_fcf_record = (((snapshot.get("financialFacts") or {}).get("cashFlow") or {}).get("ttm") or {}).get("freeCashFlow")
+            ttm_fcf_value = _financial_record_value(ttm_fcf_record)
+            market_cap = _safe_float(info.get("marketCap"))
+            snapshot["financialStatementValuation"] = {
+                "ttm_fcf_value": ttm_fcf_value,
+                "ttm_fcf_period_end": _financial_record_period(ttm_fcf_record),
+                "priceToStandardizedFreeCashFlow": fresh_price_to_fcf(market_cap, ttm_fcf_value),
+                "priceToFcfStatus": "not_meaningful" if ttm_fcf_value is None or ttm_fcf_value <= 0 else "available",
+                "definition": "market_cap_divided_by_displayed_ttm_free_cash_flow",
+            }
         except Exception as exc:
             # Financial freshness is display enrichment; a source failure must
             # never block a quote or the independent recommendation engine.
@@ -4154,7 +4172,13 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         updated_at_dt.strftime("%Y-%m-%dT%H:%M:%SZ") if updated_at_dt
         else iso_from_local_close(history.index[-1], 16, 0, -4)
     )
-    free_cashflow = _safe_float(info.get("freeCashflow"))
+    # The final valuation value follows the same TTM FCF record rendered in
+    # the financial panel.  Yahoo's quote-summary freeCashflow can lag a new
+    # filing, so it is never allowed to override a verified statement record.
+    statement_ttm_fcf = _financial_record_value(
+        ((((company_analysis or {}).get("financialFacts") or {}).get("cashFlow") or {}).get("ttm") or {}).get("freeCashFlow")
+    )
+    free_cashflow = statement_ttm_fcf if statement_ttm_fcf is not None else _safe_float(info.get("freeCashflow"))
     market_cap = _safe_int(info.get("marketCap")) or _safe_int(fast_info.get("market_cap"))
     price_to_fcf = None
     reported_price_to_fcf = _safe_float(
@@ -4162,9 +4186,9 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         or info.get("priceToFreeCashFlow")
         or info.get("priceToFCF")
     )
-    if _safe_float(market_cap) not in (None, 0) and free_cashflow not in (None, 0):
+    if _safe_float(market_cap) not in (None, 0) and free_cashflow is not None and free_cashflow > 0:
         try:
-            price_to_fcf = abs(_safe_float(market_cap) / free_cashflow)
+            price_to_fcf = _safe_float(market_cap) / free_cashflow
         except Exception:
             price_to_fcf = None
     earnings_timestamp = (
@@ -4205,7 +4229,9 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
             "priceToSalesTrailing12Months": _safe_float(info.get("priceToSalesTrailing12Months")),
             "enterpriseToRevenue": _safe_float(info.get("enterpriseToRevenue")),
             "pegRatio": _safe_float(info.get("pegRatio")),
-            "priceToFreeCashflow": reported_price_to_fcf if reported_price_to_fcf is not None else price_to_fcf,
+            # A reported ratio may be based on stale or non-standard FCF.  If
+            # the displayed statement FCF is non-positive, Price/FCF is N/M.
+            "priceToFreeCashflow": None if free_cashflow is None or free_cashflow <= 0 else price_to_fcf,
             "targetMeanPrice": _safe_float(info.get("targetMeanPrice")),
             "targetMedianPrice": _safe_float(info.get("targetMedianPrice")),
             "targetHighPrice": _safe_float(info.get("targetHighPrice")),
@@ -4410,6 +4436,105 @@ def parse_iso_datetime(value):
         return None
 
 
+def financial_statement_cache_is_compatible(payload):
+    """Reject cache entries built before the atomic statement-snapshot schema."""
+    return isinstance(payload, dict) and payload.get("schema_version") == FINANCIAL_STATEMENT_SCHEMA_VERSION
+
+
+def _financial_record_period(record):
+    value = (record or {}).get("period_end_date") if isinstance(record, dict) else None
+    return str(value)[:10] if value else None
+
+
+def _group_period(records):
+    periods = sorted({period for period in (_financial_record_period(record) for record in records) if period})
+    if not periods:
+        return {"period_end": None, "periods": [], "consistent": False}
+    return {"period_end": periods[0] if len(periods) == 1 else None, "periods": periods, "consistent": len(periods) == 1}
+
+
+def build_financial_display_audit(snapshot):
+    """Audit the exact record tree consumed by the fundamental-panel renderer."""
+    facts = (snapshot or {}).get("financialFacts") or {}
+    cash_flow = facts.get("cashFlow") or {}
+    quarter = cash_flow.get("quarterly") or cash_flow.get("quarter") or {}
+    ttm = cash_flow.get("ttm") or {}
+    balance = facts.get("balanceSheet") or {}
+    earnings = (snapshot or {}).get("earningsMetrics") or {}
+    groups = {
+        "income_statement": _group_period([earnings.get("revenue", {}).get("period"), earnings.get("eps", {}).get("period")]),
+        "cash_flow_statement": _group_period([quarter.get("operatingCashFlow"), quarter.get("freeCashFlow"), quarter.get("capitalExpenditure")]),
+        "balance_sheet": _group_period([balance.get("cashAndCashEquivalents") or balance.get("cash"), balance.get("shortTermInvestments"), balance.get("totalDebt")]),
+        "ttm": _group_period([ttm.get("operatingCashFlow"), ttm.get("freeCashFlow"), ttm.get("capitalExpenditure")]),
+        "earnings_surprise": _group_period([earnings.get("eps", {}).get("period")]),
+    }
+    major_periods = [groups[name].get("period_end") for name in ("cash_flow_statement", "balance_sheet", "ttm") if groups[name].get("period_end")]
+    displayed_complete_period = min(major_periods) if major_periods else None
+    return {
+        "schema_version": FINANCIAL_STATEMENT_SCHEMA_VERSION,
+        "groups": groups,
+        "displayed_complete_period_end": displayed_complete_period,
+        "mixed_group_periods": len({period for group in groups.values() for period in group.get("periods", [])}) > 1,
+    }
+
+
+def apply_financial_display_status(snapshot, freshness, report=None):
+    """Make source metadata describe the periods of fields that the UI will render."""
+    audit = build_financial_display_audit(snapshot)
+    expected_period = (report or {}).get("fiscal_period_end_date") or (freshness or {}).get("latest_reported_fiscal_period_end_date")
+    groups = audit["groups"]
+    major = [groups[name].get("period_end") for name in ("cash_flow_statement", "balance_sheet", "ttm")]
+    major_available = [period for period in major if period]
+    all_major_current = bool(expected_period and len(major_available) == 3 and all(period == expected_period for period in major_available))
+    some_current = bool(expected_period and any(expected_period in group.get("periods", []) for group in groups.values()))
+    if expected_period and all_major_current:
+        status, completeness = "latest_complete", "complete"
+    elif expected_period and some_current:
+        status, completeness = "latest_partial", "partial"
+    elif expected_period and major_available:
+        status, completeness = "stale", "stale"
+    elif expected_period:
+        status, completeness = "unavailable", "unavailable"
+    else:
+        status, completeness = "unavailable", "unavailable"
+
+    release_reference = (freshness or {}).get("release_reference") or {}
+    existing_source = (snapshot or {}).get("financialStatementSource") or {}
+    report_filing = (report or {}).get("filing") or {}
+    source_name = (report or {}).get("source_name") or existing_source.get("source") or "Yahoo Finance via yfinance"
+    source_type = "sec_8k" if (report or {}).get("completeness") == "headline_release_partial" else "sec_10q_or_10k" if report else "yahoo"
+    snapshot["financialStatementSnapshot"] = {
+        "schema_version": FINANCIAL_STATEMENT_SCHEMA_VERSION,
+        "groups": groups,
+        "displayed_complete_period_end": audit.get("displayed_complete_period_end"),
+        "expected_latest_period_end": expected_period,
+        "completeness": completeness,
+        "source_type": source_type,
+        "mixed_group_periods": audit.get("mixed_group_periods"),
+    }
+    snapshot["financialStatementFreshness"] = {
+        **(freshness or {}),
+        "status": status,
+        "expected_latest_fiscal_period_end": expected_period,
+        "displayed_complete_period_end": audit.get("displayed_complete_period_end"),
+        "completeness": completeness,
+        "groups": groups,
+    }
+    snapshot["financialStatementSource"] = {
+        "source": source_name,
+        "source_type": source_type,
+        "source_url": (report or {}).get("source_url") or existing_source.get("source_url"),
+        "filing_accession": report_filing.get("accessionNumber") or existing_source.get("filing_accession"),
+        "fiscal_period_end_date": audit.get("displayed_complete_period_end"),
+        "source_data_period_end": audit.get("displayed_complete_period_end"),
+        "latest_fiscal_period_end": expected_period,
+        "earnings_release_date": release_reference.get("filing_date") or (freshness or {}).get("latest_reported_earnings_date"),
+        "sec_filing_date": report_filing.get("filingDate") or (freshness or {}).get("official_filing_date"),
+        "extraction_timestamp": (report or {}).get("extraction_timestamp") or existing_source.get("extraction_timestamp") or (snapshot or {}).get("sourceTimestamp"),
+    }
+    return snapshot
+
+
 SEC_TICKER_CIK_MEMORY_CACHE = {"payload": None, "expires_at": 0}
 
 
@@ -4507,7 +4632,10 @@ def official_release_exhibit_url(cik, release_filing):
 def fetch_financial_statement_freshness(ticker, primary_period, primary_updated_at, earnings, info):
     """Prefer Yahoo while current; use a cached SEC-normalized report when it is newer."""
     cached = read_module_cache("financial_statements", ticker)
+    if not financial_statement_cache_is_compatible(cached):
+        cached = None
     cached_report = (cached or {}).get("report") if isinstance((cached or {}).get("report"), dict) else None
+    cached_partial_report = (cached or {}).get("latest_partial_report") if isinstance((cached or {}).get("latest_partial_report"), dict) else None
     cached_filing = (cached or {}).get("filing") if isinstance((cached or {}).get("filing"), dict) else None
     cached_release = (cached or {}).get("release_reference") if isinstance((cached or {}).get("release_reference"), dict) else None
     cache_age = financial_statement_cache_age_seconds(cached)
@@ -4520,7 +4648,10 @@ def fetch_financial_statement_freshness(ticker, primary_period, primary_updated_
             and compare_periods(primary_period, cached_report.get("fiscal_period_end_date")) == 1
         )
         freshness = determine_freshness(primary_period, primary_updated_at, earnings, cached_filing, cached_is_newer, cached_release)
-        return {"freshness": freshness, "report": cached_report, "source": select_source(primary_period, cached_report, freshness), "cache_used": True}
+        # Keep the complete statement as the cache base, but reapply a newer 8-K
+        # headline release so the UI can state exactly which Q2 metrics are new.
+        display_report = cached_partial_report or cached_report
+        return {"freshness": freshness, "report": display_report, "source": select_source(primary_period, display_report, freshness), "cache_used": True}
 
     try:
         cik = find_cik_for_ticker(sec_ticker_cik_map(), ticker)
@@ -4558,10 +4689,13 @@ def fetch_financial_statement_freshness(ticker, primary_period, primary_updated_
                     release_matches_primary = True
                     candidate_report = None
         report = preserve_cached_statement(cached_report, candidate_report)
+        # A partial 8-K must update only its headline records at render time.
+        # It never replaces a validated 10-Q/10-K in the durable statement cache.
+        display_report = candidate_report or cached_partial_report or report
         effective_filing = dict(filing or {})
-        if report and report.get("fiscal_period_end_date"):
-            effective_filing["reportDate"] = report.get("fiscal_period_end_date")
-            effective_filing["filingDate"] = ((report.get("filing") or {}).get("filingDate") or effective_filing.get("filingDate"))
+        if display_report and display_report.get("fiscal_period_end_date"):
+            effective_filing["reportDate"] = display_report.get("fiscal_period_end_date")
+            effective_filing["filingDate"] = ((display_report.get("filing") or {}).get("filingDate") or effective_filing.get("filingDate"))
         cached_is_newer = bool(
             report and compare_periods(primary_period, report.get("fiscal_period_end_date")) == 1
         )
@@ -4570,18 +4704,20 @@ def fetch_financial_statement_freshness(ticker, primary_period, primary_updated_
             freshness["status"] = "stale_and_unavailable"
             freshness["reason"] = "newer_official_report_found_but_complete_normalized_statement_unavailable"
         payload = {
+            "schema_version": FINANCIAL_STATEMENT_SCHEMA_VERSION,
             "ticker": ticker,
             "updated_at": financial_now_iso(),
             "filing": effective_filing,
             "release_reference": release_reference,
             "report": report,
+            "latest_partial_report": candidate_report if (candidate_report or {}).get("completeness") == "headline_release_partial" else None,
             "freshness": freshness,
             "source": "official_earnings_release" if (candidate_report or {}).get("completeness") == "headline_release_partial" else "sec_edgar" if candidate_report else "yahoo_finance",
         }
         # A failed SEC refresh never writes an empty report over a usable cache.
         if candidate_report or not cached:
             write_module_cache("financial_statements", ticker, payload)
-        return {"freshness": freshness, "report": report if freshness.get("primary_source_is_older") else None, "source": select_source(primary_period, report, freshness), "cache_used": False}
+        return {"freshness": freshness, "report": display_report if freshness.get("primary_source_is_older") else None, "source": select_source(primary_period, display_report, freshness), "cache_used": False}
     except Exception as exc:
         freshness = determine_freshness(primary_period, primary_updated_at, earnings, cached_filing, bool(cached_report), cached_release)
         freshness["reason"] = f"sec_refresh_failed:{type(exc).__name__}"
@@ -4640,11 +4776,15 @@ def apply_sec_financial_report(snapshot, report, freshness, info):
             **(snapshot.get("latestEarnings") or {}),
             "revenueActual": _financial_record_value(quarter.get("revenue")),
         }
-        # The 8-K release is current for headline earnings, but it does not
-        # make its cash-flow tables a substitute for the subsequent 10-Q/K.
-        snapshot["quarterlyPeriodEnd"] = report.get("fiscal_period_end_date")
-        snapshot["source"] = "Official company earnings release filed with SEC (headline metrics; full filing pending)"
-        snapshot["sourceTimestamp"] = report.get("extraction_timestamp")
+        # The 8-K release updates only headline earnings.  It must not relabel
+        # prior-period cash flow, TTM, or balance-sheet records as current.
+        snapshot["financialStatementLatestRelease"] = {
+            "fiscal_period_end_date": report.get("fiscal_period_end_date"),
+            "source": report.get("source_name"),
+            "source_url": report.get("source_url"),
+            "earnings_release_date": ((report.get("filing") or {}).get("filingDate")),
+            "completeness": "headline_release_partial",
+        }
         return snapshot
 
     ttm = report.get("ttm") or {}
@@ -4856,9 +4996,9 @@ def extract_fundamental_fields_from_quote(quote):
     cash_flow = company_analysis.get("cashFlow") if isinstance(company_analysis.get("cashFlow"), dict) else {}
     balance_sheet = company_analysis.get("balanceSheet") if isinstance(company_analysis.get("balanceSheet"), dict) else {}
     price_fcf = None
-    if _safe_float(market_cap) not in (None, 0) and _safe_float(free_cashflow) not in (None, 0):
+    if _safe_float(market_cap) not in (None, 0) and _safe_float(free_cashflow) is not None and _safe_float(free_cashflow) > 0:
         try:
-            price_fcf = abs(_safe_float(market_cap) / _safe_float(free_cashflow))
+            price_fcf = _safe_float(market_cap) / _safe_float(free_cashflow)
         except Exception:
             price_fcf = None
     return {
@@ -6247,6 +6387,39 @@ def api_debug_quote(ticker):
             "quote_status": "unavailable",
             "error": str(exc),
         }), 500
+
+
+@app.route("/api/debug/financial-freshness/<path:ticker>")
+def api_debug_financial_freshness(ticker):
+    if not FINANCIAL_DEBUG_ENABLED:
+        return jsonify({"success": False, "error": "Financial freshness debug is disabled."}), 404
+    normalized = normalize_ticker_input(ticker)
+    cached = read_market_cache(normalized)
+    quote = (cached or {}).get("quote") if isinstance(cached, dict) else None
+    metadata = (quote or {}).get("metadata") or {}
+    statement = metadata.get("companyAnalysis") or {}
+    freshness = statement.get("financialStatementFreshness") or {}
+    source = statement.get("financialStatementSource") or {}
+    view = statement.get("financialStatementSnapshot") or {}
+    valuation = statement.get("financialStatementValuation") or {}
+    return jsonify({
+        "success": bool(quote),
+        "ticker": normalized,
+        "expected_latest_fiscal_period": freshness.get("expected_latest_fiscal_period_end"),
+        "displayed_income_statement_period": ((view.get("groups") or {}).get("income_statement") or {}).get("periods"),
+        "displayed_cash_flow_period": ((view.get("groups") or {}).get("cash_flow_statement") or {}).get("periods"),
+        "displayed_balance_sheet_period": ((view.get("groups") or {}).get("balance_sheet") or {}).get("periods"),
+        "displayed_ttm_period": ((view.get("groups") or {}).get("ttm") or {}).get("periods"),
+        "earnings_release_date": source.get("earnings_release_date"),
+        "sec_filing_date": source.get("sec_filing_date"),
+        "selected_source": source.get("source"),
+        "source_type": source.get("source_type"),
+        "completeness": freshness.get("completeness"),
+        "status": freshness.get("status"),
+        "cache_age_seconds": (cached or {}).get("cache_age_seconds"),
+        "price_to_fcf_source_value": valuation.get("ttm_fcf_value"),
+        "price_to_fcf_status": valuation.get("priceToFcfStatus"),
+    })
 
 
 @app.route("/api/debug/bulk-status")

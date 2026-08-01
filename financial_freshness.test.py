@@ -74,6 +74,11 @@ class FinancialFreshnessTests(unittest.TestCase):
         cached = {"fiscal_period_end_date": "2026-06-30"}
         self.assertEqual(preserve_cached_statement(cached, None), cached)
 
+    def test_partial_release_does_not_replace_a_complete_cached_statement(self):
+        cached = {"fiscal_period_end_date": "2026-03-31", "completeness": "complete"}
+        partial = {"fiscal_period_end_date": "2026-06-30", "completeness": "headline_release_partial"}
+        self.assertEqual(preserve_cached_statement(cached, partial), cached)
+
     def test_newer_sec_source_has_priority_but_current_yahoo_is_kept(self):
         fallback = {"fiscal_period_end_date": "2026-06-30"}
         stale = determine_freshness("2026-03-31", None, {"reportReleased": True}, {"reportDate": "2026-06-30"}, True)

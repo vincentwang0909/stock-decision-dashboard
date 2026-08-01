@@ -12511,6 +12511,15 @@ function buildTechnicalModule(row, supportResistance, companyProfile = null) {
 
 function buildFundamentalModule(row, research) {
   const metrics = research.metrics || {};
+  // The server validates this TTM value against the financial statement snapshot.
+  // Prefer it over a cached quote metric so an old positive FCF cannot create a
+  // misleading Price/FCF after a newer report turns FCF negative.
+  const verifiedTtmFcf = finiteNumberOrNull(
+    row.metadata?.companyAnalysis?.financialStatementValuation?.ttm_fcf_value,
+  );
+  const priceFcfFreeCashFlow = Number.isFinite(verifiedTtmFcf)
+    ? verifiedTtmFcf
+    : finiteNumberOrNull(metrics.freeCashFlow);
   const quality = {
     score: research.qualityScore ?? 50,
     roe: metrics.roe ?? null,
@@ -12535,8 +12544,10 @@ function buildFundamentalModule(row, research) {
     peg: metrics.peg ?? null,
     ps_ratio: metrics.psRatio ?? null,
     ev_ebitda: metrics.evEbitda ?? null,
-    price_fcf: Number.isFinite(metrics.freeCashFlow) && Number.isFinite(row.marketCap) && metrics.freeCashFlow !== 0
-      ? Math.abs((row.marketCap / 1e9) / metrics.freeCashFlow)
+    // Price/FCF is not meaningful for non-positive FCF; never turn a loss
+    // into an apparently cheap positive multiple with Math.abs.
+    price_fcf: Number.isFinite(priceFcfFreeCashFlow) && Number.isFinite(row.marketCap) && priceFcfFreeCashFlow > 0
+      ? (row.marketCap / 1e9) / priceFcfFreeCashFlow
       : null,
     state: research.valuationState,
   };
@@ -12548,7 +12559,7 @@ function buildFundamentalModule(row, research) {
   ]) ?? 50), 0, 100);
   const financialHealth = {
     score: financialHealthScore,
-    free_cash_flow: metrics.freeCashFlow ?? null,
+    free_cash_flow: priceFcfFreeCashFlow,
     cash_reserve: metrics.cashReserve ?? null,
     debt: metrics.debtRatio ?? null,
     capital_expenditure: row.profile ? clamp((row.profile.growth ?? 0.3) * 0.12, 0.02, 0.18) : null,
@@ -12558,7 +12569,11 @@ function buildFundamentalModule(row, research) {
   const risks = [];
   if ((quality.score ?? 0) >= 75) strengths.push(currentLanguage === "zh" ? "企业质量较高" : "Business quality is strong");
   if ((growth.score ?? 0) >= 70) strengths.push(currentLanguage === "zh" ? "成长仍在健康区间" : "Growth profile remains healthy");
-  if ((metrics.freeCashFlow ?? 0) > 0) strengths.push(currentLanguage === "zh" ? "自由现金流为正" : "Free cash flow is positive");
+  // Use the same audited statement FCF displayed below whenever it exists.
+  // Otherwise a stale research metric could contradict the current SEC panel.
+  if ((Number.isFinite(verifiedTtmFcf) ? verifiedTtmFcf : metrics.freeCashFlow ?? 0) > 0) {
+    strengths.push(currentLanguage === "zh" ? "自由现金流为正" : "Free cash flow is positive");
+  }
   if ((valuation.score ?? 50) >= 60) strengths.push(currentLanguage === "zh" ? "估值处于更可接受区间" : "Valuation looks more reasonable");
   if ((valuation.score ?? 50) < 40) risks.push(currentLanguage === "zh" ? "估值偏高" : "Valuation remains rich");
   if ((metrics.freeCashFlow ?? 0) < 0) risks.push(currentLanguage === "zh" ? "自由现金流为负" : "Free cash flow is negative");
@@ -12635,6 +12650,8 @@ function buildBasicFundamentalAnalysis(row) {
   const cashFlowSemantic = facts.cashFlowSemantic || {};
   const financialStatementFreshness = raw.financialStatementFreshness || {};
   const financialStatementSource = raw.financialStatementSource || {};
+  const financialStatementSnapshot = raw.financialStatementSnapshot || {};
+  const financialStatementLatestRelease = raw.financialStatementLatestRelease || {};
   const financialStatementValuation = raw.financialStatementValuation || {};
   const earningsQualitySource = raw.earningsQuality || {};
   const equitySecuritiesGain = earningsQualitySource.equitySecuritiesGain || {};
@@ -12743,6 +12760,8 @@ function buildBasicFundamentalAnalysis(row) {
     source_timestamp: raw.sourceTimestamp || null,
     financial_statement_freshness: financialStatementFreshness,
     financial_statement_source: financialStatementSource,
+    financial_statement_snapshot: financialStatementSnapshot,
+    financial_statement_latest_release: financialStatementLatestRelease,
     financial_statement_valuation: financialStatementValuation,
     annual_period_end: raw.annualPeriodEnd || null,
     quarterly_period_end: raw.quarterlyPeriodEnd || null,
@@ -12835,7 +12854,12 @@ function buildEarningsAnalysis(row) {
   return {
     status: "available",
     event_date: raw.eventDate || null,
-    period_end: row.metadata?.companyAnalysis?.quarterlyPeriodEnd || null,
+    // A headline earnings release can be newer than the latest complete cash-flow
+    // statement. The detail rows keep their own periods; this header identifies
+    // the most recently released earnings period without relabeling Q1 cash flow.
+    period_end: row.metadata?.companyAnalysis?.financialStatementLatestRelease?.fiscal_period_end
+      || row.metadata?.companyAnalysis?.quarterlyPeriodEnd
+      || null,
     earnings_metrics: earningsMetrics,
     beat_miss: Object.fromEntries(Object.entries(earningsMetrics).map(([key, metric]) => [key, metric.comparison_status])),
     actuals: raw,
@@ -23017,6 +23041,8 @@ function renderDetailModal(row) {
     const cashFlowSemantic = analysis.cash_flow_semantic || {};
     const statementFreshness = analysis.financial_statement_freshness || {};
     const statementSource = analysis.financial_statement_source || {};
+    const statementSnapshot = analysis.financial_statement_snapshot || {};
+    const latestRelease = analysis.financial_statement_latest_release || {};
     const statementValuation = analysis.financial_statement_valuation || {};
     const capitalReturn = analysis.capital_return || {};
     const shareCount = analysis.share_count_structure || {};
@@ -23069,7 +23095,12 @@ function renderDetailModal(row) {
       : guidance.unavailableReason || "";
     const qualityValue = (item) => analysisStateLabel(item?.label);
     const freshnessLabel = {
-      latest: currentLanguage === "zh" ? "最新" : "Current",
+      latest_complete: currentLanguage === "zh" ? "最新" : "Current",
+      latest_partial: currentLanguage === "zh" ? "部分更新" : "Partially updated",
+      primary_source_pending: currentLanguage === "zh" ? "数据源待更新" : "Primary source pending",
+      stale: currentLanguage === "zh" ? "已过期" : "Stale",
+      source_conflict: currentLanguage === "zh" ? "财期冲突" : "Period conflict",
+      unavailable: currentLanguage === "zh" ? "暂不可用" : "Unavailable",
       awaiting_release: currentLanguage === "zh" ? "等待发布" : "Awaiting release",
       released_primary_source_pending: currentLanguage === "zh" ? "最新财报已发布，主数据源待更新" : "Released; primary source pending",
       fallback_data_loaded: currentLanguage === "zh" ? "已使用官方备用报表" : "Official fallback loaded",
@@ -23077,14 +23108,22 @@ function renderDetailModal(row) {
       source_conflict: currentLanguage === "zh" ? "来源口径存在差异" : "Source-definition conflict",
     }[statementFreshness.status] || (currentLanguage === "zh" ? "状态待确认" : "Status pending");
     const freshnessNote = (() => {
-      const period = statementSource.fiscal_period_end_date || statementFreshness.latest_reported_fiscal_period_end_date || analysis.quarterly_period_end;
+      const period = statementSource.source_data_period_end || statementSource.fiscal_period_end_date || statementFreshness.displayed_complete_period_end || analysis.quarterly_period_end;
+      const latestPeriod = statementSource.latest_fiscal_period_end || statementFreshness.expected_latest_fiscal_period_end;
       const source = statementSource.source || analysis.source || "—";
-      const releaseDate = statementFreshness.official_filing_date || statementFreshness.latest_reported_earnings_date;
+      const releaseDate = statementSource.earnings_release_date || statementFreshness.latest_reported_earnings_date;
+      const filingDate = statementSource.sec_filing_date || statementFreshness.official_filing_date;
       const extracted = statementSource.extraction_timestamp || analysis.source_timestamp;
       if (currentLanguage === "zh") {
-        return `财务期末：${period || "—"} · 来源：${source} · 状态：${freshnessLabel}${releaseDate ? ` · 报告发布：${releaseDate}` : ""}${extracted ? ` · 提取：${extracted}` : ""}`;
+        const partialNote = statementFreshness.status === "latest_partial"
+          ? ` · 部分更新：最新财报关键数据为 ${latestPeriod || "—"}；完整现金流和资产负债表仍为 ${period || "—"}`
+          : "";
+        return `完整财务报表期末：${period || "—"}${latestPeriod && latestPeriod !== period ? ` · 最新已发布财季：${latestPeriod}` : ""} · 来源：${source} · 状态：${freshnessLabel}${releaseDate ? ` · 财报发布：${releaseDate}` : ""}${filingDate ? ` · SEC filing：${filingDate}` : ""}${extracted ? ` · 提取：${extracted}` : ""}${partialNote}`;
       }
-      return `Financial period: ${period || "—"} · Source: ${source} · Status: ${freshnessLabel}${releaseDate ? ` · Released: ${releaseDate}` : ""}${extracted ? ` · Extracted: ${extracted}` : ""}`;
+      const partialNote = statementFreshness.status === "latest_partial"
+        ? ` · Partial update: latest headline earnings are ${latestPeriod || "—"}; full cash flow and balance sheet remain ${period || "—"}`
+        : "";
+      return `Complete statement period: ${period || "—"}${latestPeriod && latestPeriod !== period ? ` · Latest released period: ${latestPeriod}` : ""} · Source: ${source} · Status: ${freshnessLabel}${releaseDate ? ` · Earnings release: ${releaseDate}` : ""}${filingDate ? ` · SEC filing: ${filingDate}` : ""}${extracted ? ` · Extracted: ${extracted}` : ""}${partialNote}`;
     })();
     return `
       <section class="detail-section-card">
@@ -23259,7 +23298,7 @@ function renderDetailModal(row) {
           { label: "PEG", value: displayValue(fundamentalValuation.peg, (value) => formatRatio(value)) },
           { label: "PS", value: displayValue(fundamentalValuation.ps_ratio, (value) => formatRatio(value)) },
           { label: "EV / EBITDA", value: displayValue(fundamentalValuation.ev_ebitda, (value) => formatRatio(value)) },
-          { label: "Price / FCF", value: displayValue(fundamentalValuation.price_fcf, (value) => formatRatio(value)) },
+          { label: "Price / FCF", value: Number.isFinite(fundamentalValuation.price_fcf) ? formatRatio(fundamentalValuation.price_fcf) : "N/M", note: currentLanguage === "zh" ? "TTM 自由现金流非正或不可验证时不计算该倍数。" : "Not calculated when TTM free cash flow is non-positive or unverified." },
           { label: t("summary"), value: fundamentalValuation.state || t("dataUnavailable") },
         ])}</div>
       </section>

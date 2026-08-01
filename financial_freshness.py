@@ -562,7 +562,9 @@ def parse_official_earnings_release(html_text: str, cik: int, filing: dict[str, 
 
 
 def preserve_cached_statement(cached: dict[str, Any] | None, candidate: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Never replace a non-empty, valid cached statement with a failed/partial refresh."""
-    if candidate and candidate.get("fiscal_period_end_date"):
+    """Keep the last complete statement when a newer release has headline data only."""
+    if candidate and candidate.get("fiscal_period_end_date") and candidate.get("completeness") != "headline_release_partial":
         return candidate
-    return cached
+    if cached and cached.get("fiscal_period_end_date"):
+        return cached
+    return candidate
