@@ -43,6 +43,14 @@ test("compact panel keeps Price\/FCF only in the valuation section and removes a
   assert.match(source, /估值指标/);
 });
 
+test("basic-fundamental metrics are always expanded and valuation has no summary row", () => {
+  const activeRenderer = source.slice(source.indexOf("const renderBasicFundamentalAnalysis"), source.indexOf("const renderEarningsAnalysis"));
+  assert.doesNotMatch(activeRenderer, /<details|更多现金流指标|More cash-flow metrics|更多资本支出指标|More capital-expenditure metrics/);
+  const fundamentalPanel = source.slice(source.indexOf("const fundamentalPanel"));
+  const valuationSection = fundamentalPanel.slice(fundamentalPanel.indexOf("估值指标"), fundamentalPanel.indexOf("/* Options-market UI"));
+  assert.doesNotMatch(valuationSection, /label: t\("summary"\)/);
+});
+
 test("share-count status enums are centrally localized", () => {
   assert.match(source, /dilution_continues: currentLanguage === "zh" \? "股本稀释持续"/);
   assert.match(source, /mostly_offsets_sbc: currentLanguage === "zh" \? "回购大致抵消股权激励稀释"/);
