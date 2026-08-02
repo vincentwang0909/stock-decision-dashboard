@@ -444,13 +444,23 @@ def source_conflicts(primary_value: float | None, fallback_value: float | None, 
 
 
 def price_to_fcf(market_cap: float | None, ttm_fcf: float | None) -> float | None:
-    if market_cap is None or ttm_fcf is None or ttm_fcf <= 0:
+    # A negative FCF is a valid economic result, not missing data.  Callers
+    # decide how to score the multiple; this helper only preserves the signed
+    # mathematical value when the denominator is usable.
+    if market_cap is None or ttm_fcf is None or ttm_fcf == 0:
         return None
     return market_cap / ttm_fcf
 
 
 def official_release_period_end(text: str, filing_date: str | None = None) -> str | None:
     """Extract a displayed fiscal period from an official release, not its filing date."""
+    reference = parse_date(filing_date) or datetime.now(timezone.utc).date()
+
+    def valid_period(candidate: date) -> str | None:
+        # Releases often mention a future earnings date or guidance period.
+        # A fiscal period in a report cannot end after the release was filed.
+        return candidate.isoformat() if candidate <= reference else None
+
     period_matches = re.findall(
         r"(?:three|six|nine|twelve)\s+months?\s+ended\s+((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:,\s*20\d{2})?)",
         text or "",
@@ -459,22 +469,22 @@ def official_release_period_end(text: str, filing_date: str | None = None) -> st
     for match in period_matches:
         try:
             if re.search(r"20\d{2}", match):
-                return datetime.strptime(match.title(), "%B %d, %Y").date().isoformat()
-            reference = parse_date(filing_date) or datetime.now(timezone.utc).date()
+                period = valid_period(datetime.strptime(match.title(), "%B %d, %Y").date())
+                if period:
+                    return period
+                continue
             candidate = datetime.strptime(f"{match.title()}, {reference.year}", "%B %d, %Y").date()
             if candidate > reference:
                 candidate = candidate.replace(year=candidate.year - 1)
-            return candidate.isoformat()
+            period = valid_period(candidate)
+            if period:
+                return period
         except ValueError:
             continue
-    matches = re.findall(r"(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+20\d{2}", text or "", flags=re.I)
-    dates = []
-    for match in matches:
-        try:
-            dates.append(datetime.strptime(match.title(), "%B %d, %Y").date())
-        except ValueError:
-            continue
-    return max(dates).isoformat() if dates else None
+    # A generic date may be an announcement, webcast, guidance, or forward
+    # earnings date.  Without an explicit statement-period label it is not a
+    # reliable fiscal-period end and must not relabel the dashboard.
+    return None
 
 
 def _release_number(cell_text: str) -> float | None:

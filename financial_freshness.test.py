@@ -62,9 +62,11 @@ class FinancialFreshnessTests(unittest.TestCase):
         self.assertEqual(report["ttm"]["revenue"]["raw_value"], 460)
         self.assertEqual(report["ttm"]["standardized_free_cash_flow"]["raw_value"], 96)
 
-    def test_negative_fcf_has_no_price_to_fcf(self):
-        self.assertIsNone(price_to_fcf(1000, -1))
+    def test_price_to_fcf_preserves_a_valid_negative_denominator(self):
+        self.assertEqual(price_to_fcf(1000, -1), -1000)
         self.assertEqual(price_to_fcf(1000, 50), 20)
+        self.assertIsNone(price_to_fcf(1000, 0))
+        self.assertIsNone(price_to_fcf(None, 50))
 
     def test_financial_sector_avoids_ordinary_fcf_semantics(self):
         self.assertEqual(financial_semantics({"sector": "Financial Services", "industry": "Credit Services"})["model"], "financial_company_cash_flow_limited")
@@ -103,6 +105,10 @@ class FinancialFreshnessTests(unittest.TestCase):
         self.assertEqual(official_release_period_end("Three Months Ended June 30", "2026-07-29"), "2026-06-30")
         self.assertEqual(report["fiscal_period_end_date"], "2026-06-30")
         self.assertEqual(report["quarter"]["revenue"]["raw_value"], 60_801_000_000)
+
+    def test_release_parser_rejects_future_guidance_dates(self):
+        text = "Apple will announce results August 13, 2026."
+        self.assertIsNone(official_release_period_end(text, "2026-07-30"))
 
 
 if __name__ == "__main__":

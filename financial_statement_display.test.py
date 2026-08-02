@@ -81,9 +81,28 @@ class FinancialStatementDisplayTests(unittest.TestCase):
         )
         self.assertEqual(result["financialStatementFreshness"]["status"], "latest_complete")
 
-    def test_negative_ttm_fcf_has_no_price_to_fcf(self):
-        self.assertIsNone(server.fresh_price_to_fcf(1_000, -10))
+    def test_nearby_non_calendar_fiscal_periods_are_not_reported_as_stale(self):
+        result = server.apply_financial_display_status(
+            snapshot(cash_period="2026-06-30", income_period="2026-06-30"),
+            {"latest_reported_fiscal_period_end_date": "2026-06-27"},
+        )
+        self.assertEqual(result["financialStatementFreshness"]["status"], "latest_complete")
+        self.assertTrue(result["financialStatementSnapshot"]["fiscal_calendar_equivalent"])
+
+    def test_negative_ttm_fcf_has_a_signed_price_to_fcf(self):
+        self.assertEqual(server.fresh_price_to_fcf(1_000, -10), -100)
         self.assertIsNone(server.fresh_price_to_fcf(1_000, None))
+        self.assertIsNone(server.fresh_price_to_fcf(1_000, 0))
+
+    def test_eps_surprise_handles_crossing_zero_and_near_zero_estimates(self):
+        turned_to_loss = server.build_earnings_surprise(-0.40, 0.13)
+        self.assertEqual(turned_to_loss["comparison_status"], "turned_to_loss")
+        self.assertAlmostEqual(turned_to_loss["surprise_abs"], -0.53)
+        turned_profitable = server.build_earnings_surprise(0.10, -0.05)
+        self.assertEqual(turned_profitable["comparison_status"], "turned_profitable")
+        near_zero = server.build_earnings_surprise(0.03, 0.001)
+        self.assertEqual(near_zero["comparison_status"], "denominator_near_zero")
+        self.assertIsNone(near_zero["surprise_pct"])
 
     def test_partial_release_keeps_complete_statement_period(self):
         item = snapshot()

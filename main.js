@@ -5163,6 +5163,14 @@ function inverseMetricScore(value, low, high) {
   return 100 - metricScore(value, low, high);
 }
 
+function valuationMultipleScore(value, low, high) {
+  if (!Number.isFinite(value)) return null;
+  // Keep negative multiples visible, but losses or negative cash flow cannot
+  // earn a low-multiple valuation reward.
+  if (value < 0) return 30;
+  return inverseMetricScore(value, low, high);
+}
+
 function scoreBucketLabel(score) {
   if (score >= CALIBRATION_CONFIG.rating_thresholds.strong_buy) return "Strong Buy";
   if (score >= CALIBRATION_CONFIG.rating_thresholds.buy) return "Buy";
@@ -5284,10 +5292,10 @@ function buildGrowthScore(metrics) {
 
 function buildValuationScore(metrics, profile) {
   const parts = [];
-  if (metrics.pe != null) parts.push(inverseMetricScore(metrics.pe, 12, 48));
-  if (metrics.forwardPe != null) parts.push(inverseMetricScore(metrics.forwardPe, 10, 40));
-  if (metrics.peg != null) parts.push(inverseMetricScore(metrics.peg, 0.8, 2.8));
-  if (metrics.evEbitda != null) parts.push(inverseMetricScore(metrics.evEbitda, 8, 28));
+  if (metrics.pe != null) parts.push(valuationMultipleScore(metrics.pe, 12, 48));
+  if (metrics.forwardPe != null) parts.push(valuationMultipleScore(metrics.forwardPe, 10, 40));
+  if (metrics.peg != null) parts.push(valuationMultipleScore(metrics.peg, 0.8, 2.8));
+  if (metrics.evEbitda != null) parts.push(valuationMultipleScore(metrics.evEbitda, 8, 28));
   if (metrics.psRatio != null) parts.push(inverseMetricScore(metrics.psRatio, 2.5, 14));
   if (!parts.length) {
     parts.push(inverseMetricScore(18 + profile.growth * 28 - profile.cash * 6, 10, 40));
@@ -6463,11 +6471,18 @@ function buildValuationState(row, fundamental = {}, guidanceState = {}, companyP
   const peg = finiteNumberOrNull(valuation.peg ?? row.metadata?.pegRatio);
   const priceFcf = finiteNumberOrNull(valuation.price_fcf ?? row.metadata?.priceToFreeCashflow);
   const revenueGrowth = normalizeRatioPercent(fundamental.growth?.revenue_growth ?? row.metadata?.revenueGrowth);
+  const multipleScore = (value, scorer) => {
+    if (!Number.isFinite(value)) return null;
+    // Losses and negative free cash flow create valid negative multiples, but
+    // they are not evidence of a cheap valuation.
+    return value < 0 ? 30 : scorer(value);
+  };
   const multipleScores = [];
-  if (Number.isFinite(forwardPe)) multipleScores.push(clamp(Math.round(88 - forwardPe * (hasAnyTag(tags, ["HighGrowth", "AIInfrastructure"]) ? 0.75 : 1.05)), 15, 90));
-  if (Number.isFinite(pe)) multipleScores.push(clamp(Math.round(86 - pe * 0.85), 12, 88));
-  if (Number.isFinite(peg)) multipleScores.push(clamp(Math.round(82 - peg * 16), 12, 88));
-  if (Number.isFinite(priceFcf)) multipleScores.push(clamp(Math.round(86 - priceFcf * 1.1), 12, 88));
+  const forwardPeScore = multipleScore(forwardPe, (value) => clamp(Math.round(88 - value * (hasAnyTag(tags, ["HighGrowth", "AIInfrastructure"]) ? 0.75 : 1.05)), 15, 90));
+  const peScore = multipleScore(pe, (value) => clamp(Math.round(86 - value * 0.85), 12, 88));
+  const pegScore = multipleScore(peg, (value) => clamp(Math.round(82 - value * 16), 12, 88));
+  const priceFcfScore = multipleScore(priceFcf, (value) => clamp(Math.round(86 - value * 1.1), 12, 88));
+  [forwardPeScore, peScore, pegScore, priceFcfScore].filter(Number.isFinite).forEach((scoreValue) => multipleScores.push(scoreValue));
   if (Number.isFinite(revenueGrowth) && hasAnyTag(tags, ["HighGrowth", "AIInfrastructure", "Software", "Cloud"])) {
     multipleScores.push(clamp(Math.round(45 + revenueGrowth * 0.9), 30, 86));
   }
@@ -6479,12 +6494,18 @@ function buildValuationState(row, fundamental = {}, guidanceState = {}, companyP
     forward_pe: forwardPe,
     peg,
     price_fcf: priceFcf,
+    negative_multiple_flags: {
+      pe: pe < 0,
+      forward_pe: forwardPe < 0,
+      peg: peg < 0,
+      price_fcf: priceFcf < 0,
+    },
     revenue_growth: revenueGrowth,
     score,
     regime: !Number.isFinite(score) ? "unavailable" : score >= 68 ? "reasonable" : score >= 45 ? "neutral" : score >= 28 ? "expensive" : "extreme",
     fair_value_bias: guidanceState.direction === "raised" ? "upward" : guidanceState.direction === "lowered" ? "downward" : "stable",
     explanation: currentLanguage === "zh"
-      ? "估值状态综合 Forward PE、PEG、Price/FCF、收入增长和指引变化；缺失字段重新归一化。"
+      ? "估值状态综合 Forward PE、PEG、Price/FCF、收入增长和指引变化；负倍数保留展示，但不会被视为低估。缺失字段重新归一化。"
       : "Valuation blends forward PE, PEG, price/FCF, revenue growth, and guidance changes with missing fields re-normalized.",
   };
 }
@@ -12517,6 +12538,9 @@ function buildFundamentalModule(row, research) {
   const verifiedTtmFcf = finiteNumberOrNull(
     row.metadata?.companyAnalysis?.financialStatementValuation?.ttm_fcf_value,
   );
+  const verifiedPriceToFcf = finiteNumberOrNull(
+    row.metadata?.companyAnalysis?.financialStatementValuation?.priceToStandardizedFreeCashFlow,
+  );
   const priceFcfFreeCashFlow = Number.isFinite(verifiedTtmFcf)
     ? verifiedTtmFcf
     : finiteNumberOrNull(metrics.freeCashFlow);
@@ -12525,7 +12549,8 @@ function buildFundamentalModule(row, research) {
     roe: metrics.roe ?? null,
     gross_margin: metrics.grossMargin ?? null,
     operating_margin: metrics.operatingMargin ?? null,
-    net_margin: row.profile ? clamp((metrics.operatingMargin ?? 0) * 0.82, 0, 0.34) : null,
+    net_margin: finiteNumberOrNull(row.metadata?.companyAnalysis?.earningsQuality?.netMargin)
+      ?? (row.profile && Number.isFinite(metrics.operatingMargin) ? metrics.operatingMargin * 0.82 : null),
     debt_ratio: metrics.debtRatio ?? null,
     cash_ratio: metrics.cashReserve ?? null,
   };
@@ -12544,10 +12569,12 @@ function buildFundamentalModule(row, research) {
     peg: metrics.peg ?? null,
     ps_ratio: metrics.psRatio ?? null,
     ev_ebitda: metrics.evEbitda ?? null,
-    // Price/FCF is not meaningful for non-positive FCF; never turn a loss
-    // into an apparently cheap positive multiple with Math.abs.
-    price_fcf: Number.isFinite(priceFcfFreeCashFlow) && Number.isFinite(row.marketCap) && priceFcfFreeCashFlow > 0
-      ? (row.marketCap / 1e9) / priceFcfFreeCashFlow
+    // Preserve signed multiples for negative FCF. Valuation scoring handles
+    // the economic interpretation separately and never calls them cheap.
+    price_fcf: Number.isFinite(verifiedPriceToFcf)
+      ? verifiedPriceToFcf
+      : Number.isFinite(priceFcfFreeCashFlow) && Number.isFinite(row.marketCap) && priceFcfFreeCashFlow !== 0
+      ? row.marketCap / priceFcfFreeCashFlow
       : null,
     state: research.valuationState,
   };
@@ -12596,12 +12623,25 @@ function formatAnalysisStatus(status) {
   if (status === "beat") return currentLanguage === "zh" ? "超预期" : "Beat";
   if (status === "miss") return currentLanguage === "zh" ? "不及预期" : "Miss";
   if (status === "in_line") return currentLanguage === "zh" ? "符合预期" : "In line";
+  if (status === "loss_wider_than_expected") return currentLanguage === "zh" ? "亏损大于预期" : "Loss wider than expected";
+  if (status === "loss_narrower_than_expected") return currentLanguage === "zh" ? "亏损小于预期" : "Loss narrower than expected";
+  if (status === "turned_profitable") return currentLanguage === "zh" ? "由亏转盈" : "Turned profitable";
+  if (status === "turned_to_loss") return currentLanguage === "zh" ? "由盈转亏" : "Turned to loss";
+  if (status === "denominator_near_zero") return currentLanguage === "zh" ? "预期基数过小" : "Estimate base too small";
   return currentLanguage === "zh" ? "数据暂不可用" : "Data unavailable";
 }
 
-function compareActualToEstimate(actual, estimate) {
+function compareActualToEstimate(actual, estimate, nearZeroThreshold = 0.01) {
   if (!Number.isFinite(actual) || !Number.isFinite(estimate)) return "unavailable";
-  const tolerance = Math.max(Math.abs(estimate) * 0.015, 0.01);
+  if (Math.abs(estimate) < nearZeroThreshold) return "denominator_near_zero";
+  const tolerance = Math.max(Math.abs(estimate) * 0.015, nearZeroThreshold);
+  if (actual < 0 && estimate > 0) return "turned_to_loss";
+  if (actual > 0 && estimate < 0) return "turned_profitable";
+  if (actual < 0 && estimate < 0) {
+    if (actual < estimate - tolerance) return "loss_wider_than_expected";
+    if (actual > estimate + tolerance) return "loss_narrower_than_expected";
+    return "in_line";
+  }
   if (actual > estimate + tolerance) return "beat";
   if (actual < estimate - tolerance) return "miss";
   return "in_line";
@@ -12697,6 +12737,7 @@ function buildBasicFundamentalAnalysis(row) {
     trend: { quarterly_fcf_yoy: comparisons.quarterlyFcfYoy || null, quarterly_fcf_qoq: comparisons.quarterlyFcfQoq || null, ttm_fcf_yoy: comparisons.ttmFcfYoy || null, quarterly_capex_yoy: comparisons.quarterlyCapexYoy || null, quarterly_capex_qoq: comparisons.quarterlyCapexQoq || null, ttm_capex_yoy: comparisons.ttmCapexYoy || null, quarterly_ocf_yoy: comparisons.quarterlyOcfYoy || null, ttm_ocf_yoy: comparisons.ttmOcfYoy || null },
     interpretation: currentLanguage === "zh" ? "季度、TTM 与财年现金流分别保留；任何比率只在分子与分母属于同一期间时计算。" : "Quarterly, TTM, and fiscal-year cash flow remain separate; ratios are calculated only when their numerator and denominator share a period.",
   };
+  const isFinancialCompany = cashFlowSemantic.model === "financial_company_cash_flow_limited";
   const usesSectorSpecificCashFlowSemantics = ["reit_cash_flow_limited", "financial_company_cash_flow_limited"].includes(cashFlowSemantic.model);
   const cashGeneration = usesSectorSpecificCashFlowSemantics ? "unavailable" : (classifiedQuality.cashGeneration || "unavailable");
   const capitalEfficiency = usesSectorSpecificCashFlowSemantics ? "unavailable" : (classifiedQuality.capitalEfficiency || "unavailable");
@@ -12767,6 +12808,7 @@ function buildBasicFundamentalAnalysis(row) {
     quarterly_period_end: raw.quarterlyPeriodEnd || null,
     cash_flow: cashFlow,
     cash_flow_semantic: cashFlowSemantic,
+    is_financial_company: isFinancialCompany,
     cash_flow_structure: cashFlowStructure,
     capital_return: capitalReturn,
     share_count_structure: shareCount,
@@ -12817,6 +12859,7 @@ function buildEarningsAnalysis(row) {
   }
   const raw = companyAnalysis.latestEarnings || {};
   const metrics = companyAnalysis.earningsMetrics || {};
+  const isFinancialCompany = companyAnalysis.financialFacts?.cashFlowSemantic?.model === "financial_company_cash_flow_limited";
   const hasReport = Object.values(metrics).some((value) => value?.data_status && value.data_status !== "unavailable") || Object.values(raw).some((value) => value != null);
   if (!hasReport) {
     return {
@@ -12829,9 +12872,11 @@ function buildEarningsAnalysis(row) {
   }
   const metricOrFallback = (key, actual, estimate = null) => metrics[key] || (() => {
     const comparison = compareActualToEstimate(actual, estimate);
-    return { actual, estimate, surprise_abs: Number.isFinite(actual) && Number.isFinite(estimate) ? actual - estimate : null, surprise_pct: Number.isFinite(actual) && Number.isFinite(estimate) && estimate !== 0 ? ((actual - estimate) / Math.abs(estimate)) * 100 : null, comparison_status: comparison === "unavailable" ? "cannot_compare" : comparison, data_status: Number.isFinite(actual) ? (Number.isFinite(estimate) ? "actual_and_estimate_available" : "actual_only") : Number.isFinite(estimate) ? "estimate_only" : "unavailable", period: null };
+    const surpriseAbs = Number.isFinite(actual) && Number.isFinite(estimate) ? actual - estimate : null;
+    const surprisePct = Number.isFinite(actual) && Number.isFinite(estimate) && Math.abs(estimate) >= 0.01 ? (surpriseAbs / Math.abs(estimate)) * 100 : null;
+    return { actual, estimate, surprise_abs: surpriseAbs, surprise_pct: surprisePct, comparison_status: comparison === "unavailable" ? "cannot_compare" : comparison, data_status: Number.isFinite(actual) ? (Number.isFinite(estimate) ? "actual_and_estimate_available" : "actual_only") : Number.isFinite(estimate) ? "estimate_only" : "unavailable", period: null };
   })();
-  const earningsMetrics = {
+  const standardEarningsMetrics = {
     revenue: metricOrFallback("revenue", raw.revenueActual),
     eps: metricOrFallback("eps", raw.reportedEps ?? raw.epsActual, raw.epsEstimate),
     gross_margin: metricOrFallback("grossMargin", raw.grossMargin),
@@ -12839,6 +12884,7 @@ function buildEarningsAnalysis(row) {
     free_cash_flow: metricOrFallback("freeCashFlow", raw.freeCashFlow),
     capex: metricOrFallback("capitalExpenditure", raw.capitalExpenditure),
   };
+  const earningsMetrics = isFinancialCompany ? { eps: standardEarningsMetrics.eps } : standardEarningsMetrics;
   const epsStatus = earningsMetrics.eps.comparison_status;
   const marginSummary = [
     Number.isFinite(raw.grossMargin) ? `${currentLanguage === "zh" ? "毛利率" : "Gross margin"} ${(raw.grossMargin * 100).toFixed(1)}%` : null,
@@ -12853,6 +12899,7 @@ function buildEarningsAnalysis(row) {
   ].filter(Boolean);
   return {
     status: "available",
+    is_financial_company: isFinancialCompany,
     event_date: raw.eventDate || null,
     // A headline earnings release can be newer than the latest complete cash-flow
     // statement. The detail rows keep their own periods; this header identifies
@@ -12863,7 +12910,7 @@ function buildEarningsAnalysis(row) {
     earnings_metrics: earningsMetrics,
     beat_miss: Object.fromEntries(Object.entries(earningsMetrics).map(([key, metric]) => [key, metric.comparison_status])),
     actuals: raw,
-    management: {
+    management: isFinancialCompany ? {} : {
       guidance: row.metadata?.companyAnalysis?.guidance?.managementOutlook?.value || "unavailable",
       ai_spending: "unavailable",
       major_business_commentary: "unavailable",
@@ -12876,7 +12923,7 @@ function buildEarningsAnalysis(row) {
       confidence: Object.values(earningsMetrics).filter((metric) => metric.data_status === "actual_and_estimate_available").length >= 2 ? "medium" : "low",
       data_limitations: ["no_unverified_price_attribution", ...(Object.values(earningsMetrics).some((metric) => metric.data_status === "actual_only") ? ["estimates_missing_for_some_metrics"] : [])],
     },
-    why_stock_moved: whyParts.length
+    why_stock_moved: isFinancialCompany ? null : whyParts.length
       ? (currentLanguage === "zh"
         ? `最近财报可验证信息：${whyParts.join("；")}。缺少完整市场预期、电话会与新闻归因时，不把该摘要当作唯一股价原因。`
         : `Verified latest-report inputs: ${whyParts.join("; ")}. Without complete consensus, call commentary, and news attribution, this is not presented as the sole cause of the price move.`)
@@ -13053,12 +13100,12 @@ function buildProfileFundamentalScore(row, fundamental, companyProfile) {
   const profitMarginScore = metricScore((fundamental.quality.operating_margin ?? fundamental.quality.net_margin ?? 0) * 100, 4, 28);
   const grossMarginTrendScore = metricScore((fundamental.quality.gross_margin ?? 0) * 100, 20, 55);
   const fcfScore = metricScore(fundamental.financial_health.free_cash_flow ?? 0, -2, 8);
-  const forwardPeScore = inverseMetricScore(fundamental.valuation.forward_pe ?? fundamental.valuation.pe ?? null, 15, 70);
-  const pegScore = inverseMetricScore(fundamental.valuation.peg ?? null, 0.8, 3.2);
+  const forwardPeScore = valuationMultipleScore(fundamental.valuation.forward_pe ?? fundamental.valuation.pe ?? null, 15, 70);
+  const pegScore = valuationMultipleScore(fundamental.valuation.peg ?? null, 0.8, 3.2);
   const valuationRiskScore = Math.round(mean([
     forwardPeScore,
-    inverseMetricScore(fundamental.valuation.ev_ebitda ?? null, 8, 35),
-    inverseMetricScore(fundamental.valuation.price_fcf ?? null, 10, 55),
+    valuationMultipleScore(fundamental.valuation.ev_ebitda ?? null, 8, 35),
+    valuationMultipleScore(fundamental.valuation.price_fcf ?? null, 10, 55),
   ].filter(Number.isFinite)) ?? 50);
   const balanceSheetScore = Math.round(mean([
     inverseMetricScore((fundamental.quality.debt_ratio ?? 0.5) * 100, 25, 85),
@@ -13082,8 +13129,8 @@ function buildProfileFundamentalScore(row, fundamental, companyProfile) {
     fundamental.growth.revenue_growth != null ? revenueGrowthScore : null,
   ].filter(Number.isFinite)) ?? 50);
   const normalizedValuationScore = Math.round(mean([
-    inverseMetricScore(fundamental.valuation.ev_ebitda ?? null, 6, 30),
-    inverseMetricScore(fundamental.valuation.price_fcf ?? null, 8, 50),
+    valuationMultipleScore(fundamental.valuation.ev_ebitda ?? null, 6, 30),
+    valuationMultipleScore(fundamental.valuation.price_fcf ?? null, 8, 50),
     forwardPeScore,
   ].filter(Number.isFinite)) ?? 50);
   const regulatoryRiskScore = hasAnyTag(companyProfile?.tags || [], ["RegulatoryRisk", "ChinaADR"])
@@ -23137,11 +23184,11 @@ function renderDetailModal(row) {
             recordRow(currentLanguage === "zh" ? "经营现金流（最近季度）" : "Operating Cash Flow (Latest Quarter)", quarter.operatingCashFlow, periodLabel(quarter.operatingCashFlow)),
             recordRow(currentLanguage === "zh" ? "自由现金流（最近季度）" : "Free Cash Flow (Latest Quarter)", quarter.freeCashFlow, `${periodLabel(quarter.freeCashFlow)}${consistencyNote(consistency.freeCashFlowQuarter) ? ` · ${consistencyNote(consistency.freeCashFlowQuarter)}` : ""}`),
             valueRow(currentLanguage === "zh" ? "FCF Margin（最近季度）" : "FCF Margin (Latest Quarter)", quarter.fcfMargin, formatPercentage),
-            { label: currentLanguage === "zh" ? "标准化 Price / FCF" : "Standardized Price / FCF", value: statementValuation.priceToFcfStatus === "not_meaningful" ? "N/M" : Number.isFinite(statementValuation.priceToStandardizedFreeCashFlow) ? `${statementValuation.priceToStandardizedFreeCashFlow.toFixed(1)}x` : "—", note: currentLanguage === "zh" ? "仅在标准化 TTM FCF 为正时有意义" : "Meaningful only when standardized TTM FCF is positive", hidden: !statementValuation.priceToFcfStatus && !Number.isFinite(statementValuation.priceToStandardizedFreeCashFlow) },
+            { label: currentLanguage === "zh" ? "标准化 Price / FCF" : "Standardized Price / FCF", value: Number.isFinite(statementValuation.priceToStandardizedFreeCashFlow) ? `${formatRatio(statementValuation.priceToStandardizedFreeCashFlow)}x` : statementValuation.priceToFcfStatus === "zero_denominator" ? (currentLanguage === "zh" ? "无法计算（FCF 为 0）" : "Cannot calculate (FCF is zero)") : "—", note: statementValuation.economic_interpretation === "negative_free_cash_flow" ? (currentLanguage === "zh" ? "TTM 自由现金流为负；保留有符号倍数，但不代表低估。" : "TTM free cash flow is negative; the signed multiple is shown but is not treated as cheap.") : (currentLanguage === "zh" ? "基于标准化 TTM 自由现金流。" : "Based on standardized TTM free cash flow."), hidden: !statementValuation.priceToFcfStatus && !Number.isFinite(statementValuation.priceToStandardizedFreeCashFlow) },
             { label: currentLanguage === "zh" ? "季度 FCF 同比" : "Quarterly FCF YoY", value: comparisonText(comparisons.quarterlyFcfYoy), hidden: !comparisonText(comparisons.quarterlyFcfYoy) },
             { label: currentLanguage === "zh" ? "季度 FCF 环比" : "Quarterly FCF QoQ", value: comparisonText(comparisons.quarterlyFcfQoq), hidden: !comparisonText(comparisons.quarterlyFcfQoq) },
             { label: currentLanguage === "zh" ? "TTM FCF 同比" : "TTM FCF YoY", value: comparisonText(comparisons.ttmFcfYoy), hidden: !comparisonText(comparisons.ttmFcfYoy) },
-          ])}</div>${analysis.cash_flow_interpretation?.headline ? `<div class="detail-line-note">${analysis.cash_flow_interpretation.headline}</div>` : ""}${cashFlowSemantic.warning === "reit_fcf_is_not_a_substitute_for_ffo_or_affo" ? `<div class="detail-line-note">${currentLanguage === "zh" ? "REIT 提示：普通 FCF 不等同于 FFO/AFFO，不能按一般公司现金流语义解读。" : "REIT note: ordinary FCF is not equivalent to FFO/AFFO and should not be interpreted as standard corporate cash flow."}</div>` : ""}${cashFlowSemantic.warning === "ordinary_fcf_is_not_a_primary_business_quality_metric_for_financial_companies" ? `<div class="detail-line-note">${currentLanguage === "zh" ? "金融公司提示：普通 FCF 并非主要经营质量指标，应结合净利息收入、资本与信贷质量等行业指标解读。" : "Financial-company note: ordinary FCF is not a primary business-quality metric; interpret it with sector-specific income, capital, and credit measures."}</div>` : ""}</article>
+          ])}</div>${analysis.cash_flow_interpretation?.headline ? `<div class="detail-line-note">${analysis.cash_flow_interpretation.headline}</div>` : ""}${cashFlowSemantic.warning === "reit_fcf_is_not_a_substitute_for_ffo_or_affo" ? `<div class="detail-line-note">${currentLanguage === "zh" ? "REIT 提示：普通 FCF 不等同于 FFO/AFFO，不能按一般公司现金流语义解读。" : "REIT note: ordinary FCF is not equivalent to FFO/AFFO and should not be interpreted as standard corporate cash flow."}</div>` : ""}${cashFlowSemantic.warning === "ordinary_fcf_is_not_a_primary_business_quality_metric_for_financial_companies" ? `<div class="detail-line-note">${currentLanguage === "zh" ? "金融公司的经营现金流和自由现金流受存贷款及资金配置影响，数值仅作原始数据展示，不用于质量摘要判断。" : "Financial-company operating cash flow and free cash flow are affected by deposits, lending, and funding allocation; values are raw disclosures only and are not used for Quality Summary."}</div>` : ""}</article>
           <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "资本支出" : "Capital Expenditure"}</div><div class="detail-line-list">${renderMetricRows([
             recordRow(currentLanguage === "zh" ? "CapEx（TTM）" : "CapEx (TTM)", ttm.capitalExpenditure, periodLabel(ttm.capitalExpenditure)),
             valueRow(currentLanguage === "zh" ? "CapEx / 营收（TTM）" : "CapEx / Revenue (TTM)", ttm.capexToRevenue, formatPercentage),
@@ -23181,13 +23228,13 @@ function renderDetailModal(row) {
             availableGuidance.includes(guidance.managementOutlook) ? { label: currentLanguage === "zh" ? "管理层展望" : "Management Outlook", value: analysisStateLabel(guidance.managementOutlook.value) } : null,
           ]) : `<div class="detail-line-note">${guidanceStatusMessage}</div>`}</div></article>` : ""}
         </div>
-        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "质量摘要" : "Quality Summary"}</h3></div>
+        ${analysis.is_financial_company ? "" : `<div class="detail-section-head"><h3>${currentLanguage === "zh" ? "质量摘要" : "Quality Summary"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
           { label: currentLanguage === "zh" ? "现金创造" : "Cash Generation", value: qualityValue(quality.cash_generation), note: (quality.cash_generation?.supporting_metrics || []).join(" · ") },
           { label: currentLanguage === "zh" ? "资本效率" : "Capital Efficiency", value: qualityValue(quality.capital_efficiency), note: (quality.capital_efficiency?.supporting_metrics || []).join(" · ") },
           { label: currentLanguage === "zh" ? "股东回报" : "Shareholder Return", value: qualityValue(quality.shareholder_return), note: (quality.shareholder_return?.supporting_metrics || []).join(" · ") },
           { label: currentLanguage === "zh" ? "盈利质量" : "Earnings Quality", value: qualityValue(quality.earnings_quality), note: (quality.earnings_quality?.supporting_metrics || []).join(" · ") },
-        ])}</div>
+        ])}</div>`}
       </section>
     `;
   };
@@ -23204,19 +23251,25 @@ function renderDetailModal(row) {
       const actual = metric?.actual;
       const estimate = metric?.estimate;
       if (!Number.isFinite(actual) && !Number.isFinite(estimate)) return null;
-      const result = metric?.comparison_status === "beat"
+      const hasEstimate = Number.isFinite(estimate);
+      const comparisonStatus = metric?.comparison_status;
+      const result = comparisonStatus === "beat"
         ? (currentLanguage === "zh" ? `高于预期 ${formatPercentValue(metric.surprise_pct, 1)}` : `Beat by ${formatPercentValue(metric.surprise_pct, 1)}`)
-        : metric?.comparison_status === "miss"
+        : comparisonStatus === "miss"
           ? (currentLanguage === "zh" ? `低于预期 ${formatPercentValue(metric.surprise_pct, 1)}` : `Missed by ${formatPercentValue(metric.surprise_pct, 1)}`)
-          : metric?.comparison_status === "in_line"
+          : comparisonStatus === "loss_wider_than_expected" || comparisonStatus === "loss_narrower_than_expected" || comparisonStatus === "turned_profitable" || comparisonStatus === "turned_to_loss" || comparisonStatus === "denominator_near_zero"
+            ? formatAnalysisStatus(comparisonStatus)
+          : comparisonStatus === "in_line"
             ? (currentLanguage === "zh" ? "符合预期" : "In line")
-            : (currentLanguage === "zh" ? "无法比较" : "Cannot compare");
+            : null;
       const period = metric?.period?.period_end_date || analysis.period_end || "—";
-      const estimateText = Number.isFinite(estimate)
+      const estimateText = hasEstimate
         ? `${currentLanguage === "zh" ? "预期" : "Estimate"}: ${formatter(estimate)}`
-        : `${currentLanguage === "zh" ? "市场预期：未取得" : "Market estimate: not obtained"}`;
+        : analysis.is_financial_company
+          ? `${currentLanguage === "zh" ? "预期：数据不可用" : "Estimate: unavailable"}`
+          : null;
       const actualText = Number.isFinite(actual) ? `${currentLanguage === "zh" ? "实际" : "Actual"}: ${formatter(actual)}` : `${currentLanguage === "zh" ? "实际：未取得" : "Actual: not obtained"}`;
-      return { label, value: result, note: `${actualText} · ${estimateText} · ${currentLanguage === "zh" ? "期间" : "Period"}: ${period}` };
+      return { label, value: result || actualText, note: [result ? actualText : null, estimateText, `${currentLanguage === "zh" ? "期间" : "Period"}: ${period}`].filter(Boolean).join(" · ") };
     };
     return `
       <section class="detail-section-card">
@@ -23224,17 +23277,19 @@ function renderDetailModal(row) {
         <div class="detail-line-note">${analysis.status === "available" ? `${currentLanguage === "zh" ? "事件日期" : "Event date"}: ${analysis.event_date || "—"} · ${currentLanguage === "zh" ? "财报期末" : "Period end"}: ${analysis.period_end || "—"}` : localizedDashboardText(analysis.explanation || "")}</div>
         <div class="decision-summary-grid">
           <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "超预期 / 不及预期" : "Beat / Miss"}</div><div class="detail-line-list">${renderMetricRows([
-            metricRow(currentLanguage === "zh" ? "季度营收" : "Quarterly Revenue", metrics.revenue, (value) => formatFinancialAmount(value, { currency: currencyCode })),
+            ...(analysis.is_financial_company ? [] : [metricRow(currentLanguage === "zh" ? "季度营收" : "Quarterly Revenue", metrics.revenue, (value) => formatFinancialAmount(value, { currency: currencyCode }))]),
             metricRow("EPS", metrics.eps, (value) => formatCurrency(value, currencyCode)),
-            metricRow(currentLanguage === "zh" ? "毛利率" : "Gross Margin", metrics.gross_margin, (value) => formatPercentage(value)),
-            metricRow(currentLanguage === "zh" ? "营业利润率" : "Operating Margin", metrics.operating_margin, (value) => formatPercentage(value)),
-            metricRow(currentLanguage === "zh" ? "季度自由现金流" : "Quarterly Free Cash Flow", metrics.free_cash_flow, (value) => formatFinancialAmount(value, { currency: currencyCode })),
-            metricRow(currentLanguage === "zh" ? "季度 CapEx" : "Quarterly CapEx", metrics.capex, (value) => formatFinancialAmount(value, { currency: currencyCode })),
+            ...(analysis.is_financial_company ? [] : [
+              metricRow(currentLanguage === "zh" ? "毛利率" : "Gross Margin", metrics.gross_margin, (value) => formatPercentage(value)),
+              metricRow(currentLanguage === "zh" ? "营业利润率" : "Operating Margin", metrics.operating_margin, (value) => formatPercentage(value)),
+              metricRow(currentLanguage === "zh" ? "季度自由现金流" : "Quarterly Free Cash Flow", metrics.free_cash_flow, (value) => formatFinancialAmount(value, { currency: currencyCode })),
+              metricRow(currentLanguage === "zh" ? "季度 CapEx" : "Quarterly CapEx", metrics.capex, (value) => formatFinancialAmount(value, { currency: currencyCode })),
+            ]),
           ])}</div></article>
-          ${managementRows.length ? `<article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "管理层" : "Management"}</div><div class="detail-line-list">${renderMetricRows(managementRows)}</div></article>` : ""}
+          ${!analysis.is_financial_company && managementRows.length ? `<article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "管理层" : "Management"}</div><div class="detail-line-list">${renderMetricRows(managementRows)}</div></article>` : ""}
         </div>
-        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "股价变动的可验证线索" : "Verified Clues Behind the Move"}</h3></div>
-        <div class="detail-line-note">${localizedDashboardText(analysis.why_stock_moved || "")}</div>
+        ${analysis.is_financial_company ? "" : `<div class="detail-section-head"><h3>${currentLanguage === "zh" ? "股价变动的可验证线索" : "Verified Clues Behind the Move"}</h3></div>
+        <div class="detail-line-note">${localizedDashboardText(analysis.why_stock_moved || "")}</div>`}
       </section>
     `;
   };
@@ -23298,7 +23353,7 @@ function renderDetailModal(row) {
           { label: "PEG", value: displayValue(fundamentalValuation.peg, (value) => formatRatio(value)) },
           { label: "PS", value: displayValue(fundamentalValuation.ps_ratio, (value) => formatRatio(value)) },
           { label: "EV / EBITDA", value: displayValue(fundamentalValuation.ev_ebitda, (value) => formatRatio(value)) },
-          { label: "Price / FCF", value: Number.isFinite(fundamentalValuation.price_fcf) ? formatRatio(fundamentalValuation.price_fcf) : "N/M", note: currentLanguage === "zh" ? "TTM 自由现金流非正或不可验证时不计算该倍数。" : "Not calculated when TTM free cash flow is non-positive or unverified." },
+          { label: "Price / FCF", value: Number.isFinite(fundamentalValuation.price_fcf) ? formatRatio(fundamentalValuation.price_fcf) : "—", note: fundamentalValuation.price_fcf < 0 ? (currentLanguage === "zh" ? "TTM 自由现金流为负；负倍数保留展示，但不代表低估。" : "TTM free cash flow is negative; the signed multiple is shown but is not treated as cheap.") : (currentLanguage === "zh" ? "仅在缺少可验证 TTM 自由现金流或分母为 0 时无法计算。" : "Unavailable only when verified TTM free cash flow is missing or the denominator is zero.") },
           { label: t("summary"), value: fundamentalValuation.state || t("dataUnavailable") },
         ])}</div>
       </section>

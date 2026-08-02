@@ -94,7 +94,7 @@ MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TIC
 OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECONDS", "6"))
 FINANCIAL_STATEMENT_CACHE_SECONDS = int(os.environ.get("FINANCIAL_STATEMENT_CACHE_SECONDS", str(12 * 60 * 60)))
 FINANCIAL_STATEMENT_EARNINGS_CHECK_SECONDS = int(os.environ.get("FINANCIAL_STATEMENT_EARNINGS_CHECK_SECONDS", str(2 * 60 * 60)))
-FINANCIAL_STATEMENT_SCHEMA_VERSION = 2
+FINANCIAL_STATEMENT_SCHEMA_VERSION = 3
 FINANCIAL_DEBUG_ENABLED = os.environ.get("FINANCIAL_DEBUG_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
 SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT", "Stock Decision Dashboard contact@stock-decision-dashboard.local")
 # Increment when an options field changes methodology so cached synthetic data
@@ -532,6 +532,78 @@ def _safe_float(value):
         return float(value)
     except Exception:
         return None
+
+
+EPS_SURPRISE_NEAR_ZERO_THRESHOLD = 0.01
+
+
+def build_earnings_surprise(actual, estimate, near_zero_threshold=EPS_SURPRISE_NEAR_ZERO_THRESHOLD):
+    """Return a signed surprise plus an interpretable comparison state.
+
+    Percentage surprises are unreliable around zero and misleading when EPS
+    changes sign, so the state and absolute surprise remain the primary UI
+    signal in those cases.
+    """
+    actual_value = _safe_float(actual)
+    estimate_value = _safe_float(estimate)
+    if actual_value is None and estimate_value is None:
+        return {
+            "surprise_abs": None,
+            "surprise_pct": None,
+            "raw_surprise_pct": None,
+            "comparison_status": "cannot_compare",
+            "data_status": "unavailable",
+        }
+    if actual_value is None:
+        return {
+            "surprise_abs": None,
+            "surprise_pct": None,
+            "raw_surprise_pct": None,
+            "comparison_status": "cannot_compare",
+            "data_status": "estimate_only",
+        }
+    if estimate_value is None:
+        return {
+            "surprise_abs": None,
+            "surprise_pct": None,
+            "raw_surprise_pct": None,
+            "comparison_status": "cannot_compare",
+            "data_status": "actual_only",
+        }
+
+    surprise_abs = actual_value - estimate_value
+    if abs(estimate_value) < near_zero_threshold:
+        comparison = "denominator_near_zero"
+        return {
+            "surprise_abs": surprise_abs,
+            "surprise_pct": None,
+            "raw_surprise_pct": None,
+            "comparison_status": comparison,
+            "data_status": "actual_and_estimate_available",
+        }
+
+    surprise_pct = (surprise_abs / abs(estimate_value)) * 100
+    raw_surprise_pct = (surprise_abs / estimate_value) * 100
+    tolerance = max(abs(estimate_value) * 0.015, near_zero_threshold)
+    if actual_value < 0 < estimate_value:
+        comparison = "turned_to_loss"
+    elif actual_value > 0 > estimate_value:
+        comparison = "turned_profitable"
+    elif actual_value < 0 and estimate_value < 0:
+        comparison = "loss_wider_than_expected" if actual_value < estimate_value - tolerance else "loss_narrower_than_expected" if actual_value > estimate_value + tolerance else "in_line"
+    elif surprise_abs > tolerance:
+        comparison = "beat"
+    elif surprise_abs < -tolerance:
+        comparison = "miss"
+    else:
+        comparison = "in_line"
+    return {
+        "surprise_abs": surprise_abs,
+        "surprise_pct": surprise_pct,
+        "raw_surprise_pct": raw_surprise_pct,
+        "comparison_status": comparison,
+        "data_status": "actual_and_estimate_available",
+    }
 
 
 def _safe_int(value):
@@ -1187,33 +1259,10 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
     def metric(actual_record, estimate=None, period=None):
         actual = record_value(actual_record)
         estimate_value = _safe_float(estimate)
-        if actual is not None and estimate_value is not None:
-            surprise_abs = actual - estimate_value
-            surprise_pct = (surprise_abs / abs(estimate_value)) * 100 if estimate_value != 0 else None
-            comparison = "beat" if surprise_pct is not None and surprise_pct > 1.5 else "miss" if surprise_pct is not None and surprise_pct < -1.5 else "in_line"
-            status = "actual_and_estimate_available"
-        elif actual is not None:
-            surprise_abs = None
-            surprise_pct = None
-            comparison = "cannot_compare"
-            status = "actual_only"
-        elif estimate_value is not None:
-            surprise_abs = None
-            surprise_pct = None
-            comparison = "cannot_compare"
-            status = "estimate_only"
-        else:
-            surprise_abs = None
-            surprise_pct = None
-            comparison = "cannot_compare"
-            status = "unavailable"
         return {
             "actual": actual,
             "estimate": estimate_value,
-            "surprise_abs": surprise_abs,
-            "surprise_pct": surprise_pct,
-            "comparison_status": comparison,
-            "data_status": status,
+            **build_earnings_surprise(actual, estimate_value),
             "period": period or actual_record,
         }
 
@@ -1410,6 +1459,11 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
     quarter_net_margin = record_value(quarter_net_income) / quarter_revenue_value if record_value(quarter_net_income) is not None and quarter_revenue_value not in (None, 0) else None
     capex_state = "rapidly_accelerating" if (capex_yoy is not None and capex_yoy >= 30) or (capex_qoq is not None and capex_qoq >= 20) else "high" if ttm_capex_to_revenue is not None and ttm_capex_to_revenue >= 0.25 else "elevated" if ttm_capex_to_revenue is not None and ttm_capex_to_revenue >= 0.15 else "normal" if ttm_capex_to_revenue is not None else "unavailable"
     is_reit = bool(re.search(r"\breit\b|real estate", f"{info.get('sector', '')} {info.get('industry', '')}", re.I))
+    cash_flow_semantic = (
+        {"model": "reit_cash_flow_limited", "warning": "reit_fcf_is_not_a_substitute_for_ffo_or_affo"}
+        if is_reit
+        else financial_semantics(info)
+    )
     earnings = _latest_earnings_dates(instrument)
     quarter_eps_value = record_value(quarter_eps) if record_value(quarter_eps) is not None else earnings.get("epsActual")
     quarter_net_income_value = record_value(quarter_net_income)
@@ -1482,10 +1536,7 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
                 "comparisons": {"quarterlyFcfYoy": quarterly_fcf_yoy, "quarterlyFcfQoq": quarterly_fcf_qoq, "ttmFcfYoy": ttm_fcf_yoy, "quarterlyCapexYoy": quarterly_capex_yoy, "quarterlyCapexQoq": quarterly_capex_qoq, "ttmCapexYoy": ttm_capex_yoy, "quarterlyOcfYoy": quarterly_ocf_yoy, "ttmOcfYoy": ttm_ocf_yoy},
                 "consistency": {"freeCashFlowTtm": consistency(calculated_ttm_fcf, reported_ttm_fcf), "freeCashFlowQuarter": consistency(calculated_quarter_fcf, record_value(quarter_fcf))},
             },
-            "cashFlowSemantic": {
-                "model": "reit_cash_flow_limited" if is_reit else "corporate_cash_flow",
-                "warning": "reit_fcf_is_not_a_substitute_for_ffo_or_affo" if is_reit else None,
-            },
+            "cashFlowSemantic": cash_flow_semantic,
             "balanceSheet": {
                 "cash": cash_equivalents_record,
                 "cashAndCashEquivalents": cash_equivalents_record,
@@ -1561,7 +1612,8 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
                 "ttm_fcf_value": ttm_fcf_value,
                 "ttm_fcf_period_end": _financial_record_period(ttm_fcf_record),
                 "priceToStandardizedFreeCashFlow": fresh_price_to_fcf(market_cap, ttm_fcf_value),
-                "priceToFcfStatus": "not_meaningful" if ttm_fcf_value is None or ttm_fcf_value <= 0 else "available",
+                "priceToFcfStatus": "unavailable" if ttm_fcf_value is None else "zero_denominator" if ttm_fcf_value == 0 else "available",
+                "economic_interpretation": "negative_free_cash_flow" if ttm_fcf_value is not None and ttm_fcf_value < 0 else "positive_free_cash_flow" if ttm_fcf_value is not None else "unavailable",
                 "definition": "market_cap_divided_by_displayed_ttm_free_cash_flow",
             }
         except Exception as exc:
@@ -4186,11 +4238,19 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         or info.get("priceToFreeCashFlow")
         or info.get("priceToFCF")
     )
-    if _safe_float(market_cap) not in (None, 0) and free_cashflow is not None and free_cashflow > 0:
+    if _safe_float(market_cap) not in (None, 0) and free_cashflow is not None and free_cashflow != 0:
         try:
             price_to_fcf = _safe_float(market_cap) / free_cashflow
         except Exception:
             price_to_fcf = None
+    trailing_eps = _safe_float(info.get("epsTrailingTwelveMonths"))
+    forward_eps = _safe_float(info.get("epsForward"))
+    trailing_pe = _safe_float(info.get("trailingPE"))
+    forward_pe = _safe_float(info.get("forwardPE"))
+    if trailing_pe is None and price is not None and trailing_eps not in (None, 0):
+        trailing_pe = price / trailing_eps
+    if forward_pe is None and price is not None and forward_eps not in (None, 0):
+        forward_pe = price / forward_eps
     earnings_timestamp = (
         info.get("earningsTimestamp")
         or info.get("earningsTimestampStart")
@@ -4216,8 +4276,8 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         "shortName": info.get("shortName") or info.get("displayName"),
         "longName": info.get("longName") or info.get("shortName") or info.get("displayName"),
         "exchangeName": info.get("exchange") or info.get("fullExchangeName"),
-        "trailingPE": _safe_float(info.get("trailingPE")),
-        "forwardPE": _safe_float(info.get("forwardPE")),
+        "trailingPE": trailing_pe,
+        "forwardPE": forward_pe,
         "marketCap": market_cap,
         "metadata": {
             "sector": info.get("sector"),
@@ -4229,9 +4289,10 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
             "priceToSalesTrailing12Months": _safe_float(info.get("priceToSalesTrailing12Months")),
             "enterpriseToRevenue": _safe_float(info.get("enterpriseToRevenue")),
             "pegRatio": _safe_float(info.get("pegRatio")),
-            # A reported ratio may be based on stale or non-standard FCF.  If
-            # the displayed statement FCF is non-positive, Price/FCF is N/M.
-            "priceToFreeCashflow": None if free_cashflow is None or free_cashflow <= 0 else price_to_fcf,
+            # The rendered ratio always follows the same verified TTM FCF
+            # record. Negative cash flow yields a signed multiple, not a
+            # missing value or a falsely cheap valuation conclusion.
+            "priceToFreeCashflow": None if free_cashflow is None or free_cashflow == 0 else price_to_fcf,
             "targetMeanPrice": _safe_float(info.get("targetMeanPrice")),
             "targetMedianPrice": _safe_float(info.get("targetMedianPrice")),
             "targetHighPrice": _safe_float(info.get("targetHighPrice")),
@@ -4446,6 +4507,16 @@ def _financial_record_period(record):
     return str(value)[:10] if value else None
 
 
+def same_fiscal_calendar_period(left, right, tolerance_days=10):
+    """Treat nearby non-calendar fiscal quarter ends as the same quarter."""
+    try:
+        left_date = datetime.fromisoformat(str(left)[:10]).date() if left else None
+        right_date = datetime.fromisoformat(str(right)[:10]).date() if right else None
+    except (TypeError, ValueError):
+        return False
+    return bool(left_date and right_date and abs((left_date - right_date).days) <= tolerance_days)
+
+
 def _group_period(records):
     periods = sorted({period for period in (_financial_record_period(record) for record in records) if period})
     if not periods:
@@ -4485,8 +4556,8 @@ def apply_financial_display_status(snapshot, freshness, report=None):
     groups = audit["groups"]
     major = [groups[name].get("period_end") for name in ("cash_flow_statement", "balance_sheet", "ttm")]
     major_available = [period for period in major if period]
-    all_major_current = bool(expected_period and len(major_available) == 3 and all(period == expected_period for period in major_available))
-    some_current = bool(expected_period and any(expected_period in group.get("periods", []) for group in groups.values()))
+    all_major_current = bool(expected_period and len(major_available) == 3 and all(same_fiscal_calendar_period(period, expected_period) for period in major_available))
+    some_current = bool(expected_period and any(any(same_fiscal_calendar_period(period, expected_period) for period in group.get("periods", [])) for group in groups.values()))
     if expected_period and all_major_current:
         status, completeness = "latest_complete", "complete"
     elif expected_period and some_current:
@@ -4508,6 +4579,7 @@ def apply_financial_display_status(snapshot, freshness, report=None):
         "groups": groups,
         "displayed_complete_period_end": audit.get("displayed_complete_period_end"),
         "expected_latest_period_end": expected_period,
+        "fiscal_calendar_equivalent": bool(expected_period and audit.get("displayed_complete_period_end") and same_fiscal_calendar_period(expected_period, audit.get("displayed_complete_period_end"))),
         "completeness": completeness,
         "source_type": source_type,
         "mixed_group_periods": audit.get("mixed_group_periods"),
@@ -4733,16 +4805,12 @@ def _financial_record_value(record):
 def _set_sec_actual_metric(existing, record):
     actual = _financial_record_value(record)
     estimate = _safe_float((existing or {}).get("estimate"))
-    if actual is not None and estimate is not None and estimate != 0:
-        surprise_abs = actual - estimate
-        surprise_pct = (surprise_abs / abs(estimate)) * 100
-        comparison = "beat" if surprise_pct > 1.5 else "miss" if surprise_pct < -1.5 else "in_line"
-        status = "actual_and_estimate_available"
-    elif actual is not None:
-        surprise_abs, surprise_pct, comparison, status = None, None, "cannot_compare", "actual_only"
-    else:
-        surprise_abs, surprise_pct, comparison, status = None, None, "cannot_compare", "unavailable"
-    return {"actual": actual, "estimate": estimate, "surprise_abs": surprise_abs, "surprise_pct": surprise_pct, "comparison_status": comparison, "data_status": status, "period": record}
+    return {
+        "actual": actual,
+        "estimate": estimate,
+        **build_earnings_surprise(actual, estimate),
+        "period": record,
+    }
 
 
 def apply_sec_financial_report(snapshot, report, freshness, info):
@@ -4931,9 +4999,13 @@ def apply_sec_financial_report(snapshot, report, freshness, info):
         "reportedEps": _financial_record_value(quarter.get("diluted_eps")),
     }
     market_cap = _safe_float(info.get("marketCap"))
+    ttm_fcf_value = _financial_record_value(ttm_values.get("freeCashFlow"))
     snapshot["financialStatementValuation"] = {
+        "ttm_fcf_value": ttm_fcf_value,
+        "ttm_fcf_period_end": _financial_record_period(ttm_values.get("freeCashFlow")),
         "priceToStandardizedFreeCashFlow": fresh_price_to_fcf(market_cap, _financial_record_value(ttm_values.get("freeCashFlow"))),
-        "priceToFcfStatus": "not_meaningful" if _financial_record_value(ttm_values.get("freeCashFlow")) is not None and _financial_record_value(ttm_values.get("freeCashFlow")) <= 0 else "available",
+        "priceToFcfStatus": "unavailable" if ttm_fcf_value is None else "zero_denominator" if ttm_fcf_value == 0 else "available",
+        "economic_interpretation": "negative_free_cash_flow" if ttm_fcf_value is not None and ttm_fcf_value < 0 else "positive_free_cash_flow" if ttm_fcf_value is not None else "unavailable",
         "definition": "market_cap_divided_by_standardized_ttm_ocf_minus_capex",
     }
     snapshot["source"] = "SEC EDGAR normalized financial statements"
@@ -4991,12 +5063,14 @@ def extract_fundamental_fields_from_quote(quote):
     if not isinstance(metadata, dict):
         metadata = {}
     market_cap = quote.get("marketCap") if isinstance(quote, dict) else None
-    free_cashflow = metadata.get("freeCashflow")
     company_analysis = metadata.get("companyAnalysis") if isinstance(metadata.get("companyAnalysis"), dict) else {}
+    valuation = company_analysis.get("financialStatementValuation") if isinstance(company_analysis.get("financialStatementValuation"), dict) else {}
+    verified_ttm_fcf = _safe_float(valuation.get("ttm_fcf_value"))
+    free_cashflow = verified_ttm_fcf if verified_ttm_fcf is not None else metadata.get("freeCashflow")
     cash_flow = company_analysis.get("cashFlow") if isinstance(company_analysis.get("cashFlow"), dict) else {}
     balance_sheet = company_analysis.get("balanceSheet") if isinstance(company_analysis.get("balanceSheet"), dict) else {}
     price_fcf = None
-    if _safe_float(market_cap) not in (None, 0) and _safe_float(free_cashflow) is not None and _safe_float(free_cashflow) > 0:
+    if _safe_float(market_cap) not in (None, 0) and _safe_float(free_cashflow) is not None and _safe_float(free_cashflow) != 0:
         try:
             price_fcf = _safe_float(market_cap) / _safe_float(free_cashflow)
         except Exception:
@@ -5006,7 +5080,7 @@ def extract_fundamental_fields_from_quote(quote):
         "forward_pe": quote.get("forwardPE") if isinstance(quote, dict) else None,
         "peg": metadata.get("pegRatio"),
         "ev_ebitda": metadata.get("enterpriseToEbitda"),
-        "price_fcf": metadata.get("priceToFreeCashflow") if metadata.get("priceToFreeCashflow") is not None else price_fcf,
+        "price_fcf": valuation.get("priceToStandardizedFreeCashFlow") if _safe_float(valuation.get("priceToStandardizedFreeCashFlow")) is not None else metadata.get("priceToFreeCashflow") if metadata.get("priceToFreeCashflow") is not None else price_fcf,
         "market_cap": market_cap,
         "revenue_growth": metadata.get("revenueGrowth"),
         "profit_margins": metadata.get("profitMargins"),
