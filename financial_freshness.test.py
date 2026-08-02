@@ -62,6 +62,21 @@ class FinancialFreshnessTests(unittest.TestCase):
         self.assertEqual(report["ttm"]["revenue"]["raw_value"], 460)
         self.assertEqual(report["ttm"]["standardized_free_cash_flow"]["raw_value"], 96)
 
+    def test_capex_mapping_does_not_select_property_sale_proceeds(self):
+        facts = {"facts": {"us-gaap": {
+            "PaymentsToAcquirePropertyPlantAndEquipment": {"units": {"USD": [
+                {"start": "2026-01-01", "end": "2026-03-31", "val": 12, "form": "10-Q", "accn": "q1", "filed": "2026-05-01"},
+            ]}},
+            "PaymentsForProceedsFromOtherPropertyPlantAndEquipment": {"units": {"USD": [
+                {"start": "2026-01-01", "end": "2026-03-31", "val": 900, "form": "10-Q", "accn": "q1", "filed": "2026-05-01"},
+            ]}},
+        }}}
+        filing = {"form": "10-Q", "reportDate": "2026-03-31", "filingDate": "2026-05-01", "accessionNumber": "q1", "primaryDocument": "q1.htm"}
+        report = build_sec_normalized_report(facts, 1, filing)
+        capex = report["quarter"]["capital_expenditure"]
+        self.assertEqual(capex["raw_value"], 12)
+        self.assertEqual(capex["source_field"], "PaymentsToAcquirePropertyPlantAndEquipment")
+
     def test_price_to_fcf_preserves_a_valid_negative_denominator(self):
         self.assertEqual(price_to_fcf(1000, -1), -1000)
         self.assertEqual(price_to_fcf(1000, 50), 20)

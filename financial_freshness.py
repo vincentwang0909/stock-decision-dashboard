@@ -30,12 +30,58 @@ CASH_FLOW_CONCEPTS = {
     "operating_cash_flow": ["NetCashProvidedByUsedInOperatingActivities"],
     "capital_expenditure": [
         "PaymentsToAcquirePropertyPlantAndEquipment",
-        "PaymentsForProceedsFromOtherPropertyPlantAndEquipment",
+        "PaymentsToAcquireProductiveAssets",
         "SegmentExpenditureAdditionToLongLivedAssets",
     ],
     "share_repurchases": ["PaymentsForRepurchaseOfCommonStock", "PaymentsForRepurchaseOfEquity"],
     "dividends_paid": ["PaymentsOfDividends", "PaymentsOfDividendsCommonStock"],
 }
+
+
+def build_sec_concept_diagnostic(
+    company_facts: dict[str, Any] | None,
+    filing: dict[str, Any] | None,
+    selected_concept: str | None = None,
+    field: str = "capital_expenditure",
+) -> dict[str, Any]:
+    """Expose SEC concept selection only through the development debug endpoint."""
+    report_date = str((filing or {}).get("reportDate") or "")[:10] or None
+    candidates = CASH_FLOW_CONCEPTS.get(field, [])
+    rows_out: list[dict[str, Any]] = []
+    for concept in candidates:
+        unit, rows = sec_units_for_single_concept(company_facts or {}, concept, ("USD",))
+        matching_rows = _filtered_period_rows(rows, report_date, filing) if report_date else rows
+        duration_rows = [row for row in matching_rows if _duration_days(row) is not None]
+        selected_rows = [row for row in duration_rows if str(row.get("form") or "").replace("/A", "") in {"10-Q", "10-K"}]
+        if not selected_rows:
+            rows_out.append({
+                "concept_name": concept,
+                "unit": unit,
+                "selected": concept == selected_concept,
+                "decision": "rejected_no_matching_sec_duration_fact",
+            })
+            continue
+        for row in selected_rows:
+            rows_out.append({
+                "concept_name": concept,
+                "form": row.get("form"),
+                "filed_date": row.get("filed"),
+                "fiscal_period": row.get("fp"),
+                "start_date": row.get("start"),
+                "end_date": row.get("end"),
+                "unit": unit,
+                "raw_value": safe_float(row.get("val")),
+                "normalized_value": safe_float(row.get("val")),
+                "selected": concept == selected_concept,
+                "decision": "selected_standard_capex_concept" if concept == selected_concept else "rejected_lower_priority_or_incompatible_concept",
+            })
+    return {
+        "status": "available" if rows_out else "unavailable",
+        "field": field,
+        "filing_period": report_date,
+        "selected_concept": selected_concept,
+        "candidates": rows_out,
+    }
 
 BALANCE_SHEET_CONCEPTS = {
     "cash_and_cash_equivalents": ["CashAndCashEquivalentsAtCarryingValue"],
@@ -410,6 +456,20 @@ def build_sec_normalized_report(company_facts: dict[str, Any], cik: int, filing:
 
     revenue = metrics["revenue"]["raw_value"]
     ttm_revenue = ttm["revenue"]["raw_value"]
+    prior_eps_entry = (quarter_series.get("diluted_eps") or [None, None])[1] if len(quarter_series.get("diluted_eps") or []) > 1 else None
+    prior_eps_derivation = (prior_eps_entry or {}).get("derivation") or {}
+    prior_eps_filing = (prior_eps_entry or {}).get("filing") or {}
+    prior_eps_record = _record(
+        prior_eps_derivation.get("value"),
+        "quarter",
+        prior_eps_filing.get("reportDate"),
+        metrics["diluted_eps"].get("source_field"),
+        metrics["diluted_eps"].get("unit"),
+        prior_eps_filing,
+        filing_url(cik, prior_eps_filing.get("accessionNumber"), prior_eps_filing.get("primaryDocument")),
+        prior_eps_derivation.get("method") or "unavailable",
+    )
+    prior_eps_record["normalized_dashboard_field"] = "prior_quarter_diluted_eps"
     return {
         "source_name": "SEC EDGAR companyfacts",
         "source_url": source_url,
@@ -426,6 +486,14 @@ def build_sec_normalized_report(company_facts: dict[str, Any], cik: int, filing:
             "ttm_capex_to_ocf": abs(ttm["capital_expenditure"]["raw_value"]) / ttm["operating_cash_flow"]["raw_value"] if ttm["capital_expenditure"]["raw_value"] is not None and ttm["operating_cash_flow"]["raw_value"] not in (None, 0) else None,
         },
         "quarter_series": quarter_series,
+        "previous_quarter": {"diluted_eps": prior_eps_record},
+        "concept_diagnostics": {
+            "capital_expenditure": build_sec_concept_diagnostic(
+                company_facts,
+                latest,
+                metrics.get("capital_expenditure", {}).get("source_field"),
+            ),
+        },
         "extraction_timestamp": now_iso(),
     }
 

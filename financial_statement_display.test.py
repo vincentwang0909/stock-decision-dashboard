@@ -104,6 +104,16 @@ class FinancialStatementDisplayTests(unittest.TestCase):
         self.assertEqual(near_zero["comparison_status"], "denominator_near_zero")
         self.assertIsNone(near_zero["surprise_pct"])
 
+    def test_eps_quarter_comparison_uses_semantic_states_when_values_cross_zero(self):
+        turned_to_loss = server.build_eps_quarter_comparison(-0.41, 0.09)
+        self.assertEqual(turned_to_loss["state"], "turned_to_loss")
+        self.assertAlmostEqual(turned_to_loss["absolute_change"], -0.50)
+        narrowed_loss = server.build_eps_quarter_comparison(-0.05, -0.12)
+        self.assertEqual(narrowed_loss["state"], "loss_narrowed")
+        growth = server.build_eps_quarter_comparison(0.12, 0.09)
+        self.assertEqual(growth["state"], "earnings_growth")
+        self.assertTrue(growth["pct_change_valid"])
+
     def test_partial_release_keeps_complete_statement_period(self):
         item = snapshot()
         report = {

@@ -94,7 +94,7 @@ MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TIC
 OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECONDS", "6"))
 FINANCIAL_STATEMENT_CACHE_SECONDS = int(os.environ.get("FINANCIAL_STATEMENT_CACHE_SECONDS", str(12 * 60 * 60)))
 FINANCIAL_STATEMENT_EARNINGS_CHECK_SECONDS = int(os.environ.get("FINANCIAL_STATEMENT_EARNINGS_CHECK_SECONDS", str(2 * 60 * 60)))
-FINANCIAL_STATEMENT_SCHEMA_VERSION = 3
+FINANCIAL_STATEMENT_SCHEMA_VERSION = 4
 FINANCIAL_DEBUG_ENABLED = os.environ.get("FINANCIAL_DEBUG_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
 SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT", "Stock Decision Dashboard contact@stock-decision-dashboard.local")
 # Increment when an options field changes methodology so cached synthetic data
@@ -606,6 +606,37 @@ def build_earnings_surprise(actual, estimate, near_zero_threshold=EPS_SURPRISE_N
     }
 
 
+def build_eps_quarter_comparison(actual, prior, near_zero_threshold=EPS_SURPRISE_NEAR_ZERO_THRESHOLD):
+    """Compare two reported EPS values without making crossed-zero percentages look meaningful."""
+    actual_value = _safe_float(actual)
+    prior_value = _safe_float(prior)
+    result = {
+        "current": actual_value,
+        "prior": prior_value,
+        "absolute_change": actual_value - prior_value if actual_value is not None and prior_value is not None else None,
+        "pct_change": None,
+        "pct_change_valid": False,
+        "state": "unavailable",
+    }
+    if actual_value is None or prior_value is None:
+        return result
+    if abs(prior_value) < near_zero_threshold:
+        return {**result, "state": "denominator_near_zero"}
+    if actual_value > 0 and prior_value < 0:
+        return {**result, "state": "turned_profitable"}
+    if actual_value < 0 and prior_value > 0:
+        return {**result, "state": "turned_to_loss"}
+    if actual_value < 0 and prior_value < 0:
+        return {**result, "state": "loss_narrowed" if actual_value > prior_value else "loss_widened" if actual_value < prior_value else "unchanged"}
+    pct_change = (actual_value - prior_value) / abs(prior_value) * 100
+    return {
+        **result,
+        "pct_change": pct_change,
+        "pct_change_valid": True,
+        "state": "earnings_growth" if actual_value > prior_value else "earnings_decline" if actual_value < prior_value else "unchanged",
+    }
+
+
 def _safe_int(value):
     try:
         if value is None or pd.isna(value):
@@ -1025,6 +1056,14 @@ def _statement_quarter_record(frame, labels):
     return _period_record(value["raw_value"], "quarter", value["period_end_date"], value["source_field"])
 
 
+def _statement_quarter_record_at_index(frame, labels, period_index):
+    values = _statement_values(frame, labels, period_index, 1)
+    if not values:
+        return _period_record(None, "unavailable")
+    value = values[0]
+    return _period_record(value["raw_value"], "quarter", value["period_end_date"], value["source_field"])
+
+
 def _statement_fiscal_year_record(frame, labels):
     values = _statement_values(frame, labels, 0, 1)
     if not values:
@@ -1256,14 +1295,18 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
             record["calculation_method"] = f"absolute_cashflow_outflow:{record.get('calculation_method', 'reported')}"
         return record
 
-    def metric(actual_record, estimate=None, period=None):
+    def metric(actual_record, estimate=None, period=None, previous_actual_record=None):
         actual = record_value(actual_record)
         estimate_value = _safe_float(estimate)
+        previous_actual = record_value(previous_actual_record)
         return {
             "actual": actual,
             "estimate": estimate_value,
             **build_earnings_surprise(actual, estimate_value),
             "period": period or actual_record,
+            "previous_actual": previous_actual,
+            "previous_period": previous_actual_record,
+            "quarter_over_quarter": build_eps_quarter_comparison(actual, previous_actual),
         }
 
     ttm_revenue = _statement_ttm_record(quarterly_income, revenue_labels, annual_income, info.get("totalRevenue"))
@@ -1283,6 +1326,7 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
     quarter_gross_profit = _statement_quarter_record(quarterly_income, ["Gross Profit"])
     quarter_operating_income = _statement_quarter_record(quarterly_income, ["Operating Income"])
     quarter_eps = _statement_quarter_record(quarterly_income, ["Diluted EPS", "Basic EPS"])
+    previous_quarter_eps = _statement_quarter_record_at_index(quarterly_income, ["Diluted EPS", "Basic EPS"], 1)
     quarter_net_income = _statement_quarter_record(quarterly_income, ["Net Income Common Stockholders", "Net Income"])
     quarter_equity_securities_gain = _statement_quarter_record(quarterly_income, [
         "Gain On Equity Securities",
@@ -1555,7 +1599,11 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
         "guidance": {**guidance_fields, "sourceStatus": "source_not_supported", "unavailableReason": guidance_unavailable_reason},
         "earningsMetrics": {
             "revenue": metric(quarter_revenue),
-            "eps": metric(_period_record(quarter_eps_value, "quarter", quarter_eps.get("period_end_date") or _statement_period_end(quarterly_income), "Diluted EPS / earnings calendar"), earnings.get("epsEstimate")),
+            "eps": metric(
+                _period_record(quarter_eps_value, "quarter", quarter_eps.get("period_end_date") or _statement_period_end(quarterly_income), "Diluted EPS / earnings calendar"),
+                earnings.get("epsEstimate"),
+                previous_actual_record=previous_quarter_eps,
+            ),
             "grossMargin": metric(_period_record(quarter_gross_margin, "quarter", quarter_revenue.get("period_end_date"), "Gross Profit / Revenue", calculation_method="gross_profit_divided_by_revenue")),
             "operatingMargin": metric(_period_record(quarter_operating_margin, "quarter", quarter_revenue.get("period_end_date"), "Operating Income / Revenue", calculation_method="operating_income_divided_by_revenue")),
             "freeCashFlow": metric(quarter_fcf),
@@ -1605,8 +1653,13 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
             )
             snapshot = apply_sec_financial_report(snapshot, freshness_result.get("report"), freshness_result.get("freshness") or {}, info)
             snapshot = apply_financial_display_status(snapshot, freshness_result.get("freshness") or {}, freshness_result.get("report"))
+            if FINANCIAL_DEBUG_ENABLED:
+                snapshot["financialStatementDiagnostic"] = freshness_result.get("diagnostic") or {
+                    "status": "unavailable",
+                    "reason": (freshness_result.get("freshness") or {}).get("reason") or "no_sec_diagnostic_available",
+                }
             ttm_fcf_record = (((snapshot.get("financialFacts") or {}).get("cashFlow") or {}).get("ttm") or {}).get("freeCashFlow")
-            ttm_fcf_value = _financial_record_value(ttm_fcf_record)
+            ttm_fcf_value = _verified_ttm_record_value(ttm_fcf_record)
             market_cap = _safe_float(info.get("marketCap"))
             snapshot["financialStatementValuation"] = {
                 "ttm_fcf_value": ttm_fcf_value,
@@ -4723,7 +4776,13 @@ def fetch_financial_statement_freshness(ticker, primary_period, primary_updated_
         # Keep the complete statement as the cache base, but reapply a newer 8-K
         # headline release so the UI can state exactly which Q2 metrics are new.
         display_report = cached_partial_report or cached_report
-        return {"freshness": freshness, "report": display_report, "source": select_source(primary_period, display_report, freshness), "cache_used": True}
+        return {
+            "freshness": freshness,
+            "report": display_report,
+            "source": select_source(primary_period, display_report, freshness),
+            "cache_used": True,
+            "diagnostic": (display_report or {}).get("concept_diagnostics") or {"status": "unavailable", "reason": "no_cached_sec_concept_diagnostic"},
+        }
 
     try:
         cik = find_cik_for_ticker(sec_ticker_cik_map(), ticker)
@@ -4731,7 +4790,13 @@ def fetch_financial_statement_freshness(ticker, primary_period, primary_updated_
             freshness = determine_freshness(primary_period, primary_updated_at, earnings, None, False, None)
             freshness["status"] = "latest" if primary_period else "stale_and_unavailable"
             freshness["reason"] = "no_sec_cik_for_ticker"
-            return {"freshness": freshness, "report": cached_report, "source": "yahoo_finance", "cache_used": bool(cached_report)}
+            return {
+                "freshness": freshness,
+                "report": cached_report,
+                "source": "yahoo_finance",
+                "cache_used": bool(cached_report),
+                "diagnostic": {"status": "unavailable", "reason": "no_sec_cik_for_ticker"},
+            }
         submissions = http_get_sec_json(SEC_SUBMISSIONS_URL.format(cik=cik), timeout=10)
         filing = latest_official_filing(submissions)
         release_reference = _financial_release_reference(cik, latest_earnings_release_filing(submissions, primary_period))
@@ -4789,28 +4854,55 @@ def fetch_financial_statement_freshness(ticker, primary_period, primary_updated_
         # A failed SEC refresh never writes an empty report over a usable cache.
         if candidate_report or not cached:
             write_module_cache("financial_statements", ticker, payload)
-        return {"freshness": freshness, "report": display_report if freshness.get("primary_source_is_older") else None, "source": select_source(primary_period, display_report, freshness), "cache_used": False}
+        return {
+            "freshness": freshness,
+            "report": display_report if freshness.get("primary_source_is_older") else None,
+            "source": select_source(primary_period, display_report, freshness),
+            "cache_used": False,
+            "diagnostic": (display_report or {}).get("concept_diagnostics") or {"status": "unavailable", "reason": "no_sec_concept_diagnostic"},
+        }
     except Exception as exc:
         freshness = determine_freshness(primary_period, primary_updated_at, earnings, cached_filing, bool(cached_report), cached_release)
         freshness["reason"] = f"sec_refresh_failed:{type(exc).__name__}"
         if freshness.get("primary_source_is_older") and not cached_report:
             freshness["status"] = "stale_and_unavailable"
-        return {"freshness": freshness, "report": cached_report if freshness.get("primary_source_is_older") else None, "source": "sec_edgar_cache" if cached_report else "yahoo_finance", "cache_used": bool(cached_report)}
+        return {
+            "freshness": freshness,
+            "report": cached_report if freshness.get("primary_source_is_older") else None,
+            "source": "sec_edgar_cache" if cached_report else "yahoo_finance",
+            "cache_used": bool(cached_report),
+            "diagnostic": (cached_report or {}).get("concept_diagnostics") or {"status": "unavailable", "reason": f"sec_refresh_failed:{type(exc).__name__}"},
+        }
 
 
 def _financial_record_value(record):
     return _safe_float((record or {}).get("raw_value"))
 
 
-def _set_sec_actual_metric(existing, record):
+def _verified_ttm_record_value(record):
+    """Only expose a TTM valuation denominator when it is truly a dated TTM record."""
+    if not isinstance(record, dict) or record.get("period_type") != "ttm" or not record.get("period_end_date"):
+        return None
+    return _financial_record_value(record)
+
+
+def _set_sec_actual_metric(existing, record, previous_record=None):
     actual = _financial_record_value(record)
     estimate = _safe_float((existing or {}).get("estimate"))
-    return {
+    previous_actual = _financial_record_value(previous_record)
+    result = {
         "actual": actual,
         "estimate": estimate,
         **build_earnings_surprise(actual, estimate),
         "period": record,
     }
+    if previous_record is not None:
+        result.update({
+            "previous_actual": previous_actual,
+            "previous_period": previous_record,
+            "quarter_over_quarter": build_eps_quarter_comparison(actual, previous_actual),
+        })
+    return result
 
 
 def apply_sec_financial_report(snapshot, report, freshness, info):
@@ -4975,7 +5067,11 @@ def apply_sec_financial_report(snapshot, report, freshness, info):
 
     earnings_metrics = snapshot.setdefault("earningsMetrics", {})
     earnings_metrics["revenue"] = _set_sec_actual_metric(earnings_metrics.get("revenue"), quarter.get("revenue"))
-    earnings_metrics["eps"] = _set_sec_actual_metric(earnings_metrics.get("eps"), quarter.get("diluted_eps"))
+    earnings_metrics["eps"] = _set_sec_actual_metric(
+        earnings_metrics.get("eps"),
+        quarter.get("diluted_eps"),
+        ((report.get("previous_quarter") or {}).get("diluted_eps")),
+    )
     gross_margin = _financial_record_value(quarter.get("gross_profit")) / _financial_record_value(quarter.get("revenue")) if _financial_record_value(quarter.get("gross_profit")) is not None and _financial_record_value(quarter.get("revenue")) not in (None, 0) else None
     operating_margin = _financial_record_value(quarter.get("operating_income")) / _financial_record_value(quarter.get("revenue")) if _financial_record_value(quarter.get("operating_income")) is not None and _financial_record_value(quarter.get("revenue")) not in (None, 0) else None
     earnings_metrics["grossMargin"] = _set_sec_actual_metric(earnings_metrics.get("grossMargin"), _period_record(gross_margin, "quarter", report.get("fiscal_period_end_date"), "GrossProfit / Revenue", source="SEC EDGAR companyfacts", calculation_method="sec_normalized_margin"))
@@ -4999,7 +5095,7 @@ def apply_sec_financial_report(snapshot, report, freshness, info):
         "reportedEps": _financial_record_value(quarter.get("diluted_eps")),
     }
     market_cap = _safe_float(info.get("marketCap"))
-    ttm_fcf_value = _financial_record_value(ttm_values.get("freeCashFlow"))
+    ttm_fcf_value = _verified_ttm_record_value(ttm_values.get("freeCashFlow"))
     snapshot["financialStatementValuation"] = {
         "ttm_fcf_value": ttm_fcf_value,
         "ttm_fcf_period_end": _financial_record_period(ttm_values.get("freeCashFlow")),
@@ -6476,6 +6572,7 @@ def api_debug_financial_freshness(ticker):
     source = statement.get("financialStatementSource") or {}
     view = statement.get("financialStatementSnapshot") or {}
     valuation = statement.get("financialStatementValuation") or {}
+    diagnostic = statement.get("financialStatementDiagnostic") or {}
     return jsonify({
         "success": bool(quote),
         "ticker": normalized,
@@ -6493,6 +6590,7 @@ def api_debug_financial_freshness(ticker):
         "cache_age_seconds": (cached or {}).get("cache_age_seconds"),
         "price_to_fcf_source_value": valuation.get("ttm_fcf_value"),
         "price_to_fcf_status": valuation.get("priceToFcfStatus"),
+        "concept_diagnostic": diagnostic,
     })
 
 

@@ -16,8 +16,35 @@ test("negative valuation multiples cannot receive a cheap-value score", () => {
   assert.match(source, /valuationMultipleScore\(fundamental\.valuation\.price_fcf/);
 });
 
-test("financial-company UI removes Quality Summary and keeps earnings to EPS", () => {
-  assert.match(source, /analysis\.is_financial_company \? ""/);
-  assert.match(source, /const isFinancialCompany = companyAnalysis\.financialFacts\?\.cashFlowSemantic\?\.model === "financial_company_cash_flow_limited"/);
-  assert.match(source, /isFinancialCompany \? \{ eps: standardEarningsMetrics\.eps \}/);
+test("quality summary generation and its script are removed from the active UI", () => {
+  assert.doesNotMatch(source, /globalThis\.FinancialQualitySummary/);
+  assert.match(source, /const renderBasicFundamentalAnalysis = \(analysis\) =>/);
+  const activeRenderer = source.slice(source.indexOf("const renderBasicFundamentalAnalysis"), source.indexOf("const renderEarningsAnalysis"));
+  assert.doesNotMatch(activeRenderer, /质量摘要|Quality Summary|quality_summary/);
+  assert.doesNotMatch(fs.readFileSync("index.html", "utf8"), /quality-summary\.js/);
+});
+
+test("EPS module is compact and uses semantic crossed-zero comparison wording", () => {
+  const epsRenderer = source.slice(source.indexOf("const renderEarningsAnalysis"), source.indexOf("const fundamentalPanel"));
+  assert.match(epsRenderer, /EPS 表现/);
+  assert.match(epsRenderer, /实际亏损比预期多/);
+  assert.match(epsRenderer, /由预期盈利转为实际亏损/);
+  assert.match(epsRenderer, /环比由亏转盈/);
+  assert.doesNotMatch(epsRenderer, /季度营收|季度 CapEx|股价变动的可验证线索/);
+});
+
+test("compact panel keeps Price\/FCF only in the valuation section and removes ambiguous guidance", () => {
+  const activeRenderer = source.slice(source.indexOf("const renderBasicFundamentalAnalysis"), source.indexOf("const renderEarningsAnalysis"));
+  assert.doesNotMatch(activeRenderer, /Price \/ FCF/);
+  const fundamentalPanel = source.slice(source.indexOf("const fundamentalPanel"));
+  const growthSection = fundamentalPanel.slice(fundamentalPanel.indexOf("增长指标"), fundamentalPanel.indexOf("估值指标"));
+  assert.doesNotMatch(growthSection, /管理层指引|Forward Guidance/);
+  assert.match(source, /盈利与财务比率/);
+  assert.match(source, /估值指标/);
+});
+
+test("share-count status enums are centrally localized", () => {
+  assert.match(source, /dilution_continues: currentLanguage === "zh" \? "股本稀释持续"/);
+  assert.match(source, /mostly_offsets_sbc: currentLanguage === "zh" \? "回购大致抵消股权激励稀释"/);
+  assert.match(source, /value\.includes\("_"\)/);
 });
