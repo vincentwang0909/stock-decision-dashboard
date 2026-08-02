@@ -51,6 +51,13 @@ test("basic-fundamental metrics are always expanded and valuation has no summary
   assert.doesNotMatch(valuationSection, /label: t\("summary"\)/);
 });
 
+test("shareholder-return card displays only the dividend yield", () => {
+  const activeRenderer = source.slice(source.indexOf("const renderBasicFundamentalAnalysis"), source.indexOf("const renderEarningsAnalysis"));
+  assert.match(activeRenderer, /股息收益率/);
+  assert.match(activeRenderer, /normalizeDividendYield\(row\.metadata\?\.dividendYield\)/);
+  assert.doesNotMatch(activeRenderer, /股份回购（TTM）|现金股息（TTM）|股东回报合计（同口径）|股本同比/);
+});
+
 test("share-count status enums are centrally localized", () => {
   assert.match(source, /dilution_continues: currentLanguage === "zh" \? "股本稀释持续"/);
   assert.match(source, /mostly_offsets_sbc: currentLanguage === "zh" \? "回购大致抵消股权激励稀释"/);

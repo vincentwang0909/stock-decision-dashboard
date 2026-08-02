@@ -22913,8 +22913,6 @@ function renderDetailModal(row) {
     const ttm = cashFlow.ttm || {};
     const quarter = cashFlow.quarterly || cashFlow.quarter || {};
     const comparisons = cashFlow.comparisons || {};
-    const capitalReturn = analysis.capital_return || {};
-    const shareCount = analysis.share_count_structure || {};
     const balance = analysis.balance_sheet || {};
     const liquidity = analysis.liquidity_structure || balance.liquidityStructure || {};
     const guidance = analysis.guidance || {};
@@ -22980,13 +22978,17 @@ function renderDetailModal(row) {
       recordRow(title("有价证券", "Marketable Securities"), liquidity.marketableSecurities, periodLabel(liquidity.marketableSecurities)),
       recordRow(title("净现金（窄口径）", "Net Cash (Narrow)"), liquidity.netCashNarrow || balance.netCash, periodLabel(liquidity.netCashNarrow || balance.netCash)),
     ];
+    const dividendYield = normalizeDividendYield(row.metadata?.dividendYield);
     const capitalRows = [
-      recordRow(title("股份回购（TTM）", "Share Repurchases (TTM)"), capitalReturn.shareRepurchasesTtm, capitalReturn.sourceFields?.repurchases || "", true),
-      recordRow(title("现金股息（TTM）", "Cash Dividends (TTM)"), capitalReturn.dividendsPaidTtm, capitalReturn.sourceFields?.dividends || "", true),
-      { label: title("股本同比", "Shares Outstanding YoY"), value: formatPercentValue(shareCount.yoyChangePct, 2), note: analysisStateLabel(shareCount.repurchaseEffectiveness), hidden: !shareCount.audit?.sameScope || !Number.isFinite(shareCount.yoyChangePct) },
-      recordRow(title("股东回报合计（同口径）", "Total Shareholder Return (Same Period)"), capitalReturn.totalShareholderReturnTtm, "", true),
-      { label: title("流通股本", "Shares Outstanding"), value: displayValue(recordValue(shareCount.currentShares), (value) => formatCompactVolume(value)), note: periodLabel(shareCount.currentShares), hidden: !hasRecord(shareCount.currentShares) },
+      {
+        label: title("股息收益率", "Dividend Yield"),
+        value: formatPercentage(dividendYield),
+        hidden: !Number.isFinite(dividendYield),
+      },
     ];
+    const capitalReturnCard = capitalRows.some((row) => row && !row.hidden)
+      ? `<article class="decision-list-card"><div class="decision-list-title">${title("股东回报与股本", "Capital Return & Shares")}</div><div class="detail-line-list">${renderMetricRows(capitalRows)}</div></article>`
+      : "";
     const guidanceFields = [guidance.revenueGuidance, guidance.epsGuidance, guidance.capexGuidance, guidance.managementOutlook].filter((field) => field?.status === "available" && field?.value != null);
     return `
       <section class="detail-section-card">
@@ -22996,7 +22998,7 @@ function renderDetailModal(row) {
           <article class="decision-list-card"><div class="decision-list-title">${title("现金流", "Cash Flow")}</div><div class="detail-line-list">${renderMetricRows(cashRows)}</div></article>
           <article class="decision-list-card"><div class="decision-list-title">${title("资本支出", "Capital Expenditure")}</div><div class="detail-line-list">${renderMetricRows(capexRows)}</div></article>
           <article class="decision-list-card"><div class="decision-list-title">${title("资产负债", "Balance Sheet")}</div><div class="detail-line-list">${renderMetricRows(balanceRows)}</div></article>
-          <article class="decision-list-card"><div class="decision-list-title">${title("股东回报与股本", "Capital Return & Shares")}</div><div class="detail-line-list">${renderMetricRows(capitalRows)}</div></article>
+          ${capitalReturnCard}
           ${guidanceFields.length ? `<article class="decision-list-card"><div class="decision-list-title">${title("管理层指引", "Guidance")}</div><div class="detail-line-list">${renderMetricRows([
             guidanceFields.includes(guidance.revenueGuidance) ? { label: title("营收指引", "Revenue Guidance"), value: String(guidance.revenueGuidance.value) } : null,
             guidanceFields.includes(guidance.epsGuidance) ? { label: title("EPS 指引", "EPS Guidance"), value: String(guidance.epsGuidance.value) } : null,
