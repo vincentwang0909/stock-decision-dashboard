@@ -22941,9 +22941,6 @@ function renderDetailModal(row) {
       }
       return `${prior} → ${current}（${formatChangePercent(comparison.pct_change)}）`;
     };
-    const more = (title, rows) => rows.some((row) => row && !row.hidden)
-      ? `<details class="detail-disclosure"><summary>${title}</summary><div class="detail-line-list">${renderMetricRows(rows)}</div></details>`
-      : "";
     const statement = analysis.financial_statement_freshness || {};
     const source = analysis.financial_statement_source || {};
     const sourcePeriod = source.source_data_period_end || source.fiscal_period_end_date || statement.displayed_complete_period_end || analysis.quarterly_period_end;
@@ -22959,6 +22956,10 @@ function renderDetailModal(row) {
       valueRow(title("FCF Margin（TTM）", "FCF Margin (TTM)"), ttm.fcfMargin, formatPercentage, isTtm(ttm.freeCashFlow) && isTtm(ttm.revenue)),
       recordRow(title("自由现金流（最近季度）", "Free Cash Flow (Latest Quarter)"), quarter.freeCashFlow, periodLabel(quarter.freeCashFlow)),
       { label: title("季度 FCF 同比", "Quarterly FCF YoY"), value: comparisonText(comparisons.quarterlyFcfYoy), hidden: !comparisonText(comparisons.quarterlyFcfYoy) },
+      recordRow(title("经营现金流（最近季度）", "Operating Cash Flow (Latest Quarter)"), quarter.operatingCashFlow, periodLabel(quarter.operatingCashFlow)),
+      valueRow(title("FCF Margin（最近季度）", "FCF Margin (Latest Quarter)"), quarter.fcfMargin, formatPercentage),
+      { label: title("季度 FCF 环比", "Quarterly FCF QoQ"), value: comparisonText(comparisons.quarterlyFcfQoq), hidden: !comparisonText(comparisons.quarterlyFcfQoq) },
+      { label: title("TTM FCF 同比", "TTM FCF YoY"), value: comparisonText(comparisons.ttmFcfYoy), hidden: !comparisonText(comparisons.ttmFcfYoy) },
     ];
     const capexRows = [
       recordRow(title("CapEx（TTM）", "CapEx (TTM)"), ttm.capitalExpenditure, periodLabel(ttm.capitalExpenditure), true),
@@ -22966,17 +22967,25 @@ function renderDetailModal(row) {
       recordRow(title("最近季度 CapEx", "Latest Quarterly CapEx"), quarter.capitalExpenditure, periodLabel(quarter.capitalExpenditure)),
       valueRow(title("最近季度 CapEx / 经营现金流", "Latest Quarter CapEx / Operating Cash Flow"), quarter.capexToOperatingCashFlow, formatPercentage),
       { label: title("季度 CapEx 同比", "Quarterly CapEx YoY"), value: comparisonText(comparisons.quarterlyCapexYoy), hidden: !comparisonText(comparisons.quarterlyCapexYoy) },
+      valueRow(title("CapEx / 经营现金流（TTM）", "CapEx / Operating Cash Flow (TTM)"), ttm.capexToOperatingCashFlow, formatPercentage, isTtm(ttm.capitalExpenditure) && isTtm(ttm.operatingCashFlow)),
+      valueRow(title("最近季度 CapEx / 营收", "Latest Quarter CapEx / Revenue"), quarter.capexToRevenue, formatPercentage),
+      { label: title("季度 CapEx 环比", "Quarterly CapEx QoQ"), value: comparisonText(comparisons.quarterlyCapexQoq), hidden: !comparisonText(comparisons.quarterlyCapexQoq) },
     ];
     const balanceRows = [
       recordRow(title("现金及现金等价物", "Cash & Cash Equivalents"), liquidity.cashAndCashEquivalents || balance.cash, periodLabel(liquidity.cashAndCashEquivalents || balance.cash)),
       recordRow(liquidity.totalLiquidityLabel === "cash_and_short_term_investments" ? title("现金及短期投资合计", "Cash & Short-Term Investments") : title("现金及有价证券合计", "Cash & Marketable Securities"), liquidity.totalCashAndMarketableSecurities, periodLabel(liquidity.totalCashAndMarketableSecurities)),
       recordRow(title("总债务", "Total Debt"), liquidity.totalDebt || balance.totalDebt, periodLabel(liquidity.totalDebt || balance.totalDebt)),
       recordRow(title("净流动性", "Net Liquidity"), liquidity.netLiquidity || liquidity.netCashNarrow || balance.netCash, periodLabel(liquidity.netLiquidity || liquidity.netCashNarrow || balance.netCash)),
+      recordRow(title("短期投资", "Short-Term Investments"), liquidity.shortTermInvestments, periodLabel(liquidity.shortTermInvestments)),
+      recordRow(title("有价证券", "Marketable Securities"), liquidity.marketableSecurities, periodLabel(liquidity.marketableSecurities)),
+      recordRow(title("净现金（窄口径）", "Net Cash (Narrow)"), liquidity.netCashNarrow || balance.netCash, periodLabel(liquidity.netCashNarrow || balance.netCash)),
     ];
     const capitalRows = [
       recordRow(title("股份回购（TTM）", "Share Repurchases (TTM)"), capitalReturn.shareRepurchasesTtm, capitalReturn.sourceFields?.repurchases || "", true),
       recordRow(title("现金股息（TTM）", "Cash Dividends (TTM)"), capitalReturn.dividendsPaidTtm, capitalReturn.sourceFields?.dividends || "", true),
       { label: title("股本同比", "Shares Outstanding YoY"), value: formatPercentValue(shareCount.yoyChangePct, 2), note: analysisStateLabel(shareCount.repurchaseEffectiveness), hidden: !shareCount.audit?.sameScope || !Number.isFinite(shareCount.yoyChangePct) },
+      recordRow(title("股东回报合计（同口径）", "Total Shareholder Return (Same Period)"), capitalReturn.totalShareholderReturnTtm, "", true),
+      { label: title("流通股本", "Shares Outstanding"), value: displayValue(recordValue(shareCount.currentShares), (value) => formatCompactVolume(value)), note: periodLabel(shareCount.currentShares), hidden: !hasRecord(shareCount.currentShares) },
     ];
     const guidanceFields = [guidance.revenueGuidance, guidance.epsGuidance, guidance.capexGuidance, guidance.managementOutlook].filter((field) => field?.status === "available" && field?.value != null);
     return `
@@ -22984,26 +22993,10 @@ function renderDetailModal(row) {
         <div class="detail-section-head"><h3>${title("基础基本面", "Basic Fundamentals")}</h3></div>
         <div class="detail-line-note">${title("完整财务报表期末", "Complete statement period")}: ${sourcePeriod || "—"} · ${title("来源", "Source")}: ${source.source || analysis.source || "—"} · ${title("状态", "Status")}: ${status}${partial} · ${title("仅作数据展示，不计入操作评分。", "Display only; not used in action scoring.")}</div>
         <div class="decision-summary-grid">
-          <article class="decision-list-card"><div class="decision-list-title">${title("现金流", "Cash Flow")}</div><div class="detail-line-list">${renderMetricRows(cashRows)}</div>${more(title("更多现金流指标", "More cash-flow metrics"), [
-            recordRow(title("经营现金流（最近季度）", "Operating Cash Flow (Latest Quarter)"), quarter.operatingCashFlow, periodLabel(quarter.operatingCashFlow)),
-            valueRow(title("FCF Margin（最近季度）", "FCF Margin (Latest Quarter)"), quarter.fcfMargin, formatPercentage),
-            { label: title("季度 FCF 环比", "Quarterly FCF QoQ"), value: comparisonText(comparisons.quarterlyFcfQoq), hidden: !comparisonText(comparisons.quarterlyFcfQoq) },
-            { label: title("TTM FCF 同比", "TTM FCF YoY"), value: comparisonText(comparisons.ttmFcfYoy), hidden: !comparisonText(comparisons.ttmFcfYoy) },
-          ])}</article>
-          <article class="decision-list-card"><div class="decision-list-title">${title("资本支出", "Capital Expenditure")}</div><div class="detail-line-list">${renderMetricRows(capexRows)}</div>${more(title("更多资本支出指标", "More capital-expenditure metrics"), [
-            valueRow(title("CapEx / 经营现金流（TTM）", "CapEx / Operating Cash Flow (TTM)"), ttm.capexToOperatingCashFlow, formatPercentage, isTtm(ttm.capitalExpenditure) && isTtm(ttm.operatingCashFlow)),
-            valueRow(title("最近季度 CapEx / 营收", "Latest Quarter CapEx / Revenue"), quarter.capexToRevenue, formatPercentage),
-            { label: title("季度 CapEx 环比", "Quarterly CapEx QoQ"), value: comparisonText(comparisons.quarterlyCapexQoq), hidden: !comparisonText(comparisons.quarterlyCapexQoq) },
-          ])}</article>
-          <article class="decision-list-card"><div class="decision-list-title">${title("资产负债", "Balance Sheet")}</div><div class="detail-line-list">${renderMetricRows(balanceRows)}</div>${more(title("更多资产负债指标", "More balance-sheet metrics"), [
-            recordRow(title("短期投资", "Short-Term Investments"), liquidity.shortTermInvestments, periodLabel(liquidity.shortTermInvestments)),
-            recordRow(title("有价证券", "Marketable Securities"), liquidity.marketableSecurities, periodLabel(liquidity.marketableSecurities)),
-            recordRow(title("净现金（窄口径）", "Net Cash (Narrow)"), liquidity.netCashNarrow || balance.netCash, periodLabel(liquidity.netCashNarrow || balance.netCash)),
-          ])}</article>
-          <article class="decision-list-card"><div class="decision-list-title">${title("股东回报与股本", "Capital Return & Shares")}</div><div class="detail-line-list">${renderMetricRows(capitalRows)}</div>${more(title("更多股本指标", "More share metrics"), [
-            recordRow(title("股东回报合计（同口径）", "Total Shareholder Return (Same Period)"), capitalReturn.totalShareholderReturnTtm, "", true),
-            { label: title("流通股本", "Shares Outstanding"), value: displayValue(recordValue(shareCount.currentShares), (value) => formatCompactVolume(value)), note: periodLabel(shareCount.currentShares), hidden: !hasRecord(shareCount.currentShares) },
-          ])}</article>
+          <article class="decision-list-card"><div class="decision-list-title">${title("现金流", "Cash Flow")}</div><div class="detail-line-list">${renderMetricRows(cashRows)}</div></article>
+          <article class="decision-list-card"><div class="decision-list-title">${title("资本支出", "Capital Expenditure")}</div><div class="detail-line-list">${renderMetricRows(capexRows)}</div></article>
+          <article class="decision-list-card"><div class="decision-list-title">${title("资产负债", "Balance Sheet")}</div><div class="detail-line-list">${renderMetricRows(balanceRows)}</div></article>
+          <article class="decision-list-card"><div class="decision-list-title">${title("股东回报与股本", "Capital Return & Shares")}</div><div class="detail-line-list">${renderMetricRows(capitalRows)}</div></article>
           ${guidanceFields.length ? `<article class="decision-list-card"><div class="decision-list-title">${title("管理层指引", "Guidance")}</div><div class="detail-line-list">${renderMetricRows([
             guidanceFields.includes(guidance.revenueGuidance) ? { label: title("营收指引", "Revenue Guidance"), value: String(guidance.revenueGuidance.value) } : null,
             guidanceFields.includes(guidance.epsGuidance) ? { label: title("EPS 指引", "EPS Guidance"), value: String(guidance.epsGuidance.value) } : null,
@@ -23115,7 +23108,6 @@ function renderDetailModal(row) {
           { label: "PS", value: displayValue(fundamentalValuation.ps_ratio, (value) => formatRatio(value)) },
           { label: "EV / EBITDA", value: displayValue(fundamentalValuation.ev_ebitda, (value) => formatRatio(value)) },
           { label: "Price / FCF", value: Number.isFinite(fundamentalValuation.price_fcf) ? formatRatio(fundamentalValuation.price_fcf) : "—", note: fundamentalValuation.price_fcf < 0 ? (currentLanguage === "zh" ? "TTM 自由现金流为负；负倍数保留展示，但不代表低估。" : "TTM free cash flow is negative; the signed multiple is shown but is not treated as cheap.") : (currentLanguage === "zh" ? "仅在缺少可验证 TTM 自由现金流或分母为 0 时无法计算。" : "Unavailable only when verified TTM free cash flow is missing or the denominator is zero.") },
-          { label: t("summary"), value: fundamentalValuation.state || t("dataUnavailable") },
         ])}</div>
       </section>
     </section>
