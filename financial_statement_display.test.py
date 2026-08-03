@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import server
 
@@ -64,6 +65,35 @@ def full_sec_report(period="2026-06-30"):
 
 
 class FinancialStatementDisplayTests(unittest.TestCase):
+    def test_company_news_cache_purges_expired_entries_without_a_ticker_limit(self):
+        original_cache = dict(server.COMPANY_NEWS_CACHE)
+        try:
+            server.COMPANY_NEWS_CACHE.clear()
+            server.COMPANY_NEWS_CACHE.update({
+                "OLD": {"value": {"headline": "old"}, "expiresAt": 99},
+                "CURRENT": {"value": {"headline": "current"}, "expiresAt": 101},
+            })
+            self.assertEqual(server.purge_expired_company_news_cache(now=100), 1)
+            self.assertEqual(set(server.COMPANY_NEWS_CACHE), {"CURRENT"})
+        finally:
+            server.COMPANY_NEWS_CACHE.clear()
+            server.COMPANY_NEWS_CACHE.update(original_cache)
+
+    def test_company_news_cache_reuses_one_stable_key_per_ticker(self):
+        original_cache = dict(server.COMPANY_NEWS_CACHE)
+        try:
+            server.COMPANY_NEWS_CACHE.clear()
+            with patch.object(server, "fetch_company_news_payload", return_value={"headline": "latest"}) as fetch:
+                with patch.object(server.time, "time", side_effect=[100, 100, 101]):
+                    first = server.get_cached_company_news("mpt", {"updatedAt": "first-quote"})
+                    second = server.get_cached_company_news("MPT", {"updatedAt": "next-quote"})
+            self.assertEqual(first, second)
+            self.assertEqual(fetch.call_count, 1)
+            self.assertEqual(set(server.COMPANY_NEWS_CACHE), {"MPT"})
+        finally:
+            server.COMPANY_NEWS_CACHE.clear()
+            server.COMPANY_NEWS_CACHE.update(original_cache)
+
     def test_new_header_with_old_rendered_values_is_not_latest_complete(self):
         result = server.apply_financial_display_status(
             snapshot(),

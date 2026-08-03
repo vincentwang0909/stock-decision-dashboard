@@ -109,6 +109,7 @@ SEARCH_CACHE_SECONDS = 10 * 60
 SYMBOL_SEARCH_CACHE = {}
 NEWS_CACHE_SECONDS = 60 * 60
 COMPANY_NEWS_CACHE = {}
+COMPANY_NEWS_CACHE_LOCK = threading.Lock()
 MARKET_CONTEXT_CACHE = {"value": None, "expiresAt": 0}
 FEAR_GREED_CACHE = {"value": None, "expiresAt": 0}
 WATCHLIST_DB_PATH = os.environ.get("WATCHLIST_DB_PATH", "data/watchlist.db")
@@ -2827,17 +2828,43 @@ def fetch_market_context_payload():
     }
 
 
+def _purge_expired_company_news_cache_unlocked(now):
+    expired_keys = [
+        key for key, entry in COMPANY_NEWS_CACHE.items()
+        if not isinstance(entry, dict) or entry.get("expiresAt", 0) <= now
+    ]
+    for key in expired_keys:
+        COMPANY_NEWS_CACHE.pop(key, None)
+    return len(expired_keys)
+
+
+def purge_expired_company_news_cache(now=None):
+    """Drop expired news payloads without imposing a ticker-count limit."""
+    current_time = time.time() if now is None else now
+    with COMPANY_NEWS_CACHE_LOCK:
+        return _purge_expired_company_news_cache_unlocked(current_time)
+
+
 def get_cached_company_news(ticker, quote):
-    cache_key = f"{ticker}:{quote.get('updatedAt') or 'na'}"
+    # News is ticker-level content, not a price-level metric. One stable key
+    # replaces the prior payload after its TTL instead of accumulating a key
+    # for every quote timestamp.
+    cache_key = normalize_ticker_input(ticker) or str(ticker or "").upper()
     now = time.time()
-    cached = COMPANY_NEWS_CACHE.get(cache_key)
-    if cached and cached["expiresAt"] > now:
-        return cached["value"]
+    with COMPANY_NEWS_CACHE_LOCK:
+        _purge_expired_company_news_cache_unlocked(now)
+        cached = COMPANY_NEWS_CACHE.get(cache_key)
+        if cached and cached.get("expiresAt", 0) > now:
+            return cached.get("value")
+
     value = fetch_company_news_payload(ticker, quote)
-    COMPANY_NEWS_CACHE[cache_key] = {
-        "value": value,
-        "expiresAt": now + NEWS_CACHE_SECONDS,
-    }
+    stored_at = time.time()
+    with COMPANY_NEWS_CACHE_LOCK:
+        _purge_expired_company_news_cache_unlocked(stored_at)
+        COMPANY_NEWS_CACHE[cache_key] = {
+            "value": value,
+            "expiresAt": stored_at + NEWS_CACHE_SECONDS,
+        }
     return value
 
 
