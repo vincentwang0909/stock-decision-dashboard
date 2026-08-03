@@ -64,6 +64,14 @@ test("news and market tab omits company news, market regime, and market narrativ
   assert.doesNotMatch(source, /renderMarketEnvironmentAnalysis/);
 });
 
+test("SPY and QQQ trend has no duplicate summary and AI profile has no duplicate tag card", () => {
+  const newsPanel = source.slice(source.indexOf("const newsPanel"), source.indexOf("const tabPanels"));
+  const trendSection = newsPanel.slice(newsPanel.indexOf("SPY / QQQ 大盘趋势"));
+  assert.doesNotMatch(trendSection, /equity_trend\?\.summary/);
+  const aiProfileSection = source.slice(source.indexOf('class="detail-profile-grid"'), source.indexOf("PROFILE_DEBUG_MODE"));
+  assert.doesNotMatch(aiProfileSection, /detail-profile-tags|\? "标签" : "Tags"/);
+});
+
 test("share-count status enums are centrally localized", () => {
   assert.match(source, /dilution_continues: currentLanguage === "zh" \? "股本稀释持续"/);
   assert.match(source, /mostly_offsets_sbc: currentLanguage === "zh" \? "回购大致抵消股权激励稀释"/);

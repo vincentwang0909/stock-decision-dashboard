@@ -22650,10 +22650,6 @@ function renderDetailModal(row) {
 	            <div class="detail-profile-value">${profile.cash_cow_evidence?.qualified ? (currentLanguage === "zh" ? "证据通过" : "Qualified") : (currentLanguage === "zh" ? "证据不足" : "Not Qualified")}</div>
 	            <div class="detail-line-note">${profile.cash_cow_evidence?.qualified ? localizedDashboardText(profile.cash_cow_evidence?.explanation) : localizedDashboardText(profile.cash_cow_evidence?.rejected_reason || profile.cash_cow_evidence?.explanation || "")}</div>
 	          </article>
-	          <article class="detail-profile-item detail-profile-item-wide">
-            <div class="detail-profile-label">${currentLanguage === "zh" ? "标签" : "Tags"}</div>
-            <div class="detail-consensus-mini detail-profile-tags">${renderTags(profile.top_tags_label || profile.tags_label)}</div>
-          </article>
           <article class="detail-profile-item detail-profile-item-full">
             <div class="detail-profile-label">${currentLanguage === "zh" ? "为什么这样分类" : "Why"}</div>
             <ul class="detail-profile-list">
@@ -23208,7 +23204,6 @@ function renderDetailModal(row) {
         <div class="detail-line-list">${renderMetricRows([
           { label: "SPY", value: marketEngine.equity_trend?.spy?.value == null ? t("dataUnavailable") : `${formatCurrency(marketEngine.equity_trend.spy.value, "USD")} · ${localizeMarketSentiment(marketEngine.equity_trend.spy.trend)}`, note: marketEngine.equity_trend?.spy?.value == null ? renderSourceInfo(marketEngine.source_info?.equity_trend) : `${currentLanguage === "zh" ? "5日" : "5D"} ${displayValue(marketEngine.equity_trend.spy.change_5d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "20日" : "20D"} ${displayValue(marketEngine.equity_trend.spy.change_20d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "60日" : "60D"} ${displayValue(marketEngine.equity_trend.spy.change_60d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "120日" : "120D"} ${displayValue(marketEngine.equity_trend.spy.change_120d_pct, (value) => formatChangePercent(value))}` },
           { label: "QQQ", value: marketEngine.equity_trend?.qqq?.value == null ? t("dataUnavailable") : `${formatCurrency(marketEngine.equity_trend.qqq.value, "USD")} · ${localizeMarketSentiment(marketEngine.equity_trend.qqq.trend)}`, note: marketEngine.equity_trend?.qqq?.value == null ? renderSourceInfo(marketEngine.source_info?.equity_trend) : `${currentLanguage === "zh" ? "5日" : "5D"} ${displayValue(marketEngine.equity_trend.qqq.change_5d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "20日" : "20D"} ${displayValue(marketEngine.equity_trend.qqq.change_20d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "60日" : "60D"} ${displayValue(marketEngine.equity_trend.qqq.change_60d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "120日" : "120D"} ${displayValue(marketEngine.equity_trend.qqq.change_120d_pct, (value) => formatChangePercent(value))}` },
-          { label: t("summary"), value: marketEngine.equity_trend?.summary || t("dataUnavailable") },
         ])}</div>
       </section>
     </section>
