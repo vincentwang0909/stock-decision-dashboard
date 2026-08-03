@@ -58,6 +58,12 @@ test("shareholder-return card displays only the dividend yield", () => {
   assert.doesNotMatch(activeRenderer, /股份回购（TTM）|现金股息（TTM）|股东回报合计（同口径）|股本同比/);
 });
 
+test("news and market tab omits company news, market regime, and market narrative panels", () => {
+  const newsPanel = source.slice(source.indexOf("const newsPanel"), source.indexOf("const tabPanels"));
+  assert.doesNotMatch(newsPanel, /市场叙事与行业环境|Market Narrative & Sector Environment|公司新闻|Company News|市场状态|Market Regime/);
+  assert.doesNotMatch(source, /renderMarketEnvironmentAnalysis/);
+});
+
 test("share-count status enums are centrally localized", () => {
   assert.match(source, /dilution_continues: currentLanguage === "zh" \? "股本稀释持续"/);
   assert.match(source, /mostly_offsets_sbc: currentLanguage === "zh" \? "回购大致抵消股权激励稀释"/);

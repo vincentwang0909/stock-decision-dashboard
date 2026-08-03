@@ -23162,60 +23162,13 @@ function renderDetailModal(row) {
   `;
   */
 
-  const marketNarrativeLabel = (value) => ({
-    ai_rotation: currentLanguage === "zh" ? "AI / 科技轮动" : "AI / Technology Rotation",
-    risk_on: currentLanguage === "zh" ? "风险偏好回升" : "Risk-On",
-    risk_off: currentLanguage === "zh" ? "风险规避" : "Risk-Off",
-    defensive_rotation: currentLanguage === "zh" ? "防御板块轮动" : "Defensive Rotation",
-    consumer_leadership: currentLanguage === "zh" ? "可选消费领涨" : "Consumer Leadership",
-    growth_selloff: currentLanguage === "zh" ? "成长股回调" : "Growth Selloff",
-  }[value] || value);
-  const renderMarketEnvironmentAnalysis = (analysis) => {
-    const sector = analysis.sector_relative_performance || {};
-    const companySector = analysis.company_vs_sector || {};
-    const relativeContext = analysis.industry_relative_context || {};
-    const relative = companySector.relative_returns || {};
-    return `
-      <section class="detail-section-card">
-        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "市场叙事与行业环境" : "Market Narrative & Sector Environment"}</h3></div>
-        <div class="decision-summary-grid">
-          <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "市场叙事" : "Market Narrative"}</div><div class="detail-line-label">${(analysis.market_narratives || []).length ? analysis.market_narratives.map(marketNarrativeLabel).join(" · ") : (currentLanguage === "zh" ? "当前没有足够数据确认单一市场叙事" : "No single market narrative is confirmed by available data")}</div><div class="detail-line-note">${currentLanguage === "zh" ? "根据市场状态及行业 ETF 相对 SPY 的表现生成；仅作环境解释。" : "Derived from market regime and sector-ETF performance versus SPY; context only."}</div></article>
-          <article class="decision-list-card"><div class="decision-list-title">${currentLanguage === "zh" ? "公司相对行业" : "Company vs Sector"}</div><div class="detail-line-label">${analysisStateLabel(companySector.status)}</div><div class="detail-line-note">${localizedDashboardText(companySector.explanation || "")}</div></article>
-        </div>
-        <div class="detail-line-list">${renderMetricRows([
-          { label: currentLanguage === "zh" ? "行业 ETF" : "Industry ETF", value: sector.etf || t("dataUnavailable"), note: sector.label || "" },
-          { label: currentLanguage === "zh" ? "映射口径" : "Mapping Basis", value: analysisStateLabel(relativeContext.mapping_confidence), note: localizedDashboardText(relativeContext.mapping_source || "") },
-          { label: currentLanguage === "zh" ? "行业 5 / 20 / 60日回报" : "Sector 5 / 20 / 60D Return", value: `${displayValue(sector.return_5d, (value) => formatChangePercent(value))} / ${displayValue(sector.return_20d, (value) => formatChangePercent(value))} / ${displayValue(sector.return_60d, (value) => formatChangePercent(value))}`, note: sector.source || "" },
-          { label: currentLanguage === "zh" ? "公司相对行业 5 / 20 / 60日" : "Company vs Sector 5 / 20 / 60D", value: `${displayValue(relative["5d"], (value) => formatChangePercent(value))} / ${displayValue(relative["20d"], (value) => formatChangePercent(value))} / ${displayValue(relative["60d"], (value) => formatChangePercent(value))}` },
-        ])}</div>
-      </section>
-    `;
-  };
-
   const newsPanel = `
     <section class="detail-tab-section">
       <div class="detail-kpi-grid">
         <article class="detail-kpi-card ${scoreToBand(marketContext.market_context_score).tone}"><span>${t("marketContext")}</span><strong>${marketContext.market_context_score}/100</strong><small>${localizedDashboardText(marketContext.summary)}</small></article>
-        <article class="detail-kpi-card neutral"><span>${currentLanguage === "zh" ? "市场状态" : "Market Regime"}</span><strong>${marketRegimeLabel(marketContext.market_regime?.regime)}</strong><small>${localizedDashboardText(marketContext.market_regime?.summary || t("dataUnavailable"))}</small></article>
         <article class="detail-kpi-card neutral"><span>${t("macroScore")}</span><strong>${marketContext.market_regime?.score == null ? t("dataUnavailable") : `${marketContext.market_regime.score}/100`}</strong><small>${currentLanguage === "zh" ? "宏观 / 市场环境总分" : "Macro and market-context score"}</small></article>
         <article class="detail-kpi-card neutral"><span>${t("confidencePct")}</span><strong>${marketContext.market_regime?.confidence == null ? t("dataUnavailable") : `${marketContext.market_regime.confidence}%`}</strong><small>${currentLanguage === "zh" ? "缺数据时会降低置信度，但不会自动转空。" : "Missing data lowers confidence without forcing a bearish call."}</small></article>
       </div>
-      ${renderMarketEnvironmentAnalysis(marketEnvironmentAnalysis)}
-      <section class="detail-section-card">
-        <div class="detail-section-head"><h3>${t("companyNews")}</h3></div>
-        <div class="detail-line-note">${localizedDashboardText(companyNewsStatus.reason || companyNews.summary || t("dataUnavailable"))}</div>
-        ${companyNewsStatus.last_updated ? `<div class="detail-line-note">${currentLanguage === "zh" ? "最后更新" : "Last updated"}: ${formatSnapshotTimestamp(companyNewsStatus.last_updated)}</div>` : ""}
-        <div class="detail-line-list">${companyNewsStatus.status === "available" ? renderNewsRows(companyNews.latest_news || []) : ""}</div>
-      </section>
-      <section class="detail-section-card">
-        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "市场状态" : "Market Regime"}</h3></div>
-        <div class="detail-line-list">${renderMetricRows([
-          { label: currentLanguage === "zh" ? "状态" : "Regime", value: marketRegimeLabel(marketContext.market_regime?.regime), note: marketContext.market_regime?.summary || t("dataUnavailable") },
-          { label: t("scoreLabel"), value: `${marketContext.market_regime?.score ?? 50}/100`, note: currentLanguage === "zh" ? "50 为中性起点，只使用 VIX、Fear & Greed、10Y Yield、SPY / QQQ Trend。" : "50 is the neutral base; only VIX, Fear & Greed, 10Y Yield, and SPY / QQQ Trend are used." },
-          { label: t("confidencePct"), value: marketContext.market_regime?.confidence == null ? t("dataUnavailable") : `${marketContext.market_regime.confidence}%`, note: currentLanguage === "zh" ? "缺失数据只会降低置信度，不会直接变成看空。" : "Unavailable feeds lower confidence rather than forcing a bearish score." },
-          { label: t("summary"), value: marketContext.market_regime?.summary || t("dataUnavailable") },
-        ])}</div>
-      </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "财报事件风险" : "Earnings Event Risk"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
