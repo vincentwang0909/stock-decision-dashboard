@@ -1306,6 +1306,31 @@ def _share_count_history(instrument):
         return {}
 
 
+BASIC_FUNDAMENTAL_SNAPSHOT_FIELDS = (
+    "cashFlow",
+    "capitalAllocation",
+    "balanceSheet",
+    "financialFacts",
+    "guidance",
+    "financialStatementFreshness",
+    "financialStatementSource",
+    "financialStatementSnapshot",
+    "financialStatementLatestRelease",
+    "financialStatementDiagnostic",
+    "annualPeriodEnd",
+    "quarterlyPeriodEnd",
+)
+
+
+def strip_basic_fundamental_payload(snapshot):
+    """Keep the compact earnings payload after removing the statement panel."""
+    if not isinstance(snapshot, dict):
+        return snapshot
+    for field in BASIC_FUNDAMENTAL_SNAPSHOT_FIELDS:
+        snapshot.pop(field, None)
+    return snapshot
+
+
 def fetch_company_analysis_snapshot(instrument, quote_type, info):
     """Build display-only statement facts from the existing Yahoo/yfinance source."""
     if str(quote_type or "").upper() not in {"", "EQUITY"}:
@@ -1706,7 +1731,10 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
                 "reason": f"financial_enrichment_failed:{type(exc).__name__}",
                 "primary_period_end_date": snapshot.get("quarterlyPeriodEnd"),
             }
-    return snapshot
+    # The detailed statement tree only powered the removed Basic Fundamentals
+    # panel. Keep the compact EPS payload, but do not cache or send the large
+    # cash-flow, CapEx, liquidity, and shareholder-return structures.
+    return strip_basic_fundamental_payload(snapshot)
 
 
 def fetch_fred_series_points(series_id, limit=120):
@@ -4334,12 +4362,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         updated_at_dt.strftime("%Y-%m-%dT%H:%M:%SZ") if updated_at_dt
         else iso_from_local_close(history.index[-1], 16, 0, -4)
     )
-    # Prefer the normalized TTM record so the displayed cash-flow data stays
-    # aligned with a newer filing when Yahoo's quote summary lags.
-    statement_ttm_fcf = _financial_record_value(
-        ((((company_analysis or {}).get("financialFacts") or {}).get("cashFlow") or {}).get("ttm") or {}).get("freeCashFlow")
-    )
-    free_cashflow = statement_ttm_fcf if statement_ttm_fcf is not None else _safe_float(info.get("freeCashflow"))
+    free_cashflow = _safe_float(info.get("freeCashflow"))
     market_cap = _safe_int(info.get("marketCap")) or _safe_int(fast_info.get("market_cap"))
     trailing_eps = _safe_float(info.get("epsTrailingTwelveMonths"))
     forward_eps = _safe_float(info.get("epsForward"))
@@ -5192,13 +5215,7 @@ def extract_fundamental_fields_from_quote(quote):
     if not isinstance(metadata, dict):
         metadata = {}
     market_cap = quote.get("marketCap") if isinstance(quote, dict) else None
-    company_analysis = metadata.get("companyAnalysis") if isinstance(metadata.get("companyAnalysis"), dict) else {}
-    cash_flow = company_analysis.get("cashFlow") if isinstance(company_analysis.get("cashFlow"), dict) else {}
-    ttm_cash_flow = cash_flow.get("ttm") if isinstance(cash_flow.get("ttm"), dict) else {}
-    free_cashflow = _financial_record_value(ttm_cash_flow.get("freeCashFlow"))
-    if free_cashflow is None:
-        free_cashflow = metadata.get("freeCashflow")
-    balance_sheet = company_analysis.get("balanceSheet") if isinstance(company_analysis.get("balanceSheet"), dict) else {}
+    free_cashflow = metadata.get("freeCashflow")
     return {
         "pe": quote.get("trailingPE") if isinstance(quote, dict) else None,
         "forward_pe": quote.get("forwardPE") if isinstance(quote, dict) else None,
@@ -5208,10 +5225,6 @@ def extract_fundamental_fields_from_quote(quote):
         "revenue_growth": metadata.get("revenueGrowth"),
         "profit_margins": metadata.get("profitMargins"),
         "free_cashflow": free_cashflow,
-        "operating_cash_flow": cash_flow.get("operatingCashFlow"),
-        "free_cash_flow_margin": cash_flow.get("freeCashFlowMargin"),
-        "cash": balance_sheet.get("cash"),
-        "total_debt": balance_sheet.get("totalDebt"),
     }
 
 

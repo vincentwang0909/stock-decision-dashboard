@@ -13,11 +13,10 @@ test("negative valuation multiples cannot receive a cheap-value score", () => {
   assert.match(source, /if \(value < 0\) return 30/);
 });
 
-test("quality summary generation and its script are removed from the active UI", () => {
+test("quality summary and the Basic Fundamentals panel are removed", () => {
   assert.doesNotMatch(source, /globalThis\.FinancialQualitySummary/);
-  assert.match(source, /const renderBasicFundamentalAnalysis = \(analysis\) =>/);
-  const activeRenderer = source.slice(source.indexOf("const renderBasicFundamentalAnalysis"), source.indexOf("const renderEarningsAnalysis"));
-  assert.doesNotMatch(activeRenderer, /质量摘要|Quality Summary|quality_summary/);
+  assert.doesNotMatch(source, /renderBasicFundamentalAnalysis|buildBasicFundamentalAnalysis|基础基本面|Basic Fundamentals/);
+  assert.doesNotMatch(source, /universalBasicFundamentalFieldKeys|basicFundamentalFactsForRow/);
   assert.doesNotMatch(fs.readFileSync("index.html", "utf8"), /quality-summary\.js/);
 });
 
@@ -30,9 +29,7 @@ test("EPS module is compact and uses semantic crossed-zero comparison wording", 
   assert.doesNotMatch(epsRenderer, /季度营收|季度 CapEx|股价变动的可验证线索/);
 });
 
-test("fundamental panels omit Price\/FCF and ambiguous guidance", () => {
-  const activeRenderer = source.slice(source.indexOf("const renderBasicFundamentalAnalysis"), source.indexOf("const renderEarningsAnalysis"));
-  assert.doesNotMatch(activeRenderer, /Price \/ FCF/);
+test("fundamental panel omits Price\/FCF and ambiguous guidance", () => {
   const fundamentalPanel = source.slice(source.indexOf("const fundamentalPanel"));
   const growthSection = fundamentalPanel.slice(fundamentalPanel.indexOf("增长指标"), fundamentalPanel.indexOf("估值指标"));
   assert.doesNotMatch(growthSection, /管理层指引|Forward Guidance/);
@@ -40,28 +37,13 @@ test("fundamental panels omit Price\/FCF and ambiguous guidance", () => {
   assert.match(source, /估值指标/);
 });
 
-test("basic-fundamental metrics are always expanded and valuation has no summary row", () => {
-  const activeRenderer = source.slice(source.indexOf("const renderBasicFundamentalAnalysis"), source.indexOf("const renderEarningsAnalysis"));
-  assert.doesNotMatch(activeRenderer, /<details|更多现金流指标|More cash-flow metrics|更多资本支出指标|More capital-expenditure metrics/);
+test("valuation has no summary row", () => {
   const fundamentalPanel = source.slice(source.indexOf("const fundamentalPanel"));
   const valuationSection = fundamentalPanel.slice(fundamentalPanel.indexOf("估值指标"), fundamentalPanel.indexOf("/* Options-market UI"));
   assert.doesNotMatch(valuationSection, /label: t\("summary"\)/);
 });
 
-test("shareholder-return card displays only the dividend yield", () => {
-  const activeRenderer = source.slice(source.indexOf("const renderBasicFundamentalAnalysis"), source.indexOf("const renderEarningsAnalysis"));
-  assert.match(activeRenderer, /股息收益率/);
-  assert.match(activeRenderer, /normalizeDividendYield\(row\.metadata\?\.dividendYield, row\.metadata\?\.dividendYieldUnit\)/);
-  assert.doesNotMatch(activeRenderer, /股份回购（TTM）|现金股息（TTM）|股东回报合计（同口径）|股本同比/);
-});
-
-test("basic-fundamental cards use one universal cross-stock field set", () => {
-  const activeRenderer = source.slice(source.indexOf("const renderBasicFundamentalAnalysis"), source.indexOf("const renderEarningsAnalysis"));
-  assert.match(activeRenderer, /const renderFundamentalCard = \(heading, rows\) =>/);
-  assert.match(activeRenderer, /if \(!fundamentalCards\.length\) return ""/);
-  assert.match(source, /function universalBasicFundamentalFieldKeys\(rows = tickerRows\)/);
-  assert.match(source, /availableForEveryEquity/);
-  assert.match(activeRenderer, /const universalFieldKeys = universalBasicFundamentalFieldKeys\(\)/);
+test("dividend yield remains normalized for the company profile only", () => {
   assert.match(source, /unit === "decimal"/);
   assert.doesNotMatch(source, /numeric > 0\.25 \? numeric \/ 100 : numeric/);
 });

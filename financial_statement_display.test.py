@@ -65,6 +65,21 @@ def full_sec_report(period="2026-06-30"):
 
 
 class FinancialStatementDisplayTests(unittest.TestCase):
+    def test_basic_fundamental_payload_is_removed_before_serialization(self):
+        item = server.strip_basic_fundamental_payload({
+            "financialFacts": {"cashFlow": {}},
+            "cashFlow": {"freeCashFlow": 1},
+            "capitalAllocation": {"capitalExpenditure": 2},
+            "balanceSheet": {"cash": 3},
+            "guidance": {"revenueGuidance": {}},
+            "earningsMetrics": {"eps": {"actual": 0.1}},
+            "latestEarnings": {"epsActual": 0.1},
+        })
+        for field in server.BASIC_FUNDAMENTAL_SNAPSHOT_FIELDS:
+            self.assertNotIn(field, item)
+        self.assertIn("earningsMetrics", item)
+        self.assertIn("latestEarnings", item)
+
     def test_dividend_yield_prefers_annual_dividend_rate_over_ambiguous_provider_yield(self):
         result = server.canonical_dividend_yield(
             {"dividendYield": 0.06, "trailingAnnualDividendRate": 0.46},
