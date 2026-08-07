@@ -11,6 +11,7 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 import re
 from typing import Any, Callable, Iterable
+from xml.etree import ElementTree as ET
 
 
 SEC_COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
@@ -90,6 +91,7 @@ BALANCE_SHEET_CONCEPTS = {
     # A current-debt concept alone is not a complete debt balance.  Do not use
     # it to manufacture a total-debt or net-cash figure.
     "total_debt": ["LongTermDebtAndFinanceLeaseObligations"],
+    "stockholders_equity": ["StockholdersEquity", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"],
     "period_end_shares": ["EntityCommonStockSharesOutstanding"],
     "diluted_weighted_average_shares": ["WeightedAverageNumberOfDilutedSharesOutstanding"],
 }
@@ -198,6 +200,107 @@ def latest_earnings_release_filing(submissions: dict[str, Any], since_period: st
             candidates.append(row)
     candidates.sort(key=lambda row: parse_date(row.get("filingDate")) or date.min, reverse=True)
     return candidates[0] if candidates else None
+
+
+def latest_inline_xbrl_release_period(company_facts: dict[str, Any], release_filing: dict[str, Any] | None, primary_period: str | None = None) -> dict[str, Any] | None:
+    """Resolve a fiscal period carried by an Item 2.02 Inline-XBRL 8-K.
+
+    Some issuers publish a complete tagged earnings release before the 10-Q.
+    The submission row's ``reportDate`` is the 8-K filing date, so the actual
+    fiscal period must come from a matching revenue fact rather than guessed
+    from the calendar.
+    """
+    accession = (release_filing or {}).get("accessionNumber")
+    if not accession:
+        return None
+    _concept, _unit, rows = sec_units_for_concept(company_facts, INCOME_CONCEPTS["revenue"])
+    primary_date = parse_date(primary_period)
+    candidates = []
+    for row in rows:
+        if row.get("accn") != accession or str(row.get("form") or "").replace("/A", "") != "8-K":
+            continue
+        end = parse_date(row.get("end"))
+        if end is None or (primary_date and end <= primary_date) or _duration_days(row) is None:
+            continue
+        candidates.append(row)
+    if not candidates:
+        return None
+    selected = max(candidates, key=lambda row: (parse_date(row.get("end")) or date.min, parse_date(row.get("filed")) or date.min))
+    resolved = dict(release_filing)
+    resolved["reportDate"] = str(selected.get("end"))[:10]
+    resolved["filingDate"] = selected.get("filed") or resolved.get("filingDate")
+    return resolved
+
+
+def official_release_instance_document(index_payload: dict[str, Any] | None, filing: dict[str, Any] | None) -> str | None:
+    """Find the Inline-XBRL instance document listed in an SEC 8-K index."""
+    names = [str(item.get("name") or "") for item in ((index_payload or {}).get("directory", {}) or {}).get("item", [])]
+    primary = str((filing or {}).get("primaryDocument") or "")
+    expected = f"{primary.rsplit('.', 1)[0]}_htm.xml" if primary.lower().endswith((".htm", ".html")) else None
+    if expected in names:
+        return expected
+    candidates = [name for name in names if name.lower().endswith("_htm.xml")]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def merge_sec_instance_facts(company_facts: dict[str, Any], xml_text: str, filing: dict[str, Any]) -> int:
+    """Append standard US-GAAP 8-K Inline-XBRL facts to a companyfacts payload.
+
+    This supports issuers that attach fully tagged results to an Item 2.02
+    release before submitting a 10-Q.  Only concepts already accepted by the
+    common normalizer are imported; custom issuer extensions are intentionally
+    ignored.
+    """
+    try:
+        root = ET.fromstring(xml_text)
+    except (ET.ParseError, TypeError, ValueError):
+        return 0
+    accepted = {concept for concepts in ({**INCOME_CONCEPTS, **CASH_FLOW_CONCEPTS, **BALANCE_SHEET_CONCEPTS}).values() for concept in concepts}
+    contexts: dict[str, tuple[str | None, str | None]] = {}
+    units: dict[str, str] = {}
+    for node in root.iter():
+        local = node.tag.rsplit("}", 1)[-1]
+        if local == "context":
+            identifier = node.attrib.get("id")
+            period = next((item for item in node if item.tag.rsplit("}", 1)[-1] == "period"), None)
+            if identifier and period is not None:
+                start = next((item.text for item in period if item.tag.rsplit("}", 1)[-1] == "startDate"), None)
+                end = next((item.text for item in period if item.tag.rsplit("}", 1)[-1] in {"endDate", "instant"}), None)
+                contexts[identifier] = (start, end)
+        elif local == "unit":
+            identifier = node.attrib.get("id")
+            measures = [str(item.text or "").lower() for item in node.iter() if item.tag.rsplit("}", 1)[-1] == "measure"]
+            if identifier and measures:
+                if len(measures) == 1 and measures[0].endswith("usd"):
+                    units[identifier] = "USD"
+                elif any(item.endswith("usd") for item in measures) and any(item.endswith("shares") for item in measures):
+                    units[identifier] = "USD/shares"
+                elif len(measures) == 1 and measures[0].endswith("shares"):
+                    units[identifier] = "shares"
+    facts = company_facts.setdefault("facts", {}).setdefault("us-gaap", {})
+    added = 0
+    for node in root.iter():
+        concept = node.tag.rsplit("}", 1)[-1]
+        if concept not in accepted or not node.attrib.get("contextRef"):
+            continue
+        value = safe_float((node.text or "").strip())
+        start, end = contexts.get(node.attrib.get("contextRef"), (None, None))
+        if value is None or not end:
+            continue
+        unit = units.get(node.attrib.get("unitRef"), "USD")
+        rows = facts.setdefault(concept, {"units": {}}).setdefault("units", {}).setdefault(unit, [])
+        row = {
+            "start": start,
+            "end": end,
+            "val": value,
+            "accn": filing.get("accessionNumber"),
+            "filed": filing.get("filingDate"),
+            "form": "8-K",
+        }
+        if not any(existing.get("accn") == row["accn"] and existing.get("start") == start and existing.get("end") == end and safe_float(existing.get("val")) == value for existing in rows):
+            rows.append(row)
+            added += 1
+    return added
 
 
 def compare_periods(primary_period: str | None, official_period: str | None) -> int | None:
@@ -365,8 +468,11 @@ def _latest_balance_value(rows: Iterable[dict[str, Any]], filing: dict[str, Any]
 def _period_filings(company_facts: dict[str, Any], filing: dict[str, Any]) -> list[dict[str, Any]]:
     concept, _unit, rows = sec_units_for_concept(company_facts, INCOME_CONCEPTS["revenue"])
     by_end: dict[str, dict[str, Any]] = {}
+    permitted_forms = {"10-Q", "10-K"}
+    if str(filing.get("form") or "").replace("/A", "") == "8-K":
+        permitted_forms.add("8-K")
     for row in rows:
-        if str(row.get("form") or "").replace("/A", "") not in {"10-Q", "10-K"}:
+        if str(row.get("form") or "").replace("/A", "") not in permitted_forms:
             continue
         end = str(row.get("end") or "")[:10]
         if not end:
@@ -395,7 +501,7 @@ def _metric_quarters(company_facts: dict[str, Any], filings: list[dict[str, Any]
             continue
         result = [
             {"filing": filing, "derivation": derive_standalone_quarter(rows, filing.get("reportDate"), filing)}
-            for filing in filings[:4]
+            for filing in filings[:5]
         ]
         if not fallback[0]:
             fallback = (concept, unit, result)
@@ -438,7 +544,7 @@ def build_sec_normalized_report(company_facts: dict[str, Any], cik: int, filing:
         balance[field]["normalized_dashboard_field"] = field
 
     ttm: dict[str, dict[str, Any]] = {}
-    for field in ("revenue", "operating_income", "net_income", "operating_cash_flow", "capital_expenditure", "share_repurchases", "dividends_paid"):
+    for field in ("revenue", "gross_profit", "operating_income", "net_income", "operating_cash_flow", "capital_expenditure", "share_repurchases", "dividends_paid"):
         latest_record = metrics[field]
         value = _sum_complete_quarters(quarter_series.get(field) or [])
         ttm[field] = _record(value, "ttm", latest.get("reportDate"), latest_record.get("source_field"), latest_record.get("unit"), latest, source_url, "sum_four_normalized_standalone_quarters")
@@ -588,6 +694,7 @@ def parse_official_earnings_release(html_text: str, cik: int, filing: dict[str, 
     labels = {
         "revenue": ("revenue", "total revenue", "total net revenue", "net revenues"),
         "net_income": ("net income", "net earnings"),
+        "diluted_eps": ("diluted eps", "diluted earnings per share", "diluted earnings per common share", "earnings per share diluted"),
     }
     extracted: dict[str, float] = {}
     for row in root.xpath("//tr"):
@@ -603,12 +710,12 @@ def parse_official_earnings_release(html_text: str, cik: int, filing: dict[str, 
             values = [_release_number(cell) for cell in cells[1:]]
             value = next((item for item in values if item is not None), None)
             if value is not None:
-                extracted[field] = value * unit_scale
+                extracted[field] = value if field == "diluted_eps" else value * unit_scale
     if not extracted:
         return None
     release_source = "Official company earnings release filed with SEC"
     quarter = {
-        field: _record(value, "quarter", period_end, f"official_release:{field}", unit_label, filing, source_url, "official_release_headline_metric")
+        field: _record(value, "quarter", period_end, f"official_release:{field}", "USD/shares" if field == "diluted_eps" else unit_label, filing, source_url, "official_release_headline_metric")
         for field, value in extracted.items()
     }
     for field, record in quarter.items():

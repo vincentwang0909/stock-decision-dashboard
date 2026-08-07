@@ -30,6 +30,12 @@ def snapshot(cash_period="2026-03-31", income_period="2026-06-30"):
             },
         },
         "earningsMetrics": {"eps": {"period": record(1.2, income_period)}},
+        "displayFundamentals": {
+            "metrics": {
+                "gross_margin": {"value": 0.30, "period_end_date": cash_period},
+                "roe": {"value": 0.12, "period_end_date": cash_period},
+            },
+        },
     }
 
 
@@ -41,6 +47,7 @@ def full_sec_report(period="2026-06-30"):
         "filing": {"filingDate": "2026-07-31", "accessionNumber": "0000000000-26-000001"},
         "quarter": {
             "revenue": record(200, period),
+            "gross_profit": record(120, period),
             "operating_cash_flow": record(60, period),
             "capital_expenditure": record(90, period),
             "standardized_free_cash_flow": record(-30, period),
@@ -50,6 +57,9 @@ def full_sec_report(period="2026-06-30"):
         },
         "ttm": {
             "revenue": {**record(700, period), "period_type": "ttm"},
+            "gross_profit": {**record(420, period), "period_type": "ttm"},
+            "operating_income": {**record(175, period), "period_type": "ttm"},
+            "net_income": {**record(140, period), "period_type": "ttm"},
             "operating_cash_flow": {**record(210, period), "period_type": "ttm"},
             "capital_expenditure": {**record(250, period), "period_type": "ttm"},
             "standardized_free_cash_flow": {**record(-40, period), "period_type": "ttm"},
@@ -60,6 +70,7 @@ def full_sec_report(period="2026-06-30"):
             "short_term_investments": {**record(20, period), "period_type": "point_in_time"},
             "marketable_securities": {**record(10, period), "period_type": "point_in_time"},
             "total_debt": {**record(30, period), "period_type": "point_in_time"},
+            "stockholders_equity": {**record(350, period), "period_type": "point_in_time"},
         },
     }
 
@@ -199,6 +210,15 @@ class FinancialStatementDisplayTests(unittest.TestCase):
         self.assertEqual(facts["cashFlow"]["ttm"]["freeCashFlow"]["raw_value"], -40)
         self.assertEqual(facts["balanceSheet"]["cashAndCashEquivalents"]["period_end_date"], "2026-06-30")
         self.assertEqual(item["financialStatementFreshness"]["status"], "latest_complete")
+
+    def test_complete_sec_snapshot_replaces_stale_display_ratios_atomically(self):
+        item = server.apply_sec_financial_report(snapshot(), full_sec_report(), {}, {})
+        display = item["displayFundamentals"]["metrics"]
+        self.assertEqual(display["gross_margin"]["period_end_date"], "2026-06-30")
+        self.assertAlmostEqual(display["gross_margin"]["value"], 0.60)
+        self.assertAlmostEqual(display["operating_margin"]["value"], 0.25)
+        self.assertAlmostEqual(display["net_margin"]["value"], 0.20)
+        self.assertAlmostEqual(display["roe"]["value"], 0.40)
 
     def test_release_and_sec_filing_dates_remain_distinct(self):
         item = server.apply_financial_display_status(

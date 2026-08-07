@@ -6,6 +6,8 @@ from financial_freshness import (
     derive_standalone_quarter,
     financial_semantics,
     latest_official_filing,
+    latest_inline_xbrl_release_period,
+    merge_sec_instance_facts,
     official_release_period_end,
     parse_official_earnings_release,
     preserve_cached_statement,
@@ -50,6 +52,12 @@ class FinancialFreshnessTests(unittest.TestCase):
                 {"start": "2025-10-01", "end": "2025-12-31", "val": 110, "form": "10-K", "accn": "k", "filed": "2026-02-01"},
                 {"start": "2025-07-01", "end": "2025-09-30", "val": 100, "form": "10-Q", "accn": "q3", "filed": "2025-11-01"},
             ]}},
+            "GrossProfit": {"units": {"USD": [
+                {"start": "2026-04-01", "end": "2026-06-30", "val": 65, "form": "10-Q", "accn": "q2", "filed": "2026-08-01"},
+                {"start": "2026-01-01", "end": "2026-03-31", "val": 60, "form": "10-Q", "accn": "q1", "filed": "2026-05-01"},
+                {"start": "2025-10-01", "end": "2025-12-31", "val": 55, "form": "10-K", "accn": "k", "filed": "2026-02-01"},
+                {"start": "2025-07-01", "end": "2025-09-30", "val": 50, "form": "10-Q", "accn": "q3", "filed": "2025-11-01"},
+            ]}},
             "NetCashProvidedByUsedInOperatingActivities": {"units": {"USD": [
                 {"start": "2026-01-01", "end": "2026-06-30", "val": 90, "form": "10-Q", "accn": "q2", "filed": "2026-08-01"},
                 {"start": "2026-01-01", "end": "2026-03-31", "val": 40, "form": "10-Q", "accn": "q1", "filed": "2026-05-01"},
@@ -67,6 +75,7 @@ class FinancialFreshnessTests(unittest.TestCase):
         report = build_sec_normalized_report(facts, 1, filing)
         self.assertEqual(report["quarter"]["operating_cash_flow"]["raw_value"], 50)
         self.assertEqual(report["ttm"]["revenue"]["raw_value"], 460)
+        self.assertEqual(report["ttm"]["gross_profit"]["raw_value"], 230)
         self.assertEqual(report["ttm"]["standardized_free_cash_flow"]["raw_value"], 96)
 
     def test_capex_mapping_does_not_select_property_sale_proceeds(self):
@@ -107,6 +116,33 @@ class FinancialFreshnessTests(unittest.TestCase):
     def test_latest_official_filing_ignores_non_financial_forms(self):
         submissions = {"filings": {"recent": {"form": ["8-K", "10-Q"], "reportDate": ["", "2026-06-30"], "filingDate": ["2026-08-01", "2026-08-02"]}}}
         self.assertEqual(latest_official_filing(submissions)["reportDate"], "2026-06-30")
+
+    def test_inline_xbrl_earnings_release_uses_tagged_fiscal_period(self):
+        facts = {"facts": {"us-gaap": {
+            "Revenues": {"units": {"USD": [
+                {"start": "2026-04-01", "end": "2026-06-30", "val": 112, "form": "8-K", "accn": "release", "filed": "2026-07-16"},
+            ]}},
+        }}}
+        release = {"form": "8-K", "accessionNumber": "release", "filingDate": "2026-07-16", "reportDate": "2026-07-16"}
+        resolved = latest_inline_xbrl_release_period(facts, release, "2026-03-31")
+        self.assertEqual(resolved["reportDate"], "2026-06-30")
+
+    def test_instance_xbrl_merges_only_supported_standard_concepts(self):
+        xml = """
+        <xbrl xmlns="http://www.xbrl.org/2003/instance" xmlns:us-gaap="http://fasb.org/us-gaap/2026">
+          <context id="q2"><period><startDate>2026-04-01</startDate><endDate>2026-06-30</endDate></period></context>
+          <unit id="usd"><measure>iso4217:USD</measure></unit>
+          <us-gaap:Revenues contextRef="q2" unitRef="usd">112000000000</us-gaap:Revenues>
+          <us-gaap:CustomIssuerMetric contextRef="q2" unitRef="usd">9</us-gaap:CustomIssuerMetric>
+        </xbrl>
+        """
+        facts = {"facts": {"us-gaap": {}}}
+        release = {"form": "8-K", "accessionNumber": "release", "filingDate": "2026-07-16"}
+        self.assertEqual(merge_sec_instance_facts(facts, xml, release), 1)
+        rows = facts["facts"]["us-gaap"]["Revenues"]["units"]["USD"]
+        self.assertEqual(rows[0]["form"], "8-K")
+        self.assertEqual(rows[0]["end"], "2026-06-30")
+        self.assertNotIn("CustomIssuerMetric", facts["facts"]["us-gaap"])
 
     def test_official_release_uses_fiscal_period_not_release_date(self):
         release = """

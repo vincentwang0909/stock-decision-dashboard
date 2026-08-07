@@ -12522,33 +12522,58 @@ function buildTechnicalModule(row, supportResistance, companyProfile = null) {
   };
 }
 
+function displayedFundamentalMetric(row, key, fallback = null) {
+  const display = row.metadata?.companyAnalysis?.displayFundamentals || {};
+  const metric = display.metrics?.[key];
+  if (metric && Object.prototype.hasOwnProperty.call(metric, "value")) {
+    // A complete SEC fallback can be newer than selected Yahoo quote-summary
+    // ratios.  Do not silently fall back to an older period in that case.
+    if (display.source_period_end && metric.period_end_date && metric.period_end_date < display.source_period_end) return null;
+    return finiteNumberOrNull(metric.value);
+  }
+  return finiteNumberOrNull(fallback);
+}
+
 function buildFundamentalModule(row, research) {
   const metrics = research.metrics || {};
+  const metadata = row.metadata || {};
+  // The recommendation model retains its existing research inputs.  These
+  // values are only for the fundamental-detail renderer and must come from a
+  // report-backed source rather than the legacy ticker-profile placeholders.
+  const displayMetrics = {
+    roe: displayedFundamentalMetric(row, "roe", metadata.returnOnEquity),
+    grossMargin: displayedFundamentalMetric(row, "gross_margin", metadata.grossMargins),
+    operatingMargin: displayedFundamentalMetric(row, "operating_margin", metadata.operatingMargins),
+    netMargin: displayedFundamentalMetric(row, "net_margin", metadata.profitMargins),
+    debtToEquity: displayedFundamentalMetric(row, "debt_to_equity", Number.isFinite(metadata.debtToEquity) ? metadata.debtToEquity / 100 : null),
+    currentRatio: displayedFundamentalMetric(row, "current_ratio", metadata.currentRatio),
+    revenueGrowth: displayedFundamentalMetric(row, "revenue_growth", metadata.revenueGrowth),
+    epsGrowth: displayedFundamentalMetric(row, "eps_growth", metadata.earningsQuarterlyGrowth ?? metadata.earningsGrowth),
+    freeCashFlowGrowth: displayedFundamentalMetric(row, "free_cash_flow_growth"),
+    priceToSales: displayedFundamentalMetric(row, "price_to_sales", metadata.priceToSalesTrailing12Months),
+  };
   const normalizedFreeCashFlow = finiteNumberOrNull(metrics.freeCashFlow);
   const quality = {
     score: research.qualityScore ?? 50,
-    roe: metrics.roe ?? null,
-    gross_margin: metrics.grossMargin ?? null,
-    operating_margin: metrics.operatingMargin ?? null,
-    net_margin: finiteNumberOrNull(row.metadata?.companyAnalysis?.earningsQuality?.netMargin)
-      ?? (row.profile && Number.isFinite(metrics.operatingMargin) ? metrics.operatingMargin * 0.82 : null),
-    debt_ratio: metrics.debtRatio ?? null,
-    cash_ratio: metrics.cashReserve ?? null,
+    roe: displayMetrics.roe,
+    gross_margin: displayMetrics.grossMargin,
+    operating_margin: displayMetrics.operatingMargin,
+    net_margin: displayMetrics.netMargin,
+    debt_to_equity: displayMetrics.debtToEquity,
+    current_ratio: displayMetrics.currentRatio,
   };
   const growth = {
     score: research.growthScore ?? 50,
-    revenue_growth: metrics.revenueGrowth ?? null,
-    eps_growth: metrics.epsGrowth ?? null,
-    free_cash_flow_growth: metrics.fcfGrowth ?? null,
-    forward_guidance: metrics.guidance ?? null,
-    analyst_growth_expectation: metrics.analystView ?? null,
+    revenue_growth: displayMetrics.revenueGrowth,
+    eps_growth: displayMetrics.epsGrowth,
+    free_cash_flow_growth: displayMetrics.freeCashFlowGrowth,
   };
   const valuation = {
     score: research.valuationScore ?? 50,
     pe: metrics.pe ?? null,
     forward_pe: metrics.forwardPe ?? null,
     peg: metrics.peg ?? null,
-    ps_ratio: metrics.psRatio ?? null,
+    ps_ratio: displayMetrics.priceToSales,
     ev_ebitda: metrics.evEbitda ?? null,
     state: research.valuationState,
   };
@@ -21794,6 +21819,7 @@ function renderDetailModal(row) {
   const fundamentalQuality = fundamental?.quality || {};
   const fundamentalGrowth = fundamental?.growth || {};
   const fundamentalValuation = fundamental?.valuation || {};
+  const financialDataStatus = row.metadata?.companyAnalysis?.financialDataStatus || {};
   const earningsAnalysis = decision.earnings_analysis || {};
   const marketEnvironmentAnalysis = decision.market_environment_analysis || {};
   const companyNewsStatus = decision.company_news_status || {};
@@ -22860,6 +22886,12 @@ function renderDetailModal(row) {
 
   const fundamentalPanel = `
     <section class="detail-tab-section">
+      ${["primary_source_pending", "stale", "latest_partial"].includes(financialDataStatus.status) ? `
+        <div class="detail-line-note muted">
+          ${currentLanguage === "zh"
+            ? `最新财报已发布，完整财务报表仍在等待可靠数据源更新；当前基本面指标截至 ${financialDataStatus.displayed_period_end || "—"}。`
+            : `A newer earnings release is available, but complete statement data is still pending; current fundamentals are through ${financialDataStatus.displayed_period_end || "—"}.`}
+        </div>` : ""}
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("fundamentalSummaryTitle")}</h3></div>
         <div class="decision-summary-grid">
@@ -22891,30 +22923,30 @@ function renderDetailModal(row) {
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "盈利与财务比率" : "Earnings & Financial Ratios"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: "ROE", value: displayValue(fundamentalQuality.roe, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "毛利率" : "Gross Margin", value: displayValue(fundamentalQuality.gross_margin, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "营业利润率" : "Operating Margin", value: displayValue(fundamentalQuality.operating_margin, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "净利率" : "Net Margin", value: displayValue(fundamentalQuality.net_margin, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "负债率" : "Debt Ratio", value: displayValue(fundamentalQuality.debt_ratio, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "现金比率" : "Cash Ratio", value: displayValue(fundamentalQuality.cash_ratio, (value) => formatPercentage(value)) },
+          { label: "ROE", value: displayValue(fundamentalQuality.roe, (value) => formatPercentage(value)), hidden: fundamentalQuality.roe == null },
+          { label: currentLanguage === "zh" ? "毛利率" : "Gross Margin", value: displayValue(fundamentalQuality.gross_margin, (value) => formatPercentage(value)), hidden: fundamentalQuality.gross_margin == null },
+          { label: currentLanguage === "zh" ? "营业利润率" : "Operating Margin", value: displayValue(fundamentalQuality.operating_margin, (value) => formatPercentage(value)), hidden: fundamentalQuality.operating_margin == null },
+          { label: currentLanguage === "zh" ? "净利率" : "Net Margin", value: displayValue(fundamentalQuality.net_margin, (value) => formatPercentage(value)), hidden: fundamentalQuality.net_margin == null },
+          { label: currentLanguage === "zh" ? "债务权益比" : "Debt / Equity", value: displayValue(fundamentalQuality.debt_to_equity, (value) => formatRatio(value)), hidden: fundamentalQuality.debt_to_equity == null },
+          { label: currentLanguage === "zh" ? "流动比率" : "Current Ratio", value: displayValue(fundamentalQuality.current_ratio, (value) => formatRatio(value)), hidden: fundamentalQuality.current_ratio == null },
         ])}</div>
       </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "增长指标" : "Growth Metrics"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: t("revenueGrowth"), value: displayValue(fundamentalGrowth.revenue_growth, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "每股收益增长" : "EPS Growth", value: displayValue(fundamentalGrowth.eps_growth, (value) => formatPercentage(value)) },
-          { label: currentLanguage === "zh" ? "自由现金流增长" : "FCF Growth", value: displayValue(fundamentalGrowth.free_cash_flow_growth, (value) => formatPercentage(value)) },
+          { label: t("revenueGrowth"), value: displayValue(fundamentalGrowth.revenue_growth, (value) => formatPercentage(value)), hidden: fundamentalGrowth.revenue_growth == null },
+          { label: currentLanguage === "zh" ? "每股收益增长" : "EPS Growth", value: displayValue(fundamentalGrowth.eps_growth, (value) => formatPercentage(value)), hidden: fundamentalGrowth.eps_growth == null },
+          { label: currentLanguage === "zh" ? "自由现金流增长" : "FCF Growth", value: displayValue(fundamentalGrowth.free_cash_flow_growth, (value) => formatPercentage(value)), hidden: fundamentalGrowth.free_cash_flow_growth == null },
         ])}</div>
       </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "估值指标" : "Valuation Metrics"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: t("pe"), value: displayValue(fundamentalValuation.pe, (value) => formatRatio(value)) },
-          { label: t("forwardPe"), value: displayValue(fundamentalValuation.forward_pe, (value) => formatRatio(value)) },
-          { label: "PEG", value: displayValue(fundamentalValuation.peg, (value) => formatRatio(value)) },
-          { label: "PS", value: displayValue(fundamentalValuation.ps_ratio, (value) => formatRatio(value)) },
-          { label: "EV / EBITDA", value: displayValue(fundamentalValuation.ev_ebitda, (value) => formatRatio(value)) },
+          { label: t("pe"), value: displayValue(fundamentalValuation.pe, (value) => formatRatio(value)), hidden: fundamentalValuation.pe == null },
+          { label: t("forwardPe"), value: displayValue(fundamentalValuation.forward_pe, (value) => formatRatio(value)), hidden: fundamentalValuation.forward_pe == null },
+          { label: "PEG", value: displayValue(fundamentalValuation.peg, (value) => formatRatio(value)), hidden: fundamentalValuation.peg == null },
+          { label: "PS", value: displayValue(fundamentalValuation.ps_ratio, (value) => formatRatio(value)), hidden: fundamentalValuation.ps_ratio == null },
+          { label: "EV / EBITDA", value: displayValue(fundamentalValuation.ev_ebitda, (value) => formatRatio(value)), hidden: fundamentalValuation.ev_ebitda == null },
         ])}</div>
       </section>
     </section>

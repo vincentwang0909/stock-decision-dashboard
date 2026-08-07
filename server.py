@@ -31,6 +31,9 @@ from financial_freshness import (
     financial_semantics,
     find_cik_for_ticker,
     latest_earnings_release_filing,
+    latest_inline_xbrl_release_period,
+    merge_sec_instance_facts,
+    official_release_instance_document,
     latest_official_filing,
     now_iso as financial_now_iso,
     parse_official_earnings_release,
@@ -93,7 +96,7 @@ MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TIC
 OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECONDS", "6"))
 FINANCIAL_STATEMENT_CACHE_SECONDS = int(os.environ.get("FINANCIAL_STATEMENT_CACHE_SECONDS", str(12 * 60 * 60)))
 FINANCIAL_STATEMENT_EARNINGS_CHECK_SECONDS = int(os.environ.get("FINANCIAL_STATEMENT_EARNINGS_CHECK_SECONDS", str(2 * 60 * 60)))
-FINANCIAL_STATEMENT_SCHEMA_VERSION = 4
+FINANCIAL_STATEMENT_SCHEMA_VERSION = 9
 FINANCIAL_DEBUG_ENABLED = os.environ.get("FINANCIAL_DEBUG_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
 SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT", "Stock Decision Dashboard contact@stock-decision-dashboard.local")
 # Increment when an options field changes methodology so cached synthetic data
@@ -1331,6 +1334,47 @@ def strip_basic_fundamental_payload(snapshot):
     return snapshot
 
 
+def _display_fundamental_metric(value, period_type, period_end_date, source, definition):
+    """Attach provenance to a display-only fundamental metric.
+
+    These values deliberately do not feed the recommendation model.  The
+    detail panel reads this compact record tree so it cannot silently render
+    profile-derived placeholder ratios when an audited or quote-summary value
+    is available.
+    """
+    return {
+        "value": _safe_float(value),
+        "period_type": period_type,
+        "period_end_date": period_end_date,
+        "source": source,
+        "definition": definition,
+    }
+
+
+def build_yahoo_display_fundamentals(info, statement_period_end):
+    """Normalize the real Yahoo quote-summary ratios used by the UI."""
+    source = "Yahoo Finance quote summary via yfinance"
+    ttm_period = statement_period_end
+    debt_to_equity = _safe_float(info.get("debtToEquity"))
+    return {
+        "schema_version": FINANCIAL_STATEMENT_SCHEMA_VERSION,
+        "source": source,
+        "source_period_end": statement_period_end,
+        "metrics": {
+            "roe": _display_fundamental_metric(info.get("returnOnEquity"), "ttm", ttm_period, source, "provider_return_on_equity"),
+            "gross_margin": _display_fundamental_metric(info.get("grossMargins"), "ttm", ttm_period, source, "provider_ttm_gross_margin"),
+            "operating_margin": _display_fundamental_metric(info.get("operatingMargins"), "ttm", ttm_period, source, "provider_ttm_operating_margin"),
+            "net_margin": _display_fundamental_metric(info.get("profitMargins"), "ttm", ttm_period, source, "provider_ttm_net_margin"),
+            "debt_to_equity": _display_fundamental_metric(debt_to_equity / 100 if debt_to_equity is not None else None, "point_in_time", ttm_period, source, "provider_debt_to_equity_percent_normalized"),
+            "current_ratio": _display_fundamental_metric(info.get("currentRatio"), "point_in_time", ttm_period, source, "provider_current_ratio"),
+            "revenue_growth": _display_fundamental_metric(info.get("revenueGrowth"), "ttm", ttm_period, source, "provider_revenue_growth"),
+            "eps_growth": _display_fundamental_metric(info.get("earningsQuarterlyGrowth") if info.get("earningsQuarterlyGrowth") is not None else info.get("earningsGrowth"), "quarter", ttm_period, source, "provider_earnings_growth"),
+            "free_cash_flow_growth": _display_fundamental_metric(None, "ttm", ttm_period, source, "unavailable_without_four_comparable_cash_flow_quarters"),
+            "price_to_sales": _display_fundamental_metric(info.get("priceToSalesTrailing12Months"), "ttm", ttm_period, source, "provider_price_to_sales_ttm"),
+        },
+    }
+
+
 def fetch_company_analysis_snapshot(instrument, quote_type, info):
     """Build display-only statement facts from the existing Yahoo/yfinance source."""
     if str(quote_type or "").upper() not in {"", "EQUITY"}:
@@ -1631,6 +1675,10 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
         "sourceTimestamp": source_timestamp,
         "annualPeriodEnd": _statement_period_end(annual_income) or _statement_period_end(annual_cashflow),
         "quarterlyPeriodEnd": _statement_period_end(quarterly_income) or _statement_period_end(quarterly_cashflow),
+        "displayFundamentals": build_yahoo_display_fundamentals(
+            info,
+            _statement_period_end(quarterly_income) or _statement_period_end(quarterly_cashflow),
+        ),
         # Legacy numeric fields stay for existing, non-action display compatibility.
         "cashFlow": {"operatingCashFlow": ttm_ocf_value, "freeCashFlow": ttm_fcf_value, "freeCashFlowMargin": ttm_fcf_margin, "freeCashFlowYoyGrowth": fcf_yoy},
         "capitalAllocation": {"capitalExpenditure": ttm_capex_value, "capexToRevenue": ttm_capex_to_revenue, "buybackTtm": buyback_value, "sharesOutstanding": shares_current, "sharesOutstandingYoy": shares_yoy},
@@ -4677,7 +4725,10 @@ def apply_financial_display_status(snapshot, freshness, report=None):
     major_available = [period for period in major if period]
     all_major_current = bool(expected_period and len(major_available) == 3 and all(same_fiscal_calendar_period(period, expected_period) for period in major_available))
     some_current = bool(expected_period and any(any(same_fiscal_calendar_period(period, expected_period) for period in group.get("periods", [])) for group in groups.values()))
-    if expected_period and all_major_current:
+    unresolved_release = (freshness or {}).get("status") in {"released_primary_source_pending", "stale_and_unavailable"}
+    if unresolved_release and not report:
+        status, completeness = "primary_source_pending", "partial"
+    elif expected_period and all_major_current:
         status, completeness = "latest_complete", "complete"
     elif expected_period and some_current:
         status, completeness = "latest_partial", "partial"
@@ -4722,6 +4773,16 @@ def apply_financial_display_status(snapshot, freshness, report=None):
         "earnings_release_date": release_reference.get("filing_date") or (freshness or {}).get("latest_reported_earnings_date"),
         "sec_filing_date": report_filing.get("filingDate") or (freshness or {}).get("official_filing_date"),
         "extraction_timestamp": (report or {}).get("extraction_timestamp") or existing_source.get("extraction_timestamp") or (snapshot or {}).get("sourceTimestamp"),
+    }
+    # Keep a compact, user-safe status after the verbose statement tree is
+    # removed from the API payload.  It prevents an older Yahoo statement from
+    # looking current while a newer official release awaits normalization.
+    snapshot["financialDataStatus"] = {
+        "status": status,
+        "displayed_period_end": audit.get("displayed_complete_period_end"),
+        "expected_period_end": expected_period,
+        "source": source_name,
+        "reason": (freshness or {}).get("reason"),
     }
     return snapshot
 
@@ -4780,12 +4841,15 @@ def financial_statement_cache_fresh(payload):
 
 def financial_release_is_recent(earnings):
     event_date = parse_iso_datetime((earnings or {}).get("eventDate"))
-    if event_date is None or not (earnings or {}).get("reportReleased"):
+    if event_date is None:
         return False
     if event_date.tzinfo is None:
         event_date = event_date.replace(tzinfo=timezone.utc)
     age_seconds = (datetime.now(timezone.utc) - event_date).total_seconds()
-    return 0 <= age_seconds <= (3 * 24 * 60 * 60)
+    # Calendar providers do not always mark a completed report as released.
+    # A past earnings event is sufficient to recheck SEC for a limited window;
+    # this keeps post-release checks prompt without polling every issuer hourly.
+    return 0 <= age_seconds <= (7 * 24 * 60 * 60)
 
 
 def _financial_release_reference(cik, release_filing):
@@ -4842,6 +4906,12 @@ def fetch_financial_statement_freshness(ticker, primary_period, primary_updated_
         # Keep the complete statement as the cache base, but reapply a newer 8-K
         # headline release so the UI can state exactly which Q2 metrics are new.
         display_report = cached_partial_report or cached_report
+        # Never overlay an older cached SEC snapshot onto a newer Yahoo base.
+        # The UI only receives a fallback report when it covers the same or a
+        # newer fiscal period than the values it replaces.
+        display_period_comparison = compare_periods(primary_period, (display_report or {}).get("fiscal_period_end_date"))
+        if display_period_comparison == -1:
+            display_report = None
         return {
             "freshness": freshness,
             "report": display_report,
@@ -4868,6 +4938,7 @@ def fetch_financial_statement_freshness(ticker, primary_period, primary_updated_
         release_reference = _financial_release_reference(cik, latest_earnings_release_filing(submissions, primary_period))
         initial_freshness = determine_freshness(primary_period, primary_updated_at, earnings, filing, False, release_reference)
         candidate_report = None
+        company_facts = None
         if initial_freshness.get("primary_source_is_older") and filing:
             company_facts = http_get_sec_json(SEC_COMPANY_FACTS_URL.format(cik=cik), timeout=12)
             candidate_report = build_sec_normalized_report(company_facts, cik, filing)
@@ -4881,8 +4952,34 @@ def fetch_financial_statement_freshness(ticker, primary_period, primary_updated_
         # require the release's fiscal period to be genuinely newer below.
         release_pending = bool(release_reference)
         release_matches_primary = False
+        # A complete Item 2.02 Inline-XBRL release can arrive before a 10-Q.
+        # Resolve its real fiscal period from tagged revenue facts, then run the
+        # same normalizer used for 10-Q/10-K statements.
+        release_filing = latest_earnings_release_filing(submissions, primary_period)
+        if release_pending and not candidate_report and release_filing:
+            if company_facts is None:
+                company_facts = http_get_sec_json(SEC_COMPANY_FACTS_URL.format(cik=cik), timeout=12)
+            inline_release_filing = latest_inline_xbrl_release_period(company_facts, release_filing, primary_period)
+            if not inline_release_filing:
+                accession = str(release_filing.get("accessionNumber") or "").replace("-", "")
+                index_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession}/index.json"
+                instance_document = official_release_instance_document(
+                    http_get_sec_json(index_url, timeout=10),
+                    release_filing,
+                )
+                if instance_document:
+                    instance_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession}/{instance_document}"
+                    merge_sec_instance_facts(
+                        company_facts,
+                        http_get_sec_text(instance_url, timeout=12),
+                        release_filing,
+                    )
+                    inline_release_filing = latest_inline_xbrl_release_period(company_facts, release_filing, primary_period)
+            if inline_release_filing:
+                candidate_report = build_sec_normalized_report(company_facts, cik, inline_release_filing)
+                if _financial_record_value((candidate_report or {}).get("quarter", {}).get("revenue")) is None:
+                    candidate_report = None
         if (initial_freshness.get("primary_source_is_older") or release_pending) and not candidate_report and release_reference:
-            release_filing = latest_earnings_release_filing(submissions, primary_period)
             exhibit_url = official_release_exhibit_url(cik, release_filing)
             if exhibit_url:
                 candidate_report = parse_official_earnings_release(
@@ -4903,9 +5000,16 @@ def fetch_financial_statement_freshness(ticker, primary_period, primary_updated_
             report and compare_periods(primary_period, report.get("fiscal_period_end_date")) == 1
         )
         freshness = determine_freshness(primary_period, primary_updated_at, earnings, effective_filing, cached_is_newer, release_reference)
-        if (initial_freshness.get("primary_source_is_older") or release_pending) and not candidate_report and not cached_is_newer and not release_matches_primary:
+        if initial_freshness.get("primary_source_is_older") and not candidate_report and not cached_is_newer and not release_matches_primary:
             freshness["status"] = "stale_and_unavailable"
             freshness["reason"] = "newer_official_report_found_but_complete_normalized_statement_unavailable"
+        elif release_pending and not candidate_report and not cached_is_newer and not release_matches_primary:
+            # The SEC 8-K confirms a new report exists, but an image-only or
+            # otherwise untagged exhibit cannot safely supply statement values.
+            # Do not relabel old statements as latest and do not invent a
+            # fiscal-period end from the calendar.
+            freshness["status"] = "released_primary_source_pending"
+            freshness["reason"] = "official_earnings_release_has_no_reliably_normalizable_statement_facts"
         payload = {
             "schema_version": FINANCIAL_STATEMENT_SCHEMA_VERSION,
             "ticker": ticker,
@@ -4922,7 +5026,10 @@ def fetch_financial_statement_freshness(ticker, primary_period, primary_updated_
             write_module_cache("financial_statements", ticker, payload)
         return {
             "freshness": freshness,
-            "report": display_report if freshness.get("primary_source_is_older") else None,
+            "report": display_report if (
+                freshness.get("primary_source_is_older")
+                or (display_report or {}).get("completeness") == "headline_release_partial"
+            ) else None,
             "source": select_source(primary_period, display_report, freshness),
             "cache_used": False,
             "diagnostic": (display_report or {}).get("concept_diagnostics") or {"status": "unavailable", "reason": "no_sec_concept_diagnostic"},
@@ -4996,11 +5103,18 @@ def apply_sec_financial_report(snapshot, report, freshness, info):
     if report.get("completeness") == "headline_release_partial":
         earnings_metrics = snapshot.setdefault("earningsMetrics", {})
         earnings_metrics["revenue"] = _set_sec_actual_metric(earnings_metrics.get("revenue"), quarter.get("revenue"))
+        if quarter.get("diluted_eps"):
+            earnings_metrics["eps"] = _set_sec_actual_metric(
+                earnings_metrics.get("eps"),
+                quarter.get("diluted_eps"),
+            )
         if quarter.get("net_income"):
             snapshot.setdefault("earningsQuality", {})["netIncome"] = quarter.get("net_income")
         snapshot["latestEarnings"] = {
             **(snapshot.get("latestEarnings") or {}),
             "revenueActual": _financial_record_value(quarter.get("revenue")),
+            "reportedEps": _financial_record_value(quarter.get("diluted_eps"))
+                if quarter.get("diluted_eps") else (snapshot.get("latestEarnings") or {}).get("reportedEps"),
         }
         # The 8-K release updates only headline earnings.  It must not relabel
         # prior-period cash flow, TTM, or balance-sheet records as current.
@@ -5160,6 +5274,46 @@ def apply_sec_financial_report(snapshot, report, freshness, info):
         "capitalExpenditure": _financial_record_value(quarter.get("capital_expenditure")),
         "reportedEps": _financial_record_value(quarter.get("diluted_eps")),
     }
+    # Keep the fields rendered in the lower fundamental cards in sync with the
+    # same SEC period as earnings/cash-flow data.  This is display-only and
+    # intentionally does not change the recommendation-model inputs.
+    display = snapshot.setdefault("displayFundamentals", {})
+    display["schema_version"] = FINANCIAL_STATEMENT_SCHEMA_VERSION
+    display["source"] = report.get("source_name") or "SEC EDGAR companyfacts"
+    display["source_period_end"] = period_end
+    display_metrics = display.setdefault("metrics", {})
+
+    def set_display_metric(name, value, period_type, definition):
+        if value is not None:
+            display_metrics[name] = _display_fundamental_metric(
+                value,
+                period_type,
+                period_end,
+                report.get("source_name") or "SEC EDGAR companyfacts",
+                definition,
+            )
+
+    ttm_revenue = _financial_record_value(ttm.get("revenue"))
+    ttm_gross_profit = _financial_record_value(ttm.get("gross_profit"))
+    ttm_operating_income = _financial_record_value(ttm.get("operating_income"))
+    ttm_net_income = _financial_record_value(ttm.get("net_income"))
+    stockholders_equity = _financial_record_value(balance.get("stockholders_equity"))
+    revenue_series = report.get("quarter_series", {}).get("revenue") or []
+    eps_series = report.get("quarter_series", {}).get("diluted_eps") or []
+
+    def comparable_yoy(series):
+        current = _safe_float(((series[0] if len(series) > 0 else {}).get("derivation") or {}).get("value"))
+        prior = _safe_float(((series[4] if len(series) > 4 else {}).get("derivation") or {}).get("value"))
+        return (current / prior) - 1 if current is not None and prior not in (None, 0) else None
+
+    set_display_metric("gross_margin", ttm_gross_profit / ttm_revenue if ttm_gross_profit is not None and ttm_revenue not in (None, 0) else None, "ttm", "SEC GrossProfit / Revenue, four standalone quarters")
+    set_display_metric("operating_margin", ttm_operating_income / ttm_revenue if ttm_operating_income is not None and ttm_revenue not in (None, 0) else None, "ttm", "SEC OperatingIncomeLoss / Revenue, four standalone quarters")
+    set_display_metric("net_margin", ttm_net_income / ttm_revenue if ttm_net_income is not None and ttm_revenue not in (None, 0) else None, "ttm", "SEC NetIncomeLoss / Revenue, four standalone quarters")
+    set_display_metric("roe", ttm_net_income / stockholders_equity if ttm_net_income is not None and stockholders_equity not in (None, 0) else None, "ttm", "SEC TTM net income / period-end stockholders equity")
+    set_display_metric("debt_to_equity", debt / stockholders_equity if debt is not None and stockholders_equity not in (None, 0) else None, "point_in_time", "SEC total debt / stockholders equity")
+    set_display_metric("revenue_growth", comparable_yoy(revenue_series), "quarter", "SEC current-quarter revenue versus comparable prior-year quarter")
+    set_display_metric("eps_growth", comparable_yoy(eps_series), "quarter", "SEC current-quarter diluted EPS versus comparable prior-year quarter")
+    set_display_metric("price_to_sales", _safe_float(info.get("marketCap")) / ttm_revenue if _safe_float(info.get("marketCap")) is not None and ttm_revenue not in (None, 0) else None, "ttm", "Yahoo market capitalization / SEC TTM revenue")
     snapshot["source"] = "SEC EDGAR normalized financial statements"
     snapshot["sourceTimestamp"] = report.get("extraction_timestamp")
     snapshot["quarterlyPeriodEnd"] = report.get("fiscal_period_end_date")

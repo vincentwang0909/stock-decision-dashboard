@@ -43,6 +43,13 @@ test("valuation has no summary row", () => {
   assert.doesNotMatch(valuationSection, /label: t\("summary"\)/);
 });
 
+test("displayed fundamental ratios use report-backed values and never revive an older period", () => {
+  assert.match(source, /function displayedFundamentalMetric\(row, key, fallback = null\)/);
+  assert.match(source, /metric\.period_end_date < display\.source_period_end/);
+  assert.match(source, /displayFundamentals/);
+  assert.doesNotMatch(source.slice(source.indexOf("function buildFundamentalModule"), source.indexOf("function formatAnalysisStatus")), /gross_margin: metrics\.grossMargin/);
+});
+
 test("dividend yield remains normalized for the company profile only", () => {
   assert.match(source, /unit === "decimal"/);
   assert.doesNotMatch(source, /numeric > 0\.25 \? numeric \/ 100 : numeric/);
