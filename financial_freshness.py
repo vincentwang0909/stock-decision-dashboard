@@ -511,15 +511,6 @@ def source_conflicts(primary_value: float | None, fallback_value: float | None, 
     return abs(primary_value - fallback_value) / denominator > tolerance
 
 
-def price_to_fcf(market_cap: float | None, ttm_fcf: float | None) -> float | None:
-    # A negative FCF is a valid economic result, not missing data.  Callers
-    # decide how to score the multiple; this helper only preserves the signed
-    # mathematical value when the denominator is usable.
-    if market_cap is None or ttm_fcf is None or ttm_fcf == 0:
-        return None
-    return market_cap / ttm_fcf
-
-
 def official_release_period_end(text: str, filing_date: str | None = None) -> str | None:
     """Extract a displayed fiscal period from an official release, not its filing date."""
     reference = parse_date(filing_date) or datetime.now(timezone.utc).date()

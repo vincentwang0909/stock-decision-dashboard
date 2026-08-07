@@ -9,7 +9,6 @@ from financial_freshness import (
     official_release_period_end,
     parse_official_earnings_release,
     preserve_cached_statement,
-    price_to_fcf,
     select_source,
     source_conflicts,
 )
@@ -34,6 +33,14 @@ class FinancialFreshnessTests(unittest.TestCase):
         result = derive_standalone_quarter(rows, "2026-06-30", {"accessionNumber": "new", "form": "10-Q"})
         self.assertEqual(result["value"], 70)
         self.assertEqual(result["method"], "derived_ytd_minus_prior_ytd")
+
+    def test_ytd_cashflow_without_a_prior_comparable_period_stays_unavailable(self):
+        rows = [
+            {"start": "2026-01-01", "end": "2026-06-30", "val": 110, "accn": "new", "form": "10-Q"},
+        ]
+        result = derive_standalone_quarter(rows, "2026-06-30", {"accessionNumber": "new", "form": "10-Q"})
+        self.assertFalse(result["available"])
+        self.assertEqual(result["method"], "ytd_value_without_prior_period")
 
     def test_ttm_rebuilds_from_four_standalone_quarters(self):
         facts = {"facts": {"us-gaap": {
@@ -76,12 +83,6 @@ class FinancialFreshnessTests(unittest.TestCase):
         capex = report["quarter"]["capital_expenditure"]
         self.assertEqual(capex["raw_value"], 12)
         self.assertEqual(capex["source_field"], "PaymentsToAcquirePropertyPlantAndEquipment")
-
-    def test_price_to_fcf_preserves_a_valid_negative_denominator(self):
-        self.assertEqual(price_to_fcf(1000, -1), -1000)
-        self.assertEqual(price_to_fcf(1000, 50), 20)
-        self.assertIsNone(price_to_fcf(1000, 0))
-        self.assertIsNone(price_to_fcf(None, 50))
 
     def test_financial_sector_avoids_ordinary_fcf_semantics(self):
         self.assertEqual(financial_semantics({"sector": "Financial Services", "industry": "Credit Services"})["model"], "financial_company_cash_flow_limited")

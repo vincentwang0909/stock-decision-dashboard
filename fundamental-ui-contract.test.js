@@ -4,16 +4,13 @@ const fs = require("node:fs");
 
 const source = fs.readFileSync("main.js", "utf8");
 
-test("fundamental UI preserves signed Price / FCF values", () => {
-  assert.match(source, /priceFcfFreeCashFlow !== 0/);
-  assert.match(source, /TTM 自由现金流为负；负倍数保留展示，但不代表低估/);
-  assert.doesNotMatch(source, /priceFcfFreeCashFlow > 0/);
+test("Price / FCF is absent from the fundamental UI and calculation model", () => {
+  assert.doesNotMatch(source, /price_fcf|Price \/ FCF|priceToFreeCashflow/i);
 });
 
 test("negative valuation multiples cannot receive a cheap-value score", () => {
   assert.match(source, /function valuationMultipleScore\(value, low, high\)/);
   assert.match(source, /if \(value < 0\) return 30/);
-  assert.match(source, /valuationMultipleScore\(fundamental\.valuation\.price_fcf/);
 });
 
 test("quality summary generation and its script are removed from the active UI", () => {
@@ -33,7 +30,7 @@ test("EPS module is compact and uses semantic crossed-zero comparison wording", 
   assert.doesNotMatch(epsRenderer, /季度营收|季度 CapEx|股价变动的可验证线索/);
 });
 
-test("compact panel keeps Price\/FCF only in the valuation section and removes ambiguous guidance", () => {
+test("fundamental panels omit Price\/FCF and ambiguous guidance", () => {
   const activeRenderer = source.slice(source.indexOf("const renderBasicFundamentalAnalysis"), source.indexOf("const renderEarningsAnalysis"));
   assert.doesNotMatch(activeRenderer, /Price \/ FCF/);
   const fundamentalPanel = source.slice(source.indexOf("const fundamentalPanel"));
@@ -54,8 +51,19 @@ test("basic-fundamental metrics are always expanded and valuation has no summary
 test("shareholder-return card displays only the dividend yield", () => {
   const activeRenderer = source.slice(source.indexOf("const renderBasicFundamentalAnalysis"), source.indexOf("const renderEarningsAnalysis"));
   assert.match(activeRenderer, /股息收益率/);
-  assert.match(activeRenderer, /normalizeDividendYield\(row\.metadata\?\.dividendYield\)/);
+  assert.match(activeRenderer, /normalizeDividendYield\(row\.metadata\?\.dividendYield, row\.metadata\?\.dividendYieldUnit\)/);
   assert.doesNotMatch(activeRenderer, /股份回购（TTM）|现金股息（TTM）|股东回报合计（同口径）|股本同比/);
+});
+
+test("basic-fundamental cards use one universal cross-stock field set", () => {
+  const activeRenderer = source.slice(source.indexOf("const renderBasicFundamentalAnalysis"), source.indexOf("const renderEarningsAnalysis"));
+  assert.match(activeRenderer, /const renderFundamentalCard = \(heading, rows\) =>/);
+  assert.match(activeRenderer, /if \(!fundamentalCards\.length\) return ""/);
+  assert.match(source, /function universalBasicFundamentalFieldKeys\(rows = tickerRows\)/);
+  assert.match(source, /availableForEveryEquity/);
+  assert.match(activeRenderer, /const universalFieldKeys = universalBasicFundamentalFieldKeys\(\)/);
+  assert.match(source, /unit === "decimal"/);
+  assert.doesNotMatch(source, /numeric > 0\.25 \? numeric \/ 100 : numeric/);
 });
 
 test("news and market tab omits company news, market regime, and market narrative panels", () => {

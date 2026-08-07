@@ -65,6 +65,20 @@ def full_sec_report(period="2026-06-30"):
 
 
 class FinancialStatementDisplayTests(unittest.TestCase):
+    def test_dividend_yield_prefers_annual_dividend_rate_over_ambiguous_provider_yield(self):
+        result = server.canonical_dividend_yield(
+            {"dividendYield": 0.06, "trailingAnnualDividendRate": 0.46},
+            750,
+        )
+        self.assertAlmostEqual(result["value"], 0.46 / 750)
+        self.assertEqual(result["unit"], "decimal")
+        self.assertEqual(result["source"], "annual_dividend_rate_divided_by_price")
+
+    def test_ambiguous_dividend_yield_is_hidden_instead_of_guessing_its_scale(self):
+        result = server.canonical_dividend_yield({"dividendYield": 0.06}, 750)
+        self.assertIsNone(result["value"])
+        self.assertEqual(result["source"], "unverified_or_unavailable")
+
     def test_company_news_cache_purges_expired_entries_without_a_ticker_limit(self):
         original_cache = dict(server.COMPANY_NEWS_CACHE)
         try:
@@ -118,11 +132,6 @@ class FinancialStatementDisplayTests(unittest.TestCase):
         )
         self.assertEqual(result["financialStatementFreshness"]["status"], "latest_complete")
         self.assertTrue(result["financialStatementSnapshot"]["fiscal_calendar_equivalent"])
-
-    def test_negative_ttm_fcf_has_a_signed_price_to_fcf(self):
-        self.assertEqual(server.fresh_price_to_fcf(1_000, -10), -100)
-        self.assertIsNone(server.fresh_price_to_fcf(1_000, None))
-        self.assertIsNone(server.fresh_price_to_fcf(1_000, 0))
 
     def test_eps_surprise_handles_crossing_zero_and_near_zero_estimates(self):
         turned_to_loss = server.build_earnings_surprise(-0.40, 0.13)

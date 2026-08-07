@@ -35,7 +35,6 @@ from financial_freshness import (
     now_iso as financial_now_iso,
     parse_official_earnings_release,
     preserve_cached_statement,
-    price_to_fcf as fresh_price_to_fcf,
     select_source,
     source_conflicts,
 )
@@ -533,6 +532,46 @@ def _safe_float(value):
         return float(value)
     except Exception:
         return None
+
+
+def canonical_dividend_yield(info, price):
+    """Return a verified decimal dividend yield without guessing Yahoo units.
+
+    Yahoo may expose ``dividendYield`` either as a decimal or as percentage
+    points.  An annual per-share dividend divided by the current price is the
+    unambiguous source when it is available.  If a provider supplies only an
+    ambiguous value, omit it rather than displaying a materially wrong yield.
+    """
+    details = info if isinstance(info, dict) else {}
+    price_value = _safe_float(price)
+    annual_rate = _safe_float(
+        details.get("trailingAnnualDividendRate")
+        or details.get("dividendRate")
+    )
+    if annual_rate is not None and annual_rate > 0 and price_value is not None and price_value > 0:
+        return {
+            "value": annual_rate / price_value,
+            "unit": "decimal",
+            "source": "annual_dividend_rate_divided_by_price",
+        }
+
+    trailing_yield = _safe_float(details.get("trailingAnnualDividendYield"))
+    if trailing_yield is not None and trailing_yield >= 0:
+        # Yahoo's explicitly named trailing-yield field is a decimal fraction.
+        return {
+            "value": trailing_yield,
+            "unit": "decimal",
+            "source": "trailing_annual_dividend_yield",
+        }
+
+    reported_yield = _safe_float(details.get("dividendYield"))
+    if reported_yield is not None and reported_yield > 1 and reported_yield <= 100:
+        return {
+            "value": reported_yield / 100,
+            "unit": "decimal",
+            "source": "provider_percent_dividend_yield",
+        }
+    return {"value": None, "unit": None, "source": "unverified_or_unavailable"}
 
 
 EPS_SURPRISE_NEAR_ZERO_THRESHOLD = 0.01
@@ -1659,17 +1698,6 @@ def fetch_company_analysis_snapshot(instrument, quote_type, info):
                     "status": "unavailable",
                     "reason": (freshness_result.get("freshness") or {}).get("reason") or "no_sec_diagnostic_available",
                 }
-            ttm_fcf_record = (((snapshot.get("financialFacts") or {}).get("cashFlow") or {}).get("ttm") or {}).get("freeCashFlow")
-            ttm_fcf_value = _verified_ttm_record_value(ttm_fcf_record)
-            market_cap = _safe_float(info.get("marketCap"))
-            snapshot["financialStatementValuation"] = {
-                "ttm_fcf_value": ttm_fcf_value,
-                "ttm_fcf_period_end": _financial_record_period(ttm_fcf_record),
-                "priceToStandardizedFreeCashFlow": fresh_price_to_fcf(market_cap, ttm_fcf_value),
-                "priceToFcfStatus": "unavailable" if ttm_fcf_value is None else "zero_denominator" if ttm_fcf_value == 0 else "available",
-                "economic_interpretation": "negative_free_cash_flow" if ttm_fcf_value is not None and ttm_fcf_value < 0 else "positive_free_cash_flow" if ttm_fcf_value is not None else "unavailable",
-                "definition": "market_cap_divided_by_displayed_ttm_free_cash_flow",
-            }
         except Exception as exc:
             # Financial freshness is display enrichment; a source failure must
             # never block a quote or the independent recommendation engine.
@@ -2952,12 +2980,13 @@ def build_unavailable_quote(ticker, reason, stale_value=None):
             "industry": metadata.get("industry"),
             "beta": metadata.get("beta"),
             "dividendYield": metadata.get("dividendYield"),
+            "dividendYieldUnit": metadata.get("dividendYieldUnit"),
+            "dividendYieldSource": metadata.get("dividendYieldSource"),
             "payoutRatio": metadata.get("payoutRatio"),
             "enterpriseToEbitda": metadata.get("enterpriseToEbitda"),
             "priceToSalesTrailing12Months": metadata.get("priceToSalesTrailing12Months"),
             "enterpriseToRevenue": metadata.get("enterpriseToRevenue"),
             "pegRatio": metadata.get("pegRatio"),
-            "priceToFreeCashflow": metadata.get("priceToFreeCashflow"),
             "operatingMargins": metadata.get("operatingMargins"),
             "profitMargins": metadata.get("profitMargins"),
             "revenueGrowth": metadata.get("revenueGrowth"),
@@ -4290,6 +4319,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
     # detail page, and all daily indicators stay aligned on the same data point.
     price = regular_close
     updated_at_dt = regular_market_time
+    dividend_yield = canonical_dividend_yield(info, price)
 
     previous_close = (
         _safe_float(info.get("regularMarketPreviousClose"))
@@ -4304,25 +4334,13 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         updated_at_dt.strftime("%Y-%m-%dT%H:%M:%SZ") if updated_at_dt
         else iso_from_local_close(history.index[-1], 16, 0, -4)
     )
-    # The final valuation value follows the same TTM FCF record rendered in
-    # the financial panel.  Yahoo's quote-summary freeCashflow can lag a new
-    # filing, so it is never allowed to override a verified statement record.
+    # Prefer the normalized TTM record so the displayed cash-flow data stays
+    # aligned with a newer filing when Yahoo's quote summary lags.
     statement_ttm_fcf = _financial_record_value(
         ((((company_analysis or {}).get("financialFacts") or {}).get("cashFlow") or {}).get("ttm") or {}).get("freeCashFlow")
     )
     free_cashflow = statement_ttm_fcf if statement_ttm_fcf is not None else _safe_float(info.get("freeCashflow"))
     market_cap = _safe_int(info.get("marketCap")) or _safe_int(fast_info.get("market_cap"))
-    price_to_fcf = None
-    reported_price_to_fcf = _safe_float(
-        info.get("priceToFreeCashflow")
-        or info.get("priceToFreeCashFlow")
-        or info.get("priceToFCF")
-    )
-    if _safe_float(market_cap) not in (None, 0) and free_cashflow is not None and free_cashflow != 0:
-        try:
-            price_to_fcf = _safe_float(market_cap) / free_cashflow
-        except Exception:
-            price_to_fcf = None
     trailing_eps = _safe_float(info.get("epsTrailingTwelveMonths"))
     forward_eps = _safe_float(info.get("epsForward"))
     trailing_pe = _safe_float(info.get("trailingPE"))
@@ -4363,16 +4381,14 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
             "sector": info.get("sector"),
             "industry": info.get("industry"),
             "beta": _safe_float(info.get("beta")),
-            "dividendYield": _safe_float(info.get("dividendYield")),
+            "dividendYield": dividend_yield["value"],
+            "dividendYieldUnit": dividend_yield["unit"],
+            "dividendYieldSource": dividend_yield["source"],
             "payoutRatio": _safe_float(info.get("payoutRatio")),
             "enterpriseToEbitda": _safe_float(info.get("enterpriseToEbitda")),
             "priceToSalesTrailing12Months": _safe_float(info.get("priceToSalesTrailing12Months")),
             "enterpriseToRevenue": _safe_float(info.get("enterpriseToRevenue")),
             "pegRatio": _safe_float(info.get("pegRatio")),
-            # The rendered ratio always follows the same verified TTM FCF
-            # record. Negative cash flow yields a signed multiple, not a
-            # missing value or a falsely cheap valuation conclusion.
-            "priceToFreeCashflow": None if free_cashflow is None or free_cashflow == 0 else price_to_fcf,
             "targetMeanPrice": _safe_float(info.get("targetMeanPrice")),
             "targetMedianPrice": _safe_float(info.get("targetMedianPrice")),
             "targetHighPrice": _safe_float(info.get("targetHighPrice")),
@@ -5121,16 +5137,6 @@ def apply_sec_financial_report(snapshot, report, freshness, info):
         "capitalExpenditure": _financial_record_value(quarter.get("capital_expenditure")),
         "reportedEps": _financial_record_value(quarter.get("diluted_eps")),
     }
-    market_cap = _safe_float(info.get("marketCap"))
-    ttm_fcf_value = _verified_ttm_record_value(ttm_values.get("freeCashFlow"))
-    snapshot["financialStatementValuation"] = {
-        "ttm_fcf_value": ttm_fcf_value,
-        "ttm_fcf_period_end": _financial_record_period(ttm_values.get("freeCashFlow")),
-        "priceToStandardizedFreeCashFlow": fresh_price_to_fcf(market_cap, _financial_record_value(ttm_values.get("freeCashFlow"))),
-        "priceToFcfStatus": "unavailable" if ttm_fcf_value is None else "zero_denominator" if ttm_fcf_value == 0 else "available",
-        "economic_interpretation": "negative_free_cash_flow" if ttm_fcf_value is not None and ttm_fcf_value < 0 else "positive_free_cash_flow" if ttm_fcf_value is not None else "unavailable",
-        "definition": "market_cap_divided_by_standardized_ttm_ocf_minus_capex",
-    }
     snapshot["source"] = "SEC EDGAR normalized financial statements"
     snapshot["sourceTimestamp"] = report.get("extraction_timestamp")
     snapshot["quarterlyPeriodEnd"] = report.get("fiscal_period_end_date")
@@ -5187,23 +5193,17 @@ def extract_fundamental_fields_from_quote(quote):
         metadata = {}
     market_cap = quote.get("marketCap") if isinstance(quote, dict) else None
     company_analysis = metadata.get("companyAnalysis") if isinstance(metadata.get("companyAnalysis"), dict) else {}
-    valuation = company_analysis.get("financialStatementValuation") if isinstance(company_analysis.get("financialStatementValuation"), dict) else {}
-    verified_ttm_fcf = _safe_float(valuation.get("ttm_fcf_value"))
-    free_cashflow = verified_ttm_fcf if verified_ttm_fcf is not None else metadata.get("freeCashflow")
     cash_flow = company_analysis.get("cashFlow") if isinstance(company_analysis.get("cashFlow"), dict) else {}
+    ttm_cash_flow = cash_flow.get("ttm") if isinstance(cash_flow.get("ttm"), dict) else {}
+    free_cashflow = _financial_record_value(ttm_cash_flow.get("freeCashFlow"))
+    if free_cashflow is None:
+        free_cashflow = metadata.get("freeCashflow")
     balance_sheet = company_analysis.get("balanceSheet") if isinstance(company_analysis.get("balanceSheet"), dict) else {}
-    price_fcf = None
-    if _safe_float(market_cap) not in (None, 0) and _safe_float(free_cashflow) is not None and _safe_float(free_cashflow) != 0:
-        try:
-            price_fcf = _safe_float(market_cap) / _safe_float(free_cashflow)
-        except Exception:
-            price_fcf = None
     return {
         "pe": quote.get("trailingPE") if isinstance(quote, dict) else None,
         "forward_pe": quote.get("forwardPE") if isinstance(quote, dict) else None,
         "peg": metadata.get("pegRatio"),
         "ev_ebitda": metadata.get("enterpriseToEbitda"),
-        "price_fcf": valuation.get("priceToStandardizedFreeCashFlow") if _safe_float(valuation.get("priceToStandardizedFreeCashFlow")) is not None else metadata.get("priceToFreeCashflow") if metadata.get("priceToFreeCashflow") is not None else price_fcf,
         "market_cap": market_cap,
         "revenue_growth": metadata.get("revenueGrowth"),
         "profit_margins": metadata.get("profitMargins"),
@@ -6598,7 +6598,6 @@ def api_debug_financial_freshness(ticker):
     freshness = statement.get("financialStatementFreshness") or {}
     source = statement.get("financialStatementSource") or {}
     view = statement.get("financialStatementSnapshot") or {}
-    valuation = statement.get("financialStatementValuation") or {}
     diagnostic = statement.get("financialStatementDiagnostic") or {}
     return jsonify({
         "success": bool(quote),
@@ -6615,8 +6614,6 @@ def api_debug_financial_freshness(ticker):
         "completeness": freshness.get("completeness"),
         "status": freshness.get("status"),
         "cache_age_seconds": (cached or {}).get("cache_age_seconds"),
-        "price_to_fcf_source_value": valuation.get("ttm_fcf_value"),
-        "price_to_fcf_status": valuation.get("priceToFcfStatus"),
         "concept_diagnostic": diagnostic,
     })
 
