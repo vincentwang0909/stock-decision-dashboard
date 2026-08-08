@@ -88,6 +88,8 @@ BALANCE_SHEET_CONCEPTS = {
     "cash_and_cash_equivalents": ["CashAndCashEquivalentsAtCarryingValue"],
     "short_term_investments": ["ShortTermInvestments"],
     "marketable_securities": ["MarketableSecurities", "AvailableForSaleSecuritiesDebtSecurities"],
+    "current_assets": ["AssetsCurrent"],
+    "current_liabilities": ["LiabilitiesCurrent"],
     # A current-debt concept alone is not a complete debt balance.  Do not use
     # it to manufacture a total-debt or net-cash figure.
     "total_debt": ["LongTermDebtAndFinanceLeaseObligations"],
@@ -536,11 +538,38 @@ def build_sec_normalized_report(company_facts: dict[str, Any], cik: int, filing:
         quarter_series[field] = entries
 
     balance: dict[str, dict[str, Any]] = {}
+    balance_series: dict[str, list[dict[str, Any]]] = {}
     for field, concepts in BALANCE_SHEET_CONCEPTS.items():
         preferred = ("shares",) if "shares" in field else ("USD",)
         concept, unit, rows = sec_units_for_concept(company_facts, concepts, preferred)
-        row = _latest_balance_value(rows, latest)
-        balance[field] = _record(safe_float((row or {}).get("val")), "point_in_time", latest.get("reportDate"), concept, unit, latest, source_url, "reported_instant")
+        dated_records = []
+        for period_filing in period_filings[:5]:
+            row = _latest_balance_value(rows, period_filing)
+            value = safe_float((row or {}).get("val"))
+            if value is None:
+                continue
+            dated_records.append(_record(
+                value,
+                "point_in_time",
+                period_filing.get("reportDate"),
+                concept,
+                unit,
+                period_filing,
+                filing_url(cik, period_filing.get("accessionNumber"), period_filing.get("primaryDocument")),
+                "reported_instant",
+            ))
+        balance_series[field] = dated_records
+        latest_record = dated_records[0] if dated_records else _record(
+            None,
+            "point_in_time",
+            latest.get("reportDate"),
+            concept,
+            unit,
+            latest,
+            source_url,
+            "reported_instant",
+        )
+        balance[field] = latest_record
         balance[field]["normalized_dashboard_field"] = field
 
     ttm: dict[str, dict[str, Any]] = {}
@@ -585,6 +614,7 @@ def build_sec_normalized_report(company_facts: dict[str, Any], cik: int, filing:
         "quarter": metrics,
         "ttm": ttm,
         "balance": balance,
+        "balance_series": balance_series,
         "ratios": {
             "quarter_fcf_margin": quarterly_fcf / revenue if quarterly_fcf is not None and revenue not in (None, 0) else None,
             "ttm_fcf_margin": ttm_fcf / ttm_revenue if ttm_fcf is not None and ttm_revenue not in (None, 0) else None,

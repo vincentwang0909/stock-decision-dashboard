@@ -33,7 +33,7 @@ test("fundamental panel omits Price\/FCF and ambiguous guidance", () => {
   const fundamentalPanel = source.slice(source.indexOf("const fundamentalPanel"));
   const growthSection = fundamentalPanel.slice(fundamentalPanel.indexOf("增长指标"), fundamentalPanel.indexOf("估值指标"));
   assert.doesNotMatch(growthSection, /管理层指引|Forward Guidance/);
-  assert.match(source, /盈利与财务比率/);
+  assert.match(source, /盈利能力（TTM）与财务状况（最新资产负债表）/);
   assert.match(source, /估值指标/);
 });
 
@@ -43,11 +43,13 @@ test("valuation has no summary row", () => {
   assert.doesNotMatch(valuationSection, /label: t\("summary"\)/);
 });
 
-test("displayed fundamental ratios use report-backed values and never revive an older period", () => {
-  assert.match(source, /function displayedFundamentalMetric\(row, key, fallback = null\)/);
-  assert.match(source, /metric\.period_end_date < display\.source_period_end/);
-  assert.match(source, /displayFundamentals/);
-  assert.doesNotMatch(source.slice(source.indexOf("function buildFundamentalModule"), source.indexOf("function formatAnalysisStatus")), /gross_margin: metrics\.grossMargin/);
+test("display-only fundamentals use the normalized data layer and stay isolated from Action Engine inputs", () => {
+  const displayBuilder = source.slice(source.indexOf("function buildFundamentalDisplayModule"), source.indexOf("function buildFundamentalModule"));
+  const actionBuilder = source.slice(source.indexOf("function buildFundamentalModule"), source.indexOf("function formatAnalysisStatus"));
+  assert.match(displayBuilder, /normalizedFundamentals/);
+  assert.match(displayBuilder, /operating_margin_ttm/);
+  assert.match(actionBuilder, /gross_margin: metrics\.grossMargin/);
+  assert.doesNotMatch(actionBuilder, /normalizedFundamentalMetric/);
 });
 
 test("dividend yield remains normalized for the company profile only", () => {

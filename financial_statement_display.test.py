@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import patch
 
+import pandas as pd
+
 import server
 
 
@@ -76,6 +78,68 @@ def full_sec_report(period="2026-06-30"):
 
 
 class FinancialStatementDisplayTests(unittest.TestCase):
+    def test_normalized_fundamentals_use_four_quarters_and_keep_missing_distinct_from_zero(self):
+        columns = pd.to_datetime(["2026-06-30", "2026-03-31", "2025-12-31", "2025-09-30", "2025-06-30"])
+        income = pd.DataFrame({
+            columns[0]: [100, 60, 20, 10, 1.0],
+            columns[1]: [90, 54, 18, 9, 0.9],
+            columns[2]: [80, 48, 16, 8, 0.8],
+            columns[3]: [70, 42, 14, 7, 0.7],
+            columns[4]: [60, 36, 12, 6, 0.6],
+        }, index=["Total Revenue", "Gross Profit", "Operating Income", "Net Income", "Diluted EPS"])
+        cashflow = pd.DataFrame({
+            columns[0]: [30, -5], columns[1]: [20, -4], columns[2]: [20, -4],
+            columns[3]: [10, -2], columns[4]: [15, -3],
+        }, index=["Operating Cash Flow", "Capital Expenditure"])
+        balance = pd.DataFrame({
+            columns[0]: [100, 20, 50, 25], columns[1]: [95, 21, 49, 25],
+            columns[2]: [90, 22, 48, 24], columns[3]: [85, 23, 47, 24],
+            columns[4]: [80, 24, 46, 23],
+        }, index=["Stockholders Equity", "Total Debt", "Current Assets", "Current Liabilities"])
+        normalized = server.build_yahoo_normalized_fundamentals(
+            income, cashflow, balance,
+            {"operatingMargins": 0.99, "returnOnEquity": 0.77}, "2026-08-08T00:00:00Z",
+        )
+        self.assertAlmostEqual(normalized["profitability"]["gross_margin_ttm"]["value"], 0.60)
+        self.assertAlmostEqual(normalized["profitability"]["operating_margin_ttm"]["value"], 0.20)
+        self.assertAlmostEqual(normalized["profitability"]["net_margin_ttm"]["value"], 0.10)
+        self.assertNotEqual(normalized["profitability"]["operating_margin_ttm"]["value"], 0.99)
+        self.assertAlmostEqual(normalized["growth"]["free_cash_flow_growth_yoy"]["value"], (25 - 12) / 12)
+        self.assertAlmostEqual(normalized["balance_sheet"]["current_ratio"]["value"], 2.0)
+
+        missing_net_income = income.drop(index="Net Income")
+        incomplete = server.build_yahoo_normalized_fundamentals(
+            missing_net_income, cashflow, balance, {}, "2026-08-08T00:00:00Z",
+        )
+        self.assertIsNone(incomplete["profitability"]["net_margin_ttm"]["value"])
+        self.assertNotEqual(incomplete["profitability"]["net_margin_ttm"]["value"], 0)
+
+    def test_same_quarter_growth_does_not_turn_a_zero_base_into_zero_growth(self):
+        growth, reason = server._growth_from_same_quarter(
+            {"value": 25.0, "period_end_date": "2026-06-30"},
+            {"value": 0.0, "period_end_date": "2025-06-30"},
+        )
+        self.assertIsNone(growth)
+        self.assertEqual(reason, "zero_prior_year_denominator")
+
+    def test_normalized_valuation_preserves_negative_multiples(self):
+        normalized = {
+            "source": "fixture", "metadata": {"profitability_period_end": "2026-06-30"},
+            "inputs": {
+                "ttm_diluted_eps": {"value": -1.0},
+                "ttm_revenue": {"value": 100.0},
+            },
+        }
+        result = server.finalize_normalized_fundamentals_valuation(
+            normalized,
+            {"marketCap": 500, "epsForward": -0.5, "nextYearEpsGrowth": 0.25, "enterpriseToEbitda": -12.0},
+            20,
+            "2026-08-08T20:00:00Z",
+        )
+        self.assertEqual(result["valuation"]["pe"]["value"], -20.0)
+        self.assertEqual(result["valuation"]["forward_pe"]["value"], -40.0)
+        self.assertEqual(result["valuation"]["peg"]["value"], -0.8)
+        self.assertEqual(result["valuation"]["ev_to_ebitda"]["value"], -12.0)
     def test_basic_fundamental_payload_is_removed_before_serialization(self):
         item = server.strip_basic_fundamental_payload({
             "financialFacts": {"cashFlow": {}},
@@ -218,7 +282,9 @@ class FinancialStatementDisplayTests(unittest.TestCase):
         self.assertAlmostEqual(display["gross_margin"]["value"], 0.60)
         self.assertAlmostEqual(display["operating_margin"]["value"], 0.25)
         self.assertAlmostEqual(display["net_margin"]["value"], 0.20)
-        self.assertAlmostEqual(display["roe"]["value"], 0.40)
+        # TTM ROE requires beginning and ending equity; a single point-in-time
+        # balance must not be silently substituted as the denominator.
+        self.assertIsNone(display["roe"]["value"])
 
     def test_release_and_sec_filing_dates_remain_distinct(self):
         item = server.apply_financial_display_status(
@@ -236,6 +302,22 @@ class FinancialStatementDisplayTests(unittest.TestCase):
     def test_old_financial_cache_schema_is_not_accepted_as_an_atomic_snapshot(self):
         self.assertFalse(server.financial_statement_cache_is_compatible({"schema_version": 1, "report": {}}))
         self.assertTrue(server.financial_statement_cache_is_compatible({"schema_version": server.FINANCIAL_STATEMENT_SCHEMA_VERSION, "report": {}}))
+
+    def test_old_market_cache_cannot_serve_a_pre_normalization_equity_snapshot(self):
+        common = {
+            "cache_age_seconds": 30,
+            "quote": {
+                "metadata": {
+                    "quoteType": "EQUITY",
+                    "companyAnalysis": {"status": "available"},
+                },
+            },
+        }
+        self.assertFalse(server.is_market_cache_fresh(common))
+        common["quote"]["metadata"]["companyAnalysis"]["normalizedFundamentals"] = {
+            "schema_version": server.FUNDAMENTAL_NORMALIZATION_SCHEMA_VERSION,
+        }
+        self.assertTrue(server.is_market_cache_fresh(common))
 
 
 if __name__ == "__main__":
