@@ -2700,10 +2700,27 @@ function inferCurrencyCode(subject, exchangeName = "") {
   return "USD";
 }
 
+function isMissingMetricValue(value) {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string" && ["", "n/a", "na", "none", "null", "nan", "inf", "infinity", "-inf", "-infinity"].includes(value.trim().toLowerCase())) return true;
+  return !Number.isFinite(Number(value));
+}
+
+function metricNumberOrNull(value) {
+  return isMissingMetricValue(value) ? null : Number(value);
+}
+
+function formatMetric(value, { decimals = 1, suffix = "", multiplier = 1, missing = "N/A" } = {}) {
+  const numeric = metricNumberOrNull(value);
+  if (numeric == null) return missing;
+  return `${(numeric * multiplier).toFixed(decimals)}${suffix}`;
+}
+
 function formatCurrency(value, currencyCode = "USD") {
-  if (value == null || !Number.isFinite(Number(value))) return "—";
+  const numeric = metricNumberOrNull(value);
+  if (numeric == null) return "—";
   const symbol = "$";
-  return `${symbol}${Number(value).toFixed(2)}`;
+  return `${symbol}${numeric.toFixed(2)}`;
 }
 
 function formatCurrentPrice(value, currencyCode = "USD") {
@@ -2712,7 +2729,7 @@ function formatCurrentPrice(value, currencyCode = "USD") {
 }
 
 function formatOptionStrike(value, currencyCode = "USD") {
-  if (value == null || !Number.isFinite(Number(value))) return "—";
+  if (isMissingMetricValue(value)) return "—";
   const symbol = "$";
   const numeric = Number(value);
   let text = "";
@@ -2727,35 +2744,35 @@ function formatOptionStrike(value, currencyCode = "USD") {
 }
 
 function formatSignedCurrency(value, currencyCode = "USD") {
-  if (value == null || !Number.isFinite(Number(value))) return "—";
+  if (isMissingMetricValue(value)) return "—";
   const symbol = "$";
   return `${value >= 0 ? "+" : "-"}${symbol}${Math.abs(Number(value)).toFixed(2)}`;
 }
 
 function formatOneDecimal(value) {
-  return value == null ? "—" : Number(value).toFixed(1);
+  return formatMetric(value, { decimals: 1, missing: "—" });
 }
 
 function formatPercentage(value) {
-  return value == null ? "—" : `${(Number(value) * 100).toFixed(1)}%`;
+  return formatMetric(value, { decimals: 1, multiplier: 100, suffix: "%" });
 }
 
 function formatPercentValue(value, decimals = 2) {
-  if (value == null || !Number.isFinite(Number(value))) return "—";
-  return `${Number(value).toFixed(decimals)}%`;
+  return formatMetric(value, { decimals, suffix: "%" });
 }
 
 function formatBillions(value) {
-  if (value == null) return "—";
-  const abs = Math.abs(Number(value));
+  const numeric = metricNumberOrNull(value);
+  if (numeric == null) return "—";
+  const abs = Math.abs(numeric);
   const suffix = abs >= 1 ? "B" : "M";
   const scaled = abs >= 1 ? abs : abs * 1000;
-  return `${value >= 0 ? "+" : "-"}${scaled.toFixed(1)}${suffix}`;
+  return `${numeric >= 0 ? "+" : "-"}${scaled.toFixed(1)}${suffix}`;
 }
 
 function formatFinancialAmount(value, { currency = "USD", compact = true, decimals = 2, signed = false } = {}) {
-  if (value == null || !Number.isFinite(Number(value))) return "—";
-  const numeric = Number(value);
+  const numeric = metricNumberOrNull(value);
+  if (numeric == null) return "—";
   const absolute = Math.abs(numeric);
   const symbol = currency === "USD" ? "$" : `${currency} `;
   const prefix = signed && numeric > 0 ? "+" : numeric < 0 ? "-" : "";
@@ -2768,9 +2785,9 @@ function formatFinancialAmount(value, { currency = "USD", compact = true, decima
 }
 
 function buildFinancialUnitAudit(record, { currency = "USD" } = {}) {
-  const rawValue = Number(record?.raw_value ?? record);
+  const rawValue = metricNumberOrNull(record?.raw_value ?? record);
   const detectedScale = record?.detected_scale || "raw_usd";
-  const valid = Number.isFinite(rawValue);
+  const valid = rawValue != null;
   const scaleWarning = !valid
     ? "unavailable"
     : !["raw_usd", "raw_native_currency"].includes(detectedScale)
@@ -2789,8 +2806,8 @@ function buildFinancialUnitAudit(record, { currency = "USD" } = {}) {
 }
 
 function formatLargeCurrency(value, currencyCode = "USD") {
-  if (value == null || !Number.isFinite(Number(value))) return "—";
-  const num = Number(value);
+  const num = metricNumberOrNull(value);
+  if (num == null) return "—";
   const symbol = "$";
   if (currentLanguage === "zh") {
     if (Math.abs(num) >= 1e12) return `${symbol}${(num / 1e12).toFixed(2)}万亿`;
@@ -2804,8 +2821,15 @@ function formatLargeCurrency(value, currencyCode = "USD") {
 }
 
 function formatRatio(value) {
-  if (value == null || !Number.isFinite(Number(value))) return "—";
-  return Number(value).toFixed(1);
+  const numeric = metricNumberOrNull(value);
+  if (numeric == null) return "N/A";
+  // Preserve a non-zero low ratio such as 0.026 instead of visually turning
+  // it into 0.0, which is indistinguishable from a verified numeric zero.
+  return numeric.toFixed(numeric !== 0 && Math.abs(numeric) < 0.05 ? 2 : 1);
+}
+
+function formatMultiple(value) {
+  return formatMetric(value, { decimals: 1 });
 }
 
 function formatCompactVolume(value) {
@@ -12525,7 +12549,10 @@ function buildTechnicalModule(row, supportResistance, companyProfile = null) {
 function normalizedFundamentalMetric(row, group, key) {
   const metric = row.metadata?.companyAnalysis?.normalizedFundamentals?.[group]?.[key];
   if (!metric || !Object.prototype.hasOwnProperty.call(metric, "value")) return null;
-  return finiteNumberOrNull(metric.value);
+  // This display adapter must never allow Number(null) to become a visible 0.
+  // Keep the broader finiteNumberOrNull compatibility behavior isolated from
+  // the period-aware fundamental panel and its user-facing N/A contract.
+  return metricNumberOrNull(metric.value);
 }
 
 function buildFundamentalDisplayModule(row) {
@@ -21848,8 +21875,9 @@ function renderDetailModal(row) {
   if (!tabItems.some((item) => item.key === detailActiveTab)) detailActiveTab = "summary";
 
   const displayValue = (value, formatter, fallback = t("dataUnavailable")) => (
-    value == null || (typeof value === "number" && !Number.isFinite(value)) ? fallback : formatter(value)
+    isMissingMetricValue(value) ? fallback : formatter(value)
   );
+  const fundamentalDisplayValue = (value, formatter) => displayValue(value, formatter, "N/A");
 	  const renderReasonBullets = (items, tone = "") => (
 	    items?.length
 	      ? items.map((item) => `<div class="decision-bullet ${tone}">${tone === "warning" ? "⚠" : tone === "positive" ? "✓" : "•"} ${localizedDashboardText(item)}</div>`).join("")
@@ -22932,30 +22960,30 @@ function renderDetailModal(row) {
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "盈利能力（TTM）与财务状况（最新资产负债表）" : "Profitability (TTM) & Balance Sheet (Latest Reported Period)"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: "ROE", value: displayValue(fundamentalQuality.roe, (value) => formatPercentage(value)), hidden: fundamentalQuality.roe == null },
-          { label: currentLanguage === "zh" ? "毛利率" : "Gross Margin", value: displayValue(fundamentalQuality.gross_margin, (value) => formatPercentage(value)), hidden: fundamentalQuality.gross_margin == null },
-          { label: currentLanguage === "zh" ? "营业利润率" : "Operating Margin", value: displayValue(fundamentalQuality.operating_margin, (value) => formatPercentage(value)), hidden: fundamentalQuality.operating_margin == null },
-          { label: currentLanguage === "zh" ? "净利率" : "Net Margin", value: displayValue(fundamentalQuality.net_margin, (value) => formatPercentage(value)), hidden: fundamentalQuality.net_margin == null },
-          { label: currentLanguage === "zh" ? "债务权益比" : "Debt / Equity", value: displayValue(fundamentalQuality.debt_to_equity, (value) => formatRatio(value)), hidden: fundamentalQuality.debt_to_equity == null },
-          { label: currentLanguage === "zh" ? "流动比率" : "Current Ratio", value: displayValue(fundamentalQuality.current_ratio, (value) => formatRatio(value)), hidden: fundamentalQuality.current_ratio == null },
+          { label: "ROE", value: fundamentalDisplayValue(fundamentalQuality.roe, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "毛利率" : "Gross Margin", value: fundamentalDisplayValue(fundamentalQuality.gross_margin, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "营业利润率" : "Operating Margin", value: fundamentalDisplayValue(fundamentalQuality.operating_margin, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "净利率" : "Net Margin", value: fundamentalDisplayValue(fundamentalQuality.net_margin, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "债务权益比" : "Debt / Equity", value: fundamentalDisplayValue(fundamentalQuality.debt_to_equity, (value) => formatRatio(value)) },
+          { label: currentLanguage === "zh" ? "流动比率" : "Current Ratio", value: fundamentalDisplayValue(fundamentalQuality.current_ratio, (value) => formatRatio(value)) },
         ])}</div>
       </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "增长指标（最新季度同比）" : "Growth Metrics (Latest Quarter YoY)"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: t("revenueGrowth"), value: displayValue(fundamentalGrowth.revenue_growth, (value) => formatPercentage(value)), hidden: fundamentalGrowth.revenue_growth == null },
-          { label: currentLanguage === "zh" ? "每股收益增长" : "EPS Growth", value: displayValue(fundamentalGrowth.eps_growth, (value) => formatPercentage(value)), hidden: fundamentalGrowth.eps_growth == null },
-          { label: currentLanguage === "zh" ? "自由现金流增长" : "FCF Growth", value: displayValue(fundamentalGrowth.free_cash_flow_growth, (value) => formatPercentage(value)), hidden: fundamentalGrowth.free_cash_flow_growth == null },
+          { label: t("revenueGrowth"), value: fundamentalDisplayValue(fundamentalGrowth.revenue_growth, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "每股收益增长" : "EPS Growth", value: fundamentalDisplayValue(fundamentalGrowth.eps_growth, (value) => formatPercentage(value)) },
+          { label: currentLanguage === "zh" ? "自由现金流增长" : "FCF Growth", value: fundamentalDisplayValue(fundamentalGrowth.free_cash_flow_growth, (value) => formatPercentage(value)) },
         ])}</div>
       </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "估值指标（当前价格 + 最新可得基本面）" : "Valuation Metrics (Current Price + Latest Available Fundamentals)"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: t("pe"), value: displayValue(fundamentalValuation.pe, (value) => formatRatio(value)), hidden: fundamentalValuation.pe == null },
-          { label: t("forwardPe"), value: displayValue(fundamentalValuation.forward_pe, (value) => formatRatio(value)), hidden: fundamentalValuation.forward_pe == null },
-          { label: "PEG", value: displayValue(fundamentalValuation.peg, (value) => formatRatio(value)), hidden: fundamentalValuation.peg == null },
-          { label: "PS", value: displayValue(fundamentalValuation.ps_ratio, (value) => formatRatio(value)), hidden: fundamentalValuation.ps_ratio == null },
-          { label: "EV / EBITDA", value: displayValue(fundamentalValuation.ev_ebitda, (value) => formatRatio(value)), hidden: fundamentalValuation.ev_ebitda == null },
+          { label: t("pe"), value: fundamentalDisplayValue(fundamentalValuation.pe, (value) => formatMultiple(value)) },
+          { label: t("forwardPe"), value: fundamentalDisplayValue(fundamentalValuation.forward_pe, (value) => formatMultiple(value)) },
+          { label: "PEG", value: fundamentalDisplayValue(fundamentalValuation.peg, (value) => formatMultiple(value)) },
+          { label: "PS", value: fundamentalDisplayValue(fundamentalValuation.ps_ratio, (value) => formatMultiple(value)) },
+          { label: "EV / EBITDA", value: fundamentalDisplayValue(fundamentalValuation.ev_ebitda, (value) => formatMultiple(value)) },
         ])}</div>
       </section>
     </section>

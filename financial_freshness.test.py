@@ -11,12 +11,21 @@ from financial_freshness import (
     official_release_period_end,
     parse_official_earnings_release,
     preserve_cached_statement,
+    safe_float,
     select_source,
     source_conflicts,
 )
 
 
 class FinancialFreshnessTests(unittest.TestCase):
+    def test_safe_float_preserves_zero_and_rejects_non_numeric_placeholders(self):
+        self.assertEqual(safe_float(0), 0.0)
+        self.assertEqual(safe_float("0"), 0.0)
+        self.assertIsNone(safe_float(None))
+        self.assertIsNone(safe_float("N/A"))
+        self.assertIsNone(safe_float(float("nan")))
+        self.assertIsNone(safe_float(float("inf")))
+
     def test_stale_period_selects_fallback_after_released_filing(self):
         filing = {"form": "10-Q", "reportDate": "2026-06-30", "filingDate": "2026-08-01"}
         freshness = determine_freshness("2026-03-31", "2026-08-01T00:00:00Z", {"eventDate": "2026-07-31", "reportReleased": True}, filing)

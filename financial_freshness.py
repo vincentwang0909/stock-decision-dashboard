@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timezone
+import math
 import re
 from typing import Any, Callable, Iterable
 from xml.etree import ElementTree as ET
@@ -20,8 +21,14 @@ SEC_COMPANY_FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d
 SEC_ARCHIVE_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/{document}"
 
 INCOME_CONCEPTS = {
-    "revenue": ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet"],
-    "gross_profit": ["GrossProfit"],
+    "revenue": [
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "Revenues",
+        "SalesRevenueNet",
+        "OperatingRevenues",
+        "InterestAndDividendIncomeOperating",
+    ],
+    "gross_profit": ["GrossProfit", "GrossProfitLoss"],
     "operating_income": ["OperatingIncomeLoss"],
     "net_income": ["NetIncomeLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"],
     "diluted_eps": ["EarningsPerShareDiluted"],
@@ -126,8 +133,11 @@ def safe_float(value: Any) -> float | None:
     try:
         if value is None:
             return None
-        return float(value)
-    except (TypeError, ValueError):
+        if isinstance(value, str) and value.strip().lower() in {"", "n/a", "na", "none", "null", "nan", "inf", "infinity", "-inf", "-infinity"}:
+            return None
+        numeric = float(value)
+        return numeric if math.isfinite(numeric) else None
+    except (TypeError, ValueError, OverflowError):
         return None
 
 

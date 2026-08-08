@@ -96,8 +96,8 @@ MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TIC
 OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECONDS", "6"))
 FINANCIAL_STATEMENT_CACHE_SECONDS = int(os.environ.get("FINANCIAL_STATEMENT_CACHE_SECONDS", str(12 * 60 * 60)))
 FINANCIAL_STATEMENT_EARNINGS_CHECK_SECONDS = int(os.environ.get("FINANCIAL_STATEMENT_EARNINGS_CHECK_SECONDS", str(2 * 60 * 60)))
-FINANCIAL_STATEMENT_SCHEMA_VERSION = 10
-FUNDAMENTAL_NORMALIZATION_SCHEMA_VERSION = 1
+FINANCIAL_STATEMENT_SCHEMA_VERSION = 11
+FUNDAMENTAL_NORMALIZATION_SCHEMA_VERSION = 3
 FINANCIAL_DEBUG_ENABLED = os.environ.get("FINANCIAL_DEBUG_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
 SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT", "Stock Decision Dashboard contact@stock-decision-dashboard.local")
 # Increment when an options field changes methodology so cached synthetic data
@@ -529,13 +529,29 @@ def iso_from_local_close(value, hour, minute, offset_hours):
         return None
 
 
-def _safe_float(value):
+def normalize_numeric(value):
+    """Return a finite number while preserving a real numeric zero.
+
+    Provider feeds use a mixture of None, empty strings, textual placeholders,
+    NaN, and infinity for unavailable fields.  None of these may become zero
+    merely because Python or JavaScript considers them falsy.
+    """
     try:
-        if value is None or pd.isna(value):
+        if value is None:
             return None
-        return float(value)
-    except Exception:
+        if isinstance(value, str) and value.strip().lower() in {"", "n/a", "na", "none", "null", "nan", "inf", "infinity", "-inf", "-infinity"}:
+            return None
+        if pd.isna(value):
+            return None
+        numeric = float(value)
+        return numeric if math.isfinite(numeric) else None
+    except (TypeError, ValueError, OverflowError):
         return None
+
+
+def _safe_float(value):
+    """Compatibility alias for the canonical missing-aware numeric parser."""
+    return normalize_numeric(value)
 
 
 def canonical_dividend_yield(info, price):
@@ -1336,7 +1352,8 @@ def strip_basic_fundamental_payload(snapshot):
 
 
 def _fundamental_metric(value, metric, period_type, period_end_date, source, definition,
-                        calculated=True, source_field=None, last_updated=None, missing_reason=None):
+                        calculated=True, source_field=None, last_updated=None, missing_reason=None,
+                        calculation_inputs=None):
     """Build one period-aware display metric without coercing missing values to zero."""
     normalized = _safe_float(value)
     return {
@@ -1351,7 +1368,89 @@ def _fundamental_metric(value, metric, period_type, period_end_date, source, def
         "last_updated": last_updated,
         "stale": False,
         "missing_reason": missing_reason if normalized is None else None,
+        "calculation_inputs": calculation_inputs or {},
+        "validation_status": "missing" if normalized is None else "valid_zero_pending" if normalized == 0 else "valid",
+        "zero_validation_reason": None,
     }
+
+
+def _provider_trailing_margin_metric(info, provider_field, metric, latest_period, last_updated):
+    """Use a documented Yahoo trailing margin only after statement reconstruction fails.
+
+    This fallback is deliberately unavailable for a provider zero: a margin of
+    zero can be genuine, but quote-summary metadata alone cannot establish that
+    it is a real TTM value rather than a placeholder.
+    """
+    value = _safe_float((info or {}).get(provider_field))
+    if value is None or value == 0:
+        return None
+    return _fundamental_metric(
+        value,
+        metric,
+        "ttm_provider",
+        latest_period,
+        "Yahoo Finance quote summary",
+        "Yahoo Finance provider-reported trailing margin; four-quarter statement reconstruction unavailable",
+        calculated=False,
+        source_field=provider_field,
+        last_updated=last_updated,
+    )
+
+
+def _mark_metric_unavailable(record, reason):
+    if not isinstance(record, dict):
+        return record
+    record["value"] = None
+    record["missing_reason"] = reason
+    record["validation_status"] = "invalid_placeholder_zero"
+    record["zero_validation_reason"] = reason
+    return record
+
+
+def validate_normalized_fundamental_zeros(normalized, info=None, price=None, ticker=None):
+    """Reject only impossible or unverified placeholder zeros, never negatives.
+
+    A zero calculated from dated statement inputs is valid.  Quote-summary zero
+    multiples are not: with a positive market price they almost always mean an
+    unavailable denominator or an API placeholder.  The validation result is
+    retained with each metric so the audit script can explain every displayed
+    zero without ticker-specific rules.
+    """
+    if not isinstance(normalized, dict):
+        return normalized
+    metric_groups = {
+        "profitability": {"gross_margin_ttm", "operating_margin_ttm", "net_margin_ttm"},
+        "valuation": {"pe", "forward_pe", "peg", "price_to_sales", "ev_to_ebitda"},
+    }
+    price_value = _safe_float(price)
+    for group, suspicious_metrics in metric_groups.items():
+        for key, record in ((normalized.get(group) or {}).items()):
+            if not isinstance(record, dict):
+                continue
+            value = _safe_float(record.get("value"))
+            if value is None:
+                record["validation_status"] = "missing"
+                continue
+            if value != 0:
+                record["validation_status"] = "valid"
+                continue
+            calculated = record.get("calculated_or_provider") == "calculated"
+            if key in {"pe", "forward_pe", "peg", "price_to_sales", "ev_to_ebitda"}:
+                _mark_metric_unavailable(record, "provider_placeholder_zero_or_unavailable_denominator")
+            elif key in suspicious_metrics and not calculated:
+                _mark_metric_unavailable(record, "unverified_provider_zero")
+            else:
+                record["validation_status"] = "valid_zero"
+                record["zero_validation_reason"] = "calculated_from_available_same_period_inputs"
+            if FINANCIAL_DEBUG_ENABLED and record.get("validation_status") == "invalid_placeholder_zero":
+                print(
+                    "[Fundamental Zero Audit Warning] "
+                    f"ticker={ticker or (normalized.get('metadata') or {}).get('ticker') or 'unknown'} "
+                    f"metric={key} value=0 price={price_value} source={record.get('source')} "
+                    f"reason={record.get('missing_reason')}",
+                    file=sys.stderr,
+                )
+    return normalized
 
 
 def _display_fundamental_metric(value, period_type, period_end_date, source, definition):
@@ -1526,23 +1625,64 @@ def _normalized_fundamentals_from_series(series, info, source, source_url=None, 
         else _safe_float(info.get("currentRatio"))
     )
 
+    gross_margin_ttm = ttm_gross_profit / ttm_revenue if ttm_gross_profit is not None and ttm_revenue not in (None, 0) else None
+    operating_margin_ttm = ttm_operating_income / ttm_revenue if ttm_operating_income is not None and ttm_revenue not in (None, 0) else None
+    net_margin_ttm = ttm_net_income / ttm_revenue if ttm_net_income is not None and ttm_revenue not in (None, 0) else None
+    gross_margin_metric = _fundamental_metric(
+        gross_margin_ttm,
+        "gross_margin",
+        "ttm",
+        ttm_period,
+        source,
+        "TTM gross profit / TTM revenue",
+        source_field="Gross Profit / Total Revenue",
+        last_updated=last_updated,
+        missing_reason="missing_four_comparable_quarters",
+    )
+    operating_margin_metric = _fundamental_metric(
+        operating_margin_ttm,
+        "operating_margin",
+        "ttm",
+        ttm_period,
+        source,
+        "GAAP Operating Income / Revenue, summed across four standalone quarters",
+        source_field="Operating Income / Total Revenue",
+        last_updated=last_updated,
+        missing_reason="missing_four_comparable_quarters",
+    )
+    net_margin_metric = _fundamental_metric(
+        net_margin_ttm,
+        "net_margin",
+        "ttm",
+        ttm_period,
+        source,
+        "TTM net income attributable to common / TTM revenue",
+        source_field="Net Income / Total Revenue",
+        last_updated=last_updated,
+        missing_reason="missing_four_comparable_quarters",
+    )
+    # Statement data remains the first choice.  Only the Yahoo statement path
+    # can use Yahoo's documented trailing margin fallback; an SEC-selected
+    # snapshot must not silently mix in an older Yahoo quote-summary value.
+    if source == "Yahoo Finance financial statements via yfinance":
+        gross_margin_metric = gross_margin_metric if gross_margin_metric["value"] is not None else _provider_trailing_margin_metric(
+            info, "grossMargins", "gross_margin", latest_period, last_updated,
+        ) or gross_margin_metric
+        operating_margin_metric = operating_margin_metric if operating_margin_metric["value"] is not None else _provider_trailing_margin_metric(
+            info, "operatingMargins", "operating_margin", latest_period, last_updated,
+        ) or operating_margin_metric
+        net_margin_metric = net_margin_metric if net_margin_metric["value"] is not None else _provider_trailing_margin_metric(
+            info, "profitMargins", "net_margin", latest_period, last_updated,
+        ) or net_margin_metric
+
     metrics = {
         "roe_ttm": _fundamental_metric(roe, "roe", "ttm", ttm_period, source,
             "TTM net income / average beginning and ending stockholders equity" if roe_calculated else "provider reported return on equity; statement average equity unavailable",
             calculated=roe_calculated, source_field=(latest_equity or {}).get("source_field"), last_updated=last_updated,
             missing_reason="missing_ttm_net_income_or_comparable_equity"),
-        "gross_margin_ttm": _fundamental_metric(
-            ttm_gross_profit / ttm_revenue if ttm_gross_profit is not None and ttm_revenue not in (None, 0) else None,
-            "gross_margin", "ttm", ttm_period, source, "TTM gross profit / TTM revenue", source_field="Gross Profit / Total Revenue", last_updated=last_updated,
-            missing_reason="missing_four_comparable_quarters"),
-        "operating_margin_ttm": _fundamental_metric(
-            ttm_operating_income / ttm_revenue if ttm_operating_income is not None and ttm_revenue not in (None, 0) else None,
-            "operating_margin", "ttm", ttm_period, source, "TTM operating income / TTM revenue", source_field="Operating Income / Total Revenue", last_updated=last_updated,
-            missing_reason="missing_four_comparable_quarters"),
-        "net_margin_ttm": _fundamental_metric(
-            ttm_net_income / ttm_revenue if ttm_net_income is not None and ttm_revenue not in (None, 0) else None,
-            "net_margin", "ttm", ttm_period, source, "TTM net income attributable to common / TTM revenue", source_field="Net Income / Total Revenue", last_updated=last_updated,
-            missing_reason="missing_four_comparable_quarters"),
+        "gross_margin_ttm": gross_margin_metric,
+        "operating_margin_ttm": operating_margin_metric,
+        "net_margin_ttm": net_margin_metric,
         "debt_to_equity": _fundamental_metric(debt_to_equity, "debt_to_equity", "point_in_time",
             (debt or latest_equity or {}).get("period_end_date"), source, "latest total debt / latest stockholders equity",
             calculated=debt is not None and latest_equity is not None, source_field=(debt or latest_equity or {}).get("source_field"), last_updated=last_updated,
@@ -1553,15 +1693,29 @@ def _normalized_fundamentals_from_series(series, info, source, source_url=None, 
             missing_reason="missing_latest_current_assets_or_liabilities"),
         "revenue_growth_yoy": _fundamental_metric(revenue_growth, "revenue_growth", "quarter_yoy", latest_period, source,
             "latest reported quarter revenue versus same fiscal quarter prior year", source_field=(current_revenue or {}).get("source_field"), last_updated=last_updated,
-            missing_reason=revenue_growth_reason),
+            missing_reason=revenue_growth_reason, calculation_inputs={
+                "current_period_value": _safe_float((current_revenue or {}).get("value")),
+                "prior_year_period_value": _safe_float((_same_fiscal_quarter_prior(revenue, latest_period) or {}).get("value")),
+            }),
         "eps_growth_yoy": _fundamental_metric(eps_growth, "eps_growth", "quarter_yoy", latest_period, source,
             "latest reported diluted EPS versus same fiscal quarter prior year", source_field=(current_eps or {}).get("source_field"), last_updated=last_updated,
-            missing_reason=eps_growth_reason),
+            missing_reason=eps_growth_reason, calculation_inputs={
+                "current_period_value": _safe_float((current_eps or {}).get("value")),
+                "prior_year_period_value": _safe_float((_same_fiscal_quarter_prior(diluted_eps, latest_period) or {}).get("value")),
+            }),
         "free_cash_flow_growth_yoy": _fundamental_metric(fcf_growth, "free_cash_flow_growth", "quarter_yoy", latest_period, source,
             "latest standardized free cash flow versus same fiscal quarter prior year", source_field=(current_fcf or {}).get("source_field"), last_updated=last_updated,
-            missing_reason=fcf_growth_reason),
+            missing_reason=fcf_growth_reason, calculation_inputs={
+                "current_period_value": _safe_float((current_fcf or {}).get("value")),
+                "prior_year_period_value": _safe_float((_same_fiscal_quarter_prior(fcf, latest_period) or {}).get("value")),
+                "denominator_small": bool(
+                    _safe_float((_same_fiscal_quarter_prior(fcf, latest_period) or {}).get("value")) is not None
+                    and abs(_safe_float((_same_fiscal_quarter_prior(fcf, latest_period) or {}).get("value")))
+                    < max(1.0, abs(_safe_float((current_fcf or {}).get("value")) or 0) * 0.05)
+                ),
+            }),
     }
-    return {
+    normalized = {
         "schema_version": FUNDAMENTAL_NORMALIZATION_SCHEMA_VERSION,
         "source": source,
         "source_url": source_url,
@@ -1597,6 +1751,7 @@ def _normalized_fundamentals_from_series(series, info, source, source_url=None, 
             "stale_fundamentals": False,
         },
     }
+    return validate_normalized_fundamental_zeros(normalized, info)
 
 
 def build_yahoo_normalized_fundamentals(quarterly_income, quarterly_cashflow, quarterly_balance, info, source_timestamp):
@@ -1738,10 +1893,10 @@ def build_sec_normalized_fundamentals(report, info):
                 last_updated=report.get("extraction_timestamp"),
             )
     normalized["inputs"] = inputs
-    return normalized
+    return validate_normalized_fundamental_zeros(normalized, info)
 
 
-def finalize_normalized_fundamentals_valuation(normalized, info, price, price_as_of):
+def finalize_normalized_fundamentals_valuation(normalized, info, price, price_as_of, ticker=None):
     """Attach signed valuation metrics using one price timestamp and dated inputs."""
     if not isinstance(normalized, dict):
         return normalized
@@ -1753,15 +1908,25 @@ def finalize_normalized_fundamentals_valuation(normalized, info, price, price_as
     ttm_revenue = _safe_float((inputs.get("ttm_revenue") or {}).get("value"))
     current_price = _safe_float(price)
     market_cap = _safe_float((info or {}).get("marketCap"))
+    shares_outstanding = _safe_float((info or {}).get("sharesOutstanding"))
+    market_cap_calculated = False
+    if market_cap is None and current_price is not None and shares_outstanding is not None and shares_outstanding > 0:
+        market_cap = current_price * shares_outstanding
+        market_cap_calculated = True
     forward_eps = _safe_float((info or {}).get("epsForward"))
     expected_eps_growth = _safe_float((info or {}).get("nextYearEpsGrowth"))
     trailing_pe = current_price / ttm_eps if current_price is not None and ttm_eps not in (None, 0) else None
     if trailing_pe is None:
-        trailing_pe = _safe_float((info or {}).get("trailingPE"))
-    forward_pe = current_price / forward_eps if current_price is not None and forward_eps not in (None, 0) else _safe_float((info or {}).get("forwardPE"))
-    peg = trailing_pe / (expected_eps_growth * 100) if trailing_pe is not None and expected_eps_growth not in (None, 0) else _safe_float((info or {}).get("pegRatio"))
-    price_to_sales = market_cap / ttm_revenue if market_cap is not None and ttm_revenue not in (None, 0) else _safe_float((info or {}).get("priceToSalesTrailing12Months"))
-    ev_to_ebitda = _safe_float((info or {}).get("enterpriseToEbitda"))
+        provider_trailing_pe = _safe_float((info or {}).get("trailingPE"))
+        trailing_pe = provider_trailing_pe if provider_trailing_pe not in (None, 0) else None
+    provider_forward_pe = _safe_float((info or {}).get("forwardPE"))
+    forward_pe = current_price / forward_eps if current_price is not None and forward_eps not in (None, 0) else provider_forward_pe if provider_forward_pe not in (None, 0) else None
+    provider_peg = _safe_float((info or {}).get("pegRatio"))
+    peg = trailing_pe / (expected_eps_growth * 100) if trailing_pe is not None and expected_eps_growth not in (None, 0) else provider_peg if provider_peg not in (None, 0) else None
+    provider_price_to_sales = _safe_float((info or {}).get("priceToSalesTrailing12Months"))
+    price_to_sales = market_cap / ttm_revenue if market_cap is not None and ttm_revenue not in (None, 0) else provider_price_to_sales if provider_price_to_sales not in (None, 0) else None
+    provider_ev_to_ebitda = _safe_float((info or {}).get("enterpriseToEbitda"))
+    ev_to_ebitda = provider_ev_to_ebitda if provider_ev_to_ebitda not in (None, 0) else None
     normalized["valuation"] = {
         "pe": _fundamental_metric(trailing_pe, "pe", "trailing", ttm_period, source,
             "current price / TTM diluted EPS", calculated=ttm_eps not in (None, 0), source_field="TTM diluted EPS", last_updated=price_as_of,
@@ -1773,7 +1938,7 @@ def finalize_normalized_fundamentals_valuation(normalized, info, price, price_as
             "trailing PE / next-year EPS growth expressed in percentage points", calculated=trailing_pe is not None and expected_eps_growth not in (None, 0), source_field="nextYearEpsGrowth", last_updated=price_as_of,
             missing_reason="missing_forward_eps_growth"),
         "price_to_sales": _fundamental_metric(price_to_sales, "price_to_sales", "ttm", ttm_period, source,
-            "current market capitalization / TTM revenue", calculated=market_cap is not None and ttm_revenue not in (None, 0), source_field="marketCap / TTM revenue", last_updated=price_as_of,
+            "current market capitalization / TTM revenue", calculated=market_cap is not None and ttm_revenue not in (None, 0), source_field="sharesOutstanding × current price / TTM revenue" if market_cap_calculated else "marketCap / TTM revenue", last_updated=price_as_of,
             missing_reason="missing_market_cap_or_ttm_revenue"),
         "ev_to_ebitda": _fundamental_metric(ev_to_ebitda, "ev_to_ebitda", "trailing", ttm_period, source,
             "provider enterprise value / trailing EBITDA", calculated=False, source_field="enterpriseToEbitda", last_updated=price_as_of,
@@ -1784,7 +1949,7 @@ def finalize_normalized_fundamentals_valuation(normalized, info, price, price_as
         "price_as_of": price_as_of,
         "valuation_price_as_of": price_as_of,
     }
-    return normalized
+    return validate_normalized_fundamental_zeros(normalized, info, current_price, ticker=ticker)
 
 
 def normalized_fundamentals_display_adapter(normalized):
@@ -4865,6 +5030,13 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
     valuation_info = dict(info)
     if valuation_info.get("marketCap") is None and market_cap is not None:
         valuation_info["marketCap"] = market_cap
+    # Yahoo's lightweight endpoint commonly exposes the current share count as
+    # `shares` rather than `sharesOutstanding`.  It is a valid same-quote
+    # fallback for market cap when the quote summary omits marketCap.
+    if valuation_info.get("sharesOutstanding") is None:
+        fast_shares = _safe_int(fast_info.get("shares"))
+        if fast_shares is not None and fast_shares > 0:
+            valuation_info["sharesOutstanding"] = fast_shares
     # Market price arrives after statement normalization. Finalize valuation
     # here so PE, forward PE, PEG, PS and EV/EBITDA share one price timestamp.
     if isinstance(company_analysis, dict) and isinstance(company_analysis.get("normalizedFundamentals"), dict):
@@ -4873,6 +5045,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
             valuation_info,
             price,
             updated_at,
+            ticker=ticker,
         )
         company_analysis["normalizedFundamentals"] = normalized_fundamentals
         company_analysis["displayFundamentals"] = normalized_fundamentals_display_adapter(normalized_fundamentals)

@@ -319,6 +319,71 @@ class FinancialStatementDisplayTests(unittest.TestCase):
         }
         self.assertTrue(server.is_market_cache_fresh(common))
 
+    def test_normalize_numeric_keeps_real_zero_but_rejects_missing_placeholders(self):
+        self.assertIsNone(server.normalize_numeric(None))
+        self.assertIsNone(server.normalize_numeric(""))
+        self.assertIsNone(server.normalize_numeric("N/A"))
+        self.assertIsNone(server.normalize_numeric(float("nan")))
+        self.assertIsNone(server.normalize_numeric(float("inf")))
+        self.assertEqual(server.normalize_numeric(0), 0.0)
+        self.assertEqual(server.normalize_numeric("0"), 0.0)
+        self.assertEqual(server.normalize_numeric(-3.2), -3.2)
+
+    def test_yahoo_trailing_margin_fallback_is_used_only_for_missing_statement_rows(self):
+        columns = pd.to_datetime(["2026-06-30", "2026-03-31"])
+        income = pd.DataFrame({
+            columns[0]: [100, 10, 1.0],
+            columns[1]: [90, 9, 0.9],
+        }, index=["Total Revenue", "Net Income", "Diluted EPS"])
+        normalized = server.build_yahoo_normalized_fundamentals(
+            income,
+            pd.DataFrame(),
+            pd.DataFrame(),
+            {"grossMargins": 0.83734, "operatingMargins": 0.16956},
+            "2026-08-08T00:00:00Z",
+        )
+        gross = normalized["profitability"]["gross_margin_ttm"]
+        operating = normalized["profitability"]["operating_margin_ttm"]
+        self.assertAlmostEqual(gross["value"], 0.83734)
+        self.assertAlmostEqual(operating["value"], 0.16956)
+        self.assertEqual(gross["period_type"], "ttm_provider")
+        self.assertEqual(operating["calculated_or_provider"], "provider")
+
+    def test_placeholder_zero_multiples_become_unavailable_but_calculated_zero_is_preserved(self):
+        normalized = {
+            "profitability": {
+                "gross_margin_ttm": server._fundamental_metric(0, "gross_margin", "ttm", "2026-06-30", "fixture", "fixture", calculated=True),
+            },
+            "valuation": {
+                "price_to_sales": server._fundamental_metric(0, "price_to_sales", "ttm", "2026-06-30", "provider", "fixture", calculated=False),
+            },
+        }
+        result = server.validate_normalized_fundamental_zeros(normalized, {"marketCap": 100}, 20, ticker="FIXTURE")
+        self.assertEqual(result["profitability"]["gross_margin_ttm"]["value"], 0.0)
+        self.assertEqual(result["profitability"]["gross_margin_ttm"]["validation_status"], "valid_zero")
+        self.assertIsNone(result["valuation"]["price_to_sales"]["value"])
+        self.assertEqual(result["valuation"]["price_to_sales"]["missing_reason"], "provider_placeholder_zero_or_unavailable_denominator")
+
+    def test_price_to_sales_rebuilds_from_shares_when_market_cap_is_missing(self):
+        normalized = {
+            "source": "fixture",
+            "metadata": {"profitability_period_end": "2026-06-30"},
+            "inputs": {
+                "ttm_diluted_eps": {"value": 2.0},
+                "ttm_revenue": {"value": 100.0},
+            },
+        }
+        result = server.finalize_normalized_fundamentals_valuation(
+            normalized,
+            {"sharesOutstanding": 50, "epsForward": 2.5, "nextYearEpsGrowth": 0.20},
+            20,
+            "2026-08-08T20:00:00Z",
+        )
+        price_to_sales = result["valuation"]["price_to_sales"]
+        self.assertEqual(price_to_sales["value"], 10.0)
+        self.assertTrue(price_to_sales["calculated_or_provider"] == "calculated")
+        self.assertIn("sharesOutstanding", price_to_sales["source_field"])
+
 
 if __name__ == "__main__":
     unittest.main()
