@@ -22261,13 +22261,14 @@ function renderDetailModal(row) {
   `;
 const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number) => `${number > 0 ? "+" : ""}${Number(number).toFixed(digits)}`);
   const displayFeatureState = (value) => value ? localizedDashboardText(value) : t("dataUnavailable");
-  const renderCanonicalIndicatorCard = ({ title, meta, state, rows = [], details = [] }) => `
+  const renderCanonicalIndicatorCard = ({ title, meta, state, rows = [], details = [], primaryLabel = "", contextLabel = "" }) => `
     <article class="decision-list-card">
       <div class="decision-list-title">${title}</div>
       <div class="detail-line-label">${displayFeatureState(state)}</div>
       <div class="detail-line-note">${meta}</div>
+      ${primaryLabel ? `<div class="detail-line-section-label">${primaryLabel}</div>` : ""}
       <div class="detail-line-list">${renderMetricRows(rows)}</div>
-      ${details.length ? `<div class="detail-disclosure"><div class="detail-line-list">${renderMetricRows(details)}</div></div>` : ""}
+      ${details.length ? `<div class="detail-disclosure">${contextLabel ? `<div class="detail-line-section-label">${contextLabel}</div>` : ""}<div class="detail-line-list">${renderMetricRows(details)}</div></div>` : ""}
     </article>
   `;
 
@@ -22276,12 +22277,15 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
     const movingAverages = Object.values(horizon.trend?.moving_averages || {});
     const rsiFeatures = Object.values(horizon.momentum?.rsi || {});
     const primaryInterval = horizonKey === "short" ? "4h" : horizonKey === "medium" ? "1d" : "1w";
-    const macd = horizon.momentum?.macd?.[`macd_${primaryInterval}`] || Object.values(horizon.momentum?.macd || {})[0] || {};
-    const atr = horizon.volatility?.atr?.[`atr_14_${primaryInterval}`] || Object.values(horizon.volatility?.atr || {})[0] || {};
-    const adx = horizon.trend?.adx?.[`adx_14_${primaryInterval}`] || Object.values(horizon.trend?.adx || {})[0] || {};
-    const bollinger = horizon.volatility?.bollinger?.[`bollinger_${primaryInterval}`] || Object.values(horizon.volatility?.bollinger || {})[0] || {};
-    const kdj = horizon.momentum?.kdj?.[`kdj_9_${primaryInterval}`] || Object.values(horizon.momentum?.kdj || {})[0] || {};
-    const primaryRsi = rsiFeatures.find((feature) => feature.interval === primaryInterval && feature.period === (horizonKey === "short" ? 6 : horizonKey === "medium" ? 14 : 21)) || rsiFeatures[0] || {};
+    const primaryRsiPeriod = horizonKey === "short" ? 6 : horizonKey === "medium" ? 14 : 21;
+    // UI must never substitute another candle interval when the required
+    // primary timeframe is unavailable; render the canonical unavailable state.
+    const macd = horizon.momentum?.macd?.[`macd_${primaryInterval}`] || { interval: primaryInterval, period: "12/26/9", state: "unavailable" };
+    const atr = horizon.volatility?.atr?.[`atr_14_${primaryInterval}`] || { interval: primaryInterval, period: 14, volatility_regime: "unavailable" };
+    const adx = horizon.trend?.adx?.[`adx_14_${primaryInterval}`] || { interval: primaryInterval, period: 14, trend_strength: "unavailable" };
+    const bollinger = horizon.volatility?.bollinger?.[`bollinger_${primaryInterval}`] || { interval: primaryInterval, period: 20, squeeze_state: "unavailable" };
+    const kdj = horizon.momentum?.kdj?.[`kdj_9_${primaryInterval}`] || { interval: primaryInterval, period: 9, crossover_state: "unavailable" };
+    const primaryRsi = rsiFeatures.find((feature) => feature.interval === primaryInterval && feature.period === primaryRsiPeriod) || { interval: primaryInterval, period: primaryRsiPeriod, state: "unavailable" };
     const maStructure = horizon.trend?.ma_structure || {};
     const rs = horizon.relative_strength || {};
     const horizonDescription = horizonKey === "short"
@@ -22383,15 +22387,17 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
         title: currentLanguage === "zh" ? "相对强度" : "Relative Strength",
         meta: `1D · ${rs.primary_lookback_days || (horizonKey === "short" ? 20 : horizonKey === "medium" ? 60 : 120)}D primary`,
         state: rs.state,
+        primaryLabel: currentLanguage === "zh" ? `主信号 · ${rs.primary_lookback_days || (horizonKey === "short" ? 20 : horizonKey === "medium" ? 60 : 120)}日` : `PRIMARY · ${rs.primary_lookback_days || (horizonKey === "short" ? 20 : horizonKey === "medium" ? 60 : 120)}D`,
         rows: [
           { label: currentLanguage === "zh" ? "本股回报" : "Stock return", value: displayValue(rs.primary?.stock_return ?? rs.stock_return, (value) => formatChangePercent(value)) },
           { label: "vs SPY", value: displayValue(rs.primary?.vs_spy ?? rs.relative_strength_vs_spy, (value) => formatChangePercent(value)) },
           { label: "vs QQQ", value: displayValue(rs.primary?.vs_qqq ?? rs.relative_strength_vs_qqq, (value) => formatChangePercent(value)) },
         ],
+        contextLabel: currentLanguage === "zh" ? "背景数据" : "CONTEXT",
         details: [
-          { label: currentLanguage === "zh" ? "20 / 60 / 120日回报" : "20 / 60 / 120D return", value: `${displayValue(rs.returns?.stock_20d, (value) => formatChangePercent(value))} / ${displayValue(rs.returns?.stock_60d, (value) => formatChangePercent(value))} / ${displayValue(rs.returns?.stock_120d, (value) => formatChangePercent(value))}` },
-          { label: currentLanguage === "zh" ? "SPY 20 / 60 / 120日" : "SPY 20 / 60 / 120D", value: `${displayValue(rs.vs_spy?.d20, (value) => formatChangePercent(value))} / ${displayValue(rs.vs_spy?.d60, (value) => formatChangePercent(value))} / ${displayValue(rs.vs_spy?.d120, (value) => formatChangePercent(value))}` },
-          { label: currentLanguage === "zh" ? "QQQ 20 / 60 / 120日" : "QQQ 20 / 60 / 120D", value: `${displayValue(rs.vs_qqq?.d20, (value) => formatChangePercent(value))} / ${displayValue(rs.vs_qqq?.d60, (value) => formatChangePercent(value))} / ${displayValue(rs.vs_qqq?.d120, (value) => formatChangePercent(value))}` },
+          { label: currentLanguage === "zh" ? "本股 20 / 60 / 120日回报" : "Stock 20 / 60 / 120D return", value: `${displayValue(rs.returns?.stock_20d, (value) => formatChangePercent(value))} / ${displayValue(rs.returns?.stock_60d, (value) => formatChangePercent(value))} / ${displayValue(rs.returns?.stock_120d, (value) => formatChangePercent(value))}` },
+          { label: currentLanguage === "zh" ? "相对 SPY 20 / 60 / 120日" : "vs SPY 20 / 60 / 120D", value: `${displayValue(rs.vs_spy?.d20, (value) => formatChangePercent(value))} / ${displayValue(rs.vs_spy?.d60, (value) => formatChangePercent(value))} / ${displayValue(rs.vs_spy?.d120, (value) => formatChangePercent(value))}` },
+          { label: currentLanguage === "zh" ? "相对 QQQ 20 / 60 / 120日" : "vs QQQ 20 / 60 / 120D", value: `${displayValue(rs.vs_qqq?.d20, (value) => formatChangePercent(value))} / ${displayValue(rs.vs_qqq?.d60, (value) => formatChangePercent(value))} / ${displayValue(rs.vs_qqq?.d120, (value) => formatChangePercent(value))}` },
           { label: currentLanguage === "zh" ? "一致性" : "Consistency", value: displayFeatureState(rs.consistency?.state || rs.consistency_state) },
         ],
       }),
@@ -22446,6 +22452,7 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
     const mediumObv = features?.horizons?.medium?.participation?.obv?.obv_1d || {};
     const longObv = features?.horizons?.long?.participation?.obv?.obv_1w || {};
     const compact = (value) => displayValue(value, (entry) => formatCompactVolume(entry));
+    const rvolValue = (value) => displayValue(value, (entry) => Number(entry).toFixed(2));
     return `
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "成交量" : "Volume"}</h3></div>
@@ -22457,8 +22464,8 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
           rows: [
             { label: currentLanguage === "zh" ? "当前成交量" : "Current volume", value: compact(volume.current_volume) },
             { label: currentLanguage === "zh" ? "平均成交量" : "Average volume", value: `5D ${compact(average.avg_5d)} · 20D ${compact(average.avg_20d)} · 60D ${compact(average.avg_60d)}` },
-            { label: currentLanguage === "zh" ? "相对成交量" : "Relative volume", value: `RVOL5 ${displayValue(rvol.rvol_5d, (value) => formatRatio(value))} · RVOL20 ${displayValue(rvol.rvol_20d, (value) => formatRatio(value))} · RVOL60 ${displayValue(rvol.rvol_60d, (value) => formatRatio(value))}` },
-            { label: currentLanguage === "zh" ? "主 RVOL 状态" : "Main RVOL state", value: `RVOL20 = ${displayFeatureState(rvol.state)}` },
+            { label: currentLanguage === "zh" ? "相对成交量" : "Relative volume", value: `RVOL5 ${rvolValue(rvol.rvol_5d)} · RVOL20 ${rvolValue(rvol.rvol_20d)} · RVOL60 ${rvolValue(rvol.rvol_60d)}` },
+            { label: currentLanguage === "zh" ? "主 RVOL 状态" : "Main RVOL state", value: `RVOL20 ${rvolValue(rvol.rvol_20d)} · ${displayFeatureState(rvol.state)}` },
           ],
           details: [
             { label: currentLanguage === "zh" ? "换手率" : "Turnover", value: `Current ${displayValue(turnover.turnover_current, (value) => formatPercentValue(value))} · 5D ${displayValue(turnover.turnover_5d_avg, (value) => formatPercentValue(value))} · 20D ${displayValue(turnover.turnover_20d_avg, (value) => formatPercentValue(value))} · 60D ${displayValue(turnover.turnover_60d_avg, (value) => formatPercentValue(value))}` },

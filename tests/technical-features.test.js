@@ -155,6 +155,9 @@ assert.equal(unavailable.price_position.position_52w_pct, null);
 const noIntraday = buildTechnicalFeatures({ history: daily, currentPrice: price });
 assert.equal(noIntraday.source_intervals["1h"].availability, "unavailable");
 assert.equal(noIntraday.horizons.short.momentum.rsi.rsi_6_4h.value, null);
+assert.equal(noIntraday.horizons.short.momentum.macd.macd_4h.macd_line, null);
+assert.equal(noIntraday.horizons.short.trend.moving_averages.ema_50_4h.value, null);
+assert(Number.isFinite(noIntraday.horizons.medium.trend.moving_averages.ema_50_1d.value));
 
 // User-facing UI no longer exposes a source-interval block, Gap, breadth, or old horizons.
 const mainSource = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
@@ -167,5 +170,20 @@ assert(mainSource.includes("renderCanonicalVolume"));
 assert(mainSource.includes("Horizon OBV"));
 assert.equal(mainSource.includes("renderTechnicalIndicatorStructure("), false);
 assert.equal(mainSource.includes("renderGapDownRiskCard("), false);
+
+// Presentation uses the canonical primary timeframe only; it never falls back
+// to another interval when the configured primary feature is unavailable.
+for (const forbiddenFallback of [
+  '|| Object.values(horizon.momentum?.macd || {})[0]',
+  '|| Object.values(horizon.volatility?.atr || {})[0]',
+  '|| Object.values(horizon.trend?.adx || {})[0]',
+  '|| Object.values(horizon.volatility?.bollinger || {})[0]',
+  '|| Object.values(horizon.momentum?.kdj || {})[0]',
+  '|| rsiFeatures[0] ||',
+]) assert.equal(mainSource.includes(forbiddenFallback), false, `UI fallback remains: ${forbiddenFallback}`);
+assert(mainSource.includes('PRIMARY · ${rs.primary_lookback_days'));
+assert(mainSource.includes('contextLabel: currentLanguage === "zh" ? "背景数据" : "CONTEXT"'));
+assert(mainSource.includes('const rvolValue = (value) => displayValue(value, (entry) => Number(entry).toFixed(2));'));
+assert(mainSource.includes('RVOL20 ${rvolValue(rvol.rvol_20d)} · ${displayFeatureState(rvol.state)}'));
 
 console.log("technical-features.test.js: all assertions passed");

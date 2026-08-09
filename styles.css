@@ -2677,6 +2677,15 @@ tbody tr.selected-row td {
   line-height: 1.45;
 }
 
+.detail-line-section-label {
+  margin-top: 10px;
+  color: #aebbd0;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+}
+
 .detail-disclosure {
   margin-top: 12px;
   border-top: 1px solid rgba(157, 179, 211, 0.16);
