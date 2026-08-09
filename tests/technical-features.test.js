@@ -3,7 +3,7 @@
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
-const { buildTechnicalFeatures, toLegacyTechnicalStructure, HORIZON_CONFIG, _test } = require("../technical-features.js");
+const { buildTechnicalFeatures, toLegacyTechnicalStructure, AVAILABILITY_REASONS, HORIZON_CONFIG, _test } = require("../technical-features.js");
 
 function dailyHistory(count = 420) {
   const timestamps = []; const opens = []; const highs = []; const lows = []; const closes = []; const volumes = [];
@@ -26,11 +26,16 @@ function dailyHistory(count = 420) {
 
 function hourlyHistory(count = 240) {
   const timestamps = []; const opens = []; const highs = []; const lows = []; const closes = []; const volumes = [];
-  const start = Date.UTC(2026, 5, 1, 14, 30);
-  for (let index = 0; index < count; index += 1) {
-    const close = 180 - index * 0.05 + Math.sin(index / 3);
-    timestamps.push(new Date(start + index * 3600000).toISOString());
-    opens.push(close + 0.2); closes.push(close); highs.push(close + 0.7); lows.push(close - 0.8); volumes.push(100_000 + index * 50);
+  let index = 0; let day = 0;
+  while (index < count) {
+    const date = new Date(Date.UTC(2026, 5, 1 + day)).toISOString().slice(0, 10);
+    for (let hour = 9; hour <= 15 && index < count; hour += 1) {
+      const close = 180 - index * 0.05 + Math.sin(index / 3);
+      timestamps.push(`${date}T${String(hour).padStart(2, "0")}:30:00-0400`);
+      opens.push(close + 0.2); closes.push(close); highs.push(close + 0.7); lows.push(close - 0.8); volumes.push(100_000 + index * 50);
+      index += 1;
+    }
+    day += 1;
   }
   return { timestamps, opens, highs, lows, closes, volumes };
 }
@@ -129,6 +134,61 @@ assert.equal(features.horizons.short.relative_strength.returns.stock_20d, 4);
 assert.equal(features.horizons.medium.relative_strength.vs_spy.d60, 6);
 assert.equal(features.horizons.long.relative_strength.vs_qqq.d120, 6);
 
+// Availability reasons are explicit, distinguish missing history from a valid
+// zero/neutral result, and do not substitute another timeframe.
+assert(AVAILABILITY_REASONS.includes("insufficient_history"));
+assert(AVAILABILITY_REASONS.includes("dependency_unavailable"));
+const shortHistory = buildTechnicalFeatures({
+  history: { ...daily, intervals: { "1h": hourlyHistory(210) } },
+  currentPrice: price,
+  calculatedAt: "2026-08-09T00:00:00.000Z",
+});
+const shortEma50 = shortHistory.horizons.short.trend.moving_averages.ema_50_4h;
+const shortMacd = shortHistory.horizons.short.momentum.macd.macd_4h;
+const shortAtr = shortHistory.horizons.short.volatility.atr.atr_14_4h;
+const shortBollinger = shortHistory.horizons.short.volatility.bollinger.bollinger_4h;
+assert.equal(shortHistory.source_intervals["4h"].bar_count, 30);
+assert.equal(shortEma50.value, null);
+assert.equal(shortEma50.unavailable_reason, "insufficient_history");
+assert.equal(shortEma50.available_bars, 30);
+assert.equal(shortEma50.required_bars, 50);
+assert.equal(shortMacd.macd_line, null);
+assert.equal(shortMacd.crossover_state, "unavailable");
+assert.equal(shortMacd.unavailable_reason, "insufficient_history");
+assert.equal(shortMacd.child_availability.histogram.unavailable_reason, "dependency_unavailable");
+assert.equal(shortAtr.atr_percentile_pct, null);
+assert.equal(shortAtr.atr_percentile.unavailable_reason, "insufficient_history");
+assert.equal(shortAtr.atr_percentile.available_observations, 17);
+assert.equal(shortAtr.atr_percentile.required_observations, 60);
+assert.equal(shortAtr.volatility_regime, "unavailable");
+assert.equal(shortAtr.volatility_regime_availability.unavailable_reason, "dependency_unavailable");
+assert.equal(shortBollinger.bandwidth_percentile, null);
+assert.equal(shortBollinger.bandwidth_percentile_availability.available_observations, 11);
+assert.equal(shortBollinger.bandwidth_percentile_availability.required_observations, 60);
+assert.equal(shortBollinger.squeeze_state, "unavailable");
+assert.equal(shortHistory.horizons.short.trend.adx.adx_14_4h.slope.state, "unavailable");
+assert.equal(shortHistory.horizons.short.trend.adx.adx_14_4h.slope.unavailable_reason, "insufficient_history");
+assert.equal(shortHistory.horizons.short.trend.adx.adx_14_4h.slope.required_observations, 4);
+
+// Real 1H history is aggregated only from a complete 09:30–12:30 regular
+// session block; missing constituent bars are excluded rather than filled.
+const incompleteHourly = hourlyHistory(7);
+incompleteHourly.timestamps[1] = incompleteHourly.timestamps[2];
+assert.equal(_test.aggregateFourHourBars(_test.normalizeBars(incompleteHourly)).length, 0);
+
+// A larger real-history request restores indicators only after enough 4H bars
+// exist; their raw calculations remain unchanged.
+const longIntradayHistory = buildTechnicalFeatures({
+  history: { ...daily, intervals: { "1h": hourlyHistory(840) } },
+  currentPrice: price,
+  calculatedAt: "2026-08-09T00:00:00.000Z",
+});
+assert.equal(longIntradayHistory.source_intervals["4h"].bar_count, 120);
+assert(Number.isFinite(longIntradayHistory.horizons.short.trend.moving_averages.ema_50_4h.value));
+assert(Number.isFinite(longIntradayHistory.horizons.short.momentum.macd.macd_4h.macd_line));
+assert.equal(longIntradayHistory.horizons.short.volatility.atr.atr_14_4h.atr_percentile.available, true);
+assert.equal(longIntradayHistory.horizons.short.volatility.bollinger.bollinger_4h.bandwidth_percentile_availability.available, true);
+
 // 52-week and ATH calculations retain the correct historical windows.
 assert.equal(features.price_position.high_52w, Math.max(...daily.highs.slice(-252)));
 assert.equal(features.price_position.low_52w, Math.min(...daily.lows.slice(-252)));
@@ -161,6 +221,7 @@ assert(Number.isFinite(noIntraday.horizons.medium.trend.moving_averages.ema_50_1
 
 // User-facing UI no longer exposes a source-interval block, Gap, breadth, or old horizons.
 const mainSource = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
+const serverSource = fs.readFileSync(path.join(__dirname, "..", "server.py"), "utf8");
 for (const forbidden of ["30" + "-90 days", "90" + "-180 days", "30" + "-90D", "90" + "-180D", "30" + "-90天", "90" + "-180天", "1" + "-10D", "10" + "-30D", "30" + "-60D risk review", "Source intervals / " + "latest bars", "数据源周期 / " + "最新K线", "Daily " + "gap", "日线" + "跳空", "Market " + "breadth", "市场" + "广度"]) {
   assert.equal(mainSource.includes(forbidden), false, `obsolete UI string remains: ${forbidden}`);
 }
@@ -185,5 +246,10 @@ assert(mainSource.includes('PRIMARY · ${rs.primary_lookback_days'));
 assert(mainSource.includes('contextLabel: currentLanguage === "zh" ? "背景数据" : "CONTEXT"'));
 assert(mainSource.includes('const rvolValue = (value) => displayValue(value, (entry) => Number(entry).toFixed(2));'));
 assert(mainSource.includes('RVOL20 ${rvolValue(rvol.rvol_20d)} · ${displayFeatureState(rvol.state)}'));
+assert(mainSource.includes("technicalAvailabilityNote"));
+assert(mainSource.includes("insufficient_history: \"历史数据不足\""));
+assert(serverSource.includes('TECHNICAL_INTRADAY_HISTORY_PERIOD = os.environ.get("TECHNICAL_INTRADAY_HISTORY_PERIOD", "120d")'));
+assert(serverSource.includes("interval=interval, limit=6000"));
+assert.equal(serverSource.includes('row.get("volume") or 0'), false);
 
 console.log("technical-features.test.js: all assertions passed");

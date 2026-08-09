@@ -22261,11 +22261,42 @@ function renderDetailModal(row) {
   `;
 const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number) => `${number > 0 ? "+" : ""}${Number(number).toFixed(digits)}`);
   const displayFeatureState = (value) => value ? localizedDashboardText(value) : t("dataUnavailable");
-  const renderCanonicalIndicatorCard = ({ title, meta, state, rows = [], details = [], primaryLabel = "", contextLabel = "" }) => `
+  const technicalAvailabilityNote = (metadata = {}) => {
+    const reason = metadata?.unavailable_reason;
+    if (!reason) return "";
+    const labels = currentLanguage === "zh"
+      ? {
+        source_unavailable: "数据源未提供",
+        insufficient_history: "历史数据不足",
+        calculation_error: "计算失败",
+        dependency_unavailable: "依赖指标不可用",
+        not_applicable: "当前周期不适用",
+        market_session_incomplete: "当前交易时段不完整",
+        invalid_source_data: "源数据无效",
+      }
+      : {
+        source_unavailable: "Source data unavailable",
+        insufficient_history: "Insufficient history",
+        calculation_error: "Calculation failed",
+        dependency_unavailable: "Required indicator unavailable",
+        not_applicable: "Not applicable for this horizon",
+        market_session_incomplete: "Current market session is incomplete",
+        invalid_source_data: "Invalid source data",
+      };
+    const label = labels[reason] || t("dataUnavailable");
+    const available = metadata.available_observations ?? metadata.available_bars;
+    const required = metadata.required_observations ?? metadata.required_bars;
+    const unit = metadata.required_observations != null
+      ? (currentLanguage === "zh" ? "个有效观测" : "valid observations")
+      : "bars";
+    return Number.isFinite(available) && Number.isFinite(required) ? `${label} · ${available} / ${required} ${unit}` : label;
+  };
+  const renderCanonicalIndicatorCard = ({ title, meta, state, rows = [], details = [], primaryLabel = "", contextLabel = "", availability = null }) => `
     <article class="decision-list-card">
       <div class="decision-list-title">${title}</div>
       <div class="detail-line-label">${displayFeatureState(state)}</div>
       <div class="detail-line-note">${meta}</div>
+      ${technicalAvailabilityNote(availability) ? `<div class="detail-line-note">${technicalAvailabilityNote(availability)}</div>` : ""}
       ${primaryLabel ? `<div class="detail-line-section-label">${primaryLabel}</div>` : ""}
       <div class="detail-line-list">${renderMetricRows(rows)}</div>
       ${details.length ? `<div class="detail-disclosure">${contextLabel ? `<div class="detail-line-section-label">${contextLabel}</div>` : ""}<div class="detail-line-list">${renderMetricRows(details)}</div></div>` : ""}
@@ -22296,7 +22327,7 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
     const maRows = movingAverages.map((feature) => ({
       label: `${String(feature.interval || "").toUpperCase()} ${String(feature.indicator || "ma").toUpperCase()}${feature.period ?? ""}`,
       value: displayValue(feature.value, (value) => formatCurrency(value, currencyCode)),
-      note: `${displayFeatureState(feature.price_state)} · ${displayFeatureState(feature.slope?.state)}`,
+      note: feature.availability === "unavailable" ? technicalAvailabilityNote(feature) : `${displayFeatureState(feature.price_state)} · ${feature.slope?.state === "unavailable" ? technicalAvailabilityNote(feature.slope) : displayFeatureState(feature.slope?.state)}`,
     }));
     const rsiRows = rsiFeatures.map((feature) => ({
       label: `${String(feature.interval || "").toUpperCase()} RSI${feature.period ?? ""}`,
@@ -22321,12 +22352,13 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
         meta: horizonKey === "short" ? "1H / 4H · RSI6 (4H RSI14 context)" : horizonKey === "medium" ? "1D · RSI14 (4H RSI14 context)" : "1W · RSI21 (1D RSI21 context)",
         state: primaryRsi.state,
         rows: rsiRows.slice(0, 2),
-        details: [...rsiRows.slice(2), { label: currentLanguage === "zh" ? "斜率" : "Slope", value: displayFeatureState(primaryRsi.slope?.state) }, { label: currentLanguage === "zh" ? "背离" : "Divergence", value: displayFeatureState(primaryRsi.divergence) }],
+        details: [...rsiRows.slice(2), { label: currentLanguage === "zh" ? "斜率" : "Slope", value: displayFeatureState(primaryRsi.slope?.state), note: technicalAvailabilityNote(primaryRsi.slope) }, { label: currentLanguage === "zh" ? "背离" : "Divergence", value: displayFeatureState(primaryRsi.divergence) }],
       }),
       renderCanonicalIndicatorCard({
         title: "MACD",
         meta: `${String(macd.interval || primaryInterval).toUpperCase()} · MACD ${macd.period || "12/26/9"}`,
         state: macd.state,
+        availability: macd,
         rows: macdRows,
         details: [
           { label: currentLanguage === "zh" ? "1 bar 变化" : "1-bar Δ", value: formatTechnicalNumber(macd.histogram_change_1) },
@@ -22346,8 +22378,8 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
           { label: currentLanguage === "zh" ? "原始 ATR" : "Raw ATR", value: displayValue(atr.value, (value) => formatCurrency(value, currencyCode)) },
         ],
         details: [
-          { label: currentLanguage === "zh" ? "ATR 百分位" : "ATR Percentile", value: displayValue(atr.atr_percentile_pct, (value) => formatOneDecimal(value)) },
-          { label: currentLanguage === "zh" ? "波动状态" : "Volatility regime", value: displayFeatureState(atr.volatility_regime) },
+          { label: currentLanguage === "zh" ? "ATR 百分位" : "ATR Percentile", value: displayValue(atr.atr_percentile_pct, (value) => formatOneDecimal(value)), note: technicalAvailabilityNote(atr.atr_percentile) },
+          { label: currentLanguage === "zh" ? "波动状态" : "Volatility regime", value: displayFeatureState(atr.volatility_regime), note: technicalAvailabilityNote(atr.volatility_regime_availability) },
           { label: currentLanguage === "zh" ? "变化" : "Trend", value: displayFeatureState(atr.expansion_state) },
         ],
       }),
@@ -22359,7 +22391,7 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
           { label: "ADX", value: displayValue(adx.adx, (value) => formatOneDecimal(value)) },
           { label: "+DI / -DI", value: `${displayValue(adx.plus_di, (value) => formatOneDecimal(value))} / ${displayValue(adx.minus_di, (value) => formatOneDecimal(value))}`, note: displayFeatureState(adx.directional_bias) },
         ],
-        details: [{ label: currentLanguage === "zh" ? "斜率" : "Slope", value: displayFeatureState(adx.slope?.state) }],
+        details: [{ label: currentLanguage === "zh" ? "斜率" : "Slope", value: displayFeatureState(adx.slope?.state), note: technicalAvailabilityNote(adx.slope) }],
       }),
       renderCanonicalIndicatorCard({
         title: currentLanguage === "zh" ? "布林带" : "Bollinger",
@@ -22369,7 +22401,7 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
           { label: "%B", value: displayValue(bollinger.percent_b, (value) => formatOneDecimal(value)), note: displayFeatureState(bollinger.price_position) },
           { label: currentLanguage === "zh" ? "带宽" : "Bandwidth", value: displayValue(bollinger.bandwidth_pct, (value) => formatPercentValue(value)) },
         ],
-        details: [{ label: currentLanguage === "zh" ? "带宽百分位" : "Bandwidth percentile", value: displayValue(bollinger.bandwidth_percentile, (value) => formatOneDecimal(value)) }],
+        details: [{ label: currentLanguage === "zh" ? "带宽百分位" : "Bandwidth percentile", value: displayValue(bollinger.bandwidth_percentile, (value) => formatOneDecimal(value)), note: technicalAvailabilityNote(bollinger.bandwidth_percentile_availability) }, { label: currentLanguage === "zh" ? "挤压状态" : "Squeeze state", value: displayFeatureState(bollinger.squeeze_state), note: technicalAvailabilityNote(bollinger.squeeze_state_availability) }],
       }),
       horizonKey === "long" ? "" : renderCanonicalIndicatorCard({
         title: "KDJ",

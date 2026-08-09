@@ -9,6 +9,16 @@
   "use strict";
 
   const SCHEMA_VERSION = "technical-features-v1";
+  const AVAILABILITY_REASONS = Object.freeze([
+    "available",
+    "source_unavailable",
+    "insufficient_history",
+    "calculation_error",
+    "dependency_unavailable",
+    "not_applicable",
+    "market_session_incomplete",
+    "invalid_source_data",
+  ]);
   const RVOL_THRESHOLDS = Object.freeze([
     [0.6, "very_low"], [0.8, "low"], [1.2, "normal"], [1.5, "elevated"], [2.0, "high"], [Infinity, "extreme"],
   ]);
@@ -121,28 +131,52 @@
     const grouped = [];
     let bucket = null;
     let bucketDay = null;
-    let count = 0;
+    let expectedTimestamp = null;
+    const timestampMillis = (timestamp) => {
+      const parsed = new Date(timestamp).getTime();
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    const localTime = (timestamp) => {
+      const match = typeof timestamp === "string" && timestamp.match(/T(\d{2}):(\d{2})/);
+      return match ? `${match[1]}:${match[2]}` : null;
+    };
     // Incomplete session buckets are intentionally discarded. A partial 4H
     // candle must not masquerade as a completed feature input.
-    const push = () => { if (bucket && count === 4) grouped.push(bucket); bucket = null; count = 0; };
+    const reset = () => { bucket = null; bucketDay = null; expectedTimestamp = null; };
     hourlyBars.forEach((bar) => {
       const day = typeof bar.timestamp === "string" ? bar.timestamp.slice(0, 10) : null;
-      if (bucket && day !== bucketDay) push();
-      if (!bucket) {
+      const currentTimestamp = timestampMillis(bar.timestamp);
+      const isRegularSessionStart = localTime(bar.timestamp) === "09:30";
+      if (!bucket && isRegularSessionStart) {
         bucketDay = day;
         bucket = { ...bar, volume: Number.isFinite(bar.volume) ? bar.volume : null };
-        count = 1;
-      } else {
+        expectedTimestamp = currentTimestamp == null ? null : currentTimestamp + 60 * 60 * 1000;
+        return;
+      }
+      if (!bucket) return;
+      if (day !== bucketDay || currentTimestamp == null || currentTimestamp !== expectedTimestamp) {
+        reset();
+        if (isRegularSessionStart) {
+          bucketDay = day;
+          bucket = { ...bar, volume: Number.isFinite(bar.volume) ? bar.volume : null };
+          expectedTimestamp = currentTimestamp == null ? null : currentTimestamp + 60 * 60 * 1000;
+        }
+        return;
+      }
+      if (bucket) {
         bucket.high = Math.max(bucket.high, bar.high);
         bucket.low = Math.min(bucket.low, bar.low);
         bucket.close = bar.close;
         bucket.timestamp = bar.timestamp;
         bucket.volume = Number.isFinite(bucket.volume) && Number.isFinite(bar.volume) ? bucket.volume + bar.volume : null;
-        count += 1;
+        if (localTime(bar.timestamp) === "12:30") {
+          grouped.push(bucket);
+          reset();
+        } else {
+          expectedTimestamp = currentTimestamp + 60 * 60 * 1000;
+        }
       }
-      if (count === 4) push();
     });
-    push();
     return grouped;
   }
 
@@ -234,30 +268,81 @@
     return result;
   }
 
-  function metadata({ indicator, interval, period = null, lookback = null, bars = [], source = null, calculatedAt }) {
+  function metadata({ indicator, interval, period = null, lookback = null, requiredBars = lookback, bars = [], source = null, calculatedAt, unavailableReason = null }) {
+    const availableBars = bars.length;
+    const availability = availableBars ? "available" : "unavailable";
     return {
       indicator,
       interval,
       period,
       lookback,
-      availability: bars.length ? "available" : "unavailable",
+      availability,
+      available: availability === "available",
+      unavailable_reason: availability === "available" ? null : (unavailableReason || "source_unavailable"),
+      required_bars: requiredBars,
+      available_bars: availableBars,
       source: source || (interval === "4h" ? "derived_1h_regular_session" : interval === "1w" ? "completed_weekly_from_daily" : "market_ohlcv"),
       last_bar_timestamp: last(bars)?.timestamp ?? null,
       calculation_timestamp: calculatedAt,
-      bar_count: bars.length,
+      bar_count: availableBars,
     };
   }
 
   function unavailableFeature(args = {}) {
-    return { value: null, state: "unavailable", ...metadata({ ...args, bars: args.bars || [] }), availability: "unavailable" };
+    const bars = args.bars || [];
+    const unavailableReason = args.unavailableReason || (bars.length ? "insufficient_history" : "source_unavailable");
+    return {
+      value: null,
+      state: "unavailable",
+      ...metadata({ ...args, bars, unavailableReason }),
+      availability: "unavailable",
+      available: false,
+      unavailable_reason: unavailableReason,
+    };
+  }
+
+  function derivedAvailability(value, { requiredBars = null, availableBars = null, requiredObservations = null, availableObservations = null, unavailableReason = null, source = null } = {}) {
+    const available = Number.isFinite(value);
+    return {
+      value: available ? value : null,
+      availability: available ? "available" : "unavailable",
+      available,
+      unavailable_reason: available ? null : (unavailableReason || "insufficient_history"),
+      required_bars: requiredBars,
+      available_bars: availableBars,
+      required_observations: requiredObservations,
+      available_observations: availableObservations,
+      source,
+    };
   }
 
   function slopeState(series, bars = 3) {
     const value = last(series);
     const prior = valueAgo(series, bars);
-    if (!Number.isFinite(value) || !Number.isFinite(prior)) return { value: null, state: "unavailable", change: null, bars };
+    const availableObservations = series.filter(Number.isFinite).length;
+    if (!Number.isFinite(value) || !Number.isFinite(prior)) return {
+      value: null,
+      state: "unavailable",
+      change: null,
+      bars,
+      availability: "unavailable",
+      available: false,
+      unavailable_reason: "insufficient_history",
+      required_observations: bars + 1,
+      available_observations: availableObservations,
+    };
     const change = value - prior;
-    return { value: change, change, state: change > 0 ? "rising" : change < 0 ? "falling" : "flat", bars };
+    return {
+      value: change,
+      change,
+      state: change > 0 ? "rising" : change < 0 ? "falling" : "flat",
+      bars,
+      availability: "available",
+      available: true,
+      unavailable_reason: null,
+      required_observations: bars + 1,
+      available_observations: availableObservations,
+    };
   }
 
   function movingAverageFeature(bars, interval, period, type, currentPrice, calculatedAt) {
@@ -317,7 +402,40 @@
   function macdFeature(bars, interval, parameters, calculatedAt) {
     const [fast, slow, signal] = parameters;
     const closes = bars.map((bar) => bar.close);
-    if (closes.length < slow + signal) return unavailableFeature({ indicator: "macd", interval, period: `${fast}/${slow}/${signal}`, lookback: slow + signal, bars, calculatedAt });
+    if (closes.length < slow + signal) {
+      const unavailable = unavailableFeature({ indicator: "macd", interval, period: `${fast}/${slow}/${signal}`, lookback: slow + signal, bars, calculatedAt });
+      const dependency = derivedAvailability(null, {
+        requiredBars: unavailable.required_bars,
+        availableBars: unavailable.available_bars,
+        unavailableReason: "dependency_unavailable",
+        source: "macd",
+      });
+      return {
+        ...unavailable,
+        macd_line: null,
+        signal_line: null,
+        histogram: null,
+        histogram_change_1: null,
+        histogram_change_3: null,
+        histogram_change_5: null,
+        histogram_slope: { value: null, state: "unavailable", ...dependency },
+        crossover_state: "unavailable",
+        above_or_below_zero: "unavailable",
+        improving_or_deteriorating: "unavailable",
+        child_availability: {
+          macd_line: dependency,
+          signal_line: dependency,
+          histogram: dependency,
+          histogram_change_1: dependency,
+          histogram_change_3: dependency,
+          histogram_change_5: dependency,
+          histogram_slope: dependency,
+          crossover_state: dependency,
+          above_or_below_zero: dependency,
+          improving_or_deteriorating: dependency,
+        },
+      };
+    }
     const fastSeries = emaSeries(closes, fast);
     const slowSeries = emaSeries(closes, slow);
     const macdSeries = closes.map((_, index) => Number.isFinite(fastSeries[index]) && Number.isFinite(slowSeries[index]) ? fastSeries[index] - slowSeries[index] : null);
@@ -387,10 +505,33 @@
     const atrPct = value / price * 100;
     const pctSeries = series.map((entry, index) => Number.isFinite(entry) && bars[index]?.close > 0 ? entry / bars[index].close * 100 : null).filter(Number.isFinite);
     const percentile = (window) => pctSeries.length >= window ? pctSeries.slice(-window).filter((entry) => entry <= atrPct).length / window * 100 : null;
-    const percentileValue = percentile(60) ?? percentile(120) ?? percentile(250);
+    const percentileMetadata = (window) => derivedAvailability(percentile(window), {
+      requiredBars: period + window - 1,
+      availableBars: bars.length,
+      requiredObservations: window,
+      availableObservations: pctSeries.length,
+      unavailableReason: "insufficient_history",
+      source: "atr_pct_series",
+    });
+    const percentile60 = percentileMetadata(60);
+    const percentile120 = percentileMetadata(120);
+    const percentile250 = percentileMetadata(250);
+    // The current primary regime uses the 60-observation percentile. The
+    // longer windows stay available as context, but cannot rescue a missing
+    // 60-observation value because they necessarily require even more data.
+    const primaryPercentile = percentile60;
+    const percentileValue = percentile60.value ?? percentile120.value ?? percentile250.value;
     const state = percentileValue == null ? "unavailable" : percentileValue <= 20 ? "low" : percentileValue <= 70 ? "normal" : percentileValue <= 88 ? "elevated" : "extreme";
     const slope = slopeState(pctSeries, Math.min(5, Math.max(1, Math.floor(pctSeries.length / 8))));
-    return { value, atr_pct: atrPct, atr_percentile_pct: percentileValue, atr_percentile_60: percentile(60), atr_percentile_120: percentile(120), atr_percentile_250: percentile(250), volatility_regime: state, expansion_state: slope.state === "rising" ? "expanding" : slope.state === "falling" ? "contracting" : slope.state, slope, series, ...metadata({ indicator: "atr", interval, period, lookback: period, bars, calculatedAt }) };
+    const regimeAvailability = derivedAvailability(percentileValue, {
+      requiredBars: primaryPercentile.required_bars,
+      availableBars: bars.length,
+      requiredObservations: primaryPercentile.required_observations,
+      availableObservations: pctSeries.length,
+      unavailableReason: "dependency_unavailable",
+      source: "atr_percentile",
+    });
+    return { value, atr_pct: atrPct, atr_percentile_pct: percentileValue, atr_percentile_60: percentile60.value, atr_percentile_120: percentile120.value, atr_percentile_250: percentile250.value, atr_percentile: primaryPercentile, atr_percentiles: { d60: percentile60, d120: percentile120, d250: percentile250 }, volatility_regime: state, volatility_regime_availability: regimeAvailability, expansion_state: slope.state === "rising" ? "expanding" : slope.state === "falling" ? "contracting" : slope.state, slope, series, ...metadata({ indicator: "atr", interval, period, lookback: period, bars, calculatedAt }) };
   }
 
   function kdjFeature(bars, interval, period, calculatedAt) {
@@ -420,7 +561,23 @@
     const widths = closes.map((_, index) => index + 1 < period ? null : (() => { const values = closes.slice(index - period + 1, index + 1); const mid = mean(values); return mid ? ((standardDeviation(values) * multiple * 2) / mid) * 100 : null; })()).filter(Number.isFinite);
     const bandwidth = middle ? width / middle * 100 : null;
     const percentile = widths.length >= 60 ? widths.slice(-60).filter((entry) => entry <= bandwidth).length / 60 * 100 : null;
-    return { middle_band: middle, upper_band: upper, lower_band: lower, percent_b: percentB, bandwidth_pct: bandwidth, bandwidth_percentile: percentile, squeeze_state: percentile == null ? "unavailable" : percentile <= 20 ? "squeeze" : percentile >= 80 ? "expanded" : "normal", price_position: percentB == null ? "unavailable" : percentB >= 1 ? "above_upper" : percentB <= 0 ? "below_lower" : percentB >= 0.8 ? "upper" : percentB <= 0.2 ? "lower" : "middle", ...metadata({ indicator: "bollinger", interval, period, lookback: period, bars, calculatedAt }) };
+    const bandwidthPercentile = derivedAvailability(percentile, {
+      requiredBars: period + 60 - 1,
+      availableBars: bars.length,
+      requiredObservations: 60,
+      availableObservations: widths.length,
+      unavailableReason: "insufficient_history",
+      source: "bollinger_bandwidth_series",
+    });
+    const squeezeAvailability = derivedAvailability(percentile, {
+      requiredBars: bandwidthPercentile.required_bars,
+      availableBars: bars.length,
+      requiredObservations: bandwidthPercentile.required_observations,
+      availableObservations: widths.length,
+      unavailableReason: "dependency_unavailable",
+      source: "bollinger_bandwidth_percentile",
+    });
+    return { middle_band: middle, upper_band: upper, lower_band: lower, percent_b: percentB, bandwidth_pct: bandwidth, bandwidth_percentile: percentile, bandwidth_percentile_availability: bandwidthPercentile, squeeze_state: percentile == null ? "unavailable" : percentile <= 20 ? "squeeze" : percentile >= 80 ? "expanded" : "normal", squeeze_state_availability: squeezeAvailability, price_position: percentB == null ? "unavailable" : percentB >= 1 ? "above_upper" : percentB <= 0 ? "below_lower" : percentB >= 0.8 ? "upper" : percentB <= 0.2 ? "lower" : "middle", ...metadata({ indicator: "bollinger", interval, period, lookback: period, bars, calculatedAt }) };
   }
 
   function obvFeature(bars, interval, lookback, calculatedAt) {
@@ -631,10 +788,29 @@
     const normalizedPrice = Number.isFinite(currentPrice) ? currentPrice : last(daily)?.close ?? null;
     const fibonacci = fibonacciFeatures(fibonacciStructure);
     const volume = canonicalVolumeFeature(daily, finite(shareBase), calculatedAt);
+    const hourlySource = history.intervals?.["1h"] || history.by_interval?.["1h"] || history.intervals?.hourly || {};
+    const sourceIntervalMetadata = (interval, bars) => {
+      const available = bars.length > 0;
+      const unavailableReason = available ? null
+        : interval === "4h" ? (hourly.length ? "market_session_incomplete" : "source_unavailable")
+          : interval === "1w" ? (daily.length ? "insufficient_history" : "source_unavailable")
+            : "source_unavailable";
+      return {
+        interval,
+        bar_count: bars.length,
+        availability: available ? "available" : "unavailable",
+        available,
+        unavailable_reason: unavailableReason,
+        lookback: interval === "1d" ? (history.daily_history_metadata?.lookback || history.lookback || null) : interval === "1h" ? (hourlySource.lookback || null) : null,
+        requested_history: interval === "1h" ? (hourlySource.lookback || null) : interval === "1d" ? (history.daily_history_metadata?.lookback || history.lookback || null) : null,
+        last_bar_timestamp: last(bars)?.timestamp ?? null,
+        source: interval === "4h" ? "derived_1h_regular_session" : interval === "1w" ? "completed_weekly_from_daily" : "market_ohlcv",
+      };
+    };
     return {
       schema_version: SCHEMA_VERSION,
       calculated_at: calculatedAt,
-      source_intervals: Object.fromEntries(Object.entries(sources).map(([interval, bars]) => [interval, { interval, bar_count: bars.length, availability: bars.length ? "available" : "unavailable", lookback: interval === "1d" ? (history.daily_history_metadata?.lookback || null) : interval === "1h" ? (history.intervals?.["1h"]?.lookback || null) : null, last_bar_timestamp: last(bars)?.timestamp ?? null, source: interval === "4h" ? "derived_1h_regular_session" : interval === "1w" ? "completed_weekly_from_daily" : "market_ohlcv" }])),
+      source_intervals: Object.fromEntries(Object.entries(sources).map(([interval, bars]) => [interval, sourceIntervalMetadata(interval, bars)])),
       horizons: {
         short: horizonFeatureSet("short", sources, normalizedPrice, relativeStrength, fibonacci, calculatedAt),
         medium: horizonFeatureSet("medium", sources, normalizedPrice, relativeStrength, fibonacci, calculatedAt),
@@ -711,7 +887,7 @@
     };
   }
 
-  const api = { SCHEMA_VERSION, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, toLegacyTechnicalStructure, _test: { normalizeBars, aggregateFourHourBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, pricePositionFeatures, canonicalVolumeFeature } };
+  const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, toLegacyTechnicalStructure, _test: { normalizeBars, aggregateFourHourBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, pricePositionFeatures, canonicalVolumeFeature } };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.CanonicalTechnicalFeatures = api;
 }(typeof globalThis !== "undefined" ? globalThis : window));

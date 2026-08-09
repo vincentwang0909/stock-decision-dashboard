@@ -75,7 +75,7 @@ MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TIC
 # be requested with an environment override, but `max` is too slow/unreliable
 # for a dashboard quote request and can make every row appear unavailable.
 TECHNICAL_DAILY_HISTORY_PERIOD = os.environ.get("TECHNICAL_DAILY_HISTORY_PERIOD", "2y")
-TECHNICAL_INTRADAY_HISTORY_PERIOD = os.environ.get("TECHNICAL_INTRADAY_HISTORY_PERIOD", "30d")
+TECHNICAL_INTRADAY_HISTORY_PERIOD = os.environ.get("TECHNICAL_INTRADAY_HISTORY_PERIOD", "120d")
 TECHNICAL_INTRADAY_FETCH_TIMEOUT_SECONDS = float(os.environ.get("TECHNICAL_INTRADAY_FETCH_TIMEOUT_SECONDS", "2"))
 OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECONDS", "6"))
 # Increment when an options field changes methodology so cached synthetic data
@@ -670,13 +670,22 @@ def fetch_yahoo_chart_frame(symbol, range_value="1y", interval="1d", limit=260):
     if not rows:
         return pd.DataFrame()
     try:
+        # Technical OHLCV must stay sourced from real provider fields. A close
+        # cannot stand in for missing OHLC, and missing volume cannot become
+        # zero, because either substitution would manufacture indicator input.
+        clean_rows = [
+            row for row in rows
+            if all(row.get(field) is not None for field in ("open", "high", "low", "close", "volume"))
+        ]
+        if not clean_rows:
+            return pd.DataFrame()
         frame = pd.DataFrame({
-            "Open": [row.get("open") if row.get("open") is not None else row.get("close") for row in rows],
-            "High": [row.get("high") if row.get("high") is not None else row.get("close") for row in rows],
-            "Low": [row.get("low") if row.get("low") is not None else row.get("close") for row in rows],
-            "Close": [row.get("close") for row in rows],
-            "Volume": [row.get("volume") or 0 for row in rows],
-        }, index=pd.DatetimeIndex([row["datetime"] for row in rows]))
+            "Open": [row["open"] for row in clean_rows],
+            "High": [row["high"] for row in clean_rows],
+            "Low": [row["low"] for row in clean_rows],
+            "Close": [row["close"] for row in clean_rows],
+            "Volume": [row["volume"] for row in clean_rows],
+        }, index=pd.DatetimeIndex([row["datetime"] for row in clean_rows]))
         return frame
     except Exception:
         return pd.DataFrame()
@@ -758,13 +767,19 @@ def fetch_stooq_chart_frame(symbol, limit=260):
     if not rows:
         return pd.DataFrame()
     try:
+        clean_rows = [
+            row for row in rows
+            if all(row.get(field) is not None for field in ("open", "high", "low", "close", "volume"))
+        ]
+        if not clean_rows:
+            return pd.DataFrame()
         return pd.DataFrame({
-            "Open": [row.get("open") if row.get("open") is not None else row.get("close") for row in rows],
-            "High": [row.get("high") if row.get("high") is not None else row.get("close") for row in rows],
-            "Low": [row.get("low") if row.get("low") is not None else row.get("close") for row in rows],
-            "Close": [row.get("close") for row in rows],
-            "Volume": [row.get("volume") or 0 for row in rows],
-        }, index=pd.DatetimeIndex([row["datetime"] for row in rows]))
+            "Open": [row["open"] for row in clean_rows],
+            "High": [row["high"] for row in clean_rows],
+            "Low": [row["low"] for row in clean_rows],
+            "Close": [row["close"] for row in clean_rows],
+            "Volume": [row["volume"] for row in clean_rows],
+        }, index=pd.DatetimeIndex([row["datetime"] for row in clean_rows]))
     except Exception:
         return pd.DataFrame()
 
@@ -3410,7 +3425,12 @@ def load_yfinance_intraday_history_frame(instrument, symbol, period="60d", inter
         pass
 
     try:
-        yahoo_frame = fetch_yahoo_chart_frame(symbol, range_value=period, interval=interval)
+        # Preserve the provider's real intraday history for technical warm-up.
+        # The generic 260-row fallback is insufficient for 4H EMA50, MACD, and
+        # percentile features once 1H bars are aggregated into regular-session
+        # 4H candles. Yahoo permits up to 730 days of 1H history; 6,000 rows
+        # safely covers that maximum without manufacturing any missing bars.
+        yahoo_frame = fetch_yahoo_chart_frame(symbol, range_value=period, interval=interval, limit=6000)
         if yahoo_frame is not None and not yahoo_frame.empty:
             return yahoo_frame
     except Exception:
@@ -3423,13 +3443,15 @@ def _history_payload(frame, timestamp_format="%Y-%m-%d"):
     if frame is None or frame.empty:
         return {
             "timestamps": [], "opens": [], "closes": [], "highs": [], "lows": [], "volumes": [],
-            "availability": "unavailable",
+            "availability": "unavailable", "available": False, "unavailable_reason": "source_unavailable",
+            "source_rows": 0, "available_bars": 0, "excluded_invalid_rows": 0,
         }
     clean = frame.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
     if clean.empty:
         return {
             "timestamps": [], "opens": [], "closes": [], "highs": [], "lows": [], "volumes": [],
-            "availability": "unavailable",
+            "availability": "unavailable", "available": False, "unavailable_reason": "invalid_source_data",
+            "source_rows": int(len(frame)), "available_bars": 0, "excluded_invalid_rows": int(len(frame)),
         }
     return {
         "timestamps": [entry.to_pydatetime().strftime(timestamp_format) for entry in clean.index],
@@ -3438,7 +3460,8 @@ def _history_payload(frame, timestamp_format="%Y-%m-%d"):
         "highs": [_safe_float(value) for value in clean["High"].tolist()],
         "lows": [_safe_float(value) for value in clean["Low"].tolist()],
         "volumes": [_safe_int(value) for value in clean["Volume"].tolist()],
-        "availability": "available",
+        "availability": "available", "available": True, "unavailable_reason": None,
+        "source_rows": int(len(frame)), "available_bars": int(len(clean)), "excluded_invalid_rows": int(len(frame) - len(clean)),
     }
 
 
@@ -3728,6 +3751,16 @@ def is_market_cache_fresh(cached):
         return False
     age_seconds = cached.get("cache_age_seconds")
     if age_seconds is None or age_seconds > MARKET_CACHE_TTL_SECONDS:
+        return False
+    quote = cached.get("quote") if isinstance(cached, dict) else None
+    if not isinstance(quote, dict):
+        quote = cached if isinstance(cached, dict) else {}
+    hourly = ((quote.get("history") or {}).get("intervals") or {}).get("1h") or {}
+    # A cache written before the configured real intraday history request is
+    # not technically fresh: it cannot support the current 4H indicator
+    # warm-up. It is refreshed through the normal cache lifecycle, not filled
+    # with synthetic bars.
+    if hourly.get("lookback") != TECHNICAL_INTRADAY_HISTORY_PERIOD:
         return False
     return True
 
