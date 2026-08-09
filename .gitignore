@@ -5,4 +5,5 @@ __pycache__/
 data/
 *.db
 node_modules/
+.venv/
 watchlist.shared.json

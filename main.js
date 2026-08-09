@@ -2,7 +2,7 @@ const API_BASE = window.location.protocol === "file:" ? "http://127.0.0.1:4173" 
 const API_URL = `${API_BASE}/api/market-data`;
 const WATCHLIST_API_URL = `${API_BASE}/api/watchlist`;
 const SYMBOL_SEARCH_API_URL = `${API_BASE}/api/symbol-search`;
-const APP_BUILD_VERSION = "2026.08.09.canonical-technical-features-v1";
+const APP_BUILD_VERSION = "2026.08.09.canonical-technical-features-v6";
 const DECISION_MODEL_VERSION = "trade-plan-v5-etf-engine";
 const PRICE_CACHE_KEY = "stock-dashboard-market-cache-v10-canonical-technical";
 const ACTION_STATE_CACHE_KEY = "stock-dashboard-action-state-v1";
@@ -3308,7 +3308,7 @@ function fibonacciPositionLabel({ currentPrice, low, high, direction, levels, pr
 function buildFibonacciHorizon(history, horizon, currentPrice, atr14 = null) {
   const config = FIBONACCI_HORIZON_CONFIG[horizon];
   const useWeeklyStructure = horizon === "long_term";
-  const fullDailyHistory = useWeekly && history?.full_daily ? history.full_daily : history;
+  const fullDailyHistory = useWeeklyStructure && history?.full_daily ? history.full_daily : history;
   const weeklyStructure = useWeeklyStructure ? aggregateWeeklyBars(fullDailyHistory) : null;
   const effectiveConfig = useWeeklyStructure
     ? {
