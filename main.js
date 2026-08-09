@@ -12243,7 +12243,9 @@ function buildVolumeConfirmation(row, companyProfile = null, supportResistance =
   };
 }
 
-function buildTechnicalModule(row, supportResistance, companyProfile = null) {
+// Legacy score construction retained temporarily for migration reference only.
+// It is not called by the active dashboard decision path.
+function buildLegacyTechnicalModule(row, supportResistance, companyProfile = null) {
   const tech = row.technicals || {};
   const price = row.price ?? 0;
   const volumeConfirmation = buildVolumeConfirmation(row, companyProfile, supportResistance);
@@ -12446,6 +12448,49 @@ function buildTechnicalModule(row, supportResistance, companyProfile = null) {
     volume_confirmation: volumeConfirmation,
     volume_signal: volumeConfirmation,
     summary,
+  };
+}
+
+function buildTechnicalModule(row, supportResistance, companyProfile = null) {
+  // Keep the raw technical structures needed for price levels, volume state,
+  // and canonical indicator display, but do not construct a technical score.
+  const tech = row.technicals || {};
+  const volumeConfirmation = buildVolumeConfirmation(row, companyProfile, supportResistance);
+  volumeConfirmation.score = null;
+  volumeConfirmation.money_flow_core_score = null;
+
+  return {
+    status: "raw_features_only",
+    technical_score: null,
+    technical_analysis: { status: "retired" },
+    trend_score: null,
+    momentum_score: null,
+    volume_confirmation_score: null,
+    volume_signal_score: null,
+    short_term_signal: null,
+    mid_term_signal: null,
+    long_term_signal: null,
+    trend: {
+      state: null,
+      ma10: tech.ma10 ?? null,
+      ma20: tech.ma20 ?? null,
+      ma50: tech.ma50 ?? null,
+      ma100: tech.ma100 ?? null,
+      ma200: tech.ma200 ?? null,
+      macd: tech.macd ?? null,
+      fibonacci: tech.fibPosition ?? null,
+    },
+    fibonacci_structure: tech.fibonacci_structure || null,
+    technical_indicator_structure: tech.technical_indicator_structure || null,
+    momentum: {
+      state: null,
+      rsi: tech.rsi14 ?? null,
+      kdj: tech.kdj ?? null,
+      macd_histogram: tech.macdHistogram ?? null,
+    },
+    volume_confirmation: volumeConfirmation,
+    volume_signal: volumeConfirmation,
+    summary: null,
   };
 }
 
@@ -13721,7 +13766,9 @@ function buildMarketContextHorizonBreakdown(horizon, companyProfile, row, engine
   };
 }
 
-function buildMarketContextModule(row, companyProfile) {
+// Kept only as an inactive reference while the legacy market-context scorer is
+// being removed. Production decisions use the compatibility object below.
+function buildLegacyMarketContextModule(row, companyProfile) {
   const snapshotContext = row.globalMarketContext || {};
   const sectorTheme = (companyProfile.top_tags_label || companyProfile.tags_label || []).slice(0, 6);
   const risks = [];
@@ -13935,6 +13982,33 @@ function buildMarketContextModule(row, companyProfile) {
     institutional_insider: institutionalInsider,
     summary: summaryParts.join(" · ") || t("dataUnavailable"),
     risks: [...new Set(risks)].slice(0, 4),
+  };
+}
+
+function buildMarketContextModule() {
+  // Market environment is no longer a dashboard module or a recommendation
+  // input. Keep this shape so existing non-scoring consumers can safely read
+  // the payload while the external market-context feed is not requested.
+  return {
+    status: "retired",
+    market_context_score: null,
+    macro_score: null,
+    sector_score: null,
+    news_score: null,
+    institutional_score: null,
+    market_regime: { score: null, regime: null, confidence: null, summary: null },
+    horizon_scores: {},
+    horizon_breakdown: {},
+    strategy_impact: {},
+    market_engine: {},
+    macro: {},
+    broad_macro_news: {},
+    sector_theme: { tags: [], summary: null },
+    news_sentiment: {},
+    institutional_insider: {},
+    enhanced_context: { status: "retired" },
+    summary: null,
+    risks: [],
   };
 }
 
@@ -14276,13 +14350,11 @@ function buildDecisionTriggers(row, supportResistance, technical, marketContext,
       r1?.price ? (currentLanguage === "zh" ? `放量站上 ${r1.level} ${formatCurrency(r1.price, row.currencyCode)}` : `Break above ${r1.level} ${formatCurrency(r1.price, row.currencyCode)} on volume`) : null,
       currentLanguage === "zh" ? "OBV 20D 转升或保持稳定" : "OBV 20D turns higher or stays stable",
       currentLanguage === "zh" ? "回踩 MA50 不破并出现承接" : "MA50 retest holds with sponsorship",
-      currentLanguage === "zh" ? "VIX 回落或 QQQ / SPY 趋势转强" : "VIX cools or QQQ / SPY trend strengthens",
     ].filter(Boolean).slice(0, 5),
     downgrade_triggers: [
       s2?.price ? (currentLanguage === "zh" ? `放量跌破 ${s2.level} ${formatCurrency(s2.price, row.currencyCode)}` : `Break below ${s2.level} ${formatCurrency(s2.price, row.currencyCode)} on volume`) : null,
       s3?.price ? (currentLanguage === "zh" ? `跌破 ${s3.level} 后无法快速收复` : `Fails to reclaim ${s3.level}`) : null,
       currentLanguage === "zh" ? "OBV 继续下降且反弹缩量" : "OBV keeps falling and rebounds on weak volume",
-      currentLanguage === "zh" ? "VIX 快速升高，或 QQQ / SPY 出现破位" : "VIX rises quickly, or QQQ / SPY breaks down",
     ].filter(Boolean).slice(0, 5),
   };
 }
@@ -14290,16 +14362,9 @@ function buildDecisionTriggers(row, supportResistance, technical, marketContext,
 function buildModuleQuality(row, modules, marketType = "US") {
   const unavailable = [];
   const stale = [];
-  const technicalStatus = modules.technical?.technical_score == null ? "unavailable" : "available";
-  const marketContextStatus = marketType === "US"
-    ? (modules.market_context?.market_engine?.vix?.value != null
-      || modules.market_context?.market_engine?.ten_year_yield?.value != null
-      || modules.market_context?.market_engine?.equity_trend?.spy?.value != null
-      || modules.market_context?.market_engine?.equity_trend?.qqq?.value != null
-      ? "available"
-      : "unavailable")
-    : "not_supported";
-  const sectorCycleStatus = modules.market_context?.sector_score == null ? "unavailable" : "available";
+  const technicalStatus = "retired_from_scoring";
+  const marketContextStatus = "retired";
+  const sectorCycleStatus = "retired";
   [
     ["technical", technicalStatus],
     ["market_context", marketContextStatus],
@@ -20311,16 +20376,11 @@ function buildETFDecisionModel(row, research, companyProfile, etfProfile) {
   };
 }
 
-function horizonWeights(companyProfile, horizon, marketType = "US") {
-  const decisionWeights = normalizeScoringWeights(companyProfile?.decision_profile?.final_weights, horizon);
-  if (decisionWeights) return decisionWeights;
-  const profileWeights = normalizeScoringWeights(companyProfile?.scoring_weights, horizon);
-  if (profileWeights) return profileWeights;
-  return horizon === "short"
-      ? { technical: 0.65, market_context: 0.15, fundamental: 0.20 }
-      : horizon === "mid"
-        ? { technical: 0.45, fundamental: 0.40, market_context: 0.15 }
-        : { fundamental: 0.55, long_term_technical: 0.30, market_context: 0.15 };
+function horizonWeights() {
+  // Technical and market-context score modules have been retired. The stable
+  // baseline keeps the existing decision shape intact without reintroducing
+  // either module through profile-specific weight maps.
+  return { baseline: 1 };
 }
 
 function profileScoreAdjustment(companyProfile, fundamental, technical, horizon) {
@@ -20655,53 +20715,8 @@ function buildShortSetup(row, companyProfile, modules, supportResistance, idealB
 function buildHorizonDecision(row, horizon, companyProfile, modules, decisionContext = {}) {
   const marketType = decisionContext.market_type || schemaMarketTypeForTicker(row);
   const weights = horizonWeights(companyProfile, horizon, marketType);
-  const horizonKey = horizon === "short" ? "short_term" : horizon === "mid" ? "mid_term" : "long_term";
-  const technicalScore = neutralScore(
-    modules.technical.technical_analysis?.[horizonKey]?.final_technical_score
-    ?? modules.technical.technical_score,
-  );
-  const longTermTechnicalScore = neutralScore(
-    modules.technical.technical_analysis?.long_term?.final_technical_score
-    ?? Math.round(mean([
-      row.price > (row.technicals?.ma200 ?? row.price) ? 74 : 32,
-      modules.technical.trend_score,
-      modules.technical.momentum_score,
-    ]) ?? modules.technical.technical_score),
-  );
-  const volumeSignalScore = neutralScore(
-    modules.technical.volume_confirmation?.[`${horizonKey}_volume_signal`]?.score
-    ?? modules.technical.volume_signal?.[`${horizonKey}_volume_signal`]?.score
-    ?? modules.technical.volume_signal_score
-    ?? modules.technical.volume_confirmation_score,
-  );
-  // Fundamentals have been retired from the dashboard. Keep the decision shape
-  // compatible while excluding this module from every horizon score.
-  const profileFundamental = { score: null, confidence: 0, summary: null };
-  const marketScore = neutralScore(modules.market_context.horizon_scores?.[horizon] ?? modules.market_context.market_context_score);
-  const sectorThemeScore = neutralScore(modules.market_context.sector_score ?? (companyProfile.tags?.length ? 58 : 50));
-  const marketBreakdown = modules.market_context.horizon_breakdown?.[horizon] || null;
-  const marketContextImpact = buildMarketContextImpact(companyProfile, modules.market_context, horizon);
-  const moduleScores = {
-    technical: technicalScore,
-    long_term_technical: longTermTechnicalScore,
-    market_context: marketScore,
-    sector_theme: sectorThemeScore,
-  };
-  const marketEngine = modules.market_context.market_engine || {};
-  const hasMarketContextData = marketType === "US" && Boolean(
-    marketEngine.vix?.value != null
-    || marketEngine.ten_year_yield?.value != null
-    || marketEngine.equity_trend?.spy?.value != null
-    || marketEngine.equity_trend?.qqq?.value != null
-    || marketEngine.fear_greed?.value != null,
-  );
-  const moduleAvailability = {
-    technical: Number.isFinite(technicalScore),
-    long_term_technical: Number.isFinite(longTermTechnicalScore),
-    fundamental: false,
-    market_context: hasMarketContextData,
-    sector_theme: marketType !== "US" || (modules.market_context.sector_score ?? null) != null,
-  };
+  const moduleScores = { baseline: 50 };
+  const moduleAvailability = { baseline: true };
   const activeWeightEntries = Object.entries(weights).filter(([key, weight]) => (weight ?? 0) > 0 && moduleAvailability[key] !== false);
   const missingModules = Object.entries(weights)
     .filter(([key, weight]) => (weight ?? 0) > 0 && moduleAvailability[key] === false)
@@ -20709,10 +20724,9 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
   const rawActiveWeight = activeWeightEntries.reduce((sum, [, weight]) => sum + weight, 0);
   const usedWeights = rawActiveWeight > 0
     ? Object.fromEntries(activeWeightEntries.map(([key, weight]) => [key, Number((weight / rawActiveWeight).toFixed(4))]))
-    : { technical: 1 };
+    : { baseline: 1 };
   const staleModules = [];
   if (row.dataStaleness === "stale" || row.marketStatus === "closed") staleModules.push("price");
-  if (modules.market_context.status === "stale") staleModules.push("market_context");
 
   const contributions = Object.fromEntries(
     Object.entries(usedWeights).map(([key, weight]) => [key, Number(((moduleScores[key] ?? 50) * weight).toFixed(1))]),
@@ -20720,51 +20734,16 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
   const contribution_caps = Object.fromEntries(Object.entries(usedWeights).map(([key, weight]) => [key, Math.round(weight * 100)]));
   const baseScore = Object.values(contributions).reduce((sum, value) => sum + value, 0);
   const adjustment = { value: 0, reasons: [] };
-  const hardBearishOverride = decisionContext.hard_bearish_override || { active: false, reasons: [] };
-  const bonuses = hardBearishOverride.active
-    ? { total: 0, items: [], module_totals: {} }
-    : buildBonusItems(row, horizon, companyProfile, modules, decisionContext);
-  const penalties = buildPenaltyItems(row, horizon, companyProfile, modules, decisionContext);
-  let score = Math.round(clamp(baseScore + adjustment.value + bonuses.total + penalties.total + marketContextImpact.modifier, 0, 100));
-  const bullishModules = Object.keys(usedWeights).map((key) => moduleScores[key] ?? 50).filter((value) => value >= CALIBRATION_CONFIG.rating_thresholds.buy).length;
-  if (bullishModules >= 2 && score < CALIBRATION_CONFIG.rating_thresholds.sell) {
-    score = CALIBRATION_CONFIG.rating_thresholds.sell;
-  }
-  const volumeBehaviorKey = modules.technical.volume_confirmation?.behavior_key;
-  if (horizon === "short" && volumeSignalScore < 45 && score >= CALIBRATION_CONFIG.rating_thresholds.buy) {
-    score = CALIBRATION_CONFIG.rating_thresholds.hold + 10;
-  }
-  if (horizon === "short" && volumeBehaviorKey === "weak_breakout") {
-    score = Math.min(score, CALIBRATION_CONFIG.rating_thresholds.hold - 1);
-  }
-  if (["distribution_risk"].includes(volumeBehaviorKey)) {
-    score = Math.min(score, horizon === "short" ? CALIBRATION_CONFIG.rating_thresholds.hold - 1 : CALIBRATION_CONFIG.rating_thresholds.buy - 1);
-  }
-  if (volumeBehaviorKey === "panic_selling") {
-    score = Math.min(score, horizon === "short" ? CALIBRATION_CONFIG.rating_thresholds.sell - 1 : CALIBRATION_CONFIG.rating_thresholds.hold - 1);
-  }
-  if (horizon === "short" && (row.technicals?.rsi14 ?? 50) < 35 && volumeSignalScore < 55 && score >= CALIBRATION_CONFIG.rating_thresholds.buy) {
-    score = CALIBRATION_CONFIG.rating_thresholds.buy - 1;
-  }
+  const bonuses = { total: 0, items: [], module_totals: {} };
+  const penalties = { total: 0, items: [], module_totals: {} };
+  const score = Math.round(clamp(baseScore, 0, 100));
   let rating = scoreBucketLabel(score);
   const componentScores = Object.keys(usedWeights).map((key) => moduleScores[key] ?? 50);
-  const missing = [
-    marketType === "US" && modules.market_context.market_engine?.vix?.value == null,
-    marketType === "US" && modules.market_context.market_engine?.fear_greed?.value == null,
-    marketType === "US" && modules.market_context.market_engine?.ten_year_yield?.value == null,
-    ...(companyProfile.missing_classification_data || []).map(() => true),
-  ].filter(Boolean).length;
+  const missing = 0;
   const dataCoverage = Math.round(clamp(rawActiveWeight * 100, 0, 100));
   const baseConfidence = calculateConfidence(componentScores, missing + missingModules.length);
   const confidence = Math.round(Math.min(baseConfidence, dataCoverage || baseConfidence));
   const reasons = [];
-  if (horizon === "short") {
-    reasons.push(modules.technical.summary, row.changePercent != null ? `${t("dayMove")} ${formatChangePercent(row.changePercent)}` : null);
-  } else if (horizon === "mid") {
-    reasons.push(modules.technical.summary);
-  } else {
-    reasons.push(modules.market_context.summary, modules.technical.summary);
-  }
   const scoreBreakdown = {
     weights,
     used_weights: usedWeights,
@@ -20774,15 +20753,16 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
     module_scores: moduleScores,
     contribution_caps,
     contributions,
-    technical: contributions.technical ?? 0,
-    long_term_technical: contributions.long_term_technical ?? 0,
-    market_context: contributions.market_context ?? 0,
-    sector_theme: contributions.sector_theme ?? 0,
-    market_context_details: marketBreakdown,
-    market_modifier: marketContextImpact.modifier,
-    market_context_impact: marketContextImpact,
-    profile_weight_impact: companyProfile.scoring_impact || [],
-    support_confluence_bonus: bonuses.module_totals.technical ?? 0,
+    retired_modules: ["technical", "market_context"],
+    technical: null,
+    long_term_technical: null,
+    market_context: null,
+    sector_theme: null,
+    market_context_details: null,
+    market_modifier: null,
+    market_context_impact: null,
+    profile_weight_impact: [],
+    support_confluence_bonus: null,
     bonuses,
     penalties,
     score,
@@ -20973,15 +20953,9 @@ function buildDataQuality(row, marketContext, idealBuyZone = null, companyProfil
   const missingFields = [];
   const warnings = [];
   const staleFields = [];
-  const isUs = isUsMarket(row);
   const profileMissing = companyProfile?.missing_classification_data || [];
-  if (isUs && marketContext.market_engine?.vix?.value == null) missingFields.push("market_context.vix");
-  if (isUs && marketContext.market_engine?.fear_greed?.value == null) missingFields.push("market_context.fear_greed");
-  if (isUs && marketContext.market_engine?.ten_year_yield?.value == null) missingFields.push("market_context.ten_year_yield");
-  if (isUs && marketContext.market_engine?.equity_trend?.spy?.value == null && marketContext.market_engine?.equity_trend?.qqq?.value == null) missingFields.push("market_context.equity_trend");
   profileMissing.forEach((field) => missingFields.push(`company_profile.${field}`));
   if (row.noData) warnings.push(t("noMarketData"));
-  if (isUs && missingFields.length) warnings.push(currentLanguage === "zh" ? "部分模块仍缺少外部数据源。" : "Some modules still need external data feeds.");
   if (profileMissing.length) warnings.push(currentLanguage === "zh" ? "公司画像使用了部分缺失字段的中性回退。" : "The company-profile classifier used neutral fallbacks for some missing fields.");
   if (row.marketStatus === "closed" || row.dataStaleness === "stale") staleFields.push("price");
   if (idealBuyZone?.outlier_detected) {
@@ -21031,7 +21005,9 @@ function buildDecisionModel(row) {
   });
   const marketContext = buildMarketContextModule(row, companyProfile);
   const modules = { technical, fundamental, options, market_context: marketContext };
-  const hardBearishOverride = buildHardBearishOverride(row, modules, supportResistance, idealBuyZone);
+  // Technical and market scores are retired; neither may create a hidden
+  // horizon-score override.
+  const hardBearishOverride = { active: false, reasons: [] };
   const decisionContext = { idealBuyZone, supportResistance, hard_bearish_override: hardBearishOverride, market_type: marketType };
   const aiDecision = {
     short_term: buildHorizonDecision(row, "short", companyProfile, modules, decisionContext),
@@ -21290,7 +21266,6 @@ function buildDecisionModel(row) {
     momentum_entry: buyZones.momentum_entry_zone,
     deep_pullback_zone: buyZones.deep_pullback_zone,
   };
-  const marketEnvironmentAnalysis = buildMarketEnvironmentAnalysis(row, marketContext);
   const companyNewsStatus = buildCompanyNewsStatus(row.companyNews || marketContext.news_sentiment || {});
 
   return {
@@ -21376,36 +21351,14 @@ function buildDecisionModel(row) {
       final_rating: consistency.aiDecision.final_rating,
       deprecated_composite_score: true,
       action_plan: actionPlan,
-      market_context_impact: {
-        market_regime: marketContext.enhanced_context?.market_regime || marketContext.market_regime?.regime || "neutral",
-        profile_market_sensitivity: consistency.aiDecision.mid_term.score_breakdown?.market_context_impact?.profile_market_sensitivity || {},
-        short_modifier: consistency.aiDecision.short_term.score_breakdown?.market_context_impact?.modifier ?? 0,
-        mid_modifier: consistency.aiDecision.mid_term.score_breakdown?.market_context_impact?.modifier ?? 0,
-        long_modifier: consistency.aiDecision.long_term.score_breakdown?.market_context_impact?.modifier ?? 0,
-        key_drivers: [
-          ...(consistency.aiDecision.short_term.score_breakdown?.market_context_impact?.key_drivers || []),
-          ...(consistency.aiDecision.mid_term.score_breakdown?.market_context_impact?.key_drivers || []),
-          ...(consistency.aiDecision.long_term.score_breakdown?.market_context_impact?.key_drivers || []),
-        ].filter((item, index, array) => item && array.indexOf(item) === index).slice(0, 5),
-        warnings: [
-          ...(consistency.aiDecision.short_term.score_breakdown?.market_context_impact?.warnings || []),
-          ...(consistency.aiDecision.mid_term.score_breakdown?.market_context_impact?.warnings || []),
-          ...(consistency.aiDecision.long_term.score_breakdown?.market_context_impact?.warnings || []),
-        ].filter((item, index, array) => item && array.indexOf(item) === index).slice(0, 5),
-        market_context_confidence: Math.round(mean([
-          consistency.aiDecision.short_term.score_breakdown?.market_context_impact?.market_context_confidence,
-          consistency.aiDecision.mid_term.score_breakdown?.market_context_impact?.market_context_confidence,
-          consistency.aiDecision.long_term.score_breakdown?.market_context_impact?.market_context_confidence,
-        ].filter(Number.isFinite)) ?? 0),
-      },
       short_term: consistency.aiDecision.short_term.score_breakdown,
       mid_term: consistency.aiDecision.mid_term.score_breakdown,
       long_term: consistency.aiDecision.long_term.score_breakdown,
     },
     module_quality: moduleQuality,
     technical,
-    market_environment_analysis: marketEnvironmentAnalysis,
     company_news_status: companyNewsStatus,
+    // Compatibility-only empty shape for remaining non-scoring consumers.
     market_context: marketContext,
     relative_strength: relativeStrength,
     earnings_event_risk: earningsEventRisk,
@@ -21440,8 +21393,6 @@ function renderDetailModal(row) {
   const currencyCode = row.currencyCode || inferCurrencyCode(row);
   const ai = decision.ai_decision;
   const technical = decision.technical;
-  const marketEnvironmentAnalysis = decision.market_environment_analysis || {};
-  const companyNewsStatus = decision.company_news_status || {};
   const marketContext = decision.market_context;
   const marketEngine = marketContext.market_engine || {};
   const companyNews = row.companyNews || marketContext.news_sentiment || {};
@@ -21452,7 +21403,7 @@ function renderDetailModal(row) {
   const tabItems = [
     { key: "summary", label: t("aiDecision") },
     { key: "technical", label: t("tabTechnical") },
-    { key: "news", label: t("tabNews") },
+    { key: "news", label: currentLanguage === "zh" ? "财报事件" : "Earnings" },
   ];
   if (!tabItems.some((item) => item.key === detailActiveTab)) detailActiveTab = "summary";
 
@@ -22514,12 +22465,6 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
 
   const technicalPanel = `
     <section class="detail-tab-section">
-      <div class="decision-target-grid">
-        <article class="detail-kpi-card ${scoreToBand(technical.technical_score).tone}"><span>${t("technicalScore")}</span><strong>${technical.technical_score}/100</strong><small>${currentLanguage === "zh" ? "现有执行模型的技术评分" : "Technical score used by the current execution model"}</small></article>
-        <article class="detail-kpi-card ${scoreToBand(technical.trend_score).tone}"><span>${t("trendScore")}</span><strong>${technical.trend_score}/100</strong><small>${localizedDashboardText(technical.trend.state)}</small></article>
-        <article class="detail-kpi-card ${scoreToBand(technical.momentum_score).tone}"><span>${t("momentumScore")}</span><strong>${technical.momentum_score}/100</strong><small>${localizedDashboardText(technical.momentum.state)}</small></article>
-        <article class="detail-kpi-card ${scoreToBand(technical.volume_confirmation_score).tone}"><span>${t("volumeConfirmationScore")}</span><strong>${technical.volume_confirmation_score}/100</strong><small>${currentLanguage === "zh" ? "已计入操作推荐评分" : "Included in action score"}</small></article>
-      </div>
       ${renderFibonacciStructure(technical.fibonacci_structure || row.technicals?.fibonacci_structure)}
       ${renderCanonicalTechnicalFoundation(technical.technical_features || row.technicals?.technical_features)}
       ${renderCanonicalTechnicalIndicators(technical.technical_features || row.technicals?.technical_features)}
@@ -22573,7 +22518,7 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
   `;
   */
 
-  const newsPanel = `
+  const legacyMarketEnvironmentPanel = () => `
     <section class="detail-tab-section">
       <div class="detail-kpi-grid">
         <article class="detail-kpi-card ${scoreToBand(marketContext.market_context_score).tone}"><span>${t("marketContext")}</span><strong>${marketContext.market_context_score}/100</strong><small>${localizedDashboardText(marketContext.summary)}</small></article>
@@ -22619,6 +22564,19 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
         <div class="detail-line-list">${renderMetricRows([
           { label: "SPY", value: marketEngine.equity_trend?.spy?.value == null ? t("dataUnavailable") : `${formatCurrency(marketEngine.equity_trend.spy.value, "USD")} · ${localizeMarketSentiment(marketEngine.equity_trend.spy.trend)}`, note: marketEngine.equity_trend?.spy?.value == null ? renderSourceInfo(marketEngine.source_info?.equity_trend) : `${currentLanguage === "zh" ? "5日" : "5D"} ${displayValue(marketEngine.equity_trend.spy.change_5d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "20日" : "20D"} ${displayValue(marketEngine.equity_trend.spy.change_20d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "60日" : "60D"} ${displayValue(marketEngine.equity_trend.spy.change_60d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "120日" : "120D"} ${displayValue(marketEngine.equity_trend.spy.change_120d_pct, (value) => formatChangePercent(value))}` },
           { label: "QQQ", value: marketEngine.equity_trend?.qqq?.value == null ? t("dataUnavailable") : `${formatCurrency(marketEngine.equity_trend.qqq.value, "USD")} · ${localizeMarketSentiment(marketEngine.equity_trend.qqq.trend)}`, note: marketEngine.equity_trend?.qqq?.value == null ? renderSourceInfo(marketEngine.source_info?.equity_trend) : `${currentLanguage === "zh" ? "5日" : "5D"} ${displayValue(marketEngine.equity_trend.qqq.change_5d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "20日" : "20D"} ${displayValue(marketEngine.equity_trend.qqq.change_20d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "60日" : "60D"} ${displayValue(marketEngine.equity_trend.qqq.change_60d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "120日" : "120D"} ${displayValue(marketEngine.equity_trend.qqq.change_120d_pct, (value) => formatChangePercent(value))}` },
+        ])}</div>
+      </section>
+    </section>
+  `;
+
+  const newsPanel = `
+    <section class="detail-tab-section">
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "财报事件风险" : "Earnings Event Risk"}</h3></div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: currentLanguage === "zh" ? "财报日期" : "Earnings Date", value: earningsEventRisk.earnings_date ? formatSnapshotTimestamp(earningsEventRisk.earnings_date) : t("dataUnavailable"), note: earningsEventRisk.source_status?.calendar === "unavailable" ? (currentLanguage === "zh" ? "财报日源暂不可用。" : "Earnings calendar source unavailable.") : "" },
+          { label: currentLanguage === "zh" ? "财报时间" : "Earnings Time", value: earningsEventRisk.earnings_countdown?.earnings_datetime ? formatSnapshotTimestamp(earningsEventRisk.earnings_countdown.earnings_datetime) : t("dataUnavailable"), note: earningsEventRisk.earnings_countdown?.session === "before_market" ? (currentLanguage === "zh" ? "盘前" : "Before market") : earningsEventRisk.earnings_countdown?.session === "after_market" ? (currentLanguage === "zh" ? "盘后" : "After market") : earningsEventRisk.earnings_countdown?.session === "during_market" ? (currentLanguage === "zh" ? "盘中" : "During market") : "" },
+          { label: currentLanguage === "zh" ? "距离财报" : "To Earnings", value: earningsEventRisk.earnings_countdown?.calendar_days_remaining == null ? t("dataUnavailable") : `${earningsEventRisk.earnings_countdown.calendar_days_remaining} ${currentLanguage === "zh" ? "个日历日" : "calendar days"}`, note: earningsEventRisk.earnings_countdown?.full_trading_sessions_remaining == null ? "" : `${currentLanguage === "zh" ? "剩余完整交易日" : "Full trading sessions remaining"}: ${earningsEventRisk.earnings_countdown.full_trading_sessions_remaining} · ${currentLanguage === "zh" ? "交易日估算" : "Trading-day estimate"}: ${earningsEventRisk.earnings_countdown.trading_days_remaining ?? "—"}` },
         ])}</div>
       </section>
     </section>

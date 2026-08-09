@@ -283,6 +283,34 @@ assert(mainSource.includes('const rvolValue = (value) => displayValue(value, (en
 assert(mainSource.includes('RVOL20 ${rvolValue(rvol.rvol_20d)} · ${displayFeatureState(rvol.state)}'));
 assert(mainSource.includes("technicalAvailabilityNote"));
 assert(mainSource.includes("insufficient_history: \"历史数据不足\""));
+// The dashboard retains raw indicator cards but has no technical-score card.
+const activeTechnicalPanel = mainSource.slice(
+  mainSource.indexOf("const technicalPanel = `"),
+  mainSource.indexOf("const legacyMarketEnvironmentPanel"),
+);
+for (const removedTechnicalScore of [
+  '${t("technicalScore")}',
+  '${t("trendScore")}',
+  '${t("momentumScore")}',
+  '${t("volumeConfirmationScore")}',
+]) assert.equal(activeTechnicalPanel.includes(removedTechnicalScore), false, `technical score UI remains: ${removedTechnicalScore}`);
+assert(activeTechnicalPanel.includes("renderCanonicalTechnicalIndicators"));
+assert(activeTechnicalPanel.includes("renderCanonicalVolume"));
+
+// The active market tab is now earnings-only: no market score or macro cards
+// remain, and server responses do not fetch or expose a market-context payload.
+const activeNewsPanel = mainSource.slice(
+  mainSource.lastIndexOf("const newsPanel = `"),
+  mainSource.indexOf("const tabPanels = {"),
+);
+for (const removedMarketUi of ["market_context_score", "macroScore", "confidencePct", "VIX", "Fear & Greed", "10Y Yield", "SPY / QQQ Trend"]) {
+  assert.equal(activeNewsPanel.includes(removedMarketUi), false, `market environment UI remains: ${removedMarketUi}`);
+}
+assert(activeNewsPanel.includes("Earnings Event Risk"));
+assert(mainSource.includes('function horizonWeights() {'));
+assert(mainSource.includes('return { baseline: 1 };'));
+assert(mainSource.includes('retired_modules: ["technical", "market_context"]'));
+assert(mainSource.includes('status: "raw_features_only"'));
 assert(serverSource.includes('TECHNICAL_INTRADAY_HISTORY_PERIOD = os.environ.get("TECHNICAL_INTRADAY_HISTORY_PERIOD", "120d")'));
 assert(serverSource.includes("interval=interval, limit=6000"));
 assert(serverSource.includes('interval="4h"'));
@@ -290,5 +318,7 @@ assert(serverSource.includes('TECHNICAL_FOUR_HOUR_BAR_METHOD = "provider_native_
 assert.equal(canonicalSource.includes("const fourHour = aggregateFourHourBarsLegacy(hourly);"), false);
 assert(canonicalSource.includes('const fourHour = pickBars(history, "4h");'));
 assert.equal(serverSource.includes('row.get("volume") or 0'), false);
+assert(serverSource.includes('"marketContext": None'));
+assert(serverSource.includes('"market_context": {"status": "retired"}'));
 
 console.log("technical-features.test.js: all assertions passed");

@@ -6,6 +6,20 @@ import server
 
 
 class ServerAvailabilityTests(unittest.TestCase):
+    def test_dashboard_payload_retires_market_context_without_fetching_it(self):
+        original = server.get_market_context_cached_snapshot
+        try:
+            def fail_if_called(*_args, **_kwargs):
+                raise AssertionError("retired market context must not be fetched")
+
+            server.get_market_context_cached_snapshot = fail_if_called
+            payload = server.build_market_data_payload(["META"], cache_only=True)
+
+            self.assertIsNone(payload["marketContext"])
+            self.assertEqual(payload["market_context"], {"status": "retired"})
+        finally:
+            server.get_market_context_cached_snapshot = original
+
     def test_old_intraday_lookback_cache_is_refreshed(self):
         old_cache = {
             "cache_age_seconds": 0,
