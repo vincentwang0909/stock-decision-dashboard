@@ -3378,15 +3378,89 @@ def load_yfinance_history_frame(instrument, symbol, period="1y", interval="1d"):
     return pd.DataFrame()
 
 
+def load_yfinance_intraday_history_frame(instrument, symbol, period="60d", interval="1h"):
+    """Return only genuine intraday data; never fall back to daily Stooq bars."""
+    try:
+        history = instrument.history(period=period, interval=interval, auto_adjust=False)
+        if history is not None and not history.empty:
+            return history
+    except Exception:
+        pass
+
+    try:
+        downloaded = yf.download(
+            symbol,
+            period=period,
+            interval=interval,
+            auto_adjust=False,
+            progress=False,
+            threads=False,
+        )
+        downloaded = _normalize_download_history_frame(downloaded)
+        if downloaded is not None and not downloaded.empty:
+            return downloaded
+    except Exception:
+        pass
+
+    try:
+        yahoo_frame = fetch_yahoo_chart_frame(symbol, range_value=period, interval=interval)
+        if yahoo_frame is not None and not yahoo_frame.empty:
+            return yahoo_frame
+    except Exception:
+        pass
+
+    return pd.DataFrame()
+
+
+def _history_payload(frame, timestamp_format="%Y-%m-%d"):
+    if frame is None or frame.empty:
+        return {
+            "timestamps": [], "opens": [], "closes": [], "highs": [], "lows": [], "volumes": [],
+            "availability": "unavailable",
+        }
+    clean = frame.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+    if clean.empty:
+        return {
+            "timestamps": [], "opens": [], "closes": [], "highs": [], "lows": [], "volumes": [],
+            "availability": "unavailable",
+        }
+    return {
+        "timestamps": [entry.to_pydatetime().strftime(timestamp_format) for entry in clean.index],
+        "opens": [_safe_float(value) for value in clean["Open"].tolist()],
+        "closes": [_safe_float(value) for value in clean["Close"].tolist()],
+        "highs": [_safe_float(value) for value in clean["High"].tolist()],
+        "lows": [_safe_float(value) for value in clean["Low"].tolist()],
+        "volumes": [_safe_int(value) for value in clean["Volume"].tolist()],
+        "availability": "available",
+    }
+
+
 def fetch_us_quote_with_yfinance(ticker, include_options=False):
     symbol = resolve_market_symbol(ticker)
     instrument = yf.Ticker(symbol)
-    history = load_yfinance_history_frame(instrument, symbol, period="1y", interval="1d")
+    history = load_yfinance_history_frame(instrument, symbol, period="max", interval="1d")
     if history is None or history.empty:
         raise ValueError(f"No yfinance history for {ticker}")
-    history = history.dropna(subset=["Open", "High", "Low", "Close", "Volume"]).tail(252)
+    history = history.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
     if history.empty:
         raise ValueError(f"No clean yfinance history for {ticker}")
+    # A 1H fetch is intentionally separate from daily data. Failure leaves the
+    # interval unavailable; it must never be silently replaced with daily bars.
+    hourly_history = load_yfinance_intraday_history_frame(instrument, symbol, period="60d", interval="1h")
+    hourly_payload = _history_payload(hourly_history, timestamp_format="%Y-%m-%dT%H:%M:%S%z")
+    hourly_payload.update({
+        "interval": "1h",
+        "lookback": "60d",
+        "source": "yfinance_or_yahoo_chart_intraday",
+        "last_bar_timestamp": hourly_payload["timestamps"][-1] if hourly_payload["timestamps"] else None,
+    })
+    daily_payload = _history_payload(history)
+    daily_payload.update({
+        "interval": "1d",
+        "lookback": "max_available",
+        "source": "yfinance_or_yahoo_chart_daily",
+        "last_bar_timestamp": daily_payload["timestamps"][-1] if daily_payload["timestamps"] else None,
+    })
 
     try:
         info = instrument.info or {}
@@ -3440,6 +3514,8 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
             "state": info.get("state"),
             "exchange": info.get("exchange") or info.get("fullExchangeName"),
             "quoteType": info.get("quoteType"),
+            "floatShares": _safe_int(info.get("floatShares")),
+            "sharesOutstanding": _safe_int(info.get("sharesOutstanding")) or _safe_int(fast_info.get("shares")),
             "ipoDate": iso_from_epoch(info.get("firstTradeDateEpochUtc")),
             "earningsDate": earnings_date,
             "earningsTimestamp": _safe_int(earnings_timestamp),
@@ -3465,11 +3541,8 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
             "quote_snapshot_keys_sample": sorted(list(quote_snapshot.keys()))[:20] if quote_snapshot else [],
         },
         "history": {
-            "timestamps": [entry.to_pydatetime().strftime("%Y-%m-%d") for entry in history.index],
-            "closes": [_safe_float(value) for value in history["Close"].tolist()],
-            "highs": [_safe_float(value) for value in history["High"].tolist()],
-            "lows": [_safe_float(value) for value in history["Low"].tolist()],
-            "volumes": [_safe_int(value) for value in history["Volume"].tolist()],
+            **daily_payload,
+            "intervals": {"1h": hourly_payload},
         },
     }
 

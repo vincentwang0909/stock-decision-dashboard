@@ -2,9 +2,9 @@ const API_BASE = window.location.protocol === "file:" ? "http://127.0.0.1:4173" 
 const API_URL = `${API_BASE}/api/market-data`;
 const WATCHLIST_API_URL = `${API_BASE}/api/watchlist`;
 const SYMBOL_SEARCH_API_URL = `${API_BASE}/api/symbol-search`;
-const APP_BUILD_VERSION = "2026.07.19.etf-engine-v1";
+const APP_BUILD_VERSION = "2026.08.09.canonical-technical-features-v1";
 const DECISION_MODEL_VERSION = "trade-plan-v5-etf-engine";
-const PRICE_CACHE_KEY = "stock-dashboard-market-cache-v9";
+const PRICE_CACHE_KEY = "stock-dashboard-market-cache-v10-canonical-technical";
 const ACTION_STATE_CACHE_KEY = "stock-dashboard-action-state-v1";
 const WATCHLIST_CACHE_KEY = "stock-dashboard-watchlist-v1";
 const WATCHLIST_SESSION_KEY = "stock-dashboard-watchlist-session-v1";
@@ -2156,6 +2156,29 @@ function buildTechnicalIndicatorStructure({ history = {}, currentPrice = null, a
   return { short_term: buildHorizon("short_term"), mid_term: buildHorizon("mid_term"), long_term: buildHorizon("long_term"), configuration: { ma_periods: [10, 20, 50, 100, 200], macd: MACD_HORIZON_CONFIG } };
 }
 
+// Canonical technical data is intentionally separate from the existing score
+// engine. This adapter lets the current detail UI retain its field contract
+// while every new technical value has one interval-aware source of truth.
+function buildCanonicalTechnicalFeatureBundle({ history = {}, currentPrice = null, atr14 = null, relativeStrength = {}, fibonacciStructure = {}, metadata = {}, profileTags = [] } = {}) {
+  const layer = globalThis.CanonicalTechnicalFeatures;
+  if (!layer?.buildTechnicalFeatures || !layer?.toLegacyTechnicalStructure) {
+    return {
+      canonical: null,
+      legacy: buildTechnicalIndicatorStructure({ history, currentPrice, atr14, relativeStrength, profileTags }),
+    };
+  }
+  const shareBase = positiveOrNull(metadata.floatShares ?? metadata.float_shares)
+    ?? positiveOrNull(metadata.sharesOutstanding ?? metadata.shares_outstanding);
+  const canonical = layer.buildTechnicalFeatures({
+    history,
+    currentPrice,
+    relativeStrength,
+    fibonacciStructure,
+    shareBase,
+  });
+  return { canonical, legacy: layer.toLegacyTechnicalStructure(canonical) };
+}
+
 function localizedProfileTag(tag) {
   return PROFILE_TAG_LABELS[tag]?.[currentLanguage] ?? tag;
 }
@@ -2987,6 +3010,22 @@ function normalizeHistory(history, fallbackPrice, volatility, ticker, allowSynth
   const volumes = Array.isArray(history?.volumes) ? history.volumes.filter((value) => Number.isFinite(value)) : [];
   const turnovers = Array.isArray(history?.turnovers) ? history.turnovers.map((value) => Number(value)).filter((value) => Number.isFinite(value)) : [];
   const timestamps = Array.isArray(history?.timestamps) ? history.timestamps.slice(-252) : Array.isArray(history?.dates) ? history.dates.slice(-252) : [];
+  const fullDaily = {
+    closes: Array.isArray(history?.closes) ? history.closes.map((value) => Number(value)).filter((value) => Number.isFinite(value)) : [],
+    highs: Array.isArray(history?.highs) ? history.highs.map((value) => Number(value)).filter((value) => Number.isFinite(value)) : [],
+    lows: Array.isArray(history?.lows) ? history.lows.map((value) => Number(value)).filter((value) => Number.isFinite(value)) : [],
+    opens: Array.isArray(history?.opens) ? history.opens.map((value) => Number(value)).filter((value) => Number.isFinite(value)) : [],
+    volumes: Array.isArray(history?.volumes) ? history.volumes.map((value) => Number(value)).filter((value) => Number.isFinite(value)) : [],
+    timestamps: Array.isArray(history?.timestamps) ? history.timestamps.slice() : Array.isArray(history?.dates) ? history.dates.slice() : [],
+  };
+  const intervals = history?.intervals && typeof history.intervals === "object" ? history.intervals : {};
+  const dailyHistoryMetadata = {
+    interval: history?.interval || "1d",
+    lookback: history?.lookback || null,
+    source: history?.source || null,
+    availability: history?.availability || (fullDaily.closes.length ? "available" : "unavailable"),
+    last_bar_timestamp: history?.last_bar_timestamp || fullDaily.timestamps.at(-1) || null,
+  };
 
   if (closes.length >= 30 && highs.length >= 30 && lows.length >= 30 && volumes.length >= 30) {
     return {
@@ -2997,6 +3036,9 @@ function normalizeHistory(history, fallbackPrice, volatility, ticker, allowSynth
       volumes: volumes.slice(-252),
       turnovers: turnovers.slice(-252),
       timestamps,
+      full_daily: fullDaily,
+      intervals,
+      daily_history_metadata: dailyHistoryMetadata,
       synthetic: false,
     };
   }
@@ -3010,12 +3052,18 @@ function normalizeHistory(history, fallbackPrice, volatility, ticker, allowSynth
       volumes,
       turnovers,
       timestamps,
+      full_daily: fullDaily,
+      intervals,
+      daily_history_metadata: dailyHistoryMetadata,
       synthetic: false,
     };
   }
 
   return {
     ...syntheticHistory(ticker, fallbackPrice, volatility),
+    full_daily: null,
+    intervals: {},
+    daily_history_metadata: { interval: "1d", lookback: null, source: "synthetic", availability: "unavailable", last_bar_timestamp: null },
     synthetic: true,
   };
 }
@@ -3259,34 +3307,49 @@ function fibonacciPositionLabel({ currentPrice, low, high, direction, levels, pr
 
 function buildFibonacciHorizon(history, horizon, currentPrice, atr14 = null) {
   const config = FIBONACCI_HORIZON_CONFIG[horizon];
-  const rawBars = fibonacciBarsFromHistory(history, config.max_lookback);
+  const useWeeklyStructure = horizon === "long_term";
+  const fullDailyHistory = useWeekly && history?.full_daily ? history.full_daily : history;
+  const weeklyStructure = useWeeklyStructure ? aggregateWeeklyBars(fullDailyHistory) : null;
+  const effectiveConfig = useWeeklyStructure
+    ? {
+      ...config,
+      lookback: 104,
+      min_lookback: 26,
+      max_lookback: 130,
+      left_bars: config.weekly_left_bars || 2,
+      right_bars: config.weekly_right_bars || 2,
+      min_pivot_separation: 5,
+      stale_after_bars: 26,
+      duration_target: 16,
+    }
+    : config;
+  const rawBars = useWeeklyStructure
+    ? (weeklyStructure?.bars || []).map((bar, index) => ({ index, source_index: index, high: bar.high, low: bar.low, close: bar.close, date: fibonacciDateLabel(bar.end || bar.week_end || bar.timestamp) })).filter((bar) => Number.isFinite(bar.high) && Number.isFinite(bar.low) && Number.isFinite(bar.close) && bar.high >= bar.low && bar.low > 0)
+    : fibonacciBarsFromHistory(history, effectiveConfig.max_lookback);
   const scaleRegime = fibonacciLatestScaleRegime(rawBars);
-  const bars = scaleRegime.bars.slice(-(horizon === "long_term" ? Math.min(scaleRegime.bars.length, config.lookback) : config.lookback));
+  const bars = scaleRegime.bars.slice(-effectiveConfig.lookback);
   const base = {
     horizon,
     status: "insufficient_history",
-    data_window: `recent ${bars.length} daily bars`,
+    data_window: `recent ${bars.length} ${useWeeklyStructure ? "completed weekly" : "daily"} bars`,
     source_bar_count: bars.length,
     scale_breaks: scaleRegime.scale_breaks,
-    data_quality: bars.length >= config.min_lookback ? "partial" : "insufficient",
-    pivot_method: `confirmed daily pivots (${config.left_bars}/${config.right_bars})`,
-    pivot_confirmation: `left ${config.left_bars} / right ${config.right_bars} bars confirmed`,
+    data_quality: bars.length >= effectiveConfig.min_lookback ? "partial" : "insufficient",
+    pivot_method: `confirmed ${useWeeklyStructure ? "weekly" : "daily"} pivots (${effectiveConfig.left_bars}/${effectiveConfig.right_bars})`,
+    pivot_confirmation: `left ${effectiveConfig.left_bars} / right ${effectiveConfig.right_bars} bars confirmed`,
     retracement_levels: {},
     extension_levels: {},
     current_price: Number.isFinite(currentPrice) ? currentPrice : null,
     invalidation_reason: null,
     explanation: scaleRegime.scale_breaks.length
-      ? (currentLanguage === "zh" ? "检测到价格尺度断层，已仅使用最近一致价格尺度的日线。" : "A price-scale break was detected; only the latest consistent price regime is used.")
-      : (currentLanguage === "zh" ? "历史日线不足，无法确认有效 Fibonacci Swing。" : "Insufficient daily history to confirm a valid Fibonacci swing."),
+      ? (currentLanguage === "zh" ? "检测到价格尺度断层，已仅使用最近一致价格尺度的K线。" : "A price-scale break was detected; only the latest consistent price regime is used.")
+      : (currentLanguage === "zh" ? `历史${useWeeklyStructure ? "周线" : "日线"}不足，无法确认有效 Fibonacci Swing。` : `Insufficient ${useWeeklyStructure ? "weekly" : "daily"} history to confirm a valid Fibonacci swing.`),
   };
-  if (bars.length < config.min_lookback) return base;
-  const referenceAtr = Number.isFinite(atr14) && atr14 > 0 ? atr14 : fibonacciWindowAtr(bars);
-  const weekly = horizon === "long_term" ? aggregateWeeklyBars({
-    opens: bars.map((bar) => bar.close), highs: bars.map((bar) => bar.high), lows: bars.map((bar) => bar.low), closes: bars.map((bar) => bar.close), timestamps: bars.map((bar) => bar.date), volumes: [],
-  }) : null;
-  const pivotHighs = findConfirmedPivotHighs(bars, config, referenceAtr);
-  const pivotLows = findConfirmedPivotLows(bars, config, referenceAtr);
-  const candidate = selectBestFibonacciSwing(buildSwingCandidates({ pivotHighs, pivotLows, bars, config, referenceAtr }), bars, config, weekly);
+  if (bars.length < effectiveConfig.min_lookback) return base;
+  const referenceAtr = !useWeeklyStructure && Number.isFinite(atr14) && atr14 > 0 ? atr14 : fibonacciWindowAtr(bars);
+  const pivotHighs = findConfirmedPivotHighs(bars, effectiveConfig, referenceAtr);
+  const pivotLows = findConfirmedPivotLows(bars, effectiveConfig, referenceAtr);
+  const candidate = selectBestFibonacciSwing(buildSwingCandidates({ pivotHighs, pivotLows, bars, config: effectiveConfig, referenceAtr }), bars, effectiveConfig, useWeeklyStructure ? null : weeklyStructure);
   if (!candidate) {
     return {
       ...base,
@@ -3317,8 +3380,8 @@ function buildFibonacciHorizon(history, horizon, currentPrice, atr14 = null) {
   const validLevels = allLevels.filter((level) => level.valid_for_display).sort((left, right) => left.price - right.price);
   const nearestBelow = validLevels.filter((level) => level.price <= currentPrice).at(-1) || null;
   const nearestAbove = validLevels.find((level) => level.price >= currentPrice) || null;
-  const proximityDistance = Math.max((referenceAtr || currentPrice * 0.01) * config.proximity_atr, currentPrice * 0.0025);
-  const stale = candidate.bars_since_swing_end > config.stale_after_bars;
+  const proximityDistance = Math.max((referenceAtr || currentPrice * 0.01) * effectiveConfig.proximity_atr, currentPrice * 0.0025);
+  const stale = candidate.bars_since_swing_end > effectiveConfig.stale_after_bars;
   return {
     ...base,
     status: stale ? "stale_swing" : "available",
@@ -3339,7 +3402,7 @@ function buildFibonacciHorizon(history, horizon, currentPrice, atr14 = null) {
     pivot_low_count: pivotLows.length,
     selected_candidate_score: candidate.score,
     selected_candidate_components: candidate.score_components,
-    weekly_reference: horizon === "long_term" ? { weekly_bar_count: weekly?.weekly_bar_count ?? 0, status: weekly?.status || "unavailable" } : { status: "not_used" },
+    weekly_reference: horizon === "long_term" ? { weekly_bar_count: weeklyStructure?.weekly_bar_count ?? 0, status: weeklyStructure?.status || "unavailable", used_for_anchors: true, completed_bars_only: true } : { status: "not_used" },
     retracement_levels: retracementLevels,
     extension_levels: extensionLevels,
     current_position_ratio: direction === "up_swing"
@@ -3357,8 +3420,8 @@ function buildFibonacciHorizon(history, horizon, currentPrice, atr14 = null) {
         : null,
     data_quality: bars.every((bar) => bar.date) && Number.isFinite(referenceAtr) ? "high" : "medium",
     explanation: currentLanguage === "zh"
-      ? `基于 ${bars.length} 根日线的已确认 ${direction === "up_swing" ? "上涨" : "下跌"} Swing；仅用于 Fibonacci 结构展示。`
-      : `Confirmed ${direction === "up_swing" ? "up" : "down"} swing from ${bars.length} daily bars; display-only Fibonacci structure.`,
+      ? `基于 ${bars.length} 根${useWeeklyStructure ? "已完成周线" : "日线"}的已确认 ${direction === "up_swing" ? "上涨" : "下跌"} Swing；仅用于 Fibonacci 结构展示。`
+      : `Confirmed ${direction === "up_swing" ? "up" : "down"} swing from ${bars.length} ${useWeeklyStructure ? "completed weekly" : "daily"} bars; display-only Fibonacci structure.`,
   };
 }
 
@@ -3924,12 +3987,15 @@ function computeIndicators(ticker, snapshot, profile) {
   const { support, resistance, analysis: srAnalysis } = deriveLevels(close, history, { ma20, ma50, ma100, ma200, upperBand, middleBand, lowerBand, rangeLow, rangeHigh });
   const fibPosition = rangeHigh > rangeLow ? (close - rangeLow) / (rangeHigh - rangeLow) : 0.5;
   const fibonacciStructure = buildFibonacciStructure(history, close, atr14);
-  const technicalIndicatorStructure = buildTechnicalIndicatorStructure({
+  const canonicalTechnicalBundle = buildCanonicalTechnicalFeatureBundle({
     history: { ...history, turnovers },
     currentPrice: close,
     atr14,
+    fibonacciStructure,
+    metadata: market.metadata || {},
     profileTags: profile?.tags || [],
   });
+  const technicalIndicatorStructure = canonicalTechnicalBundle.legacy;
   // Keep this technical context available for existing non-fundamental notes.
   const pricePressure = clamp((close - ma20) / Math.max(ma20, 1), -0.25, 0.25);
 
@@ -4028,6 +4094,7 @@ function computeIndicators(ticker, snapshot, profile) {
       kdj: kdjValue,
       fibPosition,
       fibonacci_structure: fibonacciStructure,
+      technical_features: canonicalTechnicalBundle.canonical,
       technical_indicator_structure: technicalIndicatorStructure,
       ma10,
       ma20,
@@ -19976,13 +20043,18 @@ function buildETFDecisionModel(row, research, companyProfile, etfProfile) {
   const marketContext = buildMarketContextModule(row, companyProfile);
   const relativeStrength = buildRelativeStrengthModule(row, marketContext, companyProfile);
   row.technicals = row.technicals || {};
-  row.technicals.technical_indicator_structure = buildTechnicalIndicatorStructure({
+  const canonicalTechnicalBundle = buildCanonicalTechnicalFeatureBundle({
     history: row.technicals?.history || {},
     currentPrice: row.price,
     atr14: row.technicals?.atr14,
     relativeStrength,
+    fibonacciStructure: row.technicals?.fibonacci_structure || {},
+    metadata: row.metadata || {},
     profileTags: companyProfile.tags || [],
   });
+  row.technicals.technical_features = canonicalTechnicalBundle.canonical;
+  row.technicals.technical_indicator_structure = canonicalTechnicalBundle.legacy;
+  technical.technical_features = canonicalTechnicalBundle.canonical;
   technical.technical_indicator_structure = row.technicals.technical_indicator_structure;
   const benchmarkContext = buildETFBenchmarkContext(row, etfProfile, marketContext);
   const trendEfficiency = computeTrendEfficiency(row.technicals?.history?.closes || [], 20);
@@ -20987,13 +21059,18 @@ function buildDecisionModel(row) {
   const relativeStrength = buildRelativeStrengthModule(row, marketContext, companyProfile);
   technical.relative_strength = relativeStrength;
   row.technicals = row.technicals || {};
-  row.technicals.technical_indicator_structure = buildTechnicalIndicatorStructure({
+  const canonicalTechnicalBundle = buildCanonicalTechnicalFeatureBundle({
     history: row.technicals?.history || {},
     currentPrice: row.price,
     atr14: row.technicals?.atr14,
     relativeStrength,
+    fibonacciStructure: row.technicals?.fibonacci_structure || {},
+    metadata: row.metadata || {},
     profileTags: companyProfile.tags || [],
   });
+  row.technicals.technical_features = canonicalTechnicalBundle.canonical;
+  row.technicals.technical_indicator_structure = canonicalTechnicalBundle.legacy;
+  technical.technical_features = canonicalTechnicalBundle.canonical;
   technical.technical_indicator_structure = row.technicals.technical_indicator_structure;
   let earningsEventRisk = buildEarningsEventRiskModule(row, preliminaryOptionsExpectedMove);
   marketContext.earnings_event_risk = earningsEventRisk;
@@ -22284,6 +22361,32 @@ function renderDetailModal(row) {
       </div>
     </section>
   `;
+  const renderCanonicalTechnicalFoundation = (features) => {
+    if (!features) return "";
+    const position = features.price_position || {};
+    const gap = features.gaps || {};
+    const volume = features.volume || {};
+    const breadth = features.market_breadth || {};
+    const sources = Object.values(features.source_intervals || {});
+    const sourceText = sources.map((item) => `${item.interval}: ${item.availability}${item.last_bar_timestamp ? ` (${item.last_bar_timestamp})` : ""}`).join(" · ") || t("dataUnavailable");
+    return `
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "规范化技术数据基础" : "Canonical Technical Data Foundation"}</h3></div>
+        <div class="detail-line-note">${currentLanguage === "zh" ? "原始数值与解释状态按周期保留；此区块不参与当前评分或建议。" : "Raw values and interpreted states retain their interval metadata. This block does not feed the current score or recommendation."}</div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: currentLanguage === "zh" ? "数据源周期 / 最新K线" : "Source intervals / latest bars", value: sourceText },
+          { label: currentLanguage === "zh" ? "52周高 / 距离" : "52W high / distance", value: `${displayValue(position.high_52w, (value) => formatCurrency(value, currencyCode))} / ${displayValue(position.distance_to_52w_high_pct, (value) => formatChangePercent(value))}`, note: position.high_52w_date || "" },
+          { label: currentLanguage === "zh" ? "52周低 / 距离" : "52W low / distance", value: `${displayValue(position.low_52w, (value) => formatCurrency(value, currencyCode))} / ${displayValue(position.distance_to_52w_low_pct, (value) => formatChangePercent(value))}`, note: position.low_52w_date || "" },
+          { label: currentLanguage === "zh" ? "52周位置" : "52W position", value: displayValue(position.position_52w_pct, (value) => formatPercentValue(value)), note: position.availability || "" },
+          { label: currentLanguage === "zh" ? "历史最高 / 距离" : "All-time high / distance", value: `${displayValue(position.all_time_high, (value) => formatCurrency(value, currencyCode))} / ${displayValue(position.distance_to_ath_pct, (value) => formatChangePercent(value))}`, note: position.all_time_history_coverage || "" },
+          { label: currentLanguage === "zh" ? "日线跳空" : "Daily gap", value: `${gap.gap_direction || t("dataUnavailable")} · ${displayValue(gap.gap_pct, (value) => formatChangePercent(value))}`, note: gap.availability === "available" ? `${currentLanguage === "zh" ? "填补" : "Filled"}: ${gap.gap_filled ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")} · ${displayValue(gap.gap_fill_pct, (value) => formatPercentValue(value))}` : "" },
+          { label: currentLanguage === "zh" ? "RVOL20 / 状态" : "RVOL20 / state", value: `${displayValue(volume.relative_volume?.displayed_rvol, (value) => formatRatio(value))} / ${volume.relative_volume?.state || t("dataUnavailable")}`, note: currentLanguage === "zh" ? "当前成交量 / 20日均量" : "Current volume / 20D average" },
+          { label: currentLanguage === "zh" ? "规范化换手率" : "Canonical turnover", value: `${displayValue(volume.turnover?.turnover_current, (value) => formatPercentValue(value))} / ${displayValue(volume.turnover?.turnover_20d_avg, (value) => formatPercentValue(value))}`, note: currentLanguage === "zh" ? "当前 / 20日平均；无股本数据时保持不可用" : "Current / 20D average; unavailable without a share base" },
+          { label: currentLanguage === "zh" ? "市场广度" : "Market breadth", value: breadth.status || t("dataUnavailable"), note: breadth.reason || "" },
+        ])}</div>
+      </section>
+    `;
+  };
 
   const technicalPanel = `
     <section class="detail-tab-section">
@@ -22295,6 +22398,7 @@ function renderDetailModal(row) {
       </div>
       ${renderFibonacciStructure(technical.fibonacci_structure || row.technicals?.fibonacci_structure)}
       ${renderTechnicalIndicatorStructure(technical.technical_indicator_structure || row.technicals?.technical_indicator_structure)}
+      ${renderCanonicalTechnicalFoundation(technical.technical_features || row.technicals?.technical_features)}
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("volumeConfirmation")}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
