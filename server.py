@@ -71,6 +71,12 @@ MARKET_DATA_MAX_WORKERS = int(os.environ.get("MARKET_DATA_MAX_WORKERS", "2"))
 MARKET_DATA_MAX_LIVE_TICKERS = int(os.environ.get("MARKET_DATA_MAX_LIVE_TICKERS", "2"))
 MARKET_DATA_ROUTE_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_ROUTE_TIMEOUT_SECONDS", "18"))
 MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS", "8"))
+# Keep the live refresh inside the route's per-ticker budget. More history can
+# be requested with an environment override, but `max` is too slow/unreliable
+# for a dashboard quote request and can make every row appear unavailable.
+TECHNICAL_DAILY_HISTORY_PERIOD = os.environ.get("TECHNICAL_DAILY_HISTORY_PERIOD", "2y")
+TECHNICAL_INTRADAY_HISTORY_PERIOD = os.environ.get("TECHNICAL_INTRADAY_HISTORY_PERIOD", "30d")
+TECHNICAL_INTRADAY_FETCH_TIMEOUT_SECONDS = float(os.environ.get("TECHNICAL_INTRADAY_FETCH_TIMEOUT_SECONDS", "2"))
 OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECONDS", "6"))
 # Increment when an options field changes methodology so cached synthetic data
 # cannot be presented as a current options snapshot.
@@ -659,8 +665,8 @@ def fetch_yahoo_chart_rows(symbol, range_value="3mo", interval="1d", limit=252):
     return []
 
 
-def fetch_yahoo_chart_frame(symbol, range_value="1y", interval="1d"):
-    rows = fetch_yahoo_chart_rows(symbol, range_value=range_value, interval=interval, limit=260)
+def fetch_yahoo_chart_frame(symbol, range_value="1y", interval="1d", limit=260):
+    rows = fetch_yahoo_chart_rows(symbol, range_value=range_value, interval=interval, limit=limit)
     if not rows:
         return pd.DataFrame()
     try:
@@ -3367,7 +3373,8 @@ def load_yfinance_history_frame(instrument, symbol, period="1y", interval="1d"):
     except Exception:
         pass
 
-    yahoo_frame = fetch_yahoo_chart_frame(symbol, range_value=period, interval=interval)
+    fallback_limit = 1300 if period in {"2y", "5y"} and interval == "1d" else 260
+    yahoo_frame = fetch_yahoo_chart_frame(symbol, range_value=period, interval=interval, limit=fallback_limit)
     if yahoo_frame is not None and not yahoo_frame.empty:
         return yahoo_frame
 
@@ -3438,30 +3445,13 @@ def _history_payload(frame, timestamp_format="%Y-%m-%d"):
 def fetch_us_quote_with_yfinance(ticker, include_options=False):
     symbol = resolve_market_symbol(ticker)
     instrument = yf.Ticker(symbol)
-    history = load_yfinance_history_frame(instrument, symbol, period="max", interval="1d")
+    quote_fetch_started = time.monotonic()
+    history = load_yfinance_history_frame(instrument, symbol, period=TECHNICAL_DAILY_HISTORY_PERIOD, interval="1d")
     if history is None or history.empty:
         raise ValueError(f"No yfinance history for {ticker}")
     history = history.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
     if history.empty:
         raise ValueError(f"No clean yfinance history for {ticker}")
-    # A 1H fetch is intentionally separate from daily data. Failure leaves the
-    # interval unavailable; it must never be silently replaced with daily bars.
-    hourly_history = load_yfinance_intraday_history_frame(instrument, symbol, period="60d", interval="1h")
-    hourly_payload = _history_payload(hourly_history, timestamp_format="%Y-%m-%dT%H:%M:%S%z")
-    hourly_payload.update({
-        "interval": "1h",
-        "lookback": "60d",
-        "source": "yfinance_or_yahoo_chart_intraday",
-        "last_bar_timestamp": hourly_payload["timestamps"][-1] if hourly_payload["timestamps"] else None,
-    })
-    daily_payload = _history_payload(history)
-    daily_payload.update({
-        "interval": "1d",
-        "lookback": "max_available",
-        "source": "yfinance_or_yahoo_chart_daily",
-        "last_bar_timestamp": daily_payload["timestamps"][-1] if daily_payload["timestamps"] else None,
-    })
-
     try:
         info = instrument.info or {}
     except Exception:
@@ -3478,6 +3468,36 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
     if any(info.get(field) is None for field in fallback_fields):
         quote_summary_attempted = True
         info, quote_snapshot, quote_summary = merge_yahoo_fallback_info(symbol, info)
+
+    # Quote availability wins over supplemental intraday features. If the
+    # daily quote/info work already consumed most of the request budget, leave
+    # 1H unavailable instead of timing out the entire manual refresh.
+    intraday_allowed = (time.monotonic() - quote_fetch_started) <= 4.5
+    hourly_history = _run_with_timeout(
+        lambda: load_yfinance_intraday_history_frame(
+            yf.Ticker(symbol),
+            symbol,
+            period=TECHNICAL_INTRADAY_HISTORY_PERIOD,
+            interval="1h",
+        ),
+        timeout_seconds=TECHNICAL_INTRADAY_FETCH_TIMEOUT_SECONDS,
+        fallback=None,
+    ) if intraday_allowed else None
+    hourly_payload = _history_payload(hourly_history, timestamp_format="%Y-%m-%dT%H:%M:%S%z")
+    hourly_payload.update({
+        "interval": "1h",
+        "lookback": TECHNICAL_INTRADAY_HISTORY_PERIOD,
+        "source": "yfinance_or_yahoo_chart_intraday",
+        "last_bar_timestamp": hourly_payload["timestamps"][-1] if hourly_payload["timestamps"] else None,
+        "reason": None if hourly_payload["availability"] == "available" else ("Intraday history was skipped to protect quote refresh." if not intraday_allowed else "Intraday history was not available within the quote-refresh time budget."),
+    })
+    daily_payload = _history_payload(history)
+    daily_payload.update({
+        "interval": "1d",
+        "lookback": TECHNICAL_DAILY_HISTORY_PERIOD,
+        "source": "yfinance_or_yahoo_chart_daily",
+        "last_bar_timestamp": daily_payload["timestamps"][-1] if daily_payload["timestamps"] else None,
+    })
 
     latest_row = history.iloc[-1]
     previous_row = history.iloc[-2] if len(history) > 1 else latest_row
