@@ -8,7 +8,7 @@
 (function exposeCanonicalTechnicalFeatures(root) {
   "use strict";
 
-  const SCHEMA_VERSION = "technical-features-v1";
+  const SCHEMA_VERSION = "technical-features-v2";
   const AVAILABILITY_REASONS = Object.freeze([
     "available",
     "source_unavailable",
@@ -122,12 +122,14 @@
     const intervals = history.intervals || history.by_interval || {};
     if (interval === "1d") return normalizeBars(intervals["1d"] || history.full_daily || history.daily || history);
     if (interval === "1h") return normalizeBars(intervals["1h"] || intervals.hourly || {});
+    if (interval === "4h") return normalizeBars(intervals["4h"] || {});
     return [];
   }
 
-  // Yahoo does not offer 4H equity candles. These are derived only from four
-  // consecutive regular-session 1H bars and never substituted with daily bars.
-  function aggregateFourHourBars(hourlyBars = []) {
+  // Deprecated audit helper only. It models the retired morning-only 1H
+  // aggregation so its output can be compared in tests/audits. Production
+  // features must source 4H bars from history.intervals["4h"] only.
+  function aggregateFourHourBarsLegacy(hourlyBars = []) {
     const grouped = [];
     let bucket = null;
     let bucketDay = null;
@@ -281,7 +283,7 @@
       unavailable_reason: availability === "available" ? null : (unavailableReason || "source_unavailable"),
       required_bars: requiredBars,
       available_bars: availableBars,
-      source: source || (interval === "4h" ? "derived_1h_regular_session" : interval === "1w" ? "completed_weekly_from_daily" : "market_ohlcv"),
+      source: source || (interval === "4h" ? "provider_native_4h" : interval === "1w" ? "completed_weekly_from_daily" : "market_ohlcv"),
       last_bar_timestamp: last(bars)?.timestamp ?? null,
       calculation_timestamp: calculatedAt,
       bar_count: availableBars,
@@ -782,17 +784,21 @@
   function buildTechnicalFeatures({ history = {}, currentPrice = null, relativeStrength = {}, fibonacciStructure = {}, shareBase = null, calculatedAt = timestampNow() } = {}) {
     const daily = pickBars(history, "1d");
     const hourly = pickBars(history, "1h");
-    const fourHour = aggregateFourHourBars(hourly);
+    // 4H is provider-native market data. Never reconstruct it from 1H, daily,
+    // or any other interval: unavailable provider data must remain unavailable.
+    const fourHour = pickBars(history, "4h");
     const weekly = completedWeeklyBars(daily);
     const sources = { "1h": hourly, "4h": fourHour, "1d": daily, "1w": weekly };
     const normalizedPrice = Number.isFinite(currentPrice) ? currentPrice : last(daily)?.close ?? null;
     const fibonacci = fibonacciFeatures(fibonacciStructure);
     const volume = canonicalVolumeFeature(daily, finite(shareBase), calculatedAt);
     const hourlySource = history.intervals?.["1h"] || history.by_interval?.["1h"] || history.intervals?.hourly || {};
+    const fourHourSource = history.intervals?.["4h"] || history.by_interval?.["4h"] || {};
     const sourceIntervalMetadata = (interval, bars) => {
+      const upstream = interval === "1h" ? hourlySource : interval === "4h" ? fourHourSource : {};
       const available = bars.length > 0;
       const unavailableReason = available ? null
-        : interval === "4h" ? (hourly.length ? "market_session_incomplete" : "source_unavailable")
+        : interval === "4h" ? (upstream.unavailable_reason || "source_unavailable")
           : interval === "1w" ? (daily.length ? "insufficient_history" : "source_unavailable")
             : "source_unavailable";
       return {
@@ -801,10 +807,14 @@
         availability: available ? "available" : "unavailable",
         available,
         unavailable_reason: unavailableReason,
-        lookback: interval === "1d" ? (history.daily_history_metadata?.lookback || history.lookback || null) : interval === "1h" ? (hourlySource.lookback || null) : null,
-        requested_history: interval === "1h" ? (hourlySource.lookback || null) : interval === "1d" ? (history.daily_history_metadata?.lookback || history.lookback || null) : null,
+        lookback: interval === "1d" ? (history.daily_history_metadata?.lookback || history.lookback || null) : interval === "1h" ? (hourlySource.lookback || null) : interval === "4h" ? (fourHourSource.lookback || null) : null,
+        requested_history: interval === "1h" ? (hourlySource.lookback || null) : interval === "1d" ? (history.daily_history_metadata?.lookback || history.lookback || null) : interval === "4h" ? (fourHourSource.lookback || null) : null,
         last_bar_timestamp: last(bars)?.timestamp ?? null,
-        source: interval === "4h" ? "derived_1h_regular_session" : interval === "1w" ? "completed_weekly_from_daily" : "market_ohlcv",
+        source: interval === "4h" ? (fourHourSource.source || "yfinance") : interval === "1w" ? "completed_weekly_from_daily" : "market_ohlcv",
+        bar_method: interval === "4h" ? (fourHourSource.bar_method || null) : null,
+        regular_hours_only: interval === "4h" ? Boolean(fourHourSource.regular_hours_only) : null,
+        timezone: interval === "4h" ? (fourHourSource.timezone || null) : null,
+        session_validation: interval === "4h" ? (fourHourSource.session_validation || null) : null,
       };
     };
     return {
@@ -887,7 +897,7 @@
     };
   }
 
-  const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, toLegacyTechnicalStructure, _test: { normalizeBars, aggregateFourHourBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, pricePositionFeatures, canonicalVolumeFeature } };
+  const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, toLegacyTechnicalStructure, _test: { normalizeBars, aggregateFourHourBarsLegacy, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, pricePositionFeatures, canonicalVolumeFeature } };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.CanonicalTechnicalFeatures = api;
 }(typeof globalThis !== "undefined" ? globalThis : window));

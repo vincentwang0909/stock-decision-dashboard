@@ -40,6 +40,28 @@ function hourlyHistory(count = 240) {
   return { timestamps, opens, highs, lows, closes, volumes };
 }
 
+function nativeFourHourHistory(count = 240) {
+  const timestamps = []; const opens = []; const highs = []; const lows = []; const closes = []; const volumes = [];
+  let index = 0; let day = 0;
+  while (index < count) {
+    const date = new Date(Date.UTC(2026, 5, 1 + day)).toISOString().slice(0, 10);
+    for (const hour of [9, 13]) {
+      if (index >= count) break;
+      const close = 180 - index * 0.11 + Math.sin(index / 4);
+      timestamps.push(`${date}T${String(hour).padStart(2, "0")}:30:00-0400`);
+      opens.push(close + 0.24); closes.push(close); highs.push(close + 0.82); lows.push(close - 0.91); volumes.push(250_000 + index * 100);
+      index += 1;
+    }
+    day += 1;
+  }
+  return {
+    timestamps, opens, highs, lows, closes, volumes,
+    availability: "available", available: true,
+    source: "yfinance", bar_method: "provider_native_v1",
+    regular_hours_only: true, timezone: "America/New_York", lookback: "120d",
+  };
+}
+
 function fibonacciFixture(price) {
   const level = (label, ratio, value) => ({ label, ratio, price: value, distance_from_current_pct: (value / price - 1) * 100, valid_for_display: true });
   return {
@@ -51,9 +73,10 @@ function fibonacciFixture(price) {
 
 const daily = dailyHistory();
 const hourly = hourlyHistory();
+const fourHour = nativeFourHourHistory();
 const price = daily.closes.at(-1);
 const features = buildTechnicalFeatures({
-  history: { ...daily, intervals: { "1h": hourly } },
+  history: { ...daily, intervals: { "1h": hourly, "4h": fourHour } },
   currentPrice: price,
   shareBase: 100_000_000,
   relativeStrength: { stock_return_20d: 4, stock_vs_spy_20d: 3, stock_vs_qqq_20d: 1, stock_return_60d: 8, stock_vs_spy_60d: 6, stock_vs_qqq_60d: 4, stock_return_120d: 10, stock_vs_spy_120d: 8, stock_vs_qqq_120d: 6 },
@@ -139,7 +162,7 @@ assert.equal(features.horizons.long.relative_strength.vs_qqq.d120, 6);
 assert(AVAILABILITY_REASONS.includes("insufficient_history"));
 assert(AVAILABILITY_REASONS.includes("dependency_unavailable"));
 const shortHistory = buildTechnicalFeatures({
-  history: { ...daily, intervals: { "1h": hourlyHistory(210) } },
+  history: { ...daily, intervals: { "1h": hourlyHistory(210), "4h": nativeFourHourHistory(30) } },
   currentPrice: price,
   calculatedAt: "2026-08-09T00:00:00.000Z",
 });
@@ -170,20 +193,30 @@ assert.equal(shortHistory.horizons.short.trend.adx.adx_14_4h.slope.state, "unava
 assert.equal(shortHistory.horizons.short.trend.adx.adx_14_4h.slope.unavailable_reason, "insufficient_history");
 assert.equal(shortHistory.horizons.short.trend.adx.adx_14_4h.slope.required_observations, 4);
 
-// Real 1H history is aggregated only from a complete 09:30–12:30 regular
-// session block; missing constituent bars are excluded rather than filled.
-const incompleteHourly = hourlyHistory(7);
-incompleteHourly.timestamps[1] = incompleteHourly.timestamps[2];
-assert.equal(_test.aggregateFourHourBars(_test.normalizeBars(incompleteHourly)).length, 0);
-
-// A larger real-history request restores indicators only after enough 4H bars
-// exist; their raw calculations remain unchanged.
-const longIntradayHistory = buildTechnicalFeatures({
-  history: { ...daily, intervals: { "1h": hourlyHistory(840) } },
+// The former morning-only 1H aggregation is audit-only. Production technical
+// features require provider-native 4H input and never reconstruct it from 1H.
+const legacyHourly = hourlyHistory(7);
+assert.equal(_test.aggregateFourHourBarsLegacy(_test.normalizeBars(legacyHourly)).length, 1);
+const nativeMissing = buildTechnicalFeatures({
+  history: { ...daily, intervals: { "1h": legacyHourly } },
   currentPrice: price,
   calculatedAt: "2026-08-09T00:00:00.000Z",
 });
-assert.equal(longIntradayHistory.source_intervals["4h"].bar_count, 120);
+assert.equal(nativeMissing.source_intervals["4h"].availability, "unavailable");
+assert.equal(nativeMissing.horizons.short.momentum.rsi.rsi_6_4h.value, null);
+assert.equal(nativeMissing.horizons.short.momentum.macd.macd_4h.macd_line, null);
+
+// A larger native-provider 4H history restores indicators only after enough
+// real 4H bars exist; their raw calculations remain unchanged.
+const longIntradayHistory = buildTechnicalFeatures({
+  history: { ...daily, intervals: { "1h": hourlyHistory(840), "4h": nativeFourHourHistory(240) } },
+  currentPrice: price,
+  calculatedAt: "2026-08-09T00:00:00.000Z",
+});
+assert.equal(longIntradayHistory.source_intervals["4h"].bar_count, 240);
+assert.equal(longIntradayHistory.source_intervals["4h"].source, "yfinance");
+assert.equal(longIntradayHistory.source_intervals["4h"].bar_method, "provider_native_v1");
+assert.equal(longIntradayHistory.source_intervals["4h"].regular_hours_only, true);
 assert(Number.isFinite(longIntradayHistory.horizons.short.trend.moving_averages.ema_50_4h.value));
 assert(Number.isFinite(longIntradayHistory.horizons.short.momentum.macd.macd_4h.macd_line));
 assert.equal(longIntradayHistory.horizons.short.volatility.atr.atr_14_4h.atr_percentile.available, true);
@@ -211,7 +244,8 @@ assert.equal(unavailable.horizons.medium.momentum.rsi.rsi_14_1d.value, null);
 assert.equal(unavailable.volume.current_volume, 0);
 assert.equal(unavailable.price_position.position_52w_pct, null);
 
-// A 4H source is only produced from 1H bars; daily data is never substituted.
+// A missing native 4H source remains unavailable: it never falls back to 1H
+// aggregation, daily bars, or any other interval.
 const noIntraday = buildTechnicalFeatures({ history: daily, currentPrice: price });
 assert.equal(noIntraday.source_intervals["1h"].availability, "unavailable");
 assert.equal(noIntraday.horizons.short.momentum.rsi.rsi_6_4h.value, null);
@@ -222,6 +256,7 @@ assert(Number.isFinite(noIntraday.horizons.medium.trend.moving_averages.ema_50_1
 // User-facing UI no longer exposes a source-interval block, Gap, breadth, or old horizons.
 const mainSource = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
 const serverSource = fs.readFileSync(path.join(__dirname, "..", "server.py"), "utf8");
+const canonicalSource = fs.readFileSync(path.join(__dirname, "..", "technical-features.js"), "utf8");
 for (const forbidden of ["30" + "-90 days", "90" + "-180 days", "30" + "-90D", "90" + "-180D", "30" + "-90天", "90" + "-180天", "1" + "-10D", "10" + "-30D", "30" + "-60D risk review", "Source intervals / " + "latest bars", "数据源周期 / " + "最新K线", "Daily " + "gap", "日线" + "跳空", "Market " + "breadth", "市场" + "广度"]) {
   assert.equal(mainSource.includes(forbidden), false, `obsolete UI string remains: ${forbidden}`);
 }
@@ -250,6 +285,10 @@ assert(mainSource.includes("technicalAvailabilityNote"));
 assert(mainSource.includes("insufficient_history: \"历史数据不足\""));
 assert(serverSource.includes('TECHNICAL_INTRADAY_HISTORY_PERIOD = os.environ.get("TECHNICAL_INTRADAY_HISTORY_PERIOD", "120d")'));
 assert(serverSource.includes("interval=interval, limit=6000"));
+assert(serverSource.includes('interval="4h"'));
+assert(serverSource.includes('TECHNICAL_FOUR_HOUR_BAR_METHOD = "provider_native_v1"'));
+assert.equal(canonicalSource.includes("const fourHour = aggregateFourHourBarsLegacy(hourly);"), false);
+assert(canonicalSource.includes('const fourHour = pickBars(history, "4h");'));
 assert.equal(serverSource.includes('row.get("volume") or 0'), false);
 
 console.log("technical-features.test.js: all assertions passed");

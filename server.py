@@ -76,7 +76,12 @@ MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TIC
 # for a dashboard quote request and can make every row appear unavailable.
 TECHNICAL_DAILY_HISTORY_PERIOD = os.environ.get("TECHNICAL_DAILY_HISTORY_PERIOD", "2y")
 TECHNICAL_INTRADAY_HISTORY_PERIOD = os.environ.get("TECHNICAL_INTRADAY_HISTORY_PERIOD", "120d")
-TECHNICAL_INTRADAY_FETCH_TIMEOUT_SECONDS = float(os.environ.get("TECHNICAL_INTRADAY_FETCH_TIMEOUT_SECONDS", "2"))
+TECHNICAL_FOUR_HOUR_HISTORY_PERIOD = os.environ.get("TECHNICAL_FOUR_HOUR_HISTORY_PERIOD", TECHNICAL_INTRADAY_HISTORY_PERIOD)
+# Native 4H and 1H requests run concurrently. This is the shared deadline for
+# the pair, not a reason to synthesize or substitute a missing timeframe.
+TECHNICAL_INTRADAY_FETCH_TIMEOUT_SECONDS = float(os.environ.get("TECHNICAL_INTRADAY_FETCH_TIMEOUT_SECONDS", "4.5"))
+TECHNICAL_FOUR_HOUR_BAR_METHOD = "provider_native_v1"
+TECHNICAL_FOUR_HOUR_TIMEZONE = "America/New_York"
 OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECONDS", "6"))
 # Increment when an options field changes methodology so cached synthetic data
 # cannot be presented as a current options snapshot.
@@ -3425,10 +3430,8 @@ def load_yfinance_intraday_history_frame(instrument, symbol, period="60d", inter
         pass
 
     try:
-        # Preserve the provider's real intraday history for technical warm-up.
-        # The generic 260-row fallback is insufficient for 4H EMA50, MACD, and
-        # percentile features once 1H bars are aggregated into regular-session
-        # 4H candles. Yahoo permits up to 730 days of 1H history; 6,000 rows
+        # Preserve the provider's real 1H history for its own technical
+        # warm-up. Yahoo permits up to 730 days of 1H history; 6,000 rows
         # safely covers that maximum without manufacturing any missing bars.
         yahoo_frame = fetch_yahoo_chart_frame(symbol, range_value=period, interval=interval, limit=6000)
         if yahoo_frame is not None and not yahoo_frame.empty:
@@ -3437,6 +3440,180 @@ def load_yfinance_intraday_history_frame(instrument, symbol, period="60d", inter
         pass
 
     return pd.DataFrame()
+
+
+def load_yfinance_native_four_hour_history_frame(instrument, period=TECHNICAL_FOUR_HOUR_HISTORY_PERIOD):
+    """Fetch only the provider-native 4H regular-session series.
+
+    This deliberately has no yfinance-download, Yahoo-chart, daily, or 1H
+    reconstruction fallback. If the primary provider does not return verified
+    4H data, the technical layer must receive an unavailable 4H interval.
+    """
+    metadata = {}
+    try:
+        frame = instrument.history(
+            period=period,
+            interval="4h",
+            auto_adjust=False,
+            prepost=False,
+        )
+        metadata = dict(instrument.history_metadata or {})
+    except Exception:
+        return pd.DataFrame(), metadata, "source_unavailable"
+
+    if frame is None or frame.empty:
+        return pd.DataFrame(), metadata, "source_unavailable"
+    if metadata.get("dataGranularity") != "4h":
+        return pd.DataFrame(), metadata, "invalid_source_data"
+    if metadata.get("exchangeTimezoneName") != TECHNICAL_FOUR_HOUR_TIMEZONE:
+        return pd.DataFrame(), metadata, "invalid_source_data"
+    return frame, metadata, None
+
+
+def validate_native_four_hour_history_frame(frame):
+    """Keep only structurally valid provider-native US regular-session 4H bars.
+
+    Normal sessions have 09:30 and 13:30 provider bars. A 09:30-only session
+    is retained because Yahoo uses it for legitimate US early-close days. A
+    13:30-only day, duplicate segments, malformed timestamps, and invalid
+    OHLCV are excluded rather than repaired or filled.
+    """
+    empty = pd.DataFrame() if frame is None else frame.iloc[0:0].copy()
+    result = {
+        "frame": empty,
+        "source_rows": 0 if frame is None else int(len(frame)),
+        "excluded_invalid_rows": 0 if frame is None else int(len(frame)),
+        "normal_session_days": 0,
+        "single_session_days": 0,
+        "invalid_session_days": 0,
+        "invalid_session_examples": [],
+        "unavailable_reason": "source_unavailable" if frame is None or frame.empty else "invalid_source_data",
+    }
+    if frame is None or frame.empty or not isinstance(frame.index, pd.DatetimeIndex):
+        return result
+    if frame.index.tz is None or str(frame.index.tz) != TECHNICAL_FOUR_HOUR_TIMEZONE:
+        return result
+
+    required = ("Open", "High", "Low", "Close", "Volume")
+    if any(column not in frame.columns for column in required):
+        return result
+
+    day_rows = {}
+    invalid_days = set()
+    for stamp, row in frame.iterrows():
+        try:
+            local_stamp = stamp.tz_convert(TECHNICAL_FOUR_HOUR_TIMEZONE)
+            local_time = local_stamp.strftime("%H:%M")
+            day = local_stamp.date().isoformat()
+            open_value = _safe_float(row["Open"])
+            high_value = _safe_float(row["High"])
+            low_value = _safe_float(row["Low"])
+            close_value = _safe_float(row["Close"])
+            volume_value = _safe_float(row["Volume"])
+        except Exception:
+            continue
+        valid_ohlcv = (
+            None not in (open_value, high_value, low_value, close_value, volume_value)
+            and high_value >= max(open_value, close_value)
+            and low_value <= min(open_value, close_value)
+            and volume_value >= 0
+        )
+        if not valid_ohlcv or local_time not in {"09:30", "13:30"}:
+            invalid_days.add(day)
+            continue
+        day_rows.setdefault(day, []).append((local_time, stamp))
+
+    valid_indices = []
+    for day, entries in sorted(day_rows.items()):
+        times = [time_value for time_value, _stamp in entries]
+        if day in invalid_days or len(set(times)) != len(times):
+            result["invalid_session_days"] += 1
+            if len(result["invalid_session_examples"]) < 5:
+                result["invalid_session_examples"].append({"date": day, "times": times, "reason": "invalid_or_duplicate_session_bar"})
+            continue
+        if times == ["09:30", "13:30"]:
+            result["normal_session_days"] += 1
+            valid_indices.extend(stamp for _time, stamp in entries)
+            continue
+        if times == ["09:30"]:
+            # Native provider single-bar session: retain as a legitimate early
+            # close/session shape rather than creating an imaginary 13:30 bar.
+            result["single_session_days"] += 1
+            valid_indices.append(entries[0][1])
+            continue
+        result["invalid_session_days"] += 1
+        if len(result["invalid_session_examples"]) < 5:
+            result["invalid_session_examples"].append({"date": day, "times": times, "reason": "missing_opening_session_bar"})
+
+    if valid_indices:
+        result["frame"] = frame.loc[valid_indices].sort_index().copy()
+        result["excluded_invalid_rows"] = int(len(frame) - len(result["frame"]))
+        result["unavailable_reason"] = None
+    return result
+
+
+def native_four_hour_history_payload(frame, metadata=None, failure_reason=None):
+    """Create a compact, provenance-bearing payload from validated 4H bars."""
+    validation = validate_native_four_hour_history_frame(frame)
+    payload = _history_payload(validation["frame"], timestamp_format="%Y-%m-%dT%H:%M:%S%z")
+    unavailable_reason = None if validation["frame"].shape[0] else (failure_reason or validation["unavailable_reason"])
+    payload.update({
+        "interval": "4h",
+        "lookback": TECHNICAL_FOUR_HOUR_HISTORY_PERIOD,
+        "source": "yfinance",
+        "bar_method": TECHNICAL_FOUR_HOUR_BAR_METHOD,
+        "regular_hours_only": True,
+        "timezone": TECHNICAL_FOUR_HOUR_TIMEZONE,
+        "provider_data_granularity": (metadata or {}).get("dataGranularity"),
+        "provider_exchange_timezone": (metadata or {}).get("exchangeTimezoneName"),
+        "session_validation": {
+            "normal_session_days": validation["normal_session_days"],
+            "single_session_days": validation["single_session_days"],
+            "invalid_session_days": validation["invalid_session_days"],
+            "invalid_session_examples": validation["invalid_session_examples"],
+        },
+        "source_rows": validation["source_rows"],
+        "available_bars": int(len(validation["frame"])),
+        "excluded_invalid_rows": validation["excluded_invalid_rows"],
+        "availability": "available" if len(validation["frame"]) else "unavailable",
+        "available": bool(len(validation["frame"])),
+        "unavailable_reason": unavailable_reason,
+        "last_bar_timestamp": payload["timestamps"][-1] if payload["timestamps"] else None,
+        "reason": None if len(validation["frame"]) else "Native provider 4H history was unavailable or failed session validation.",
+    })
+    return payload
+
+
+def load_technical_intraday_history_frames(symbol):
+    """Fetch 1H and provider-native 4H concurrently within one shared budget."""
+    executor = ThreadPoolExecutor(max_workers=2)
+    hourly_history = None
+    native_four_hour = (pd.DataFrame(), {}, "source_unavailable")
+    try:
+        hourly_future = executor.submit(
+            load_yfinance_intraday_history_frame,
+            yf.Ticker(symbol),
+            symbol,
+            TECHNICAL_INTRADAY_HISTORY_PERIOD,
+            "1h",
+        )
+        four_hour_future = executor.submit(
+            load_yfinance_native_four_hour_history_frame,
+            yf.Ticker(symbol),
+            TECHNICAL_FOUR_HOUR_HISTORY_PERIOD,
+        )
+        deadline = time.monotonic() + TECHNICAL_INTRADAY_FETCH_TIMEOUT_SECONDS
+        try:
+            hourly_history = hourly_future.result(timeout=max(0, deadline - time.monotonic()))
+        except Exception:
+            hourly_history = None
+        try:
+            native_four_hour = four_hour_future.result(timeout=max(0, deadline - time.monotonic()))
+        except Exception:
+            native_four_hour = (pd.DataFrame(), {}, "source_unavailable")
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+    return hourly_history, native_four_hour
 
 
 def _history_payload(frame, timestamp_format="%Y-%m-%d"):
@@ -3475,6 +3652,16 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
     history = history.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
     if history.empty:
         raise ValueError(f"No clean yfinance history for {ticker}")
+
+    # Technical intervals start before slower quote-profile enrichment. 1H and
+    # provider-native 4H are fetched concurrently; a missing native 4H source
+    # remains unavailable and is never reconstructed from 1H or daily bars.
+    intraday_allowed = (time.monotonic() - quote_fetch_started) <= 4.5
+    hourly_history = None
+    native_four_hour_frame, native_four_hour_metadata, native_four_hour_failure = (pd.DataFrame(), {}, "source_unavailable")
+    if intraday_allowed:
+        hourly_history, (native_four_hour_frame, native_four_hour_metadata, native_four_hour_failure) = load_technical_intraday_history_frames(symbol)
+
     try:
         info = instrument.info or {}
     except Exception:
@@ -3492,20 +3679,6 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         quote_summary_attempted = True
         info, quote_snapshot, quote_summary = merge_yahoo_fallback_info(symbol, info)
 
-    # Quote availability wins over supplemental intraday features. If the
-    # daily quote/info work already consumed most of the request budget, leave
-    # 1H unavailable instead of timing out the entire manual refresh.
-    intraday_allowed = (time.monotonic() - quote_fetch_started) <= 4.5
-    hourly_history = _run_with_timeout(
-        lambda: load_yfinance_intraday_history_frame(
-            yf.Ticker(symbol),
-            symbol,
-            period=TECHNICAL_INTRADAY_HISTORY_PERIOD,
-            interval="1h",
-        ),
-        timeout_seconds=TECHNICAL_INTRADAY_FETCH_TIMEOUT_SECONDS,
-        fallback=None,
-    ) if intraday_allowed else None
     hourly_payload = _history_payload(hourly_history, timestamp_format="%Y-%m-%dT%H:%M:%S%z")
     hourly_payload.update({
         "interval": "1h",
@@ -3514,6 +3687,11 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         "last_bar_timestamp": hourly_payload["timestamps"][-1] if hourly_payload["timestamps"] else None,
         "reason": None if hourly_payload["availability"] == "available" else ("Intraday history was skipped to protect quote refresh." if not intraday_allowed else "Intraday history was not available within the quote-refresh time budget."),
     })
+    four_hour_payload = native_four_hour_history_payload(
+        native_four_hour_frame,
+        metadata=native_four_hour_metadata,
+        failure_reason=native_four_hour_failure if intraday_allowed else "source_unavailable",
+    )
     daily_payload = _history_payload(history)
     daily_payload.update({
         "interval": "1d",
@@ -3585,7 +3763,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         },
         "history": {
             **daily_payload,
-            "intervals": {"1h": hourly_payload},
+            "intervals": {"1h": hourly_payload, "4h": four_hour_payload},
         },
     }
 
@@ -3756,11 +3934,25 @@ def is_market_cache_fresh(cached):
     if not isinstance(quote, dict):
         quote = cached if isinstance(cached, dict) else {}
     hourly = ((quote.get("history") or {}).get("intervals") or {}).get("1h") or {}
+    four_hour = ((quote.get("history") or {}).get("intervals") or {}).get("4h") or {}
     # A cache written before the configured real intraday history request is
     # not technically fresh: it cannot support the current 4H indicator
     # warm-up. It is refreshed through the normal cache lifecycle, not filled
     # with synthetic bars.
     if hourly.get("lookback") != TECHNICAL_INTRADAY_HISTORY_PERIOD:
+        return False
+    # Retire caches whose 4H features would have been derived from the former
+    # morning-only 1H aggregation. A current quote must prove native-provider
+    # provenance before its technical history is considered fresh.
+    if four_hour.get("lookback") != TECHNICAL_FOUR_HOUR_HISTORY_PERIOD:
+        return False
+    if four_hour.get("source") != "yfinance":
+        return False
+    if four_hour.get("bar_method") != TECHNICAL_FOUR_HOUR_BAR_METHOD:
+        return False
+    if four_hour.get("timezone") != TECHNICAL_FOUR_HOUR_TIMEZONE:
+        return False
+    if four_hour.get("regular_hours_only") is not True:
         return False
     return True
 

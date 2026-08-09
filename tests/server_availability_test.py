@@ -9,15 +9,148 @@ class ServerAvailabilityTests(unittest.TestCase):
     def test_old_intraday_lookback_cache_is_refreshed(self):
         old_cache = {
             "cache_age_seconds": 0,
-            "quote": {"history": {"intervals": {"1h": {"lookback": "30d"}}}},
+            "quote": {"history": {"intervals": {
+                "1h": {"lookback": "30d"},
+                "4h": {"lookback": "120d", "source": "yfinance", "bar_method": "custom_1h_aggregation", "timezone": "America/New_York", "regular_hours_only": True},
+            }}},
         }
         current_cache = {
             "cache_age_seconds": 0,
-            "quote": {"history": {"intervals": {"1h": {"lookback": server.TECHNICAL_INTRADAY_HISTORY_PERIOD}}}},
+            "quote": {"history": {"intervals": {
+                "1h": {"lookback": server.TECHNICAL_INTRADAY_HISTORY_PERIOD},
+                "4h": {
+                    "lookback": server.TECHNICAL_FOUR_HOUR_HISTORY_PERIOD,
+                    "source": "yfinance",
+                    "bar_method": server.TECHNICAL_FOUR_HOUR_BAR_METHOD,
+                    "timezone": server.TECHNICAL_FOUR_HOUR_TIMEZONE,
+                    "regular_hours_only": True,
+                },
+            }}},
         }
 
         self.assertFalse(server.is_market_cache_fresh(old_cache))
         self.assertTrue(server.is_market_cache_fresh(current_cache))
+
+    @staticmethod
+    def native_four_hour_frame(rows):
+        index = pd.DatetimeIndex([entry[0] for entry in rows], tz=server.TECHNICAL_FOUR_HOUR_TIMEZONE)
+        return pd.DataFrame(
+            {
+                "Open": [entry[1] for entry in rows],
+                "High": [entry[2] for entry in rows],
+                "Low": [entry[3] for entry in rows],
+                "Close": [entry[4] for entry in rows],
+                "Volume": [entry[5] for entry in rows],
+            },
+            index=index,
+        )
+
+    def test_native_four_hour_validation_preserves_normal_two_bar_session(self):
+        frame = self.native_four_hour_frame([
+            ("2026-08-05 09:30", 600.53, 601.00, 580.12, 583.70, 7_624_816),
+            ("2026-08-05 13:30", 583.89, 590.18, 580.28, 588.91, 4_772_333),
+        ])
+
+        validation = server.validate_native_four_hour_history_frame(frame)
+        payload = server.native_four_hour_history_payload(
+            frame,
+            metadata={"dataGranularity": "4h", "exchangeTimezoneName": "America/New_York"},
+        )
+
+        self.assertEqual(len(validation["frame"]), 2)
+        self.assertEqual(validation["normal_session_days"], 1)
+        self.assertEqual(validation["single_session_days"], 0)
+        self.assertEqual(int(validation["frame"]["Volume"].sum()), 12_397_149)
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["bar_method"], "provider_native_v1")
+        self.assertTrue(payload["regular_hours_only"])
+        self.assertEqual(payload["timezone"], "America/New_York")
+
+    def test_native_four_hour_sample_matches_real_one_hour_session_segments(self):
+        one_hour = self.native_four_hour_frame([
+            ("2026-08-05 09:30", 600.53, 601.00, 591.18, 591.81, 3_222_962),
+            ("2026-08-05 10:30", 591.82, 593.06, 585.96, 585.96, 1_351_682),
+            ("2026-08-05 11:30", 585.90, 587.47, 580.12, 583.04, 1_775_071),
+            ("2026-08-05 12:30", 582.98, 585.50, 581.00, 583.70, 1_275_101),
+            ("2026-08-05 13:30", 583.89, 584.22, 582.53, 582.89, 891_022),
+            ("2026-08-05 14:30", 582.88, 588.86, 580.28, 588.42, 2_288_739),
+            ("2026-08-05 15:30", 588.48, 590.18, 586.38, 588.91, 1_592_572),
+        ])
+        native = self.native_four_hour_frame([
+            ("2026-08-05 09:30", 600.53, 601.00, 580.12, 583.70, 7_624_816),
+            ("2026-08-05 13:30", 583.89, 590.18, 580.28, 588.91, 4_772_333),
+        ])
+
+        def aggregate(rows):
+            return {
+                "Open": float(rows["Open"].iloc[0]),
+                "High": float(rows["High"].max()),
+                "Low": float(rows["Low"].min()),
+                "Close": float(rows["Close"].iloc[-1]),
+                "Volume": int(rows["Volume"].sum()),
+            }
+
+        opening, closing = aggregate(one_hour.iloc[:4]), aggregate(one_hour.iloc[4:])
+        self.assertEqual(opening, {key: (int(value) if key == "Volume" else value) for key, value in native.iloc[0].to_dict().items()})
+        self.assertEqual(closing, {key: (int(value) if key == "Volume" else value) for key, value in native.iloc[1].to_dict().items()})
+        self.assertEqual(int(native["Volume"].sum()), int(one_hour["Volume"].sum()))
+        self.assertEqual(float(native.iloc[1]["Close"]), float(one_hour.iloc[-1]["Close"]))
+
+    def test_native_four_hour_validation_retains_single_bar_early_close(self):
+        frame = self.native_four_hour_frame([
+            ("2025-11-28 09:30", 636.08, 646.25, 635.50, 645.30, 4_862_458),
+        ])
+
+        validation = server.validate_native_four_hour_history_frame(frame)
+
+        self.assertEqual(len(validation["frame"]), 1)
+        self.assertEqual(validation["normal_session_days"], 0)
+        self.assertEqual(validation["single_session_days"], 1)
+        self.assertEqual(float(validation["frame"].iloc[0]["Close"]), 645.30)
+        self.assertEqual(int(validation["frame"].iloc[0]["Volume"]), 4_862_458)
+
+    def test_native_four_hour_validation_rejects_afternoon_only_source_day(self):
+        frame = self.native_four_hour_frame([
+            ("2026-02-02 13:30", 713.01, 715.59, 706.22, 706.42, 4_070_334),
+        ])
+
+        validation = server.validate_native_four_hour_history_frame(frame)
+        payload = server.native_four_hour_history_payload(frame)
+
+        self.assertTrue(validation["frame"].empty)
+        self.assertEqual(validation["invalid_session_days"], 1)
+        self.assertFalse(payload["available"])
+        self.assertEqual(payload["unavailable_reason"], "invalid_source_data")
+
+    def test_native_four_hour_loader_uses_primary_provider_without_fallback(self):
+        frame = self.native_four_hour_frame([
+            ("2026-08-05 09:30", 600.53, 601.00, 580.12, 583.70, 7_624_816),
+        ])
+
+        class Instrument:
+            history_metadata = {"dataGranularity": "4h", "exchangeTimezoneName": "America/New_York"}
+
+            def __init__(self):
+                self.calls = []
+
+            def history(self, **kwargs):
+                self.calls.append(kwargs)
+                return frame
+
+        instrument = Instrument()
+        result, metadata, reason = server.load_yfinance_native_four_hour_history_frame(instrument, period="120d")
+
+        self.assertIs(result, frame)
+        self.assertEqual(reason, None)
+        self.assertEqual(metadata["dataGranularity"], "4h")
+        self.assertEqual(instrument.calls, [{"period": "120d", "interval": "4h", "auto_adjust": False, "prepost": False}])
+
+    def test_native_four_hour_failure_stays_unavailable(self):
+        payload = server.native_four_hour_history_payload(None, failure_reason="source_unavailable")
+
+        self.assertFalse(payload["available"])
+        self.assertEqual(payload["unavailable_reason"], "source_unavailable")
+        self.assertEqual(payload["timestamps"], [])
 
     def test_history_payload_only_drops_required_ohlcv_nulls(self):
         frame = pd.DataFrame(
