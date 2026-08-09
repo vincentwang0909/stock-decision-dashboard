@@ -14,7 +14,7 @@
   ]);
   const HORIZON_CONFIG = Object.freeze({
     short: {
-      label: "1-30 days",
+      label: "1–30 days",
       primary_intervals: ["1h", "4h"],
       supporting_intervals: ["1d"],
       ema: { "1h": [9, 20], "4h": [9, 20, 50] },
@@ -28,7 +28,7 @@
       fibonacci_horizon: "short_term",
     },
     medium: {
-      label: "1-6 months",
+      label: "1–6 months",
       primary_intervals: ["1d"],
       supporting_intervals: ["4h", "1w"],
       ema: { "1d": [20, 50], "4h": [20, 50] },
@@ -58,7 +58,6 @@
   });
 
   const finite = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
-  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   const mean = (values) => {
     const valid = values.filter(Number.isFinite);
     return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : null;
@@ -444,7 +443,10 @@
       const volume = period === "current" ? current : averages[`avg_${period}d`];
       return [`turnover_${period === "current" ? "current" : `${period}d_avg`}`, Number.isFinite(shareBase) && shareBase > 0 && Number.isFinite(volume) ? volume / shareBase * 100 : null];
     }));
-    const obv = obvFeature(bars, "1d", 20, calculatedAt);
+    const obvByLookback = Object.fromEntries([5, 20, 60].map((lookback) => [`d${lookback}`, obvFeature(bars, "1d", lookback, calculatedAt)]));
+    // One canonical OBV calculation family. The 20D view remains the primary
+    // value for compatibility, while 5D/60D are child trend context only.
+    const obv = obvByLookback.d20;
     const ma5vs20 = Number.isFinite(averages.avg_5d) && Number.isFinite(averages.avg_20d) && averages.avg_20d > 0 ? averages.avg_5d / averages.avg_20d : null;
     const ma20vs60 = Number.isFinite(averages.avg_20d) && Number.isFinite(averages.avg_60d) && averages.avg_60d > 0 ? averages.avg_20d / averages.avg_60d : null;
     const volumeTrend = ma5vs20 > 1.1 && ma20vs60 > 1 ? "expanding" : ma5vs20 < 0.9 && ma20vs60 < 1 ? "contracting" : "stable";
@@ -460,7 +462,16 @@
       moving_average_volume: averages,
       relative_volume: { ...rvol, displayed_rvol: rvol.rvol_20d, state: stateFromRvol(rvol.rvol_20d), thresholds: RVOL_THRESHOLDS.map(([limit, state]) => ({ less_than: Number.isFinite(limit) ? limit : null, state })) },
       turnover: { ...turnover, share_base: Number.isFinite(shareBase) ? shareBase : null, availability: Number.isFinite(shareBase) && shareBase > 0 ? "available" : "unavailable" },
-      obv,
+      obv: {
+        ...obv,
+        trends: Object.fromEntries(Object.entries(obvByLookback).map(([period, feature]) => [period, {
+          trend: feature.trend,
+          slope: feature.slope,
+          price_obv_confirmation: feature.price_obv_confirmation,
+          divergence: feature.divergence,
+        }])),
+        by_lookback: obvByLookback,
+      },
       trend: { volume_ma5_vs_ma20: ma5vs20, volume_ma20_vs_ma60: ma20vs60, volume_trend: volumeTrend, volume_expanding: volumeTrend === "expanding", volume_contracting: volumeTrend === "contracting", price_volume_confirmation: confirmation },
       accumulation_distribution: obv.availability === "available" ? obv.trend === "rising" ? "accumulation" : obv.trend === "falling" ? "distribution" : "balanced" : "unavailable",
     };
@@ -495,17 +506,6 @@
     };
   }
 
-  function gapFeatures(dailyBars, calculatedAt) {
-    if (dailyBars.length < 2) return { availability: "unavailable", previous_close: null, today_open: null, gap_pct: null };
-    const current = last(dailyBars); const previous = dailyBars[dailyBars.length - 2];
-    const gapPct = previous.close ? (current.open / previous.close - 1) * 100 : null;
-    const direction = gapPct == null ? "unavailable" : gapPct > 0.0001 ? "gap_up" : gapPct < -0.0001 ? "gap_down" : "flat";
-    const gapSize = Math.abs(current.open - previous.close);
-    const filled = direction === "gap_up" ? current.low <= previous.close : direction === "gap_down" ? current.high >= previous.close : true;
-    const fillDistance = direction === "gap_up" ? current.open - current.low : direction === "gap_down" ? current.high - current.open : 0;
-    return { availability: "available", source: "daily_ohlcv", interval: "1d", calculation_timestamp: calculatedAt, last_bar_timestamp: current.timestamp, previous_close: previous.close, today_open: current.open, gap_pct: gapPct, gap_direction: direction, gap_size_abs_pct: gapPct == null ? null : Math.abs(gapPct), gap_filled: filled, gap_fill_pct: gapSize > 0 ? clamp(fillDistance / gapSize * 100, 0, 100) : 100, gap_remains_open: !filled };
-  }
-
   function relativeStrengthFeatures(relativeStrength = {}, horizon) {
     const period = horizon === "short" ? 20 : horizon === "medium" ? 60 : 120;
     const spy = relativeStrength[`stock_vs_spy_${period}d`] ?? null;
@@ -514,7 +514,42 @@
     const longValue = relativeStrength.stock_vs_spy_120d ?? relativeStrength.stock_vs_qqq_120d ?? null;
     const state = Number.isFinite(shortValue) && Number.isFinite(longValue) ? shortValue > longValue + 1 ? "improving" : shortValue < longValue - 1 ? "deteriorating" : "stable" : "unavailable";
     const average = mean([spy, qqq]);
-    return { interval: "1d", period: `${period}d`, source: "stock_and_benchmark_daily_returns", availability: Number.isFinite(spy) || Number.isFinite(qqq) ? "available" : "unavailable", stock_return: relativeStrength[`stock_return_${period}d`] ?? null, relative_strength_vs_spy: spy, relative_strength_vs_qqq: qqq, relative_strength_average: average, state: average == null ? "unavailable" : average > 3 ? "outperforming" : average < -3 ? "underperforming" : "neutral", consistency_state: state, raw: relativeStrength };
+    const returns = {
+      stock_20d: relativeStrength.stock_return_20d ?? null,
+      stock_60d: relativeStrength.stock_return_60d ?? null,
+      stock_120d: relativeStrength.stock_return_120d ?? null,
+    };
+    const vsSpy = {
+      d20: relativeStrength.stock_vs_spy_20d ?? null,
+      d60: relativeStrength.stock_vs_spy_60d ?? null,
+      d120: relativeStrength.stock_vs_spy_120d ?? null,
+    };
+    const vsQqq = {
+      d20: relativeStrength.stock_vs_qqq_20d ?? null,
+      d60: relativeStrength.stock_vs_qqq_60d ?? null,
+      d120: relativeStrength.stock_vs_qqq_120d ?? null,
+    };
+    const primaryReturn = returns[`stock_${period}d`];
+    return {
+      interval: "1d",
+      period: `${period}d`,
+      primary_lookback_days: period,
+      source: "stock_and_benchmark_daily_returns",
+      availability: Number.isFinite(spy) || Number.isFinite(qqq) ? "available" : "unavailable",
+      returns,
+      vs_spy: vsSpy,
+      vs_qqq: vsQqq,
+      primary: { stock_return: primaryReturn, vs_spy: spy, vs_qqq: qqq, average },
+      consistency: { value: state, state },
+      // Compatibility aliases. These point to the canonical values above and
+      // never recalculate relative strength independently.
+      stock_return: primaryReturn,
+      relative_strength_vs_spy: spy,
+      relative_strength_vs_qqq: qqq,
+      relative_strength_average: average,
+      state: average == null ? "unavailable" : average > 3 ? "outperforming" : average < -3 ? "underperforming" : "neutral",
+      consistency_state: state,
+    };
   }
 
   function fibonacciFeatures(fibonacciStructure = {}) {
@@ -587,7 +622,7 @@
     };
   }
 
-  function buildTechnicalFeatures({ history = {}, currentPrice = null, relativeStrength = {}, fibonacciStructure = {}, shareBase = null, marketBreadth = null, calculatedAt = timestampNow() } = {}) {
+  function buildTechnicalFeatures({ history = {}, currentPrice = null, relativeStrength = {}, fibonacciStructure = {}, shareBase = null, calculatedAt = timestampNow() } = {}) {
     const daily = pickBars(history, "1d");
     const hourly = pickBars(history, "1h");
     const fourHour = aggregateFourHourBars(hourly);
@@ -596,9 +631,6 @@
     const normalizedPrice = Number.isFinite(currentPrice) ? currentPrice : last(daily)?.close ?? null;
     const fibonacci = fibonacciFeatures(fibonacciStructure);
     const volume = canonicalVolumeFeature(daily, finite(shareBase), calculatedAt);
-    const breadth = marketBreadth && marketBreadth.status === "available"
-      ? marketBreadth
-      : { status: "unavailable", availability: "unavailable", interval: "1d", source: null, reason: "Constituent-universe breadth is not supplied by the current market-data provider; no proxy is fabricated." };
     return {
       schema_version: SCHEMA_VERSION,
       calculated_at: calculatedAt,
@@ -610,9 +642,7 @@
       },
       volume,
       price_position: pricePositionFeatures(daily, normalizedPrice, calculatedAt, history.daily_history_metadata || {}),
-      gaps: gapFeatures(daily, calculatedAt),
       fibonacci,
-      market_breadth: breadth,
       data_quality: {
         daily_history: daily.length >= 252 ? "available" : daily.length ? "partial" : "unavailable",
         intraday_history: hourly.length ? "available" : "unavailable",
@@ -628,7 +658,8 @@
     const source = canonical?.horizons?.[horizon] || {};
     const maFeatures = Object.values(source.trend?.moving_averages || {});
     const rsiFeatures = Object.values(source.momentum?.rsi || {});
-    const macd = Object.values(source.momentum?.macd || {})[0] || {};
+    const primaryInterval = horizon === "short" ? "4h" : horizon === "medium" ? "1d" : "1w";
+    const macd = Object.values(source.momentum?.macd || {}).find((feature) => feature.interval === primaryInterval) || Object.values(source.momentum?.macd || {})[0] || {};
     const obv = Object.values(source.participation?.obv || {})[0] || {};
     const atr = Object.values(source.volatility?.atr || {})[0] || {};
     const bollinger = Object.values(source.volatility?.bollinger || {})[0] || {};
@@ -638,12 +669,25 @@
     const rs = source.relative_strength || {};
     const primaryRsi = rsiFeatures.find((feature) => feature.interval === (horizon === "long" ? "1w" : horizon === "medium" ? "1d" : "4h")) || rsiFeatures[0] || {};
     return {
-      ma: { relevant_mas: maFeatures.map((feature) => ({ period: feature.period, current_value: feature.value, distance_pct: feature.price_distance_pct, slope_direction: feature.slope?.state, price_above: feature.price_state === "above" })), ma_alignment: source.trend?.ma_structure?.alignment || "unavailable", trend_state: source.trend?.ma_structure?.alignment || "unavailable", compression_state: source.trend?.ma_structure?.compression_state || "unavailable", expansion_state: source.trend?.ma_structure?.expansion_state || false, fast_ma_slope: maFeatures[0]?.slope?.state || "unavailable", medium_ma_slope: maFeatures[1]?.slope?.state || "unavailable", slow_ma_slope: maFeatures[2]?.slope?.state || "unavailable", nearest_ma: null, extension_state: "unavailable", bullish_crosses: [], bearish_crosses: [], recent_reclaims: [], recent_breakdowns: [] },
+      ma: { relevant_mas: maFeatures.map((feature) => ({ period: feature.period, type: feature.indicator, interval: feature.interval, current_value: feature.value, distance_pct: feature.price_distance_pct, slope_direction: feature.slope?.state, price_above: feature.price_state === "above" })), ma_alignment: source.trend?.ma_structure?.alignment || "unavailable", trend_state: source.trend?.ma_structure?.alignment || "unavailable", compression_state: source.trend?.ma_structure?.compression_state || "unavailable", expansion_state: source.trend?.ma_structure?.expansion_state || false, fast_ma_slope: maFeatures[0]?.slope?.state || "unavailable", medium_ma_slope: maFeatures[1]?.slope?.state || "unavailable", slow_ma_slope: maFeatures[2]?.slope?.state || "unavailable", nearest_ma: null, extension_state: "unavailable", bullish_crosses: [], bearish_crosses: [], recent_reclaims: [], recent_breakdowns: [] },
       rsi: { values: Object.fromEntries(rsiFeatures.map((feature) => [`RSI${feature.period}`, feature.value])), primary_rsi: primaryRsi.value ?? null, state: primaryRsi.state || "unavailable", range_regime: primaryRsi.value >= 55 ? "bull_range" : primaryRsi.value <= 45 ? "bear_range" : "neutral_range", slope: primaryRsi.slope || {}, divergence: primaryRsi.divergence || "unavailable", failure_swing: "none" },
       macd: { macd_line: macd.macd_line ?? null, signal_line: macd.signal_line ?? null, histogram: macd.histogram ?? null, histogram_change_1: macd.histogram_change_1 ?? null, histogram_change_3: macd.histogram_change_3 ?? null, histogram_change_5: macd.histogram_change_5 ?? null, cross_state: macd.crossover_state || "unavailable", zero_line_state: macd.above_or_below_zero || "unavailable", momentum_state: macd.state || "unavailable" },
       obv: { trend: obv.trend || "unavailable", price_obv_divergence: obv.divergence || "unavailable", confirmation_state: obv.price_obv_confirmation || "unavailable", weekly_obv_trend: horizon === "long" ? obv.trend || "unavailable" : "not_primary" },
       relative_strength: { vs_spy: { [`stock_vs_spy_${horizon === "short" ? 20 : horizon === "medium" ? 60 : 120}d`]: rs.relative_strength_vs_spy ?? null }, vs_qqq: { [`stock_vs_qqq_${horizon === "short" ? 20 : horizon === "medium" ? 60 : 120}d`]: rs.relative_strength_vs_qqq ?? null }, regime: rs.state || "unavailable", consistency: rs.consistency_state || "unavailable", rs_slope: null, explanation: "Canonical relative-strength feature" },
-      volume: { latest_volume: volume.current_volume ?? null, averages: volume.moving_average_volume || {}, ratios: volume.relative_volume || {}, turnover_latest: volume.turnover?.turnover_current ?? null, turnover_average: volume.turnover?.turnover_20d_avg ?? null, turnover_period: 20, up_down_volume_ratio: null, weekly_volume_trend: horizon === "long" ? volume.trend?.volume_trend || "unavailable" : "not_primary", state: volume.relative_volume?.state || "unavailable", accumulation_distribution_balance: volume.accumulation_distribution || "unavailable" },
+      volume: {
+        latest_volume: volume.current_volume ?? null,
+        averages: volume.moving_average_volume || {},
+        ratios: {
+          ...(volume.relative_volume || {}),
+          volume_ratio_5d: volume.relative_volume?.rvol_5d ?? null,
+          volume_ratio_20d: volume.relative_volume?.rvol_20d ?? null,
+          volume_ratio_60d: volume.relative_volume?.rvol_60d ?? null,
+        },
+        volume_ratio_5d: volume.relative_volume?.rvol_5d ?? null,
+        volume_ratio_20d: volume.relative_volume?.rvol_20d ?? null,
+        volume_ratio_60d: volume.relative_volume?.rvol_60d ?? null,
+        turnover_latest: volume.turnover?.turnover_current ?? null, turnover_average: volume.turnover?.turnover_20d_avg ?? null, turnover_period: 20, up_down_volume_ratio: null, weekly_volume_trend: horizon === "long" ? volume.trend?.volume_trend || "unavailable" : "not_primary", state: volume.relative_volume?.state || "unavailable", accumulation_distribution_balance: volume.accumulation_distribution || "unavailable",
+      },
       atr: { ATR14: atr.value ?? null, ATR_pct: atr.atr_pct ?? null, ATR_percentile_60D: atr.atr_percentile_60 ?? null, ATR_percentile_120D: atr.atr_percentile_120 ?? null, ATR_percentile_250D: atr.atr_percentile_250 ?? null, volatility_state: atr.volatility_regime || "unavailable", volatility_trend: atr.expansion_state || "unavailable", range_efficiency: "unavailable", range_efficiency_ratio: null },
       momentum: { momentum_direction: macd.improving_or_deteriorating || "unavailable", momentum_strength: macd.state || "unavailable", consistency: rs.consistency_state || "unavailable" },
       adx: { adx: adx.adx ?? null, plus_di: adx.plus_di ?? null, minus_di: adx.minus_di ?? null, di_cross: "none", trend_strength: adx.trend_strength || "unavailable", direction: adx.directional_bias || "unavailable" },
@@ -667,7 +711,7 @@
     };
   }
 
-  const api = { SCHEMA_VERSION, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, toLegacyTechnicalStructure, _test: { normalizeBars, aggregateFourHourBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, pricePositionFeatures, gapFeatures, canonicalVolumeFeature } };
+  const api = { SCHEMA_VERSION, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, toLegacyTechnicalStructure, _test: { normalizeBars, aggregateFourHourBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, pricePositionFeatures, canonicalVolumeFeature } };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.CanonicalTechnicalFeatures = api;
 }(typeof globalThis !== "undefined" ? globalThis : window));

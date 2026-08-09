@@ -284,7 +284,7 @@ const SUPPORTED_ETF_METADATA = {
     daily_reset: false,
     sector: "technology_growth",
     factor_style: null,
-    suitable_horizons: ["1-30D", "30-90D", "90-180D"],
+    suitable_horizons: ["1–30 days", "1–6 months", "> 6 months"],
     benchmark_tickers: ["QQQ"],
     relative_strength_benchmarks: ["SPY", "SPMO"],
   },
@@ -296,7 +296,7 @@ const SUPPORTED_ETF_METADATA = {
     daily_reset: false,
     sector: "multi_sector",
     factor_style: "momentum",
-    suitable_horizons: ["1-30D", "30-90D", "90-180D"],
+    suitable_horizons: ["1–30 days", "1–6 months", "> 6 months"],
     benchmark_tickers: ["SPY"],
     relative_strength_benchmarks: ["SPY", "QQQ"],
   },
@@ -308,7 +308,7 @@ const SUPPORTED_ETF_METADATA = {
     daily_reset: true,
     sector: "technology_growth",
     factor_style: null,
-    suitable_horizons: ["1-10D", "10-30D", "30-60D risk review"],
+    suitable_horizons: ["1–30 days", "1–6 months", "> 6 months"],
     benchmark_tickers: ["QQQ"],
     underlying_proxy: "QQQ",
     relative_strength_benchmarks: ["QQQ", "SPY"],
@@ -321,7 +321,7 @@ const SUPPORTED_ETF_METADATA = {
     daily_reset: true,
     sector: "technology_growth",
     factor_style: null,
-    suitable_horizons: ["1-10D", "10-30D", "30-60D risk review"],
+    suitable_horizons: ["1–30 days", "1–6 months", "> 6 months"],
     benchmark_tickers: ["QQQ"],
     underlying_proxy: "QQQ",
     relative_strength_benchmarks: ["QQQ", "SPY"],
@@ -334,7 +334,7 @@ const SUPPORTED_ETF_METADATA = {
     daily_reset: true,
     sector: "semiconductor",
     factor_style: "semiconductor_beta",
-    suitable_horizons: ["1-10D", "10-30D", "30-60D risk review"],
+    suitable_horizons: ["1–30 days", "1–6 months", "> 6 months"],
     benchmark_tickers: ["SMH", "SOXX", "QQQ"],
     underlying_proxy: "SMH/SOXX",
     relative_strength_benchmarks: ["QQQ", "SPY", "SMH"],
@@ -347,7 +347,7 @@ const SUPPORTED_ETF_METADATA = {
     daily_reset: true,
     sector: "semiconductor",
     factor_style: "semiconductor_inverse",
-    suitable_horizons: ["1-10D", "10-30D", "30-60D risk review"],
+    suitable_horizons: ["1–30 days", "1–6 months", "> 6 months"],
     benchmark_tickers: ["SMH", "SOXX", "QQQ"],
     underlying_proxy: "SMH/SOXX",
     relative_strength_benchmarks: ["QQQ", "SPY", "SMH"],
@@ -401,9 +401,9 @@ const I18N = {
     removeStock: "Remove Stock",
     removeShort: "Remove",
     price: "Price",
-    longTermRating: "Mid / Long-Term Action (30-365D)",
-    currentActionShort: "Short-Term Action (1-30D)",
-    currentAction: "Short-Term Action (1-30D)",
+    longTermRating: "Medium / Long-Term Action",
+    currentActionShort: "Short-Term Action (1–30 days)",
+    currentAction: "Short-Term Action (1–30 days)",
     signalMix: "Action Score",
     heroGuide: "<strong>Action</strong> = current operation recommendation. <strong>Tactical</strong> = support / resistance timing. <strong>Action Score</strong> = how strongly the current action is supported.",
     action: "AI Suggestion",
@@ -596,7 +596,7 @@ const I18N = {
     aiRatingScaleShort: "Short",
     currentBuyCondition: "Buy Trigger",
     shortTermPlan: "Short-Term Action",
-    longTermPlan: "Mid / Long-Term Action (30-365D)",
+    longTermPlan: "Medium / Long-Term Action",
     shortSupport: "Short-Term Support",
     shortResistance: "Short-Term Resistance",
     longSupport: "Long-Term Support",
@@ -643,9 +643,9 @@ const I18N = {
     optionsCapped: "Options positioning is acting as resistance.",
     optionsNeutral: "Options positioning is mixed.",
     aiDecision: "AI Decision",
-    shortTerm: "Short-Term (1-30D)",
-    midTerm: "Mid-Term (30-90D)",
-    longTerm: "Long-Term (90-180D)",
+    shortTerm: "Short-Term (1–30 days)",
+    midTerm: "Mid-Term (1–6 months)",
+    longTerm: "Long-Term (> 6 months)",
     confidencePct: "Confidence",
     idealBuyZone: "Ideal Buy Zone",
     buyZoneReason: "Why this zone",
@@ -783,9 +783,9 @@ const I18N = {
     removeStock: "删除股票",
     removeShort: "移除",
     price: "价格",
-    longTermRating: "中长期操作（30-365天）",
-    currentActionShort: "短期操作（1-30天）",
-    currentAction: "短期操作（1-30天）",
+    longTermRating: "中长期操作",
+    currentActionShort: "短期操作（1–30天）",
+    currentAction: "短期操作（1–30天）",
     signalMix: "操作推荐评分",
     heroGuide: "<strong>推荐操作</strong> = 当前应该执行的动作。 <strong>短线战术</strong> = 支撑 / 压力位置判断。 <strong>操作推荐评分</strong> = 系统有多支持执行当前动作。",
     action: "推荐操作",
@@ -978,7 +978,7 @@ const I18N = {
     aiRatingScaleShort: "做空",
     currentBuyCondition: "买入触发条件",
     shortTermPlan: "短线操作",
-    longTermPlan: "中长期操作（30-365天）",
+    longTermPlan: "中长期操作",
     shortSupport: "短线支撑",
     shortResistance: "短线压力",
     longSupport: "中长线支撑",
@@ -1025,9 +1025,9 @@ const I18N = {
     optionsCapped: "期权持仓结构偏压制。",
     optionsNeutral: "期权持仓结构中性。",
     aiDecision: "AI决策",
-    shortTerm: "短期（1-30天）",
-    midTerm: "中期（30-90天）",
-    longTerm: "长期（90-180天）",
+    shortTerm: "短期（1–30天）",
+    midTerm: "中期（1–6个月）",
+    longTerm: "长期（> 6个月）",
     confidencePct: "置信度",
     idealBuyZone: "理想买入区间",
     buyZoneReason: "区间依据",
@@ -8152,9 +8152,9 @@ function buildHorizonForecasts({ row, companyProfile, technical, fundamental, ma
   const weekly = aggregateWeeklyBars(forecastHistory);
   const result = {};
   const horizonMeta = {
-    short_term: { horizon: "1-30 days" },
-    mid_term: { horizon: "30-90 days" },
-    long_term: { horizon: "90-180 days" },
+    short_term: { horizon: "1–30 days" },
+    mid_term: { horizon: "1–6 months" },
+    long_term: { horizon: "> 6 months" },
   };
   Object.entries(horizonMeta).forEach(([horizonKey, meta]) => {
     const baseWeights = STOCK_HORIZON_FORECAST_WEIGHTS[horizonKey] || {};
@@ -10972,6 +10972,11 @@ function estimateRangeReachability(row, range, horizon, side = "buy", companyPro
     low: currentLanguage === "zh" ? "较低" : "low",
     unrealistic: currentLanguage === "zh" ? "偏远" : "unrealistic",
   }[status];
+  const horizonWindow = horizon === "short"
+    ? (currentLanguage === "zh" ? "短期窗口（1–30天）" : "short-term window (1–30 days)")
+    : horizon === "mid"
+      ? (currentLanguage === "zh" ? "中期窗口（1–6个月）" : "medium-term window (1–6 months)")
+      : (currentLanguage === "zh" ? "长期窗口（> 6个月）" : "long-term window (> 6 months)");
   return {
     horizon_days: thresholds.days,
     estimated_touch_probability: estimatedProbability,
@@ -10979,8 +10984,8 @@ function estimateRangeReachability(row, range, horizon, side = "buy", companyPro
     required_atr_move: Number(requiredAtrMove.toFixed(1)),
     status,
     explanation: currentLanguage === "zh"
-      ? `${thresholds.days} 天窗口内需要约 ${requiredAtrMove.toFixed(1)} ATR 的波动，可达性${statusText}。这是规则型估计，不是精确概率。`
-      : `This range requires roughly ${requiredAtrMove.toFixed(1)} ATR within ${thresholds.days} days, so reachability is ${statusText}. This is a rule-based estimate, not a precise probability.`,
+      ? `${horizonWindow}内需要约 ${requiredAtrMove.toFixed(1)} ATR 的波动，可达性${statusText}。这是规则型估计，不是精确概率。`
+      : `This range requires roughly ${requiredAtrMove.toFixed(1)} ATR within the ${horizonWindow}, so reachability is ${statusText}. This is a rule-based estimate, not a precise probability.`,
   };
 }
 
@@ -12203,7 +12208,7 @@ function buildVolumeConfirmation(row, companyProfile = null, supportResistance =
     down_volume_60d: upDown60d.downVolume,
     up_down_volume_ratio_60d: upDown60d.ratio,
     short_term_volume_signal: makePeriodSignal(
-      "1-30 days",
+      "1–30 days",
       shortScore,
       relativeVolume5d ?? relativeVolume20d,
       turnoverRate,
@@ -12212,7 +12217,7 @@ function buildVolumeConfirmation(row, companyProfile = null, supportResistance =
       currentLanguage === "zh" ? "短期更重视当日量价、5/20日量比、换手率和 OBV。" : "Short term emphasizes daily price/volume, 5/20D relative volume, turnover, and OBV.",
     ),
     mid_term_volume_signal: makePeriodSignal(
-      "1-3 months",
+      "1–6 months",
       midScore,
       relativeVolume20d ?? relativeVolume60d,
       avgTurnover20d,
@@ -12221,7 +12226,7 @@ function buildVolumeConfirmation(row, companyProfile = null, supportResistance =
       currentLanguage === "zh" ? "中期更重视20/60日量能、平均换手率和上涨/下跌成交量。" : "Mid term emphasizes 20/60D participation, average turnover, and up/down volume.",
     ),
     long_term_volume_signal: makePeriodSignal(
-      "3-6 months",
+      "> 6 months",
       longScore,
       relativeVolume60d,
       avgTurnover60d,
@@ -14704,9 +14709,9 @@ function horizonKeyToShortKey(horizon) {
 }
 
 function horizonLabel(horizon) {
-  if (horizon === "short_term") return "1-30 days";
-  if (horizon === "mid_term") return "30-90 days";
-  return "90-180 days";
+  if (horizon === "short_term") return "1–30 days";
+  if (horizon === "mid_term") return "1–6 months";
+  return "> 6 months";
 }
 
 function horizonShortName(horizon) {
@@ -19170,7 +19175,7 @@ function etfHorizonMeta(etfProfile, horizonKey) {
   if (!leveraged) {
     return {
       label: horizonKey === "short_term" ? (currentLanguage === "zh" ? "短期" : "Short-Term") : horizonKey === "mid_term" ? (currentLanguage === "zh" ? "中期" : "Mid-Term") : (currentLanguage === "zh" ? "长期" : "Long-Term"),
-      horizon: horizonKey === "short_term" ? "1-30 days" : horizonKey === "mid_term" ? "30-90 days" : "90-180 days",
+      horizon: horizonKey === "short_term" ? "1–30 days" : horizonKey === "mid_term" ? "1–6 months" : "> 6 months",
       ui_label: horizonKey === "short_term" ? "短期" : horizonKey === "mid_term" ? "中期" : "长期",
     };
   }
@@ -19180,7 +19185,7 @@ function etfHorizonMeta(etfProfile, horizonKey) {
   if (horizonKey === "mid_term") {
     return { label: currentLanguage === "zh" ? "波段持有" : "Swing", horizon: "10-30 trading days", ui_label: "波段持有" };
   }
-  return { label: currentLanguage === "zh" ? "延长持有风险" : "Extended-Holding Risk", horizon: "30-60 day risk review", ui_label: "延长持有风险" };
+  return { label: currentLanguage === "zh" ? "延长持有风险" : "Extended-Holding Risk", horizon: currentLanguage === "zh" ? "延长持有风险复核" : "Extended-holding risk review", ui_label: "延长持有风险" };
 }
 
 function buildETFUnderlyingContext(row, etfProfile, marketContext = {}, trendEfficiency = null, relativeStrength = {}) {
@@ -19981,7 +19986,7 @@ function buildETFPlansAndActions({ row, etfProfile, supportResistance, technical
     applies_to: "ETF",
     triggers: leveraged
       ? ["underlying trend invalidation", "time stop", "volatility drag spike", "gap risk"]
-      : ["benchmark trend invalidation", "market breadth deterioration", "liquidity / tracking issue"],
+      : ["benchmark trend invalidation", "market-condition deterioration", "liquidity / tracking issue"],
     note: currentLanguage === "zh" ? "ETF 不使用公司基本面止损。" : "ETF does not use company-specific fundamental stops.",
   };
   actionPlan.entry_action = entryAction;
@@ -20790,7 +20795,7 @@ function buildHorizonDecision(row, horizon, companyProfile, modules, decisionCon
   }
 
   return {
-    horizon: horizon === "short" ? "1-30 days" : horizon === "mid" ? "30-90 days" : "90-180 days",
+    horizon: horizon === "short" ? "1–30 days" : horizon === "mid" ? "1–6 months" : "> 6 months",
     score,
     rating,
     confidence,
@@ -21459,52 +21464,6 @@ function renderDetailModal(row) {
 	      ? items.map((item) => `<div class="decision-bullet ${tone}">${tone === "warning" ? "⚠" : tone === "positive" ? "✓" : "•"} ${localizedDashboardText(item)}</div>`).join("")
 	      : `<div class="decision-bullet muted">${t("dataUnavailable")}</div>`
 	  );
-	  const renderGapDownRiskCard = (gapRisk) => {
-	    if (!gapRisk) return "";
-	    const follow = gapRisk.follow_through_confirmation || {};
-	    const recent = gapRisk.recent_event_shock || {};
-	    const postEarnings = gapRisk.post_earnings_drift_state || {};
-	    return `
-	      <section class="detail-section-card">
-	        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "急跌风险" : "Gap-Down Risk"}</h3></div>
-	        <div class="decision-summary-grid">
-	          <div class="decision-list-card">
-	            <div class="decision-list-title">${currentLanguage === "zh" ? "急跌类型" : "Classification"}</div>
-	            <div class="detail-line-label">${localizedDashboardText(gapRisk.classification || t("dataUnavailable"))}</div>
-	            <div class="detail-line-note">${currentLanguage === "zh" ? "风险分" : "Risk Score"}: ${gapRisk.risk_score ?? "—"}/100 · ${currentLanguage === "zh" ? "单日涨跌" : "Day Change"}: ${formatChangePercent(gapRisk.day_change_pct)}</div>
-	            <div class="detail-line-note">${localizedDashboardText(gapRisk.explanation || "")}</div>
-	          </div>
-	          <div class="decision-list-card">
-	            <div class="decision-list-title">${currentLanguage === "zh" ? "确认要求" : "Follow-Through"}</div>
-	            <div class="detail-line-note">${currentLanguage === "zh" ? "确认状态" : "Follow-Through Status"}: ${localizedDashboardText(follow.status || "none")} · ${currentLanguage === "zh" ? "需要确认" : "Required"}: ${follow.required ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")} · ${currentLanguage === "zh" ? "已确认" : "Confirmed"}: ${follow.confirmed ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")}</div>
-	            <div class="detail-line-note">${currentLanguage === "zh" ? "支撑跌破" : "Support Break"}: ${gapRisk.broke_support ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")} · MA20: ${gapRisk.broke_ma20 ? (currentLanguage === "zh" ? "跌破" : "Broken") : "—"} · MA50: ${gapRisk.broke_ma50 ? (currentLanguage === "zh" ? "跌破" : "Broken") : "—"}</div>
-	            ${follow.reason ? `<div class="detail-line-note">${localizedDashboardText(follow.reason)}</div>` : ""}
-	          </div>
-	          ${recent.event_date ? `
-	            <div class="decision-list-card">
-	              <div class="decision-list-title">${currentLanguage === "zh" ? "近期事件冲击" : "Recent Event Shock"}</div>
-	              <div class="detail-line-label">${localizedDashboardText(recent.event_type || t("dataUnavailable"))}</div>
-	              <div class="detail-line-note">${currentLanguage === "zh" ? "事件日期" : "Event Date"}: ${recent.event_date} · ${currentLanguage === "zh" ? "距今交易日" : "Trading Days Since"}: ${recent.trading_days_since_event ?? "—"}</div>
-	              <div class="detail-line-note">${currentLanguage === "zh" ? "事件状态" : "Event State"}: ${localizedDashboardText(recent.recent_event_state || recent.risk_state || t("dataUnavailable"))} · ${currentLanguage === "zh" ? "止稳分" : "Stabilization"}: ${recent.stabilization_score ?? "—"}/100</div>
-	              <div class="detail-line-note">${currentLanguage === "zh" ? "事件日跌幅" : "Event-Day Drop"}: ${formatChangePercent(recent.event_day_change_pct)} · ${currentLanguage === "zh" ? "ATR倍数" : "ATR Move"}: ${recent.event_day_drop_in_atr ?? "—"}</div>
-	              ${recent.follow_through_confirmation?.missing_conditions?.length ? `<div class="detail-line-note">${currentLanguage === "zh" ? "缺失确认" : "Missing Confirmation"}: ${recent.follow_through_confirmation.missing_conditions.map(localizedDashboardText).join(", ")}</div>` : ""}
-	            </div>
-	          ` : ""}
-	          ${postEarnings.earnings_date ? `
-	            <div class="decision-list-card">
-	              <div class="decision-list-title">${currentLanguage === "zh" ? "财报后漂移状态" : "Post-Earnings Drift"}</div>
-	              <div class="detail-line-label">${localizedDashboardText(postEarnings.state || t("dataUnavailable"))}</div>
-	              <div class="detail-line-note">${currentLanguage === "zh" ? "财报日" : "Earnings Date"}: ${postEarnings.earnings_date || "—"} · ${currentLanguage === "zh" ? "事件交易日" : "Event Trading Date"}: ${postEarnings.event_trading_date || "—"}</div>
-	              <div class="detail-line-note">${currentLanguage === "zh" ? "距事件交易日" : "Trading Days Since"}: ${postEarnings.trading_days_since_event ?? "—"} · ${currentLanguage === "zh" ? "风险分" : "Risk Score"}: ${postEarnings.risk_score ?? "—"}/100</div>
-	              <div class="detail-line-note">${currentLanguage === "zh" ? "收复事件低/收盘" : "Event Low/Close Reclaimed"}: ${postEarnings.event_low_reclaimed ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")} / ${postEarnings.event_close_reclaimed ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")}</div>
-	              <div class="detail-line-note">${currentLanguage === "zh" ? "OBV / 相对强度" : "OBV / Relative Strength"}: ${localizedDashboardText(postEarnings.obv_pattern || "—")} / ${localizedDashboardText(postEarnings.relative_strength_pattern || "—")}</div>
-	              <div class="detail-line-note">${localizedDashboardText(postEarnings.explanation || "")}</div>
-	            </div>
-	          ` : ""}
-	        </div>
-	      </section>
-	    `;
-	  };
 	  const renderETFDecisionCard = (etfDecision) => {
 	    if (!etfDecision?.etf_profile) return "";
 	    const etfProfile = etfDecision.etf_profile;
@@ -21512,7 +21471,6 @@ function renderDetailModal(row) {
 	    const trendEfficiency = etfDecision.trend_efficiency || {};
 	    const benchmark = etfDecision.benchmark_context || {};
 	    const underlying = etfDecision.underlying_context || {};
-	    const breadth = etfDecision.breadth || {};
 	    const shortModules = etfDecision.primary_action?.short_term?.opportunity_scores || {};
 	    return `
 	      <section class="detail-section-card">
@@ -21535,7 +21493,6 @@ function renderDetailModal(row) {
 	            <div class="decision-list-title">${currentLanguage === "zh" ? "持有与仓位" : "Holding & Position"}</div>
 	            <div class="detail-line-note">${currentLanguage === "zh" ? "建议持有" : "Recommended Holding"}: ${localizedDashboardText(etfDecision.recommended_holding_period || t("dataUnavailable"))}</div>
 	            <div class="detail-line-note">${currentLanguage === "zh" ? "最大建议仓位" : "Suggested Max Position"}: ${etfDecision.suggested_max_position_pct || t("dataUnavailable")}</div>
-	            <div class="detail-line-note">${currentLanguage === "zh" ? "Breadth" : "Breadth"}: ${localizedDashboardText(breadth.status || t("dataUnavailable"))} · ${currentLanguage === "zh" ? "用于权重" : "Weight"}: ${shortModules.used_weights?.breadth ?? 0}</div>
 	            <div class="detail-line-note">${currentLanguage === "zh" ? "缺失模块" : "Missing Modules"}: ${(shortModules.missing_modules || []).join(", ") || t("dataUnavailable")}</div>
 	            ${etfDecision.time_stop ? `<div class="detail-line-note">${currentLanguage === "zh" ? "Time Stop" : "Time Stop"}: ${etfDecision.time_stop.max_holding_days ?? "—"} ${currentLanguage === "zh" ? "天，" : "days, "}${currentLanguage === "zh" ? "每" : "reassess every"} ${etfDecision.time_stop.reassessment_days ?? "—"} ${currentLanguage === "zh" ? "天复核" : "days"}</div>` : ""}
 	          </div>
@@ -22049,9 +22006,9 @@ function renderDetailModal(row) {
   const summaryPanel = `
     <section class="detail-tab-section">
       <div class="decision-core-grid">
-        ${renderHorizonCard(`${decision.action_plan?.short_term?.horizon_label || t("shortTerm")} · ${decision.action_plan?.short_term?.horizon || "1-30D"}`, decision.action_plan?.short_term || ai.short_term)}
-        ${renderHorizonCard(`${decision.action_plan?.mid_term?.horizon_label || t("midTerm")} · ${decision.action_plan?.mid_term?.horizon || "30-90D"}`, decision.action_plan?.mid_term || ai.mid_term)}
-        ${renderHorizonCard(`${decision.action_plan?.long_term?.horizon_label || t("longTerm")} · ${decision.action_plan?.long_term?.horizon || "90-180D"}`, decision.action_plan?.long_term || ai.long_term)}
+        ${renderHorizonCard(`${decision.action_plan?.short_term?.horizon_label || t("shortTerm")} · ${decision.action_plan?.short_term?.horizon || "1–30 days"}`, decision.action_plan?.short_term || ai.short_term)}
+        ${renderHorizonCard(`${decision.action_plan?.mid_term?.horizon_label || t("midTerm")} · ${decision.action_plan?.mid_term?.horizon || "1–6 months"}`, decision.action_plan?.mid_term || ai.mid_term)}
+        ${renderHorizonCard(`${decision.action_plan?.long_term?.horizon_label || t("longTerm")} · ${decision.action_plan?.long_term?.horizon || "> 6 months"}`, decision.action_plan?.long_term || ai.long_term)}
       </div>
       <section class="detail-card detail-overview-card">
         <div class="detail-overview-grid">
@@ -22082,7 +22039,6 @@ function renderDetailModal(row) {
 	          </div>
 	        </div>
 	      </section>
-	      ${renderGapDownRiskCard(decision.trade_context?.gap_down_risk)}
 	      ${renderETFDecisionCard(decision.etf_decision)}
 	      <section class="detail-section-card">
         <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "推荐买入计划" : "Recommended Buy Plan"}</h3></div>
@@ -22304,86 +22260,216 @@ function renderDetailModal(row) {
       </div>
     </section>
   `;
-  const renderTechnicalStructureCard = (label, structure) => {
-    if (!structure) return `<article class="decision-list-card"><div class="decision-list-title">${label}</div><div class="detail-line-note">${t("dataUnavailable")}</div></article>`;
-    const ma = structure.ma || {}; const rsi = structure.rsi || {}; const macd = structure.macd || {}; const obv = structure.obv || {}; const rs = structure.relative_strength || {}; const volume = structure.volume || {}; const atr = structure.atr || {}; const momentum = structure.momentum || {}; const adx = structure.adx || {}; const bollinger = structure.bollinger || {}; const kdj = structure.kdj || {};
-    const rsiValues = Object.entries(rsi.values || {}).filter(([, value]) => Number.isFinite(value)).map(([key, value]) => `${key} ${formatOneDecimal(value)}`).join(" / ") || "—";
-    const maValues = (ma.relevant_mas || []).map((item) => `MA${item.period} ${formatCurrency(item.current_value, currencyCode)}`).join(" / ") || "—";
-    const rsValue = Object.values(rs.vs_spy || {}).find(Number.isFinite) ?? Object.values(rs.vs_qqq || {}).find(Number.isFinite);
+const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number) => `${number > 0 ? "+" : ""}${Number(number).toFixed(digits)}`);
+  const displayFeatureState = (value) => value ? localizedDashboardText(value) : t("dataUnavailable");
+  const renderCanonicalIndicatorCard = ({ title, meta, state, rows = [], details = [] }) => `
+    <article class="decision-list-card">
+      <div class="decision-list-title">${title}</div>
+      <div class="detail-line-label">${displayFeatureState(state)}</div>
+      <div class="detail-line-note">${meta}</div>
+      <div class="detail-line-list">${renderMetricRows(rows)}</div>
+      ${details.length ? `<details class="detail-disclosure"><summary>${currentLanguage === "zh" ? "展开详情" : "Show details"}</summary><div class="detail-line-list">${renderMetricRows(details)}</div></details>` : ""}
+    </article>
+  `;
+
+  const renderCanonicalHorizonCard = (label, horizonKey, horizon) => {
+    if (!horizon) return `<section class="detail-section-card"><div class="detail-section-head"><h3>${label}</h3></div><div class="detail-line-note">${t("dataUnavailable")}</div></section>`;
+    const movingAverages = Object.values(horizon.trend?.moving_averages || {});
+    const rsiFeatures = Object.values(horizon.momentum?.rsi || {});
+    const primaryInterval = horizonKey === "short" ? "4h" : horizonKey === "medium" ? "1d" : "1w";
+    const macd = horizon.momentum?.macd?.[`macd_${primaryInterval}`] || Object.values(horizon.momentum?.macd || {})[0] || {};
+    const atr = horizon.volatility?.atr?.[`atr_14_${primaryInterval}`] || Object.values(horizon.volatility?.atr || {})[0] || {};
+    const adx = horizon.trend?.adx?.[`adx_14_${primaryInterval}`] || Object.values(horizon.trend?.adx || {})[0] || {};
+    const bollinger = horizon.volatility?.bollinger?.[`bollinger_${primaryInterval}`] || Object.values(horizon.volatility?.bollinger || {})[0] || {};
+    const kdj = horizon.momentum?.kdj?.[`kdj_9_${primaryInterval}`] || Object.values(horizon.momentum?.kdj || {})[0] || {};
+    const primaryRsi = rsiFeatures.find((feature) => feature.interval === primaryInterval && feature.period === (horizonKey === "short" ? 6 : horizonKey === "medium" ? 14 : 21)) || rsiFeatures[0] || {};
+    const maStructure = horizon.trend?.ma_structure || {};
+    const rs = horizon.relative_strength || {};
+    const horizonDescription = horizonKey === "short"
+      ? (currentLanguage === "zh" ? "1–30天" : "1–30 days")
+      : horizonKey === "medium"
+        ? (currentLanguage === "zh" ? "1–6个月" : "1–6 months")
+        : (currentLanguage === "zh" ? "> 6个月" : "> 6 months");
+    const maRows = movingAverages.map((feature) => ({
+      label: `${String(feature.interval || "").toUpperCase()} ${String(feature.indicator || "ma").toUpperCase()}${feature.period ?? ""}`,
+      value: displayValue(feature.value, (value) => formatCurrency(value, currencyCode)),
+      note: `${displayFeatureState(feature.price_state)} · ${displayFeatureState(feature.slope?.state)}`,
+    }));
+    const rsiRows = rsiFeatures.map((feature) => ({
+      label: `${String(feature.interval || "").toUpperCase()} RSI${feature.period ?? ""}`,
+      value: displayValue(feature.value, (value) => formatOneDecimal(value)),
+      note: displayFeatureState(feature.state),
+    }));
+    const macdRows = [
+      { label: "MACD", value: formatTechnicalNumber(macd.macd_line), note: currentLanguage === "zh" ? "快线" : "Line" },
+      { label: currentLanguage === "zh" ? "Signal" : "Signal", value: formatTechnicalNumber(macd.signal_line), note: currentLanguage === "zh" ? "信号线" : "Signal line" },
+      { label: currentLanguage === "zh" ? "柱体" : "Histogram", value: formatTechnicalNumber(macd.histogram) },
+    ];
+    const cards = [
+      renderCanonicalIndicatorCard({
+        title: currentLanguage === "zh" ? "均线 / EMA / SMA" : "Moving Averages",
+        meta: horizonKey === "short" ? "1H / 4H · EMA9 / EMA20 / EMA50" : horizonKey === "medium" ? "1D / 4H · EMA20 / EMA50 · 1D SMA100" : "1D · SMA50 / SMA100 / SMA200",
+        state: maStructure.alignment,
+        rows: maRows.slice(0, 3),
+        details: [...maRows.slice(3), { label: currentLanguage === "zh" ? "排列" : "Alignment", value: displayFeatureState(maStructure.alignment) }, { label: currentLanguage === "zh" ? "压缩 / 扩张" : "Compression", value: displayFeatureState(maStructure.compression_state) }],
+      }),
+      renderCanonicalIndicatorCard({
+        title: "RSI",
+        meta: horizonKey === "short" ? "1H / 4H · RSI6 (4H RSI14 context)" : horizonKey === "medium" ? "1D · RSI14 (4H RSI14 context)" : "1W · RSI21 (1D RSI21 context)",
+        state: primaryRsi.state,
+        rows: rsiRows.slice(0, 2),
+        details: [...rsiRows.slice(2), { label: currentLanguage === "zh" ? "斜率" : "Slope", value: displayFeatureState(primaryRsi.slope?.state) }, { label: currentLanguage === "zh" ? "背离" : "Divergence", value: displayFeatureState(primaryRsi.divergence) }],
+      }),
+      renderCanonicalIndicatorCard({
+        title: "MACD",
+        meta: `${String(macd.interval || primaryInterval).toUpperCase()} · MACD ${macd.period || "12/26/9"}`,
+        state: macd.state,
+        rows: macdRows,
+        details: [
+          { label: currentLanguage === "zh" ? "1 bar 变化" : "1-bar Δ", value: formatTechnicalNumber(macd.histogram_change_1) },
+          { label: currentLanguage === "zh" ? "3 bar 变化" : "3-bar Δ", value: formatTechnicalNumber(macd.histogram_change_3) },
+          { label: currentLanguage === "zh" ? "5 bar 变化" : "5-bar Δ", value: formatTechnicalNumber(macd.histogram_change_5) },
+          { label: currentLanguage === "zh" ? "零轴" : "Zero line", value: displayFeatureState(macd.above_or_below_zero) },
+          { label: currentLanguage === "zh" ? "趋势" : "Trend", value: displayFeatureState(macd.improving_or_deteriorating) },
+          { label: currentLanguage === "zh" ? "交叉" : "Crossover", value: displayFeatureState(macd.crossover_state) },
+        ],
+      }),
+      renderCanonicalIndicatorCard({
+        title: "ATR%",
+        meta: `${String(atr.interval || primaryInterval).toUpperCase()} · ATR${atr.period || 14}%`,
+        state: atr.volatility_regime,
+        rows: [
+          { label: "ATR%", value: displayValue(atr.atr_pct, (value) => formatPercentValue(value)), note: displayFeatureState(atr.expansion_state) },
+          { label: currentLanguage === "zh" ? "原始 ATR" : "Raw ATR", value: displayValue(atr.value, (value) => formatCurrency(value, currencyCode)) },
+        ],
+        details: [
+          { label: currentLanguage === "zh" ? "ATR 百分位" : "ATR Percentile", value: displayValue(atr.atr_percentile_pct, (value) => formatOneDecimal(value)) },
+          { label: currentLanguage === "zh" ? "波动状态" : "Volatility regime", value: displayFeatureState(atr.volatility_regime) },
+          { label: currentLanguage === "zh" ? "变化" : "Trend", value: displayFeatureState(atr.expansion_state) },
+        ],
+      }),
+      renderCanonicalIndicatorCard({
+        title: "ADX",
+        meta: `${String(adx.interval || primaryInterval).toUpperCase()} · ADX${adx.period || 14}`,
+        state: adx.trend_strength,
+        rows: [
+          { label: "ADX", value: displayValue(adx.adx, (value) => formatOneDecimal(value)) },
+          { label: "+DI / -DI", value: `${displayValue(adx.plus_di, (value) => formatOneDecimal(value))} / ${displayValue(adx.minus_di, (value) => formatOneDecimal(value))}`, note: displayFeatureState(adx.directional_bias) },
+        ],
+        details: [{ label: currentLanguage === "zh" ? "斜率" : "Slope", value: displayFeatureState(adx.slope?.state) }],
+      }),
+      renderCanonicalIndicatorCard({
+        title: currentLanguage === "zh" ? "布林带" : "Bollinger",
+        meta: `${String(bollinger.interval || primaryInterval).toUpperCase()} · BB${bollinger.period || 20}`,
+        state: bollinger.squeeze_state,
+        rows: [
+          { label: "%B", value: displayValue(bollinger.percent_b, (value) => formatOneDecimal(value)), note: displayFeatureState(bollinger.price_position) },
+          { label: currentLanguage === "zh" ? "带宽" : "Bandwidth", value: displayValue(bollinger.bandwidth_pct, (value) => formatPercentValue(value)) },
+        ],
+        details: [{ label: currentLanguage === "zh" ? "带宽百分位" : "Bandwidth percentile", value: displayValue(bollinger.bandwidth_percentile, (value) => formatOneDecimal(value)) }],
+      }),
+      horizonKey === "long" ? "" : renderCanonicalIndicatorCard({
+        title: "KDJ",
+        meta: `${String(kdj.interval || primaryInterval).toUpperCase()} · KDJ9`,
+        state: kdj.crossover_state,
+        rows: [
+          { label: "K / D / J", value: `${displayValue(kdj.k, (value) => formatOneDecimal(value))} / ${displayValue(kdj.d, (value) => formatOneDecimal(value))} / ${displayValue(kdj.j, (value) => formatOneDecimal(value))}` },
+        ],
+        details: [
+          { label: currentLanguage === "zh" ? "方向" : "Direction", value: displayFeatureState(kdj.direction) },
+          { label: currentLanguage === "zh" ? "K / D / J 斜率" : "K / D / J slope", value: `${displayFeatureState(kdj.k_slope?.state)} / ${displayFeatureState(kdj.d_slope?.state)} / ${displayFeatureState(kdj.j_slope?.state)}` },
+        ],
+      }),
+      renderCanonicalIndicatorCard({
+        title: currentLanguage === "zh" ? "相对强度" : "Relative Strength",
+        meta: `1D · ${rs.primary_lookback_days || (horizonKey === "short" ? 20 : horizonKey === "medium" ? 60 : 120)}D primary`,
+        state: rs.state,
+        rows: [
+          { label: currentLanguage === "zh" ? "本股回报" : "Stock return", value: displayValue(rs.primary?.stock_return ?? rs.stock_return, (value) => formatChangePercent(value)) },
+          { label: "vs SPY", value: displayValue(rs.primary?.vs_spy ?? rs.relative_strength_vs_spy, (value) => formatChangePercent(value)) },
+          { label: "vs QQQ", value: displayValue(rs.primary?.vs_qqq ?? rs.relative_strength_vs_qqq, (value) => formatChangePercent(value)) },
+        ],
+        details: [
+          { label: currentLanguage === "zh" ? "20 / 60 / 120日回报" : "20 / 60 / 120D return", value: `${displayValue(rs.returns?.stock_20d, (value) => formatChangePercent(value))} / ${displayValue(rs.returns?.stock_60d, (value) => formatChangePercent(value))} / ${displayValue(rs.returns?.stock_120d, (value) => formatChangePercent(value))}` },
+          { label: currentLanguage === "zh" ? "SPY 20 / 60 / 120日" : "SPY 20 / 60 / 120D", value: `${displayValue(rs.vs_spy?.d20, (value) => formatChangePercent(value))} / ${displayValue(rs.vs_spy?.d60, (value) => formatChangePercent(value))} / ${displayValue(rs.vs_spy?.d120, (value) => formatChangePercent(value))}` },
+          { label: currentLanguage === "zh" ? "QQQ 20 / 60 / 120日" : "QQQ 20 / 60 / 120D", value: `${displayValue(rs.vs_qqq?.d20, (value) => formatChangePercent(value))} / ${displayValue(rs.vs_qqq?.d60, (value) => formatChangePercent(value))} / ${displayValue(rs.vs_qqq?.d120, (value) => formatChangePercent(value))}` },
+          { label: currentLanguage === "zh" ? "一致性" : "Consistency", value: displayFeatureState(rs.consistency?.state || rs.consistency_state) },
+        ],
+      }),
+    ].filter(Boolean).join("");
     return `
-      <article class="decision-list-card">
-        <div class="decision-list-title">${label}</div>
-        <div class="detail-line-note">${currentLanguage === "zh" ? "数据窗口" : "Data Window"}: ${structure.data_window} · ${currentLanguage === "zh" ? "质量" : "Quality"}: ${structure.data_quality}</div>
-        <div class="detail-line-list">${renderMetricRows([
-          { label: "MA", value: ma.ma_alignment || "—", note: maValues },
-          { label: "RSI", value: rsi.state || "—", note: rsiValues },
-          { label: "MACD", value: macd.momentum_state || "—", note: Number.isFinite(macd.histogram) ? `${currentLanguage === "zh" ? "柱体" : "Histogram"} ${formatSignedCurrency(macd.histogram, currencyCode)}` : "" },
-          { label: "OBV", value: obv.trend || "—", note: obv.price_obv_divergence || "" },
-          { label: currentLanguage === "zh" ? "相对强度" : "Relative Strength", value: rs.regime || "—", note: Number.isFinite(rsValue) ? formatChangePercent(rsValue) : rs.explanation || "" },
-          { label: currentLanguage === "zh" ? "量能" : "Volume", value: volume.state || "—", note: volume.accumulation_distribution_balance || "" },
-          { label: "ATR", value: atr.volatility_state || "—", note: Number.isFinite(atr.ATR_pct) ? `${formatOneDecimal(atr.ATR_pct)}% · ${atr.volatility_trend || "—"}` : "" },
-          { label: currentLanguage === "zh" ? "动能" : "Momentum", value: momentum.momentum_direction || "—", note: momentum.momentum_strength || "" },
-          { label: "ADX", value: adx.trend_strength || "—", note: adx.direction || "" },
-          { label: currentLanguage === "zh" ? "布林带" : "Bollinger", value: bollinger.band_walk_state || "—", note: bollinger.squeeze_state || "" },
-          { label: "KDJ", value: kdj.status === "available" ? `K ${formatOneDecimal(kdj.k)} / D ${formatOneDecimal(kdj.d)} / J ${formatOneDecimal(kdj.j)}` : "—", note: kdj.cross_state || "" },
-        ])}</div>
-        <details class="detail-disclosure"><summary>${currentLanguage === "zh" ? "展开完整数值" : "Show detailed values"}</summary><div class="detail-line-list">${renderMetricRows([
-          { label: currentLanguage === "zh" ? "均线结构" : "MA Structure", value: ma.trend_state || "—", note: `${currentLanguage === "zh" ? "最近均线" : "Nearest"}: ${ma.nearest_ma || "—"} · ${currentLanguage === "zh" ? "扩展" : "Extension"}: ${ma.extension_state || "—"}` },
-          { label: currentLanguage === "zh" ? "均线压缩" : "MA Compression", value: ma.compression_state || "—", note: (ma.bullish_crosses || []).map((item) => item.pair).join(", ") || "" },
-          { label: currentLanguage === "zh" ? "均线斜率" : "MA Slopes", value: `${ma.fast_ma_slope || "—"} / ${ma.medium_ma_slope || "—"} / ${ma.slow_ma_slope || "—"}`, note: currentLanguage === "zh" ? "快 / 中 / 慢均线" : "Fast / medium / slow MA" },
-          { label: currentLanguage === "zh" ? "近期收复 / 跌破" : "Recent Reclaims / Breakdowns", value: `${(ma.recent_reclaims || []).map((item) => item.ma).join(", ") || "—"} / ${(ma.recent_breakdowns || []).map((item) => item.ma).join(", ") || "—"}`, note: currentLanguage === "zh" ? "仅记录最近一个日线事件" : "Only the latest daily event is recorded" },
-          { label: currentLanguage === "zh" ? "RSI 区间 / 背离" : "RSI Regime / Divergence", value: `${rsi.range_regime || "—"} / ${rsi.divergence || "—"}`, note: `${currentLanguage === "zh" ? "失效摆动" : "Failure swing"}: ${rsi.failure_swing || "—"}` },
-          { label: currentLanguage === "zh" ? "MACD 线 / 信号" : "MACD / Signal", value: `${displayValue(macd.macd_line, (value) => formatSignedCurrency(value, currencyCode))} / ${displayValue(macd.signal_line, (value) => formatSignedCurrency(value, currencyCode))}`, note: `${macd.cross_state || "—"} · ${macd.zero_line_state || "—"}` },
-          { label: currentLanguage === "zh" ? "MACD 柱体变化" : "MACD Histogram Change", value: `${displayValue(macd.histogram_change_1, (value) => formatSignedCurrency(value, currencyCode))} / ${displayValue(macd.histogram_change_3, (value) => formatSignedCurrency(value, currencyCode))} / ${displayValue(macd.histogram_change_5, (value) => formatSignedCurrency(value, currencyCode))}`, note: "1D / 3D / 5D" },
-          { label: currentLanguage === "zh" ? "OBV 确认" : "OBV Confirmation", value: obv.confirmation_state || "—", note: `${currentLanguage === "zh" ? "周线" : "Weekly"}: ${obv.weekly_obv_trend || "—"}` },
-          { label: currentLanguage === "zh" ? "相对强度一致性" : "RS Consistency", value: rs.consistency || "—", note: `${currentLanguage === "zh" ? "斜率" : "Slope"}: ${displayValue(rs.rs_slope, (value) => formatOneDecimal(value))}` },
-          { label: currentLanguage === "zh" ? "量能结构" : "Volume Structure", value: volume.accumulation_distribution_balance || "—", note: `${currentLanguage === "zh" ? "上涨/下跌量比" : "Up/down volume"}: ${displayValue(volume.up_down_volume_ratio, (value) => formatRatio(value))} · ${currentLanguage === "zh" ? "周线" : "Weekly"}: ${volume.weekly_volume_trend || "—"}` },
-          { label: currentLanguage === "zh" ? "换手率" : "Turnover", value: `${displayValue(volume.turnover_latest, (value) => formatPercentValue(value))} / ${displayValue(volume.turnover_average, (value) => formatPercentValue(value))}`, note: `${currentLanguage === "zh" ? "当前 /" : "Current /"} ${volume.turnover_period || "—"}D ${currentLanguage === "zh" ? "平均" : "average"}` },
-          { label: currentLanguage === "zh" ? "ATR 百分位" : "ATR Percentile", value: `${displayValue(atr.ATR_percentile_60D, (value) => formatOneDecimal(value))} / ${displayValue(atr.ATR_percentile_120D, (value) => formatOneDecimal(value))} / ${displayValue(atr.ATR_percentile_250D, (value) => formatOneDecimal(value))}`, note: "60D / 120D / 250D" },
-          { label: currentLanguage === "zh" ? "波动效率" : "Volatility Efficiency", value: atr.range_efficiency || "—", note: displayValue(atr.range_efficiency_ratio, (value) => formatOneDecimal(value)) },
-          { label: currentLanguage === "zh" ? "自身动能" : "Price Momentum", value: momentum.consistency || "—", note: Object.entries(momentum.values || {}).filter(([, value]) => Number.isFinite(value)).map(([key, value]) => `${key} ${formatChangePercent(value)}`).join(" / ") || "—" },
-          { label: currentLanguage === "zh" ? "ADX / DI" : "ADX / DI", value: `${displayValue(adx.adx, (value) => formatOneDecimal(value))} / ${displayValue(adx.plus_di, (value) => formatOneDecimal(value))} / ${displayValue(adx.minus_di, (value) => formatOneDecimal(value))}`, note: `${adx.di_cross || "—"} · ${adx.trend_strength || "—"}` },
-          { label: currentLanguage === "zh" ? "布林 %B" : "Bollinger %B", value: displayValue(bollinger.percent_b, (value) => formatOneDecimal(value)), note: Number.isFinite(bollinger.band_width_pct) ? `${currentLanguage === "zh" ? "带宽" : "Width"} ${formatOneDecimal(bollinger.band_width_pct)}%` : "" },
-          { label: currentLanguage === "zh" ? "KDJ 斜率 / 持续状态" : "KDJ Slopes / Persistence", value: `${kdj.k_slope?.slope_direction || "—"} / ${kdj.d_slope?.slope_direction || "—"} / ${kdj.j_slope?.slope_direction || "—"}`, note: kdj.persistent_overbought ? (currentLanguage === "zh" ? "持续超买" : "Persistent overbought") : kdj.persistent_oversold ? (currentLanguage === "zh" ? "持续超卖" : "Persistent oversold") : "—" },
-          { label: currentLanguage === "zh" ? "缺失指标" : "Missing Indicators", value: (structure.missing_indicators || []).join(", ") || (currentLanguage === "zh" ? "无" : "None") },
-        ])}</div></details>
-      </article>
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${label}</h3></div>
+        <div class="detail-line-note">${horizonDescription} · ${currentLanguage === "zh" ? "每张卡均标出 K 线周期与指标参数。" : "Each card names its candle interval and indicator parameters."}</div>
+        <div class="decision-summary-grid">${cards}</div>
+      </section>
     `;
   };
-  const renderTechnicalIndicatorStructure = (structure) => `
-    <section class="detail-section-card">
-      <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "多周期技术结构" : "Multi-Horizon Technical Structure"}</h3></div>
-      <div class="detail-line-note">${currentLanguage === "zh" ? "仅用于详情页解释与调试；本轮未计入预测、买卖区间或操作评分。" : "Display/debug only. This structure is not used by forecasts, ranges, or action scores in this release."}</div>
-      <div class="decision-summary-grid">
-        ${renderTechnicalStructureCard(currentLanguage === "zh" ? "短期技术结构" : "Short-Term Structure", structure?.short_term)}
-        ${renderTechnicalStructureCard(currentLanguage === "zh" ? "中期技术结构" : "Mid-Term Structure", structure?.mid_term)}
-        ${renderTechnicalStructureCard(currentLanguage === "zh" ? "长期技术结构" : "Long-Term Structure", structure?.long_term)}
-      </div>
-    </section>
-  `;
+
+  const renderCanonicalTechnicalIndicators = (features) => {
+    if (!features?.horizons) return "";
+    return `
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "多周期技术结构" : "Multi-Horizon Technical Structure"}</h3></div>
+        <div class="detail-line-note">${currentLanguage === "zh" ? "技术详情直接读取规范化特征；不会改变现有评分、建议或价格区间。" : "Technical details read canonical features directly and do not change the existing score, recommendation, or price ranges."}</div>
+      </section>
+      ${renderCanonicalHorizonCard(currentLanguage === "zh" ? "短期技术结构" : "Short-Term Technical Structure", "short", features.horizons.short)}
+      ${renderCanonicalHorizonCard(currentLanguage === "zh" ? "中期技术结构" : "Medium-Term Technical Structure", "medium", features.horizons.medium)}
+      ${renderCanonicalHorizonCard(currentLanguage === "zh" ? "长期技术结构" : "Long-Term Technical Structure", "long", features.horizons.long)}
+    `;
+  };
+
   const renderCanonicalTechnicalFoundation = (features) => {
     if (!features) return "";
     const position = features.price_position || {};
-    const gap = features.gaps || {};
-    const volume = features.volume || {};
-    const breadth = features.market_breadth || {};
-    const sources = Object.values(features.source_intervals || {});
-    const sourceText = sources.map((item) => `${item.interval}: ${item.availability}${item.last_bar_timestamp ? ` (${item.last_bar_timestamp})` : ""}`).join(" · ") || t("dataUnavailable");
     return `
       <section class="detail-section-card">
-        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "规范化技术数据基础" : "Canonical Technical Data Foundation"}</h3></div>
-        <div class="detail-line-note">${currentLanguage === "zh" ? "原始数值与解释状态按周期保留；此区块不参与当前评分或建议。" : "Raw values and interpreted states retain their interval metadata. This block does not feed the current score or recommendation."}</div>
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "52周与历史高点位置" : "52-Week and History-High Position"}</h3></div>
         <div class="detail-line-list">${renderMetricRows([
-          { label: currentLanguage === "zh" ? "数据源周期 / 最新K线" : "Source intervals / latest bars", value: sourceText },
           { label: currentLanguage === "zh" ? "52周高 / 距离" : "52W high / distance", value: `${displayValue(position.high_52w, (value) => formatCurrency(value, currencyCode))} / ${displayValue(position.distance_to_52w_high_pct, (value) => formatChangePercent(value))}`, note: position.high_52w_date || "" },
           { label: currentLanguage === "zh" ? "52周低 / 距离" : "52W low / distance", value: `${displayValue(position.low_52w, (value) => formatCurrency(value, currencyCode))} / ${displayValue(position.distance_to_52w_low_pct, (value) => formatChangePercent(value))}`, note: position.low_52w_date || "" },
           { label: currentLanguage === "zh" ? "52周位置" : "52W position", value: displayValue(position.position_52w_pct, (value) => formatPercentValue(value)), note: position.availability || "" },
           { label: currentLanguage === "zh" ? "历史最高 / 距离" : "All-time high / distance", value: `${displayValue(position.all_time_high, (value) => formatCurrency(value, currencyCode))} / ${displayValue(position.distance_to_ath_pct, (value) => formatChangePercent(value))}`, note: position.all_time_history_coverage || "" },
-          { label: currentLanguage === "zh" ? "日线跳空" : "Daily gap", value: `${gap.gap_direction || t("dataUnavailable")} · ${displayValue(gap.gap_pct, (value) => formatChangePercent(value))}`, note: gap.availability === "available" ? `${currentLanguage === "zh" ? "填补" : "Filled"}: ${gap.gap_filled ? (currentLanguage === "zh" ? "是" : "Yes") : (currentLanguage === "zh" ? "否" : "No")} · ${displayValue(gap.gap_fill_pct, (value) => formatPercentValue(value))}` : "" },
-          { label: currentLanguage === "zh" ? "RVOL20 / 状态" : "RVOL20 / state", value: `${displayValue(volume.relative_volume?.displayed_rvol, (value) => formatRatio(value))} / ${volume.relative_volume?.state || t("dataUnavailable")}`, note: currentLanguage === "zh" ? "当前成交量 / 20日均量" : "Current volume / 20D average" },
-          { label: currentLanguage === "zh" ? "规范化换手率" : "Canonical turnover", value: `${displayValue(volume.turnover?.turnover_current, (value) => formatPercentValue(value))} / ${displayValue(volume.turnover?.turnover_20d_avg, (value) => formatPercentValue(value))}`, note: currentLanguage === "zh" ? "当前 / 20日平均；无股本数据时保持不可用" : "Current / 20D average; unavailable without a share base" },
-          { label: currentLanguage === "zh" ? "市场广度" : "Market breadth", value: breadth.status || t("dataUnavailable"), note: breadth.reason || "" },
         ])}</div>
+      </section>
+    `;
+  };
+
+  const renderCanonicalVolume = (features) => {
+    const volume = features?.volume;
+    if (!volume) return "";
+    const average = volume.moving_average_volume || {};
+    const rvol = volume.relative_volume || {};
+    const turnover = volume.turnover || {};
+    const obv = volume.obv || {};
+    const trends = obv.trends || {};
+    const shortObv = features?.horizons?.short?.participation?.obv?.obv_4h || {};
+    const mediumObv = features?.horizons?.medium?.participation?.obv?.obv_1d || {};
+    const longObv = features?.horizons?.long?.participation?.obv?.obv_1w || {};
+    const compact = (value) => displayValue(value, (entry) => formatCompactVolume(entry));
+    return `
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "成交量" : "Volume"}</h3></div>
+        <div class="detail-line-note">${currentLanguage === "zh" ? "1D 成交量 / RVOL / 换手；4H、1D、1W OBV 作为同一 canonical volume family 的周期上下文。" : "1D volume, RVOL, and turnover; 4H, 1D, and 1W OBV are interval context within one canonical volume family."}</div>
+        <div class="decision-summary-grid">${renderCanonicalIndicatorCard({
+          title: currentLanguage === "zh" ? "成交量 / RVOL / OBV" : "Volume / RVOL / OBV",
+          meta: "1D · RVOL5 / RVOL20 / RVOL60",
+          state: rvol.state,
+          rows: [
+            { label: currentLanguage === "zh" ? "当前成交量" : "Current volume", value: compact(volume.current_volume) },
+            { label: currentLanguage === "zh" ? "平均成交量" : "Average volume", value: `5D ${compact(average.avg_5d)} · 20D ${compact(average.avg_20d)} · 60D ${compact(average.avg_60d)}` },
+            { label: currentLanguage === "zh" ? "相对成交量" : "Relative volume", value: `RVOL5 ${displayValue(rvol.rvol_5d, (value) => formatRatio(value))} · RVOL20 ${displayValue(rvol.rvol_20d, (value) => formatRatio(value))} · RVOL60 ${displayValue(rvol.rvol_60d, (value) => formatRatio(value))}` },
+            { label: currentLanguage === "zh" ? "主 RVOL 状态" : "Main RVOL state", value: `RVOL20 = ${displayFeatureState(rvol.state)}` },
+          ],
+          details: [
+            { label: currentLanguage === "zh" ? "换手率" : "Turnover", value: `Current ${displayValue(turnover.turnover_current, (value) => formatPercentValue(value))} · 5D ${displayValue(turnover.turnover_5d_avg, (value) => formatPercentValue(value))} · 20D ${displayValue(turnover.turnover_20d_avg, (value) => formatPercentValue(value))} · 60D ${displayValue(turnover.turnover_60d_avg, (value) => formatPercentValue(value))}` },
+            { label: "OBV", value: compact(obv.raw_value), note: displayFeatureState(obv.trend) },
+            { label: currentLanguage === "zh" ? "OBV 趋势" : "OBV trend", value: `5D ${displayFeatureState(trends.d5?.trend)} · 20D ${displayFeatureState(trends.d20?.trend)} · 60D ${displayFeatureState(trends.d60?.trend)}` },
+            { label: currentLanguage === "zh" ? "周期 OBV" : "Horizon OBV", value: `4H ${displayFeatureState(shortObv.trend)} · 1D ${displayFeatureState(mediumObv.trend)} · 1W ${displayFeatureState(longObv.trend)}` },
+            { label: currentLanguage === "zh" ? "量价确认" : "Price confirmation", value: displayFeatureState(obv.price_obv_confirmation || trends.d20?.price_obv_confirmation) },
+            { label: currentLanguage === "zh" ? "量能结构" : "Volume structure", value: displayFeatureState(volume.accumulation_distribution), note: displayFeatureState(volume.trend?.price_volume_confirmation) },
+          ],
+        })}</div>
       </section>
     `;
   };
@@ -22397,45 +22483,11 @@ function renderDetailModal(row) {
         <article class="detail-kpi-card ${scoreToBand(technical.volume_confirmation_score).tone}"><span>${t("volumeConfirmationScore")}</span><strong>${technical.volume_confirmation_score}/100</strong><small>${currentLanguage === "zh" ? "已计入操作推荐评分" : "Included in action score"}</small></article>
       </div>
       ${renderFibonacciStructure(technical.fibonacci_structure || row.technicals?.fibonacci_structure)}
-      ${renderTechnicalIndicatorStructure(technical.technical_indicator_structure || row.technicals?.technical_indicator_structure)}
       ${renderCanonicalTechnicalFoundation(technical.technical_features || row.technicals?.technical_features)}
-      <section class="detail-section-card">
-        <div class="detail-section-head"><h3>${t("volumeConfirmation")}</h3></div>
-        <div class="detail-line-list">${renderMetricRows([
-          { label: currentLanguage === "zh" ? "量能状态" : "Volume Status", value: technical.volume_confirmation.status_label || technical.volume_confirmation.status || t("dataUnavailable"), note: currentLanguage === "zh" ? "状态仅用于解释，最终评级看AI决策页。" : "Status is explanatory only; final ratings live in AI Decision." },
-          { label: currentLanguage === "zh" ? "量价行为" : "Price / Volume Behavior", value: technical.volume_confirmation.behavior_label || t("dataUnavailable"), note: technical.volume_confirmation.behavior },
-          { label: currentLanguage === "zh" ? "短 / 中 / 长期量能分数" : "Short / Mid / Long Volume Scores", value: `${technical.volume_confirmation.short_term_volume_signal?.score ?? "—"} / ${technical.volume_confirmation.mid_term_volume_signal?.score ?? "—"} / ${technical.volume_confirmation.long_term_volume_signal?.score ?? "—"}`, note: currentLanguage === "zh" ? "这些分数只作为操作推荐评分输入，不是独立推荐。" : "These feed the action score; they are not standalone recommendations." },
-          { label: currentLanguage === "zh" ? "成交量信号质量" : "Volume Signal Quality", value: displayValue(technical.volume_confirmation.confidence, (value) => `${Math.round(value)}%`) },
-          { label: t("dayMove"), value: formatChangePercent(technical.volume_confirmation.today_change_pct) },
-          { label: currentLanguage === "zh" ? "今日成交量" : "Today Volume", value: displayValue(technical.volume_confirmation.today_volume, (value) => formatCompactVolume(value)) },
-          { label: currentLanguage === "zh" ? "5 / 20 / 60日均量" : "Avg Volume 5 / 20 / 60D", value: `${displayValue(technical.volume_confirmation.avg_volume_5d, (value) => formatCompactVolume(value))} / ${displayValue(technical.volume_confirmation.avg_volume_20d, (value) => formatCompactVolume(value))} / ${displayValue(technical.volume_confirmation.avg_volume_60d, (value) => formatCompactVolume(value))}` },
-          { label: currentLanguage === "zh" ? "120 / 250日均量" : "Avg Volume 120 / 250D", value: `${displayValue(technical.volume_confirmation.avg_volume_120d, (value) => formatCompactVolume(value))} / ${displayValue(technical.volume_confirmation.avg_volume_250d, (value) => formatCompactVolume(value))}` },
-          { label: currentLanguage === "zh" ? "5 / 20 / 60日量比" : "Relative Volume 5 / 20 / 60D", value: `${displayValue(technical.volume_confirmation.relative_volume_5d, (value) => formatRatio(value))} / ${displayValue(technical.volume_confirmation.relative_volume_20d, (value) => formatRatio(value))} / ${displayValue(technical.volume_confirmation.relative_volume_60d, (value) => formatRatio(value))}` },
-          ...(technical.volume_confirmation.float_shares != null && technical.volume_confirmation.shares_outstanding != null
-            ? [{ label: currentLanguage === "zh" ? "流通股 / 总股本" : "Float / Shares Outstanding", value: `${formatCompactVolume(technical.volume_confirmation.float_shares)} / ${formatCompactVolume(technical.volume_confirmation.shares_outstanding)}` }]
-            : []),
-          { label: currentLanguage === "zh" ? "今日换手率" : "Turnover Rate", value: displayValue(technical.volume_confirmation.turnover_rate, (value) => formatPercentValue(value)), note: technical.volume_confirmation.turnover_rate == null ? (currentLanguage === "zh" ? "缺少流通股/总股本时不扣分，只降低置信度" : "Missing share base lowers confidence, not the score") : "" },
-          { label: currentLanguage === "zh" ? "5 / 20 / 60日均换手" : "Avg Turnover 5 / 20 / 60D", value: `${displayValue(technical.volume_confirmation.avg_turnover_5d, (value) => formatPercentValue(value))} / ${displayValue(technical.volume_confirmation.avg_turnover_20d, (value) => formatPercentValue(value))} / ${displayValue(technical.volume_confirmation.avg_turnover_60d, (value) => formatPercentValue(value))}` },
-          { label: t("obv"), value: displayValue(technical.volume_confirmation.obv, (value) => formatCompactVolume(value)) },
-          { label: currentLanguage === "zh" ? "OBV 5 / 20 / 60日趋势" : "OBV Trend 5 / 20 / 60D", value: [technical.volume_confirmation.obv_trend_5d, technical.volume_confirmation.obv_trend_20d, technical.volume_confirmation.obv_trend_60d].map((value) => value ? localizeMarketSentiment(value) : "—").join(" / ") },
-          { label: currentLanguage === "zh" ? "20日上涨/下跌成交量比" : "20D Up/Down Volume Ratio", value: displayValue(technical.volume_confirmation.up_down_volume_ratio_20d, (value) => formatRatio(value)), note: `${displayValue(technical.volume_confirmation.up_volume_20d, (value) => formatCompactVolume(value))} / ${displayValue(technical.volume_confirmation.down_volume_20d, (value) => formatCompactVolume(value))}` },
-          { label: currentLanguage === "zh" ? "60日上涨/下跌成交量比" : "60D Up/Down Volume Ratio", value: displayValue(technical.volume_confirmation.up_down_volume_ratio_60d, (value) => formatRatio(value)), note: `${displayValue(technical.volume_confirmation.up_volume_60d, (value) => formatCompactVolume(value))} / ${displayValue(technical.volume_confirmation.down_volume_60d, (value) => formatCompactVolume(value))}` },
-          { label: t("closePosition"), value: displayValue(technical.volume_confirmation.close_location_pct, (value) => formatPercentValue(value, 1)) },
-        ])}</div>
-      </section>
-      <section class="detail-section-card">
-        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "相对强度" : "Relative Strength"}</h3></div>
-        <div class="detail-line-list">${renderMetricRows([
-          { label: currentLanguage === "zh" ? "本股 20 / 60 / 120日涨跌" : "Stock Return 20 / 60 / 120D", value: `${displayValue(relativeStrength.stock_return_20d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_return_60d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_return_120d, (value) => formatChangePercent(value))}` },
-          { label: currentLanguage === "zh" ? "相对 SPY 20 / 60 / 120日" : "Stock vs SPY 20 / 60 / 120D", value: `${displayValue(relativeStrength.stock_vs_spy_20d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_spy_60d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_spy_120d, (value) => formatChangePercent(value))}`, note: relativeStrength.source_status?.spy !== "available" ? (currentLanguage === "zh" ? "SPY 基准 60/120日序列缺失时对应周期显示暂不可用；手动刷新会重建新版市场缓存。" : "Missing SPY 60/120D benchmark history leaves those horizons unavailable; manual refresh rebuilds the market cache.") : "" },
-          { label: currentLanguage === "zh" ? "相对 QQQ 20 / 60 / 120日" : "Stock vs QQQ 20 / 60 / 120D", value: `${displayValue(relativeStrength.stock_vs_qqq_20d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_qqq_60d, (value) => formatChangePercent(value))} / ${displayValue(relativeStrength.stock_vs_qqq_120d, (value) => formatChangePercent(value))}`, note: relativeStrength.source_status?.qqq !== "available" ? (currentLanguage === "zh" ? "QQQ 基准 60/120日序列缺失时对应周期显示暂不可用；手动刷新会重建新版市场缓存。" : "Missing QQQ 60/120D benchmark history leaves those horizons unavailable; manual refresh rebuilds the market cache.") : "" },
-        ])}</div>
-      </section>
+      ${renderCanonicalTechnicalIndicators(technical.technical_features || row.technicals?.technical_features)}
+      ${renderCanonicalVolume(technical.technical_features || row.technicals?.technical_features)}
     </section>
   `;
-
-
-
   /* Options-market UI is disabled until a verified data source is available.
   const optionsWallNote = options.wall_method === "aggregated-open-interest"
     ? (currentLanguage === "zh" ? "跨所选到期日聚合的未平仓量集中位，不代表做市商 GEX。" : "Aggregated open-interest concentration across selected expiries; not dealer GEX.")

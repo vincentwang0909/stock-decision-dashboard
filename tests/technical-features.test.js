@@ -1,7 +1,9 @@
 "use strict";
 
 const assert = require("assert");
-const { buildTechnicalFeatures, _test } = require("../technical-features.js");
+const fs = require("fs");
+const path = require("path");
+const { buildTechnicalFeatures, toLegacyTechnicalStructure, HORIZON_CONFIG, _test } = require("../technical-features.js");
 
 function dailyHistory(count = 420) {
   const timestamps = []; const opens = []; const highs = []; const lows = []; const closes = []; const volumes = [];
@@ -54,6 +56,11 @@ const features = buildTechnicalFeatures({
   calculatedAt: "2026-08-09T00:00:00.000Z",
 });
 
+// Horizon labels are investment windows, not candle intervals.
+assert.equal(HORIZON_CONFIG.short.label, "1–30 days");
+assert.equal(HORIZON_CONFIG.medium.label, "1–6 months");
+assert.equal(HORIZON_CONFIG.long.label, "> 6 months");
+
 // Interval/period identity and timeframe isolation.
 const rsi4h = features.horizons.short.momentum.rsi.rsi_6_4h;
 const rsi1h = features.horizons.short.momentum.rsi.rsi_6_1h;
@@ -63,18 +70,64 @@ assert.equal(rsi1h.interval, "1h");
 assert.notEqual(rsi1h.last_bar_timestamp, daily.timestamps.at(-1));
 assert.equal(features.horizons.medium.momentum.rsi.rsi_14_1d.period, 14);
 assert.equal(features.horizons.long.momentum.rsi.rsi_21_1w.interval, "1w");
+assert.equal(features.horizons.long.momentum.rsi.rsi_21_1w.period, 21);
 
-// MA/EMA and MACD return raw numerical data, not only textual states.
-assert(Number.isFinite(features.horizons.short.trend.moving_averages.ema_9_4h.value));
-assert(Number.isFinite(features.horizons.medium.trend.moving_averages.sma_100_1d.value));
+// MA types stay explicit, and MACD keeps the correct primary interval per horizon.
+const shortEma = features.horizons.short.trend.moving_averages.ema_9_4h;
+const mediumEma = features.horizons.medium.trend.moving_averages.ema_20_1d;
+const mediumSma = features.horizons.medium.trend.moving_averages.sma_100_1d;
+const longSma = features.horizons.long.trend.moving_averages.sma_200_1d;
+assert.equal(shortEma.indicator, "ema");
+assert.equal(shortEma.interval, "4h");
+assert.equal(mediumEma.indicator, "ema");
+assert.equal(mediumSma.indicator, "sma");
+assert.equal(mediumSma.period, 100);
+assert.equal(longSma.indicator, "sma");
+assert.equal(longSma.period, 200);
+assert(Number.isFinite(shortEma.value));
 assert(Number.isFinite(features.horizons.medium.momentum.macd.macd_1d.macd_line));
 assert(Number.isFinite(features.horizons.medium.momentum.macd.macd_1d.histogram));
+assert.equal(features.horizons.short.momentum.macd.macd_4h.interval, "4h");
+assert.equal(features.horizons.medium.momentum.macd.macd_1d.interval, "1d");
+assert.equal(features.horizons.long.momentum.macd.macd_1w.interval, "1w");
+assert.equal(features.horizons.long.momentum.macd.macd_1w.period, "12/26/9");
+assert.equal(features.horizons.short.momentum.kdj.kdj_9_4h.interval, "4h");
+assert.equal(features.horizons.medium.momentum.kdj.kdj_9_1d.interval, "1d");
 
-// ATR% is the normalized volatility feature, and RVOL uses the comparable 20D average.
+// ATR% is the normalized primary volatility value, with raw ATR retained internally.
 const atr = features.horizons.medium.volatility.atr.atr_14_1d;
 assert(Math.abs(atr.atr_pct - (atr.value / price * 100)) < 1e-10);
-assert(Math.abs(features.volume.relative_volume.rvol_20d - (daily.volumes.at(-1) / daily.volumes.slice(-20).reduce((sum, value) => sum + value, 0) * 20)) < 1e-12);
+assert(Number.isFinite(atr.value));
+assert.equal(atr.interval, "1d");
+assert.equal(atr.period, 14);
+
+// RVOL is calculated once from the canonical current-volume / average-volume formula.
+for (const period of [5, 20, 60]) {
+  const expected = daily.volumes.at(-1) / (daily.volumes.slice(-period).reduce((sum, value) => sum + value, 0) / period);
+  assert(Math.abs(features.volume.relative_volume[`rvol_${period}d`] - expected) < 1e-12);
+}
 assert.equal(features.volume.relative_volume.state, "high");
+const legacy = toLegacyTechnicalStructure(features);
+for (const horizon of ["short_term", "mid_term", "long_term"]) {
+  assert.strictEqual(legacy[horizon].volume.volume_ratio_5d, features.volume.relative_volume.rvol_5d);
+  assert.strictEqual(legacy[horizon].volume.volume_ratio_20d, features.volume.relative_volume.rvol_20d);
+  assert.strictEqual(legacy[horizon].volume.volume_ratio_60d, features.volume.relative_volume.rvol_60d);
+}
+
+// OBV is one canonical family; its 5D/20D/60D views are child context.
+assert.equal(features.volume.obv.interval, "1d");
+assert(Number.isFinite(features.volume.obv.raw_value));
+assert.equal(features.volume.obv.trends.d5.trend, "rising");
+assert.equal(features.volume.obv.trends.d20.trend, "rising");
+assert.equal(features.volume.obv.trends.d60.trend, "rising");
+
+// All relative-strength series remain available while each horizon selects one primary lookback.
+assert.equal(features.horizons.short.relative_strength.primary_lookback_days, 20);
+assert.equal(features.horizons.medium.relative_strength.primary_lookback_days, 60);
+assert.equal(features.horizons.long.relative_strength.primary_lookback_days, 120);
+assert.equal(features.horizons.short.relative_strength.returns.stock_20d, 4);
+assert.equal(features.horizons.medium.relative_strength.vs_spy.d60, 6);
+assert.equal(features.horizons.long.relative_strength.vs_qqq.d120, 6);
 
 // 52-week and ATH calculations retain the correct historical windows.
 assert.equal(features.price_position.high_52w, Math.max(...daily.highs.slice(-252)));
@@ -83,9 +136,9 @@ assert.equal(features.price_position.all_time_high, 250);
 assert(features.price_position.distance_to_ath_pct < 0);
 assert(features.price_position.position_52w_pct >= 0 && features.price_position.position_52w_pct <= 100);
 
-// Daily open vs prior daily close is the canonical gap definition.
-assert.equal(features.gaps.gap_direction, "gap_up");
-assert(Math.abs(features.gaps.gap_pct - 2) < 1e-10);
+// Gap and canonical market-breadth payloads are intentionally absent.
+assert.equal(Object.hasOwn(features, "gaps"), false);
+assert.equal(Object.hasOwn(features, "market_" + "breadth"), false);
 
 // Fibonacci keeps separately supplied confirmed anchors and normalized fields.
 assert.equal(features.fibonacci.short.anchor_low, 100);
@@ -103,7 +156,16 @@ const noIntraday = buildTechnicalFeatures({ history: daily, currentPrice: price 
 assert.equal(noIntraday.source_intervals["1h"].availability, "unavailable");
 assert.equal(noIntraday.horizons.short.momentum.rsi.rsi_6_4h.value, null);
 
-// Low-level helpers protect against zero ranges and produce no hidden divide-by-zero values.
-assert.equal(_test.gapFeatures([{ open: 10, high: 10, low: 10, close: 10 }, { open: 10, high: 10, low: 10, close: 10 }]).gap_fill_pct, 100);
+// User-facing UI no longer exposes a source-interval block, Gap, breadth, or old horizons.
+const mainSource = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
+for (const forbidden of ["30" + "-90 days", "90" + "-180 days", "30" + "-90D", "90" + "-180D", "30" + "-90天", "90" + "-180天", "1" + "-10D", "10" + "-30D", "30" + "-60D risk review", "Source intervals / " + "latest bars", "数据源周期 / " + "最新K线", "Daily " + "gap", "日线" + "跳空", "Market " + "breadth", "市场" + "广度"]) {
+  assert.equal(mainSource.includes(forbidden), false, `obsolete UI string remains: ${forbidden}`);
+}
+assert(mainSource.includes('title: "ATR%"'));
+assert(mainSource.includes("renderCanonicalTechnicalIndicators"));
+assert(mainSource.includes("renderCanonicalVolume"));
+assert(mainSource.includes("Horizon OBV"));
+assert.equal(mainSource.includes("renderTechnicalIndicatorStructure("), false);
+assert.equal(mainSource.includes("renderGapDownRiskCard("), false);
 
 console.log("technical-features.test.js: all assertions passed");
