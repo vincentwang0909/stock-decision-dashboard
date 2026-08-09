@@ -12377,6 +12377,141 @@ function buildTechnicalModule(row, supportResistance, companyProfile = null) {
 
 
 
+const INDUSTRY_ETF_RULES = [
+  { etf: "SMH", pattern: /semiconductor|memory|chip|electronics/i },
+  { etf: "IGV", pattern: /software|information technology services/i },
+  { etf: "XLK", pattern: /technology|internet|communication equipment/i },
+  { etf: "XLY", pattern: /retail|consumer cyclical|auto|ecommerce|internet retail/i },
+  { etf: "XLF", pattern: /financial|insurance|bank|asset management/i },
+  { etf: "XLV", pattern: /healthcare|health care|biotech|medical/i },
+  { etf: "VNQ", pattern: /real estate|reit|realty/i },
+];
+
+function industryEtfForRow(row) {
+  const metadataText = `${row.metadata?.sector || ""} ${row.metadata?.industry || ""}`;
+  const profileText = [
+    ...(row.profile?.tags || []),
+    ...(row.decisionModel?.company_profile?.tags || []),
+    row.decisionModel?.decision_profile?.base_profile || "",
+  ].join(" ");
+  const metadataRule = INDUSTRY_ETF_RULES.find((rule) => rule.pattern.test(metadataText));
+  if (metadataRule) {
+    return { etf: metadataRule.etf, mapping_source: "verified_sector_industry_metadata", mapping_confidence: "high" };
+  }
+  const profileRule = INDUSTRY_ETF_RULES.find((rule) => rule.pattern.test(profileText));
+  return profileRule
+    ? { etf: profileRule.etf, mapping_source: "company_profile_tags", mapping_confidence: "medium" }
+    : { etf: null, mapping_source: "unavailable", mapping_confidence: "unavailable" };
+}
+
+function buildMarketEnvironmentAnalysis(row, marketContext = {}) {
+  const engine = marketContext.market_engine || {};
+  const sectorTrends = engine.sector_trends || marketContext.market_regime?.sector_trends || {};
+  const industryMapping = industryEtfForRow(row);
+  const sectorEtf = industryMapping.etf;
+  const sector = sectorEtf ? sectorTrends[sectorEtf] || null : null;
+  const closes = row.technicals?.history?.closes || [];
+  const stockReturns = {
+    "5d": computeReturnPct(closes, 5),
+    "20d": computeReturnPct(closes, 20),
+    "60d": computeReturnPct(closes, 60),
+  };
+  const relativeReturns = {
+    "5d": Number.isFinite(stockReturns["5d"]) && Number.isFinite(sector?.change_5d_pct) ? stockReturns["5d"] - sector.change_5d_pct : null,
+    "20d": Number.isFinite(stockReturns["20d"]) && Number.isFinite(sector?.change_20d_pct) ? stockReturns["20d"] - sector.change_20d_pct : null,
+    "60d": Number.isFinite(stockReturns["60d"]) && Number.isFinite(sector?.change_60d_pct) ? stockReturns["60d"] - sector.change_60d_pct : null,
+  };
+  const relativeAverage = mean(Object.values(relativeReturns).filter(Number.isFinite));
+  const companyVsSector = !Number.isFinite(relativeAverage)
+    ? "unavailable"
+    : relativeAverage >= 2 ? "outperforming" : relativeAverage <= -2 ? "underperforming" : "in_line";
+  const spy = engine.equity_trend?.spy || {};
+  const qqq = engine.equity_trend?.qqq || {};
+  const narratives = [];
+  if (marketContext.market_regime?.regime === "risk_off") narratives.push("risk_off");
+  if (marketContext.market_regime?.regime === "risk_on") narratives.push("risk_on");
+  if (Number.isFinite(sector?.change_20d_pct) && Number.isFinite(spy.change_20d_pct) && sector.change_20d_pct - spy.change_20d_pct >= 2) {
+    if (["XLK", "SMH", "IGV"].includes(sectorEtf)) narratives.push("ai_rotation");
+    if (sectorEtf === "XLV") narratives.push("defensive_rotation");
+    if (sectorEtf === "XLY") narratives.push("consumer_leadership");
+  }
+  if (Number.isFinite(qqq.change_20d_pct) && Number.isFinite(spy.change_20d_pct) && qqq.change_20d_pct - spy.change_20d_pct <= -2) narratives.push("growth_selloff");
+  return {
+    status: sector ? "available" : "partial",
+    market_narratives: [...new Set(narratives)],
+    sector_relative_performance: sector ? {
+      etf: sectorEtf,
+      label: sector.label || sectorEtf,
+      return_5d: sector.change_5d_pct ?? null,
+      return_20d: sector.change_20d_pct ?? null,
+      return_60d: sector.change_60d_pct ?? null,
+      source: "Yahoo Finance sector ETF history",
+    } : null,
+    industry_relative_context: {
+      industry_etf: sectorEtf,
+      mapping_source: industryMapping.mapping_source,
+      mapping_confidence: industryMapping.mapping_confidence,
+      stock_returns: stockReturns,
+      industry_returns: sector ? {
+        "5d": sector.change_5d_pct ?? null,
+        "20d": sector.change_20d_pct ?? null,
+        "60d": sector.change_60d_pct ?? null,
+      } : { "5d": null, "20d": null, "60d": null },
+      relative_returns: relativeReturns,
+      status: sector ? (Object.values(relativeReturns).some(Number.isFinite) ? "available" : "partial") : "unavailable",
+      explanation: sector
+        ? (currentLanguage === "zh" ? "公司回报减去同日期窗口的行业 ETF 回报；缺失窗口不会以 0 替代。" : "Company return minus the industry ETF return over matching date windows; missing windows are never replaced with zero.")
+        : (currentLanguage === "zh" ? "未找到可验证的行业 ETF 映射或完整行业行情。" : "No verified industry-ETF mapping or complete sector history is available."),
+    },
+    company_vs_sector: {
+      status: companyVsSector,
+      stock_returns: stockReturns,
+      relative_returns: relativeReturns,
+      explanation: sector
+        ? (currentLanguage === "zh" ? "公司相对行业 ETF 的 5/20/60 日回报差。" : "5/20/60D company return minus the mapped industry ETF return.")
+        : (currentLanguage === "zh" ? "未找到可验证的行业 ETF 映射或行情。" : "No verified industry ETF mapping or quote is available."),
+    },
+  };
+}
+
+function buildCompanyNewsStatus(companyNews = {}) {
+  const sourceInfo = companyNews?.source_info || {};
+  const summary = String(companyNews?.summary || "");
+  const articles = Array.isArray(companyNews?.latest_news) ? companyNews.latest_news : [];
+  const fastModeSkipped = /skipped for fast market-data response/i.test(summary)
+    || /fast market-data response/i.test(String(sourceInfo?.source_reason || ""));
+  if (fastModeSkipped) {
+    return {
+      status: "not_requested_fast_mode",
+      reason: currentLanguage === "zh" ? "快速刷新模式下暂未加载公司新闻；手动完整刷新后会再次尝试加载。" : "Company news is deferred during fast refresh; a full manual refresh will try again.",
+      last_updated: null,
+      article_count: 0,
+    };
+  }
+  if (articles.length) {
+    return {
+      status: "available",
+      reason: currentLanguage === "zh" ? "已加载最近公司新闻。" : "Recent company news is available.",
+      last_updated: companyNews?.updated_at || companyNews?.updatedAt || null,
+      article_count: articles.length,
+    };
+  }
+  if (sourceInfo?.status === "Data unavailable" || companyNews?.status === "unavailable") {
+    return {
+      status: "temporarily_unavailable",
+      reason: currentLanguage === "zh" ? "公司新闻源暂时不可用。" : "The company-news source is temporarily unavailable.",
+      last_updated: null,
+      article_count: 0,
+    };
+  }
+  return {
+    status: "no_recent_news",
+    reason: currentLanguage === "zh" ? "暂未找到近期公司新闻。" : "No recent company news was found.",
+    last_updated: null,
+    article_count: 0,
+  };
+}
+
 function strategyTone(action) {
   if (action === "Recommended") return "buy";
   if (action === "Avoid") return "sell";
