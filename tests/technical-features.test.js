@@ -297,16 +297,19 @@ for (const removedTechnicalScore of [
 assert(activeTechnicalPanel.includes("renderCanonicalTechnicalIndicators"));
 assert(activeTechnicalPanel.includes("renderCanonicalVolume"));
 
-// The active market tab is now earnings-only: no market score or macro cards
-// remain, and server responses do not fetch or expose a market-context payload.
+// The market-data tab keeps real raw data but exposes no market, macro, or
+// confidence score card.
 const activeNewsPanel = mainSource.slice(
   mainSource.lastIndexOf("const newsPanel = `"),
-  mainSource.indexOf("const tabPanels = {"),
+  mainSource.indexOf("const tabPanels = {", mainSource.lastIndexOf("const newsPanel = `")),
 );
-for (const removedMarketUi of ["market_context_score", "macroScore", "confidencePct", "VIX", "Fear & Greed", "10Y Yield", "SPY / QQQ Trend"]) {
+for (const removedMarketUi of ["market_context_score", "macroScore", "confidencePct"]) {
   assert.equal(activeNewsPanel.includes(removedMarketUi), false, `market environment UI remains: ${removedMarketUi}`);
 }
 assert(activeNewsPanel.includes("Earnings Event Risk"));
+for (const retainedMarketData of ["VIX", "Fear & Greed", "10Y Yield", "SPY / QQQ Trend"]) {
+  assert(activeNewsPanel.includes(retainedMarketData), `market data UI missing: ${retainedMarketData}`);
+}
 assert(mainSource.includes('function horizonWeights() {'));
 assert(mainSource.includes('return { baseline: 1 };'));
 assert(mainSource.includes('retired_modules: ["technical", "market_context"]'));
@@ -318,7 +321,7 @@ assert(serverSource.includes('TECHNICAL_FOUR_HOUR_BAR_METHOD = "provider_native_
 assert.equal(canonicalSource.includes("const fourHour = aggregateFourHourBarsLegacy(hourly);"), false);
 assert(canonicalSource.includes('const fourHour = pickBars(history, "4h");'));
 assert.equal(serverSource.includes('row.get("volume") or 0'), false);
-assert(serverSource.includes('"marketContext": None'));
-assert(serverSource.includes('"market_context": {"status": "retired"}'));
+assert(serverSource.includes('"marketContext": market_context'));
+assert(serverSource.includes('"market_context": flatten_market_context_payload(market_context, market_context_meta)'));
 
 console.log("technical-features.test.js: all assertions passed");

@@ -13985,29 +13985,38 @@ function buildLegacyMarketContextModule(row, companyProfile) {
   };
 }
 
-function buildMarketContextModule() {
-  // Market environment is no longer a dashboard module or a recommendation
-  // input. Keep this shape so existing non-scoring consumers can safely read
-  // the payload while the external market-context feed is not requested.
+function buildMarketContextModule(row) {
+  // Preserve real market data for display and non-score context, without
+  // recreating the retired market-environment / macro score modules.
+  const snapshotContext = row.globalMarketContext || {};
+  const macro = snapshotContext.macro || {};
+  const marketEngine = snapshotContext.market_context || {};
+  const enhancedContext = normalizeEnhancedMarketContext(marketEngine, macro);
+
   return {
-    status: "retired",
+    status: enhancedContext.status || "unavailable",
     market_context_score: null,
     macro_score: null,
     sector_score: null,
     news_score: null,
     institutional_score: null,
-    market_regime: { score: null, regime: null, confidence: null, summary: null },
+    market_regime: {
+      score: null,
+      regime: marketEngine.regime ?? null,
+      confidence: null,
+      summary: marketEngine.summary || macro.summary || null,
+    },
     horizon_scores: {},
     horizon_breakdown: {},
-    strategy_impact: {},
-    market_engine: {},
-    macro: {},
-    broad_macro_news: {},
+    strategy_impact: marketEngine.strategy_impact || {},
+    market_engine: marketEngine,
+    macro,
+    broad_macro_news: snapshotContext.broad_macro_news || {},
     sector_theme: { tags: [], summary: null },
-    news_sentiment: {},
-    institutional_insider: {},
-    enhanced_context: { status: "retired" },
-    summary: null,
+    news_sentiment: row.companyNews || {},
+    institutional_insider: snapshotContext.institutional_insider || {},
+    enhanced_context: enhancedContext,
+    summary: marketEngine.summary || macro.summary || null,
     risks: [],
   };
 }
@@ -21403,7 +21412,7 @@ function renderDetailModal(row) {
   const tabItems = [
     { key: "summary", label: t("aiDecision") },
     { key: "technical", label: t("tabTechnical") },
-    { key: "news", label: currentLanguage === "zh" ? "财报事件" : "Earnings" },
+    { key: "news", label: currentLanguage === "zh" ? "市场数据" : "Market Data" },
   ];
   if (!tabItems.some((item) => item.key === detailActiveTab)) detailActiveTab = "summary";
 
@@ -22566,6 +22575,39 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
           { label: "QQQ", value: marketEngine.equity_trend?.qqq?.value == null ? t("dataUnavailable") : `${formatCurrency(marketEngine.equity_trend.qqq.value, "USD")} · ${localizeMarketSentiment(marketEngine.equity_trend.qqq.trend)}`, note: marketEngine.equity_trend?.qqq?.value == null ? renderSourceInfo(marketEngine.source_info?.equity_trend) : `${currentLanguage === "zh" ? "5日" : "5D"} ${displayValue(marketEngine.equity_trend.qqq.change_5d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "20日" : "20D"} ${displayValue(marketEngine.equity_trend.qqq.change_20d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "60日" : "60D"} ${displayValue(marketEngine.equity_trend.qqq.change_60d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "120日" : "120D"} ${displayValue(marketEngine.equity_trend.qqq.change_120d_pct, (value) => formatChangePercent(value))}` },
         ])}</div>
       </section>
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>VIX</h3></div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: currentLanguage === "zh" ? "当前 VIX" : "Current VIX", value: displayValue(marketEngine.vix?.value, (value) => formatOneDecimal(value)), note: marketEngine.vix?.value == null ? renderSourceInfo(marketEngine.source_info?.vix || marketContext.macro.source_info?.vix) : marketEngine.vix?.impact },
+          { label: currentLanguage === "zh" ? "5日变化" : "5D Change", value: displayValue(marketEngine.vix?.change_5d, (value) => `${value > 0 ? "+" : ""}${formatOneDecimal(value)}`) },
+          { label: currentLanguage === "zh" ? "20日变化" : "20D Change", value: displayValue(marketEngine.vix?.change_20d, (value) => `${value > 0 ? "+" : ""}${formatOneDecimal(value)}`) },
+          { label: currentLanguage === "zh" ? "趋势" : "Trend", value: localizeMarketSentiment(marketEngine.vix?.trend), note: marketEngine.vix?.impact || t("dataUnavailable") },
+        ])}</div>
+      </section>
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "恐惧贪婪指数" : "Fear & Greed"}</h3></div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: currentLanguage === "zh" ? "当前数值" : "Current Value", value: displayValue(marketEngine.fear_greed?.value, (value) => `${Math.round(value)}/100`), note: marketEngine.fear_greed?.value == null ? renderSourceInfo(marketEngine.source_info?.fear_greed || marketContext.macro.source_info?.fear_greed) : marketEngine.fear_greed?.impact },
+          { label: currentLanguage === "zh" ? "情绪标签" : "Label", value: marketEngine.fear_greed?.label || t("dataUnavailable") },
+          { label: currentLanguage === "zh" ? "影响" : "Impact", value: marketEngine.fear_greed?.impact || t("dataUnavailable") },
+        ])}</div>
+      </section>
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "10年期美债收益率" : "10Y Yield"}</h3></div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: currentLanguage === "zh" ? "当前利率" : "Current Yield", value: displayValue(marketEngine.ten_year_yield?.value, (value) => `${formatOneDecimal(value)}%`), note: marketEngine.ten_year_yield?.value == null ? renderSourceInfo(marketEngine.source_info?.ten_year_yield || marketContext.macro.source_info?.treasury_yield) : marketEngine.ten_year_yield?.impact },
+          { label: currentLanguage === "zh" ? "5日变化" : "5D Change", value: displayValue(marketEngine.ten_year_yield?.change_5d_bps, (value) => `${value > 0 ? "+" : ""}${formatOneDecimal(value)} bps`) },
+          { label: currentLanguage === "zh" ? "20日变化" : "20D Change", value: displayValue(marketEngine.ten_year_yield?.change_20d_bps, (value) => `${value > 0 ? "+" : ""}${formatOneDecimal(value)} bps`) },
+          { label: currentLanguage === "zh" ? "趋势" : "Trend", value: localizeMarketSentiment(marketEngine.ten_year_yield?.trend), note: marketEngine.ten_year_yield?.impact || t("dataUnavailable") },
+        ])}</div>
+      </section>
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "SPY / QQQ 大盘趋势" : "SPY / QQQ Trend"}</h3></div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: "SPY", value: marketEngine.equity_trend?.spy?.value == null ? t("dataUnavailable") : `${formatCurrency(marketEngine.equity_trend.spy.value, "USD")} · ${localizeMarketSentiment(marketEngine.equity_trend.spy.trend)}`, note: marketEngine.equity_trend?.spy?.value == null ? renderSourceInfo(marketEngine.source_info?.equity_trend) : `${currentLanguage === "zh" ? "5日" : "5D"} ${displayValue(marketEngine.equity_trend.spy.change_5d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "20日" : "20D"} ${displayValue(marketEngine.equity_trend.spy.change_20d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "60日" : "60D"} ${displayValue(marketEngine.equity_trend.spy.change_60d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "120日" : "120D"} ${displayValue(marketEngine.equity_trend.spy.change_120d_pct, (value) => formatChangePercent(value))}` },
+          { label: "QQQ", value: marketEngine.equity_trend?.qqq?.value == null ? t("dataUnavailable") : `${formatCurrency(marketEngine.equity_trend.qqq.value, "USD")} · ${localizeMarketSentiment(marketEngine.equity_trend.qqq.trend)}`, note: marketEngine.equity_trend?.qqq?.value == null ? renderSourceInfo(marketEngine.source_info?.equity_trend) : `${currentLanguage === "zh" ? "5日" : "5D"} ${displayValue(marketEngine.equity_trend.qqq.change_5d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "20日" : "20D"} ${displayValue(marketEngine.equity_trend.qqq.change_20d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "60日" : "60D"} ${displayValue(marketEngine.equity_trend.qqq.change_60d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "120日" : "120D"} ${displayValue(marketEngine.equity_trend.qqq.change_120d_pct, (value) => formatChangePercent(value))}` },
+        ])}</div>
+      </section>
     </section>
   `;
 
@@ -22577,6 +22619,39 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
           { label: currentLanguage === "zh" ? "财报日期" : "Earnings Date", value: earningsEventRisk.earnings_date ? formatSnapshotTimestamp(earningsEventRisk.earnings_date) : t("dataUnavailable"), note: earningsEventRisk.source_status?.calendar === "unavailable" ? (currentLanguage === "zh" ? "财报日源暂不可用。" : "Earnings calendar source unavailable.") : "" },
           { label: currentLanguage === "zh" ? "财报时间" : "Earnings Time", value: earningsEventRisk.earnings_countdown?.earnings_datetime ? formatSnapshotTimestamp(earningsEventRisk.earnings_countdown.earnings_datetime) : t("dataUnavailable"), note: earningsEventRisk.earnings_countdown?.session === "before_market" ? (currentLanguage === "zh" ? "盘前" : "Before market") : earningsEventRisk.earnings_countdown?.session === "after_market" ? (currentLanguage === "zh" ? "盘后" : "After market") : earningsEventRisk.earnings_countdown?.session === "during_market" ? (currentLanguage === "zh" ? "盘中" : "During market") : "" },
           { label: currentLanguage === "zh" ? "距离财报" : "To Earnings", value: earningsEventRisk.earnings_countdown?.calendar_days_remaining == null ? t("dataUnavailable") : `${earningsEventRisk.earnings_countdown.calendar_days_remaining} ${currentLanguage === "zh" ? "个日历日" : "calendar days"}`, note: earningsEventRisk.earnings_countdown?.full_trading_sessions_remaining == null ? "" : `${currentLanguage === "zh" ? "剩余完整交易日" : "Full trading sessions remaining"}: ${earningsEventRisk.earnings_countdown.full_trading_sessions_remaining} · ${currentLanguage === "zh" ? "交易日估算" : "Trading-day estimate"}: ${earningsEventRisk.earnings_countdown.trading_days_remaining ?? "—"}` },
+        ])}</div>
+      </section>
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>VIX</h3></div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: currentLanguage === "zh" ? "当前 VIX" : "Current VIX", value: displayValue(marketEngine.vix?.value, (value) => formatOneDecimal(value)), note: marketEngine.vix?.value == null ? renderSourceInfo(marketEngine.source_info?.vix || marketContext.macro.source_info?.vix) : marketEngine.vix?.impact },
+          { label: currentLanguage === "zh" ? "5日变化" : "5D Change", value: displayValue(marketEngine.vix?.change_5d, (value) => `${value > 0 ? "+" : ""}${formatOneDecimal(value)}`) },
+          { label: currentLanguage === "zh" ? "20日变化" : "20D Change", value: displayValue(marketEngine.vix?.change_20d, (value) => `${value > 0 ? "+" : ""}${formatOneDecimal(value)}`) },
+          { label: currentLanguage === "zh" ? "趋势" : "Trend", value: localizeMarketSentiment(marketEngine.vix?.trend), note: marketEngine.vix?.impact || t("dataUnavailable") },
+        ])}</div>
+      </section>
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "恐惧贪婪指数" : "Fear & Greed"}</h3></div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: currentLanguage === "zh" ? "当前数值" : "Current Value", value: displayValue(marketEngine.fear_greed?.value, (value) => `${Math.round(value)}/100`), note: marketEngine.fear_greed?.value == null ? renderSourceInfo(marketEngine.source_info?.fear_greed || marketContext.macro.source_info?.fear_greed) : marketEngine.fear_greed?.impact },
+          { label: currentLanguage === "zh" ? "情绪标签" : "Label", value: marketEngine.fear_greed?.label || t("dataUnavailable") },
+          { label: currentLanguage === "zh" ? "影响" : "Impact", value: marketEngine.fear_greed?.impact || t("dataUnavailable") },
+        ])}</div>
+      </section>
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "10年期美债收益率" : "10Y Yield"}</h3></div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: currentLanguage === "zh" ? "当前利率" : "Current Yield", value: displayValue(marketEngine.ten_year_yield?.value, (value) => `${formatOneDecimal(value)}%`), note: marketEngine.ten_year_yield?.value == null ? renderSourceInfo(marketEngine.source_info?.ten_year_yield || marketContext.macro.source_info?.treasury_yield) : marketEngine.ten_year_yield?.impact },
+          { label: currentLanguage === "zh" ? "5日变化" : "5D Change", value: displayValue(marketEngine.ten_year_yield?.change_5d_bps, (value) => `${value > 0 ? "+" : ""}${formatOneDecimal(value)} bps`) },
+          { label: currentLanguage === "zh" ? "20日变化" : "20D Change", value: displayValue(marketEngine.ten_year_yield?.change_20d_bps, (value) => `${value > 0 ? "+" : ""}${formatOneDecimal(value)} bps`) },
+          { label: currentLanguage === "zh" ? "趋势" : "Trend", value: localizeMarketSentiment(marketEngine.ten_year_yield?.trend), note: marketEngine.ten_year_yield?.impact || t("dataUnavailable") },
+        ])}</div>
+      </section>
+      <section class="detail-section-card">
+        <div class="detail-section-head"><h3>${currentLanguage === "zh" ? "SPY / QQQ 大盘趋势" : "SPY / QQQ Trend"}</h3></div>
+        <div class="detail-line-list">${renderMetricRows([
+          { label: "SPY", value: marketEngine.equity_trend?.spy?.value == null ? t("dataUnavailable") : `${formatCurrency(marketEngine.equity_trend.spy.value, "USD")} · ${localizeMarketSentiment(marketEngine.equity_trend.spy.trend)}`, note: marketEngine.equity_trend?.spy?.value == null ? renderSourceInfo(marketEngine.source_info?.equity_trend) : `${currentLanguage === "zh" ? "5日" : "5D"} ${displayValue(marketEngine.equity_trend.spy.change_5d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "20日" : "20D"} ${displayValue(marketEngine.equity_trend.spy.change_20d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "60日" : "60D"} ${displayValue(marketEngine.equity_trend.spy.change_60d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "120日" : "120D"} ${displayValue(marketEngine.equity_trend.spy.change_120d_pct, (value) => formatChangePercent(value))}` },
+          { label: "QQQ", value: marketEngine.equity_trend?.qqq?.value == null ? t("dataUnavailable") : `${formatCurrency(marketEngine.equity_trend.qqq.value, "USD")} · ${localizeMarketSentiment(marketEngine.equity_trend.qqq.trend)}`, note: marketEngine.equity_trend?.qqq?.value == null ? renderSourceInfo(marketEngine.source_info?.equity_trend) : `${currentLanguage === "zh" ? "5日" : "5D"} ${displayValue(marketEngine.equity_trend.qqq.change_5d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "20日" : "20D"} ${displayValue(marketEngine.equity_trend.qqq.change_20d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "60日" : "60D"} ${displayValue(marketEngine.equity_trend.qqq.change_60d_pct, (value) => formatChangePercent(value))} · ${currentLanguage === "zh" ? "120日" : "120D"} ${displayValue(marketEngine.equity_trend.qqq.change_120d_pct, (value) => formatChangePercent(value))}` },
         ])}</div>
       </section>
     </section>

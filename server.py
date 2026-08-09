@@ -4611,17 +4611,12 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
             live_failed_tickers.append(ticker)
 
     request_started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    # Market environment has been retired from the dashboard and from the
-    # recommendation score. Do not spend a request on VIX / rates / index
-    # feeds, and do not ship a neutral placeholder that could be mistaken for
-    # a real market signal.
-    market_context = {}
-    market_context_meta = {
-        "status": "retired",
-        "cache_used": False,
-        "cache_updated_at": None,
-        "attempts": [],
-    }
+    # Fetch real market data for display. The frontend deliberately does not
+    # convert this payload into a market-environment or macro score.
+    market_context, market_context_meta = get_market_context_cached_snapshot(
+        force=False,
+        allow_live=bool(force or auto_refresh),
+    )
     fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     request_completed_at = fetched_at
     quote_times = [
@@ -4719,8 +4714,8 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
         "data": quotes,
         "failed": failed,
         "warning": warning,
-        "marketContext": None,
-        "market_context": {"status": "retired"},
+        "marketContext": market_context,
+        "market_context": flatten_market_context_payload(market_context, market_context_meta),
         "fetchedAt": fetched_at,
         "updatedAt": updated_at,
         "requested_tickers": requested_tickers,

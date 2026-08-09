@@ -6,17 +6,29 @@ import server
 
 
 class ServerAvailabilityTests(unittest.TestCase):
-    def test_dashboard_payload_retires_market_context_without_fetching_it(self):
+    def test_dashboard_payload_returns_market_data_without_a_score_placeholder(self):
         original = server.get_market_context_cached_snapshot
         try:
-            def fail_if_called(*_args, **_kwargs):
-                raise AssertionError("retired market context must not be fetched")
+            fixture = {
+                "macro": {},
+                "market_context": {
+                    "vix": {"value": 19.5},
+                    "equity_trend": {"spy": {}, "qqq": {}},
+                },
+            }
+            calls = []
 
-            server.get_market_context_cached_snapshot = fail_if_called
+            def market_data(*args, **kwargs):
+                calls.append((args, kwargs))
+                return fixture, {"status": "available", "cache_used": False, "cache_updated_at": None}
+
+            server.get_market_context_cached_snapshot = market_data
             payload = server.build_market_data_payload(["META"], cache_only=True)
 
-            self.assertIsNone(payload["marketContext"])
-            self.assertEqual(payload["market_context"], {"status": "retired"})
+            self.assertEqual(len(calls), 1)
+            self.assertIs(payload["marketContext"], fixture)
+            self.assertEqual(payload["market_context"]["vix"]["value"], 19.5)
+            self.assertIsNone(payload["market_context"]["score"])
         finally:
             server.get_market_context_cached_snapshot = original
 
