@@ -2564,12 +2564,6 @@ tbody tr.selected-row td {
   gap: 14px;
 }
 
-.score-breakdown-toggle summary {
-  cursor: pointer;
-  color: #dce8f8;
-  font-weight: 700;
-}
-
 .score-breakdown-items {
   display: grid;
   gap: 8px;
@@ -2687,18 +2681,6 @@ tbody tr.selected-row td {
   margin-top: 12px;
   border-top: 1px solid rgba(157, 179, 211, 0.16);
   padding-top: 10px;
-}
-
-.detail-disclosure summary {
-  cursor: pointer;
-  color: #aebbd0;
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
-.detail-disclosure[open] summary {
-  margin-bottom: 10px;
-  color: #dce9ff;
 }
 
 .detail-line-side {

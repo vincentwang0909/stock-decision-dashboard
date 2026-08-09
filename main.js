@@ -22184,8 +22184,7 @@ function renderDetailModal(row) {
       </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("scoreBreakdown")}</h3></div>
-        <details class="score-breakdown-toggle" open>
-          <summary>${currentLanguage === "zh" ? "展开查看每个周期的评分构成" : "Expand to inspect how each horizon score was built"}</summary>
+        <div class="score-breakdown-toggle">
           <div class="decision-summary-grid">
             <div class="decision-list-card">
               <div class="decision-list-title">${t("shortTerm")}</div>
@@ -22200,7 +22199,7 @@ function renderDetailModal(row) {
               ${renderBreakdownRows(ai.long_term)}
             </div>
           </div>
-        </details>
+        </div>
       </section>
     </section>
   `;
@@ -22268,7 +22267,7 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
       <div class="detail-line-label">${displayFeatureState(state)}</div>
       <div class="detail-line-note">${meta}</div>
       <div class="detail-line-list">${renderMetricRows(rows)}</div>
-      ${details.length ? `<details class="detail-disclosure"><summary>${currentLanguage === "zh" ? "展开详情" : "Show details"}</summary><div class="detail-line-list">${renderMetricRows(details)}</div></details>` : ""}
+      ${details.length ? `<div class="detail-disclosure"><div class="detail-line-list">${renderMetricRows(details)}</div></div>` : ""}
     </article>
   `;
 
