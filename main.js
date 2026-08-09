@@ -3930,6 +3930,8 @@ function computeIndicators(ticker, snapshot, profile) {
     atr14,
     profileTags: profile?.tags || [],
   });
+  // Keep this technical context available for existing non-fundamental notes.
+  const pricePressure = clamp((close - ma20) / Math.max(ma20, 1), -0.25, 0.25);
 
   const ema12Signal = close > ema12 && ema12 > ema26 ? { signal: "buy", trend: "up" } : close < ema12 && ema12 < ema26 ? { signal: "sell", trend: "down" } : { signal: "hold", trend: "flat" };
   const ema26Signal = close > ema26 ? { signal: "buy", trend: ema12 >= ema26 ? "up" : "flat" } : close < ema26 ? { signal: "sell", trend: ema12 <= ema26 ? "down" : "flat" } : { signal: "hold", trend: "flat" };
