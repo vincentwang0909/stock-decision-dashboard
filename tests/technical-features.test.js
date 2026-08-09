@@ -307,6 +307,8 @@ for (const removedMarketUi of ["market_context_score", "macroScore", "confidence
   assert.equal(activeNewsPanel.includes(removedMarketUi), false, `market environment UI remains: ${removedMarketUi}`);
 }
 assert(activeNewsPanel.includes("Earnings Event Risk"));
+assert(activeNewsPanel.includes("earningsCountdownDisplayNote"));
+assert(mainSource.includes("数据源更新下一次财报日期后，刷新会自动切换为正数。"));
 for (const retainedMarketData of ["VIX", "Fear & Greed", "10Y Yield", "SPY / QQQ Trend"]) {
   assert(activeNewsPanel.includes(retainedMarketData), `market data UI missing: ${retainedMarketData}`);
 }

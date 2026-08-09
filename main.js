@@ -21419,6 +21419,21 @@ function renderDetailModal(row) {
   const displayValue = (value, formatter, fallback = t("dataUnavailable")) => (
     isMissingMetricValue(value) ? fallback : formatter(value)
   );
+  const earningsCountdownDisplayNote = (() => {
+    const countdown = earningsEventRisk.earnings_countdown || {};
+    const notes = [];
+    if (countdown.full_trading_sessions_remaining != null) {
+      notes.push(`${currentLanguage === "zh" ? "剩余完整交易日" : "Full trading sessions remaining"}: ${countdown.full_trading_sessions_remaining} · ${currentLanguage === "zh" ? "交易日估算" : "Trading-day estimate"}: ${countdown.trading_days_remaining ?? "—"}`);
+    }
+    const isPastEarnings = countdown.status === "reported_or_past"
+      || Number(countdown.calendar_days_remaining) < 0;
+    if (isPastEarnings) {
+      notes.push(currentLanguage === "zh"
+        ? "上次财报已发布；数据源更新下一次财报日期后，刷新会自动切换为正数。"
+        : "The last earnings release has passed. After the data source publishes the next earnings date, a refresh will automatically show a positive countdown.");
+    }
+    return notes.join(" · ");
+  })();
 	  const renderReasonBullets = (items, tone = "") => (
 	    items?.length
 	      ? items.map((item) => `<div class="decision-bullet ${tone}">${tone === "warning" ? "⚠" : tone === "positive" ? "✓" : "•"} ${localizedDashboardText(item)}</div>`).join("")
@@ -22539,7 +22554,7 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
         <div class="detail-line-list">${renderMetricRows([
           { label: currentLanguage === "zh" ? "财报日期" : "Earnings Date", value: earningsEventRisk.earnings_date ? formatSnapshotTimestamp(earningsEventRisk.earnings_date) : t("dataUnavailable"), note: earningsEventRisk.source_status?.calendar === "unavailable" ? (currentLanguage === "zh" ? "财报日源暂不可用。" : "Earnings calendar source unavailable.") : "" },
           { label: currentLanguage === "zh" ? "财报时间" : "Earnings Time", value: earningsEventRisk.earnings_countdown?.earnings_datetime ? formatSnapshotTimestamp(earningsEventRisk.earnings_countdown.earnings_datetime) : t("dataUnavailable"), note: earningsEventRisk.earnings_countdown?.session === "before_market" ? (currentLanguage === "zh" ? "盘前" : "Before market") : earningsEventRisk.earnings_countdown?.session === "after_market" ? (currentLanguage === "zh" ? "盘后" : "After market") : earningsEventRisk.earnings_countdown?.session === "during_market" ? (currentLanguage === "zh" ? "盘中" : "During market") : "" },
-          { label: currentLanguage === "zh" ? "距离财报" : "To Earnings", value: earningsEventRisk.earnings_countdown?.calendar_days_remaining == null ? t("dataUnavailable") : `${earningsEventRisk.earnings_countdown.calendar_days_remaining} ${currentLanguage === "zh" ? "个日历日" : "calendar days"}`, note: earningsEventRisk.earnings_countdown?.full_trading_sessions_remaining == null ? "" : `${currentLanguage === "zh" ? "剩余完整交易日" : "Full trading sessions remaining"}: ${earningsEventRisk.earnings_countdown.full_trading_sessions_remaining} · ${currentLanguage === "zh" ? "交易日估算" : "Trading-day estimate"}: ${earningsEventRisk.earnings_countdown.trading_days_remaining ?? "—"}` },
+          { label: currentLanguage === "zh" ? "距离财报" : "To Earnings", value: earningsEventRisk.earnings_countdown?.calendar_days_remaining == null ? t("dataUnavailable") : `${earningsEventRisk.earnings_countdown.calendar_days_remaining} ${currentLanguage === "zh" ? "个日历日" : "calendar days"}`, note: earningsCountdownDisplayNote },
         ])}</div>
       </section>
       <section class="detail-section-card">
@@ -22618,7 +22633,7 @@ const formatTechnicalNumber = (value, digits = 2) => displayValue(value, (number
         <div class="detail-line-list">${renderMetricRows([
           { label: currentLanguage === "zh" ? "财报日期" : "Earnings Date", value: earningsEventRisk.earnings_date ? formatSnapshotTimestamp(earningsEventRisk.earnings_date) : t("dataUnavailable"), note: earningsEventRisk.source_status?.calendar === "unavailable" ? (currentLanguage === "zh" ? "财报日源暂不可用。" : "Earnings calendar source unavailable.") : "" },
           { label: currentLanguage === "zh" ? "财报时间" : "Earnings Time", value: earningsEventRisk.earnings_countdown?.earnings_datetime ? formatSnapshotTimestamp(earningsEventRisk.earnings_countdown.earnings_datetime) : t("dataUnavailable"), note: earningsEventRisk.earnings_countdown?.session === "before_market" ? (currentLanguage === "zh" ? "盘前" : "Before market") : earningsEventRisk.earnings_countdown?.session === "after_market" ? (currentLanguage === "zh" ? "盘后" : "After market") : earningsEventRisk.earnings_countdown?.session === "during_market" ? (currentLanguage === "zh" ? "盘中" : "During market") : "" },
-          { label: currentLanguage === "zh" ? "距离财报" : "To Earnings", value: earningsEventRisk.earnings_countdown?.calendar_days_remaining == null ? t("dataUnavailable") : `${earningsEventRisk.earnings_countdown.calendar_days_remaining} ${currentLanguage === "zh" ? "个日历日" : "calendar days"}`, note: earningsEventRisk.earnings_countdown?.full_trading_sessions_remaining == null ? "" : `${currentLanguage === "zh" ? "剩余完整交易日" : "Full trading sessions remaining"}: ${earningsEventRisk.earnings_countdown.full_trading_sessions_remaining} · ${currentLanguage === "zh" ? "交易日估算" : "Trading-day estimate"}: ${earningsEventRisk.earnings_countdown.trading_days_remaining ?? "—"}` },
+          { label: currentLanguage === "zh" ? "距离财报" : "To Earnings", value: earningsEventRisk.earnings_countdown?.calendar_days_remaining == null ? t("dataUnavailable") : `${earningsEventRisk.earnings_countdown.calendar_days_remaining} ${currentLanguage === "zh" ? "个日历日" : "calendar days"}`, note: earningsCountdownDisplayNote },
         ])}</div>
       </section>
       <section class="detail-section-card">
