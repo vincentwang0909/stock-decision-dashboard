@@ -22184,7 +22184,7 @@ function renderDetailModal(row) {
       </section>
       <section class="detail-section-card">
         <div class="detail-section-head"><h3>${t("scoreBreakdown")}</h3></div>
-        <details class="score-breakdown-toggle"${DEV_MODE ? " open" : ""}>
+        <details class="score-breakdown-toggle" open>
           <summary>${currentLanguage === "zh" ? "展开查看每个周期的评分构成" : "Expand to inspect how each horizon score was built"}</summary>
           <div class="decision-summary-grid">
             <div class="decision-list-card">
