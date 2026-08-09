@@ -20,28 +20,6 @@ from urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
 
 from flask import Flask, jsonify, request, send_from_directory
-from financial_freshness import (
-    SEC_COMPANY_FACTS_URL,
-    SEC_COMPANY_TICKERS_URL,
-    SEC_SUBMISSIONS_URL,
-    build_sec_normalized_report,
-    compare_periods,
-    determine_freshness,
-    filing_url,
-    financial_semantics,
-    find_cik_for_ticker,
-    latest_earnings_release_filing,
-    latest_inline_xbrl_release_period,
-    merge_sec_instance_facts,
-    official_release_instance_document,
-    latest_official_filing,
-    now_iso as financial_now_iso,
-    parse_official_earnings_release,
-    preserve_cached_statement,
-    select_source,
-    source_conflicts,
-)
-
 try:
     from flask_cors import CORS
 except Exception:
@@ -94,12 +72,6 @@ MARKET_DATA_MAX_LIVE_TICKERS = int(os.environ.get("MARKET_DATA_MAX_LIVE_TICKERS"
 MARKET_DATA_ROUTE_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_ROUTE_TIMEOUT_SECONDS", "18"))
 MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS", "8"))
 OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECONDS", "6"))
-FINANCIAL_STATEMENT_CACHE_SECONDS = int(os.environ.get("FINANCIAL_STATEMENT_CACHE_SECONDS", str(12 * 60 * 60)))
-FINANCIAL_STATEMENT_EARNINGS_CHECK_SECONDS = int(os.environ.get("FINANCIAL_STATEMENT_EARNINGS_CHECK_SECONDS", str(2 * 60 * 60)))
-FINANCIAL_STATEMENT_SCHEMA_VERSION = 11
-FUNDAMENTAL_NORMALIZATION_SCHEMA_VERSION = 3
-FINANCIAL_DEBUG_ENABLED = os.environ.get("FINANCIAL_DEBUG_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
-SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT", "Stock Decision Dashboard contact@stock-decision-dashboard.local")
 # Increment when an options field changes methodology so cached synthetic data
 # cannot be presented as a current options snapshot.
 OPTIONS_SNAPSHOT_VERSION = 2
@@ -554,149 +526,6 @@ def _safe_float(value):
     return normalize_numeric(value)
 
 
-def canonical_dividend_yield(info, price):
-    """Return a verified decimal dividend yield without guessing Yahoo units.
-
-    Yahoo may expose ``dividendYield`` either as a decimal or as percentage
-    points.  An annual per-share dividend divided by the current price is the
-    unambiguous source when it is available.  If a provider supplies only an
-    ambiguous value, omit it rather than displaying a materially wrong yield.
-    """
-    details = info if isinstance(info, dict) else {}
-    price_value = _safe_float(price)
-    annual_rate = _safe_float(
-        details.get("trailingAnnualDividendRate")
-        or details.get("dividendRate")
-    )
-    if annual_rate is not None and annual_rate > 0 and price_value is not None and price_value > 0:
-        return {
-            "value": annual_rate / price_value,
-            "unit": "decimal",
-            "source": "annual_dividend_rate_divided_by_price",
-        }
-
-    trailing_yield = _safe_float(details.get("trailingAnnualDividendYield"))
-    if trailing_yield is not None and trailing_yield >= 0:
-        # Yahoo's explicitly named trailing-yield field is a decimal fraction.
-        return {
-            "value": trailing_yield,
-            "unit": "decimal",
-            "source": "trailing_annual_dividend_yield",
-        }
-
-    reported_yield = _safe_float(details.get("dividendYield"))
-    if reported_yield is not None and reported_yield > 1 and reported_yield <= 100:
-        return {
-            "value": reported_yield / 100,
-            "unit": "decimal",
-            "source": "provider_percent_dividend_yield",
-        }
-    return {"value": None, "unit": None, "source": "unverified_or_unavailable"}
-
-
-EPS_SURPRISE_NEAR_ZERO_THRESHOLD = 0.01
-
-
-def build_earnings_surprise(actual, estimate, near_zero_threshold=EPS_SURPRISE_NEAR_ZERO_THRESHOLD):
-    """Return a signed surprise plus an interpretable comparison state.
-
-    Percentage surprises are unreliable around zero and misleading when EPS
-    changes sign, so the state and absolute surprise remain the primary UI
-    signal in those cases.
-    """
-    actual_value = _safe_float(actual)
-    estimate_value = _safe_float(estimate)
-    if actual_value is None and estimate_value is None:
-        return {
-            "surprise_abs": None,
-            "surprise_pct": None,
-            "raw_surprise_pct": None,
-            "comparison_status": "cannot_compare",
-            "data_status": "unavailable",
-        }
-    if actual_value is None:
-        return {
-            "surprise_abs": None,
-            "surprise_pct": None,
-            "raw_surprise_pct": None,
-            "comparison_status": "cannot_compare",
-            "data_status": "estimate_only",
-        }
-    if estimate_value is None:
-        return {
-            "surprise_abs": None,
-            "surprise_pct": None,
-            "raw_surprise_pct": None,
-            "comparison_status": "cannot_compare",
-            "data_status": "actual_only",
-        }
-
-    surprise_abs = actual_value - estimate_value
-    if abs(estimate_value) < near_zero_threshold:
-        comparison = "denominator_near_zero"
-        return {
-            "surprise_abs": surprise_abs,
-            "surprise_pct": None,
-            "raw_surprise_pct": None,
-            "comparison_status": comparison,
-            "data_status": "actual_and_estimate_available",
-        }
-
-    surprise_pct = (surprise_abs / abs(estimate_value)) * 100
-    raw_surprise_pct = (surprise_abs / estimate_value) * 100
-    tolerance = max(abs(estimate_value) * 0.015, near_zero_threshold)
-    if actual_value < 0 < estimate_value:
-        comparison = "turned_to_loss"
-    elif actual_value > 0 > estimate_value:
-        comparison = "turned_profitable"
-    elif actual_value < 0 and estimate_value < 0:
-        comparison = "loss_wider_than_expected" if actual_value < estimate_value - tolerance else "loss_narrower_than_expected" if actual_value > estimate_value + tolerance else "in_line"
-    elif surprise_abs > tolerance:
-        comparison = "beat"
-    elif surprise_abs < -tolerance:
-        comparison = "miss"
-    else:
-        comparison = "in_line"
-    return {
-        "surprise_abs": surprise_abs,
-        "surprise_pct": surprise_pct,
-        "raw_surprise_pct": raw_surprise_pct,
-        "comparison_status": comparison,
-        "data_status": "actual_and_estimate_available",
-    }
-
-
-def build_eps_quarter_comparison(actual, prior, near_zero_threshold=EPS_SURPRISE_NEAR_ZERO_THRESHOLD):
-    """Compare two reported EPS values without making crossed-zero percentages look meaningful."""
-    actual_value = _safe_float(actual)
-    prior_value = _safe_float(prior)
-    result = {
-        "current": actual_value,
-        "prior": prior_value,
-        "absolute_change": actual_value - prior_value if actual_value is not None and prior_value is not None else None,
-        "pct_change": None,
-        "pct_change_valid": False,
-        "state": "unavailable",
-    }
-    if actual_value is None or prior_value is None:
-        return result
-    if abs(prior_value) < near_zero_threshold:
-        return {**result, "state": "denominator_near_zero"}
-    if actual_value > 0 and prior_value < 0:
-        return {**result, "state": "turned_profitable"}
-    if actual_value < 0 and prior_value > 0:
-        return {**result, "state": "turned_to_loss"}
-    if actual_value < 0 and prior_value < 0:
-        return {**result, "state": "loss_narrowed" if actual_value > prior_value else "loss_widened" if actual_value < prior_value else "unchanged"}
-    pct_change = (actual_value - prior_value) / abs(prior_value) * 100
-    return {
-        **result,
-        "pct_change": pct_change,
-        "pct_change_valid": True,
-        "state": "earnings_growth" if actual_value > prior_value else "earnings_decline" if actual_value < prior_value else "unchanged",
-    }
-
-
 def _safe_int(value):
     try:
         if value is None or pd.isna(value):
@@ -783,34 +612,6 @@ def _yahoo_nested_value(payload, *keys):
             return None
         current = current.get(key)
     return _unwrap_yahoo_value(current)
-
-
-def _pct_change_from_current(current_value, prior_value):
-    current_float = _safe_float(current_value)
-    prior_float = _safe_float(prior_value)
-    if current_float is None or prior_float in (None, 0):
-        return None
-    return ((current_float - prior_float) / abs(prior_float)) * 100
-
-
-def _select_earnings_trend_period(earnings_trend, preferred_periods=("0q", "+1q", "0y", "+1y")):
-    trend_items = earnings_trend.get("trend") if isinstance(earnings_trend, dict) else []
-    if not isinstance(trend_items, list):
-        return {}
-    for period in preferred_periods:
-        for item in trend_items:
-            if isinstance(item, dict) and item.get("period") == period:
-                return item
-    return trend_items[0] if trend_items and isinstance(trend_items[0], dict) else {}
-
-
-def _parse_yahoo_forward_estimate_fields(earnings_trend):
-    next_year_item = _select_earnings_trend_period(earnings_trend, preferred_periods=("+1y", "0y", "+1q", "0q"))
-    next_year_growth = _yahoo_nested_value(next_year_item, "growth") if next_year_item else None
-    fields = {}
-    if next_year_growth is not None:
-        fields["nextYearEpsGrowth"] = next_year_growth
-    return fields
 
 
 def fetch_yahoo_chart_points(symbol, range_value="3mo", interval="1d", limit=60, value_scale=1.0):
@@ -965,29 +766,21 @@ def fetch_stooq_chart_frame(symbol, limit=260):
 def fetch_yahoo_quote_summary_snapshot(symbol):
     modules = ",".join([
         "price",
-        "summaryDetail",
-        "defaultKeyStatistics",
-        "financialData",
         "summaryProfile",
         "calendarEvents",
-        "earningsTrend",
     ])
     for host in ("query1.finance.yahoo.com", "query2.finance.yahoo.com"):
         try:
             url = f"https://{host}/v10/finance/quoteSummary/{quote_plus(symbol)}?modules={modules}"
             payload = http_get_json_browser(url, timeout=8)
             result = ((((payload or {}).get("quoteSummary") or {}).get("result")) or [None])[0] or {}
-            summary_detail = result.get("summaryDetail") or {}
-            default_key_stats = result.get("defaultKeyStatistics") or {}
-            financial_data = result.get("financialData") or {}
             price = result.get("price") or {}
             summary_profile = result.get("summaryProfile") or {}
-            earnings_trend = result.get("earningsTrend") or {}
+            calendar_events = result.get("calendarEvents") or {}
             flattened = {}
-            for source in [summary_detail, default_key_stats, financial_data, price, summary_profile]:
+            for source in [price, summary_profile, calendar_events]:
                 for key, value in source.items():
                     flattened[key] = _unwrap_yahoo_value(value)
-            flattened.update(_parse_yahoo_forward_estimate_fields(earnings_trend))
             if flattened:
                 return flattened
         except Exception:
@@ -1005,174 +798,6 @@ def merge_yahoo_fallback_info(symbol, info):
                 merged[key] = value
     return merged, quote_snapshot, quote_summary
 
-
-def _statement_value(frame, labels, period_index=0):
-    """Read a finite value from a yfinance statement without assuming a schema."""
-    try:
-        if frame is None or getattr(frame, "empty", True):
-            return None
-        columns = list(frame.columns)
-        if not columns:
-            return None
-        column = columns[min(max(0, period_index), len(columns) - 1)]
-        index = set(str(value) for value in frame.index)
-        for label in labels:
-            if label in index:
-                return _safe_float(frame.loc[label, column])
-    except Exception:
-        return None
-    return None
-
-
-def _statement_label(frame, labels):
-    """Return the first matching statement row label without guessing a value."""
-    try:
-        if frame is None or getattr(frame, "empty", True):
-            return None
-        rows = {str(value): value for value in frame.index}
-        for label in labels:
-            if label in rows:
-                return rows[label]
-    except Exception:
-        return None
-    return None
-
-
-def _statement_values(frame, labels, start_index=0, count=1):
-    """Read sequential statement values while retaining their reported dates."""
-    label = _statement_label(frame, labels)
-    if label is None:
-        return []
-    values = []
-    try:
-        columns = list(frame.columns)
-        for index in range(start_index, min(start_index + count, len(columns))):
-            raw_value = _safe_float(frame.loc[label, columns[index]])
-            if raw_value is None:
-                continue
-            values.append({
-                "raw_value": raw_value,
-                "period_end_date": _statement_period_end(frame, index),
-                "source_field": str(label),
-            })
-    except Exception:
-        return []
-    return values
-
-
-def _period_record(value, period_type, period_end_date=None, source_field=None, source="yfinance financial statements", calculation_method="reported"):
-    raw_value = _safe_float(value)
-    return {
-        "raw_value": raw_value,
-        "currency": "USD",
-        "detected_scale": "raw_usd",
-        "period_type": period_type,
-        "period_end_date": period_end_date,
-        "source_field": source_field,
-        "source": source,
-        "calculation_method": calculation_method,
-        "data_quality": "high" if raw_value is not None else "unavailable",
-    }
-
-
-def _statement_ttm_record(frame, labels, annual_frame=None, info_value=None):
-    """Build a point-in-time-safe TTM record, never relabeling an annual value as TTM."""
-    quarters = _statement_values(frame, labels, 0, 4)
-    if len(quarters) == 4:
-        return _period_record(
-            sum(item["raw_value"] for item in quarters),
-            "ttm",
-            quarters[0]["period_end_date"],
-            quarters[0]["source_field"],
-            calculation_method="sum_latest_four_quarters",
-        )
-    if info_value is not None:
-        return _period_record(
-            info_value,
-            "ttm",
-            None,
-            "Yahoo quote summary",
-            source="Yahoo Finance quote summary",
-            calculation_method="provider_reported_ttm",
-        )
-    annual_values = _statement_values(annual_frame, labels, 0, 1)
-    if annual_values:
-        value = annual_values[0]
-        return _period_record(
-            value["raw_value"],
-            "fiscal_year",
-            value["period_end_date"],
-            value["source_field"],
-            calculation_method="latest_fiscal_year_fallback",
-        )
-    return _period_record(None, "unavailable")
-
-
-def _statement_quarter_record(frame, labels):
-    values = _statement_values(frame, labels, 0, 1)
-    if not values:
-        return _period_record(None, "unavailable")
-    value = values[0]
-    return _period_record(value["raw_value"], "quarter", value["period_end_date"], value["source_field"])
-
-
-def _statement_quarter_record_at_index(frame, labels, period_index):
-    values = _statement_values(frame, labels, period_index, 1)
-    if not values:
-        return _period_record(None, "unavailable")
-    value = values[0]
-    return _period_record(value["raw_value"], "quarter", value["period_end_date"], value["source_field"])
-
-
-def _statement_fiscal_year_record(frame, labels):
-    values = _statement_values(frame, labels, 0, 1)
-    if not values:
-        return _period_record(None, "unavailable")
-    value = values[0]
-    return _period_record(value["raw_value"], "fiscal_year", value["period_end_date"], value["source_field"])
-
-
-def _safe_growth_comparison(current_value, prior_value):
-    """Keep crossed-zero cash-flow changes interpretable instead of misleading."""
-    current = _safe_float(current_value)
-    prior = _safe_float(prior_value)
-    result = {
-        "current": current,
-        "prior": prior,
-        "absolute_change": current - prior if current is not None and prior is not None else None,
-        "pct_change": None,
-        "pct_change_valid": False,
-        "state": "unavailable",
-        "invalid_reason": "missing_comparable_period",
-    }
-    if current is None or prior is None:
-        return result
-    if prior > 0 and current < 0:
-        result.update({"state": "turned_negative", "invalid_reason": "crossed_zero"})
-        return result
-    if prior < 0 and current > 0:
-        result.update({"state": "turned_positive", "invalid_reason": "crossed_zero"})
-        return result
-    if prior == 0:
-        result.update({"state": "changed_from_zero", "invalid_reason": "zero_denominator"})
-        return result
-    result["pct_change"] = ((current - prior) / abs(prior)) * 100
-    result["pct_change_valid"] = True
-    result["invalid_reason"] = None
-    result["state"] = "improved" if current > prior else "weakened" if current < prior else "unchanged"
-    return result
-
-
-def _previous_ttm_value(frame, labels):
-    quarters = _statement_values(frame, labels, 4, 4)
-    return sum(item["raw_value"] for item in quarters) if len(quarters) == 4 else None
-
-
-def _quarter_change(frame, labels):
-    values = _statement_values(frame, labels, 0, 2)
-    if len(values) < 2:
-        return None
-    return _pct_change_from_current(values[0]["raw_value"], values[1]["raw_value"])
 
 
 def _earnings_countdown(earnings_datetime):
@@ -1233,1169 +858,6 @@ def _earnings_countdown(earnings_datetime):
             "calculation_method": "unavailable",
         }
 
-
-def _statement_period_end(frame, period_index=0):
-    try:
-        columns = list(frame.columns)
-        if not columns:
-            return None
-        value = columns[min(max(0, period_index), len(columns) - 1)]
-        if hasattr(value, "date"):
-            return value.date().isoformat()
-        return str(value)[:10]
-    except Exception:
-        return None
-
-
-def _safe_statement_frame(instrument, attribute):
-    try:
-        frame = getattr(instrument, attribute, None)
-        return frame if frame is not None and not getattr(frame, "empty", True) else None
-    except Exception:
-        return None
-
-
-def _latest_earnings_dates(instrument):
-    try:
-        frame = instrument.get_earnings_dates(limit=8)
-        if frame is None or getattr(frame, "empty", True):
-            return {}
-        frame = frame.sort_index(ascending=False)
-        # The first returned row can be a future estimated event. Prefer the
-        # latest row with reported EPS when building a completed-report card.
-        reported_mask = frame["Reported EPS"].apply(lambda value: _safe_float(value) is not None) if "Reported EPS" in frame.columns else None
-        reported = frame[reported_mask] if reported_mask is not None else frame.iloc[0:0]
-        latest = reported.iloc[0] if not reported.empty else frame.iloc[0]
-        event_date = latest.name
-        event_date_text = event_date.date().isoformat() if hasattr(event_date, "date") else str(event_date)[:10]
-        return {
-            "eventDate": event_date_text,
-            "epsEstimate": _safe_float(latest.get("EPS Estimate")),
-            "epsActual": _safe_float(latest.get("Reported EPS")),
-            "epsSurprisePct": _safe_float(latest.get("Surprise(%)")),
-            # A reported EPS is an earnings-calendar confirmation, not a
-            # forecast placeholder.  Freshness logic can safely use it to
-            # decide whether a lagging statement provider needs a fallback.
-            "reportReleased": bool(not reported.empty and _safe_float(latest.get("Reported EPS")) is not None),
-        }
-    except Exception:
-        return {}
-
-
-def _share_count_history(instrument):
-    """Return comparable current/prior share counts when Yahoo exposes a dated series."""
-    try:
-        today = datetime.now(timezone.utc).date()
-        series = instrument.get_shares_full(
-            start=(today - timedelta(days=460)).isoformat(),
-            end=(today + timedelta(days=1)).isoformat(),
-        )
-        if series is None or getattr(series, "empty", True):
-            return {}
-        points = []
-        for stamp, value in series.items():
-            numeric = _safe_float(value)
-            if numeric is None:
-                continue
-            point_date = stamp.date() if hasattr(stamp, "date") else None
-            if point_date is not None:
-                points.append((point_date, numeric))
-        if not points:
-            return {}
-        points.sort(key=lambda item: item[0])
-        current_date, current_value = points[-1]
-        target_date = current_date - timedelta(days=365)
-        historical = [item for item in points if item[0] <= target_date]
-        if not historical:
-            return {
-                "current": current_value,
-                "current_date": current_date.isoformat(),
-                "prior": None,
-                "prior_date": None,
-                "comparison_status": "prior_year_unavailable",
-            }
-        prior_date, prior_value = historical[-1]
-        return {
-            "current": current_value,
-            "current_date": current_date.isoformat(),
-            "prior": prior_value,
-            "prior_date": prior_date.isoformat(),
-            "comparison_status": "comparable_one_year_history",
-        }
-    except Exception:
-        return {}
-
-
-BASIC_FUNDAMENTAL_SNAPSHOT_FIELDS = (
-    "cashFlow",
-    "capitalAllocation",
-    "balanceSheet",
-    "financialFacts",
-    "guidance",
-    "financialStatementFreshness",
-    "financialStatementSource",
-    "financialStatementSnapshot",
-    "financialStatementLatestRelease",
-    "financialStatementDiagnostic",
-    "annualPeriodEnd",
-    "quarterlyPeriodEnd",
-)
-
-
-def strip_basic_fundamental_payload(snapshot):
-    """Keep the compact earnings payload after removing the statement panel."""
-    if not isinstance(snapshot, dict):
-        return snapshot
-    for field in BASIC_FUNDAMENTAL_SNAPSHOT_FIELDS:
-        snapshot.pop(field, None)
-    return snapshot
-
-
-def _fundamental_metric(value, metric, period_type, period_end_date, source, definition,
-                        calculated=True, source_field=None, last_updated=None, missing_reason=None,
-                        calculation_inputs=None):
-    """Build one period-aware display metric without coercing missing values to zero."""
-    normalized = _safe_float(value)
-    return {
-        "value": normalized,
-        "metric": metric,
-        "period_type": period_type,
-        "period_end_date": period_end_date,
-        "source": source,
-        "definition": definition,
-        "calculated_or_provider": "calculated" if calculated else "provider",
-        "source_field": source_field,
-        "last_updated": last_updated,
-        "stale": False,
-        "missing_reason": missing_reason if normalized is None else None,
-        "calculation_inputs": calculation_inputs or {},
-        "validation_status": "missing" if normalized is None else "valid_zero_pending" if normalized == 0 else "valid",
-        "zero_validation_reason": None,
-    }
-
-
-def _provider_trailing_margin_metric(info, provider_field, metric, latest_period, last_updated):
-    """Use a documented Yahoo trailing margin only after statement reconstruction fails.
-
-    This fallback is deliberately unavailable for a provider zero: a margin of
-    zero can be genuine, but quote-summary metadata alone cannot establish that
-    it is a real TTM value rather than a placeholder.
-    """
-    value = _safe_float((info or {}).get(provider_field))
-    if value is None or value == 0:
-        return None
-    return _fundamental_metric(
-        value,
-        metric,
-        "ttm_provider",
-        latest_period,
-        "Yahoo Finance quote summary",
-        "Yahoo Finance provider-reported trailing margin; four-quarter statement reconstruction unavailable",
-        calculated=False,
-        source_field=provider_field,
-        last_updated=last_updated,
-    )
-
-
-def _mark_metric_unavailable(record, reason):
-    if not isinstance(record, dict):
-        return record
-    record["value"] = None
-    record["missing_reason"] = reason
-    record["validation_status"] = "invalid_placeholder_zero"
-    record["zero_validation_reason"] = reason
-    return record
-
-
-def validate_normalized_fundamental_zeros(normalized, info=None, price=None, ticker=None):
-    """Reject only impossible or unverified placeholder zeros, never negatives.
-
-    A zero calculated from dated statement inputs is valid.  Quote-summary zero
-    multiples are not: with a positive market price they almost always mean an
-    unavailable denominator or an API placeholder.  The validation result is
-    retained with each metric so the audit script can explain every displayed
-    zero without ticker-specific rules.
-    """
-    if not isinstance(normalized, dict):
-        return normalized
-    metric_groups = {
-        "profitability": {"gross_margin_ttm", "operating_margin_ttm", "net_margin_ttm"},
-        "valuation": {"pe", "forward_pe", "peg", "price_to_sales", "ev_to_ebitda"},
-    }
-    price_value = _safe_float(price)
-    for group, suspicious_metrics in metric_groups.items():
-        for key, record in ((normalized.get(group) or {}).items()):
-            if not isinstance(record, dict):
-                continue
-            value = _safe_float(record.get("value"))
-            if value is None:
-                record["validation_status"] = "missing"
-                continue
-            if value != 0:
-                record["validation_status"] = "valid"
-                continue
-            calculated = record.get("calculated_or_provider") == "calculated"
-            if key in {"pe", "forward_pe", "peg", "price_to_sales", "ev_to_ebitda"}:
-                _mark_metric_unavailable(record, "provider_placeholder_zero_or_unavailable_denominator")
-            elif key in suspicious_metrics and not calculated:
-                _mark_metric_unavailable(record, "unverified_provider_zero")
-            else:
-                record["validation_status"] = "valid_zero"
-                record["zero_validation_reason"] = "calculated_from_available_same_period_inputs"
-            if FINANCIAL_DEBUG_ENABLED and record.get("validation_status") == "invalid_placeholder_zero":
-                print(
-                    "[Fundamental Zero Audit Warning] "
-                    f"ticker={ticker or (normalized.get('metadata') or {}).get('ticker') or 'unknown'} "
-                    f"metric={key} value=0 price={price_value} source={record.get('source')} "
-                    f"reason={record.get('missing_reason')}",
-                    file=sys.stderr,
-                )
-    return normalized
-
-
-def _display_fundamental_metric(value, period_type, period_end_date, source, definition):
-    """Compatibility wrapper for the pre-normalization SEC overlay path."""
-    return _fundamental_metric(
-        value,
-        "legacy_display_metric",
-        period_type,
-        period_end_date,
-        source,
-        definition,
-    )
-
-
-def _statement_series(frame, labels):
-    """Return dated quarterly rows in newest-first order, skipping only truly missing rows."""
-    label = _statement_label(frame, labels)
-    if label is None:
-        return []
-    rows = []
-    try:
-        for index, column in enumerate(list(frame.columns)):
-            value = _safe_float(frame.loc[label, column])
-            period_end = _statement_period_end(frame, index)
-            if value is None or not period_end:
-                continue
-            rows.append({
-                "value": value,
-                "period_end_date": period_end,
-                "source_field": str(label),
-            })
-    except Exception:
-        return []
-    rows.sort(key=lambda item: item["period_end_date"], reverse=True)
-    return rows
-
-
-def _series_value_for_period(series, period_end_date):
-    return next((item for item in series if item.get("period_end_date") == period_end_date), None)
-
-
-def _same_fiscal_quarter_prior(series, current_period_end):
-    """Find the closest reported period roughly one fiscal year earlier."""
-    try:
-        current_date = datetime.fromisoformat(str(current_period_end)[:10]).date()
-    except (TypeError, ValueError):
-        return None
-    candidates = []
-    for item in series:
-        try:
-            prior_date = datetime.fromisoformat(str(item.get("period_end_date"))[:10]).date()
-        except (TypeError, ValueError):
-            continue
-        distance = (current_date - prior_date).days
-        if 300 <= distance <= 430:
-            candidates.append((abs(distance - 365), item))
-    return min(candidates, key=lambda item: item[0])[1] if candidates else None
-
-
-def _sum_latest_four_quarters(series):
-    """Return a dated TTM total only when four distinct quarterly rows exist."""
-    rows = (series or [])[:4]
-    dates = [row.get("period_end_date") for row in rows]
-    values = [_safe_float(row.get("value")) for row in rows]
-    if len(rows) != 4 or len(set(dates)) != 4 or any(value is None for value in values):
-        return None, None
-    return sum(values), dates[0]
-
-
-def _growth_from_same_quarter(current, prior):
-    current_value = _safe_float((current or {}).get("value"))
-    prior_value = _safe_float((prior or {}).get("value"))
-    if current_value is None or prior_value is None:
-        return None, "missing_comparable_same_fiscal_quarter"
-    if prior_value == 0:
-        return None, "zero_prior_year_denominator"
-    return (current_value - prior_value) / abs(prior_value), None
-
-
-def _build_standardized_fcf_series(operating_cash_flow, capital_expenditure, provider_fcf):
-    """Prefer a same-period reported FCF row, otherwise calculate OCF minus CapEx.
-
-    Yahoo reports CapEx with either sign across issuers.  Treat it as a cash
-    outflow magnitude exactly once before subtracting it from operating cash.
-    """
-    capex_by_period = {item.get("period_end_date"): item for item in capital_expenditure or []}
-    provider_by_period = {item.get("period_end_date"): item for item in provider_fcf or []}
-    rows = []
-    for ocf in operating_cash_flow or []:
-        period = ocf.get("period_end_date")
-        direct = provider_by_period.get(period)
-        capex = capex_by_period.get(period)
-        if direct and _safe_float(direct.get("value")) is not None:
-            rows.append({
-                "value": _safe_float(direct.get("value")),
-                "period_end_date": period,
-                "source_field": direct.get("source_field"),
-                "definition": "provider_reported_free_cash_flow",
-            })
-        elif capex and _safe_float(ocf.get("value")) is not None and _safe_float(capex.get("value")) is not None:
-            rows.append({
-                "value": _safe_float(ocf.get("value")) - abs(_safe_float(capex.get("value"))),
-                "period_end_date": period,
-                "source_field": f"{ocf.get('source_field')} - {capex.get('source_field')}",
-                "definition": "operating_cash_flow_minus_absolute_capex",
-            })
-    rows.sort(key=lambda item: item["period_end_date"], reverse=True)
-    return rows
-
-
-def _normalized_fundamentals_from_series(series, info, source, source_url=None, last_updated=None):
-    """Build the one canonical fundamental tree used by the detail UI only."""
-    income = series.get("income") or {}
-    cashflow = series.get("cashflow") or {}
-    balance = series.get("balance") or {}
-    revenue = income.get("revenue") or []
-    gross_profit = income.get("gross_profit") or []
-    operating_income = income.get("operating_income") or []
-    net_income = income.get("net_income") or []
-    diluted_eps = income.get("diluted_eps") or []
-    ocf = cashflow.get("operating_cash_flow") or []
-    capex = cashflow.get("capital_expenditure") or []
-    fcf = _build_standardized_fcf_series(ocf, capex, cashflow.get("free_cash_flow") or [])
-    latest_period = (revenue[0] if revenue else {}).get("period_end_date")
-    ttm_revenue, ttm_period = _sum_latest_four_quarters(revenue)
-    ttm_gross_profit, _ = _sum_latest_four_quarters(gross_profit)
-    ttm_operating_income, _ = _sum_latest_four_quarters(operating_income)
-    ttm_net_income, _ = _sum_latest_four_quarters(net_income)
-    ttm_eps, _ = _sum_latest_four_quarters(diluted_eps)
-    ttm_fcf, _ = _sum_latest_four_quarters(fcf)
-    current_revenue = revenue[0] if revenue else None
-    current_eps = diluted_eps[0] if diluted_eps else None
-    current_fcf = fcf[0] if fcf else None
-    revenue_growth, revenue_growth_reason = _growth_from_same_quarter(
-        current_revenue, _same_fiscal_quarter_prior(revenue, latest_period),
-    )
-    eps_growth, eps_growth_reason = _growth_from_same_quarter(
-        current_eps, _same_fiscal_quarter_prior(diluted_eps, latest_period),
-    )
-    fcf_growth, fcf_growth_reason = _growth_from_same_quarter(
-        current_fcf, _same_fiscal_quarter_prior(fcf, latest_period),
-    )
-    equity = balance.get("stockholders_equity") or []
-    total_debt = balance.get("total_debt") or []
-    current_assets = balance.get("current_assets") or []
-    current_liabilities = balance.get("current_liabilities") or []
-    latest_equity = equity[0] if equity else None
-    prior_equity = _same_fiscal_quarter_prior(equity, latest_equity.get("period_end_date") if latest_equity else None)
-    average_equity = None
-    if latest_equity and prior_equity:
-        average_equity = (_safe_float(latest_equity.get("value")) + _safe_float(prior_equity.get("value"))) / 2
-    roe = ttm_net_income / average_equity if ttm_net_income is not None and average_equity not in (None, 0) else None
-    # Provider ROE remains a documented fallback only when the balance-sheet
-    # history cannot support the required average-equity calculation.
-    roe_calculated = roe is not None
-    if roe is None:
-        roe = _safe_float(info.get("returnOnEquity"))
-    debt = total_debt[0] if total_debt else None
-    debt_to_equity = (
-        _safe_float(debt.get("value")) / _safe_float(latest_equity.get("value"))
-        if debt and latest_equity and _safe_float(latest_equity.get("value")) not in (None, 0)
-        else None
-    )
-    if debt_to_equity is None:
-        raw_debt_to_equity = _safe_float(info.get("debtToEquity"))
-        debt_to_equity = raw_debt_to_equity / 100 if raw_debt_to_equity is not None else None
-    assets = current_assets[0] if current_assets else None
-    liabilities = current_liabilities[0] if current_liabilities else None
-    current_ratio = (
-        _safe_float(assets.get("value")) / _safe_float(liabilities.get("value"))
-        if assets and liabilities and _safe_float(liabilities.get("value")) not in (None, 0)
-        else _safe_float(info.get("currentRatio"))
-    )
-
-    gross_margin_ttm = ttm_gross_profit / ttm_revenue if ttm_gross_profit is not None and ttm_revenue not in (None, 0) else None
-    operating_margin_ttm = ttm_operating_income / ttm_revenue if ttm_operating_income is not None and ttm_revenue not in (None, 0) else None
-    net_margin_ttm = ttm_net_income / ttm_revenue if ttm_net_income is not None and ttm_revenue not in (None, 0) else None
-    gross_margin_metric = _fundamental_metric(
-        gross_margin_ttm,
-        "gross_margin",
-        "ttm",
-        ttm_period,
-        source,
-        "TTM gross profit / TTM revenue",
-        source_field="Gross Profit / Total Revenue",
-        last_updated=last_updated,
-        missing_reason="missing_four_comparable_quarters",
-    )
-    operating_margin_metric = _fundamental_metric(
-        operating_margin_ttm,
-        "operating_margin",
-        "ttm",
-        ttm_period,
-        source,
-        "GAAP Operating Income / Revenue, summed across four standalone quarters",
-        source_field="Operating Income / Total Revenue",
-        last_updated=last_updated,
-        missing_reason="missing_four_comparable_quarters",
-    )
-    net_margin_metric = _fundamental_metric(
-        net_margin_ttm,
-        "net_margin",
-        "ttm",
-        ttm_period,
-        source,
-        "TTM net income attributable to common / TTM revenue",
-        source_field="Net Income / Total Revenue",
-        last_updated=last_updated,
-        missing_reason="missing_four_comparable_quarters",
-    )
-    # Statement data remains the first choice.  Only the Yahoo statement path
-    # can use Yahoo's documented trailing margin fallback; an SEC-selected
-    # snapshot must not silently mix in an older Yahoo quote-summary value.
-    if source == "Yahoo Finance financial statements via yfinance":
-        gross_margin_metric = gross_margin_metric if gross_margin_metric["value"] is not None else _provider_trailing_margin_metric(
-            info, "grossMargins", "gross_margin", latest_period, last_updated,
-        ) or gross_margin_metric
-        operating_margin_metric = operating_margin_metric if operating_margin_metric["value"] is not None else _provider_trailing_margin_metric(
-            info, "operatingMargins", "operating_margin", latest_period, last_updated,
-        ) or operating_margin_metric
-        net_margin_metric = net_margin_metric if net_margin_metric["value"] is not None else _provider_trailing_margin_metric(
-            info, "profitMargins", "net_margin", latest_period, last_updated,
-        ) or net_margin_metric
-
-    metrics = {
-        "roe_ttm": _fundamental_metric(roe, "roe", "ttm", ttm_period, source,
-            "TTM net income / average beginning and ending stockholders equity" if roe_calculated else "provider reported return on equity; statement average equity unavailable",
-            calculated=roe_calculated, source_field=(latest_equity or {}).get("source_field"), last_updated=last_updated,
-            missing_reason="missing_ttm_net_income_or_comparable_equity"),
-        "gross_margin_ttm": gross_margin_metric,
-        "operating_margin_ttm": operating_margin_metric,
-        "net_margin_ttm": net_margin_metric,
-        "debt_to_equity": _fundamental_metric(debt_to_equity, "debt_to_equity", "point_in_time",
-            (debt or latest_equity or {}).get("period_end_date"), source, "latest total debt / latest stockholders equity",
-            calculated=debt is not None and latest_equity is not None, source_field=(debt or latest_equity or {}).get("source_field"), last_updated=last_updated,
-            missing_reason="missing_latest_debt_or_equity"),
-        "current_ratio": _fundamental_metric(current_ratio, "current_ratio", "point_in_time",
-            (assets or liabilities or {}).get("period_end_date"), source, "latest current assets / latest current liabilities",
-            calculated=assets is not None and liabilities is not None, source_field=(assets or liabilities or {}).get("source_field"), last_updated=last_updated,
-            missing_reason="missing_latest_current_assets_or_liabilities"),
-        "revenue_growth_yoy": _fundamental_metric(revenue_growth, "revenue_growth", "quarter_yoy", latest_period, source,
-            "latest reported quarter revenue versus same fiscal quarter prior year", source_field=(current_revenue or {}).get("source_field"), last_updated=last_updated,
-            missing_reason=revenue_growth_reason, calculation_inputs={
-                "current_period_value": _safe_float((current_revenue or {}).get("value")),
-                "prior_year_period_value": _safe_float((_same_fiscal_quarter_prior(revenue, latest_period) or {}).get("value")),
-            }),
-        "eps_growth_yoy": _fundamental_metric(eps_growth, "eps_growth", "quarter_yoy", latest_period, source,
-            "latest reported diluted EPS versus same fiscal quarter prior year", source_field=(current_eps or {}).get("source_field"), last_updated=last_updated,
-            missing_reason=eps_growth_reason, calculation_inputs={
-                "current_period_value": _safe_float((current_eps or {}).get("value")),
-                "prior_year_period_value": _safe_float((_same_fiscal_quarter_prior(diluted_eps, latest_period) or {}).get("value")),
-            }),
-        "free_cash_flow_growth_yoy": _fundamental_metric(fcf_growth, "free_cash_flow_growth", "quarter_yoy", latest_period, source,
-            "latest standardized free cash flow versus same fiscal quarter prior year", source_field=(current_fcf or {}).get("source_field"), last_updated=last_updated,
-            missing_reason=fcf_growth_reason, calculation_inputs={
-                "current_period_value": _safe_float((current_fcf or {}).get("value")),
-                "prior_year_period_value": _safe_float((_same_fiscal_quarter_prior(fcf, latest_period) or {}).get("value")),
-                "denominator_small": bool(
-                    _safe_float((_same_fiscal_quarter_prior(fcf, latest_period) or {}).get("value")) is not None
-                    and abs(_safe_float((_same_fiscal_quarter_prior(fcf, latest_period) or {}).get("value")))
-                    < max(1.0, abs(_safe_float((current_fcf or {}).get("value")) or 0) * 0.05)
-                ),
-            }),
-    }
-    normalized = {
-        "schema_version": FUNDAMENTAL_NORMALIZATION_SCHEMA_VERSION,
-        "source": source,
-        "source_url": source_url,
-        "profitability": {
-            "roe_ttm": metrics["roe_ttm"],
-            "gross_margin_ttm": metrics["gross_margin_ttm"],
-            "operating_margin_ttm": metrics["operating_margin_ttm"],
-            "net_margin_ttm": metrics["net_margin_ttm"],
-        },
-        "balance_sheet": {
-            "debt_to_equity": metrics["debt_to_equity"],
-            "current_ratio": metrics["current_ratio"],
-        },
-        "growth": {
-            "revenue_growth_yoy": metrics["revenue_growth_yoy"],
-            "eps_growth_yoy": metrics["eps_growth_yoy"],
-            "free_cash_flow_growth_yoy": metrics["free_cash_flow_growth_yoy"],
-        },
-        "valuation": {},
-        "inputs": {
-            "ttm_revenue": _fundamental_metric(ttm_revenue, "revenue", "ttm", ttm_period, source, "sum of four standalone quarterly revenue records", source_field=(revenue[0] if revenue else {}).get("source_field"), last_updated=last_updated, missing_reason="missing_four_comparable_quarters"),
-            "ttm_diluted_eps": _fundamental_metric(ttm_eps, "diluted_eps", "ttm", ttm_period, source, "sum of four standalone quarterly diluted EPS records", source_field=(diluted_eps[0] if diluted_eps else {}).get("source_field"), last_updated=last_updated, missing_reason="missing_four_comparable_quarters"),
-            "latest_fiscal_quarter_fcf": _fundamental_metric((current_fcf or {}).get("value"), "free_cash_flow", "quarter", latest_period, source, (current_fcf or {}).get("definition") or "operating cash flow minus CapEx", source_field=(current_fcf or {}).get("source_field"), last_updated=last_updated, missing_reason="missing_same_period_ocf_and_capex"),
-            "ttm_standardized_fcf": _fundamental_metric(ttm_fcf, "free_cash_flow", "ttm", ttm_period, source, "sum of four standalone standardized free cash flow quarters", source_field="Operating Cash Flow - CapEx", last_updated=last_updated, missing_reason="missing_four_comparable_quarters"),
-        },
-        "metadata": {
-            "latest_fiscal_quarter": latest_period,
-            "profitability_period_end": ttm_period,
-            "balance_sheet_period_end": (debt or latest_equity or assets or liabilities or {}).get("period_end_date"),
-            "growth_period_end": latest_period,
-            "source": source,
-            "last_updated": last_updated,
-            "stale_fundamentals": False,
-        },
-    }
-    return validate_normalized_fundamental_zeros(normalized, info)
-
-
-def build_yahoo_normalized_fundamentals(quarterly_income, quarterly_cashflow, quarterly_balance, info, source_timestamp):
-    """Normalize yfinance statement frames before any frontend mapping occurs."""
-    series = {
-        "income": {
-            "revenue": _statement_series(quarterly_income, ["Total Revenue", "Operating Revenue"]),
-            "gross_profit": _statement_series(quarterly_income, ["Gross Profit"]),
-            "operating_income": _statement_series(quarterly_income, ["Operating Income"]),
-            "net_income": _statement_series(quarterly_income, ["Net Income Common Stockholders", "Net Income"]),
-            "diluted_eps": _statement_series(quarterly_income, ["Diluted EPS"]),
-        },
-        "cashflow": {
-            "operating_cash_flow": _statement_series(quarterly_cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"]),
-            "capital_expenditure": _statement_series(quarterly_cashflow, ["Capital Expenditure", "Capital Expenditures"]),
-            "free_cash_flow": _statement_series(quarterly_cashflow, ["Free Cash Flow"]),
-        },
-        "balance": {
-            "stockholders_equity": _statement_series(quarterly_balance, ["Stockholders Equity", "Stockholders Equity Including Minority Interest"]),
-            "total_debt": _statement_series(quarterly_balance, ["Total Debt"]),
-            "current_assets": _statement_series(quarterly_balance, ["Current Assets", "Total Current Assets"]),
-            "current_liabilities": _statement_series(quarterly_balance, ["Current Liabilities", "Total Current Liabilities"]),
-        },
-    }
-    return _normalized_fundamentals_from_series(
-        series,
-        info or {},
-        "Yahoo Finance financial statements via yfinance",
-        last_updated=source_timestamp,
-    )
-
-
-def _sec_quarter_series(report, field):
-    rows = []
-    for item in ((report or {}).get("quarter_series") or {}).get(field, []):
-        derivation = item.get("derivation") or {}
-        filing = item.get("filing") or {}
-        value = _safe_float(derivation.get("value"))
-        period_end = filing.get("reportDate")
-        if value is None or not period_end:
-            continue
-        rows.append({
-            "value": value,
-            "period_end_date": str(period_end)[:10],
-            "source_field": ((report or {}).get("quarter") or {}).get(field, {}).get("source_field"),
-        })
-    rows.sort(key=lambda item: item["period_end_date"], reverse=True)
-    return rows
-
-
-def _sec_balance_series(report, field):
-    rows = []
-    for item in ((report or {}).get("balance_series") or {}).get(field, []):
-        value = _safe_float(item.get("raw_value"))
-        period_end = item.get("period_end_date")
-        if value is None or not period_end:
-            continue
-        rows.append({
-            "value": value,
-            "period_end_date": str(period_end)[:10],
-            "source_field": item.get("source_field"),
-        })
-    rows.sort(key=lambda item: item["period_end_date"], reverse=True)
-    return rows
-
-
-def build_sec_normalized_fundamentals(report, info):
-    """Project a complete SEC report into the same display schema as Yahoo data."""
-    report = report or {}
-    series = {
-        "income": {
-            "revenue": _sec_quarter_series(report, "revenue"),
-            "gross_profit": _sec_quarter_series(report, "gross_profit"),
-            "operating_income": _sec_quarter_series(report, "operating_income"),
-            "net_income": _sec_quarter_series(report, "net_income"),
-            "diluted_eps": _sec_quarter_series(report, "diluted_eps"),
-        },
-        "cashflow": {
-            "operating_cash_flow": _sec_quarter_series(report, "operating_cash_flow"),
-            "capital_expenditure": _sec_quarter_series(report, "capital_expenditure"),
-            "free_cash_flow": [],
-        },
-        "balance": {
-            "stockholders_equity": _sec_balance_series(report, "stockholders_equity"),
-            "total_debt": _sec_balance_series(report, "total_debt"),
-            "current_assets": _sec_balance_series(report, "current_assets"),
-            "current_liabilities": _sec_balance_series(report, "current_liabilities"),
-        },
-    }
-    normalized = _normalized_fundamentals_from_series(
-        series,
-        info or {},
-        report.get("source_name") or "SEC EDGAR companyfacts",
-        source_url=report.get("source_url"),
-        last_updated=report.get("extraction_timestamp"),
-    )
-    # SEC's normalizer has already validated these TTM totals. Prefer them over
-    # a series that may be incomplete when an issuer omits a standard concept.
-    ttm = report.get("ttm") or {}
-    inputs = normalized.get("inputs") or {}
-    sec_ttm_revenue = _financial_record_value(ttm.get("revenue"))
-    sec_ttm_eps = _sum_latest_four_quarters(series["income"]["diluted_eps"])[0]
-    sec_ttm_fcf = _financial_record_value(ttm.get("standardized_free_cash_flow"))
-    period_end = report.get("fiscal_period_end_date")
-    if sec_ttm_revenue is not None:
-        inputs["ttm_revenue"] = _fundamental_metric(sec_ttm_revenue, "revenue", "ttm", period_end,
-            normalized["source"], "SEC sum of four normalized standalone quarterly revenue records",
-            source_field=(ttm.get("revenue") or {}).get("source_field"), last_updated=report.get("extraction_timestamp"))
-    if sec_ttm_eps is not None:
-        inputs["ttm_diluted_eps"] = _fundamental_metric(sec_ttm_eps, "diluted_eps", "ttm", period_end,
-            normalized["source"], "SEC sum of four normalized standalone quarterly diluted EPS records",
-            source_field=((report.get("quarter") or {}).get("diluted_eps") or {}).get("source_field"), last_updated=report.get("extraction_timestamp"))
-    if sec_ttm_fcf is not None:
-        inputs["ttm_standardized_fcf"] = _fundamental_metric(sec_ttm_fcf, "free_cash_flow", "ttm", period_end,
-            normalized["source"], "SEC sum of four normalized standalone quarterly operating cash flow minus CapEx",
-            source_field=(ttm.get("standardized_free_cash_flow") or {}).get("source_field"), last_updated=report.get("extraction_timestamp"))
-    # A cached, complete SEC report can carry validated TTM records even when
-    # its historical series predates this normalized-schema version. Preserve
-    # those dated totals rather than falling back to Yahoo quote-summary ratios.
-    ttm_gross = _financial_record_value(ttm.get("gross_profit"))
-    ttm_operating = _financial_record_value(ttm.get("operating_income"))
-    ttm_net = _financial_record_value(ttm.get("net_income"))
-    denominator = sec_ttm_revenue
-    for key, numerator, metric, definition in (
-        ("gross_margin_ttm", ttm_gross, "gross_margin", "SEC TTM gross profit / SEC TTM revenue"),
-        ("operating_margin_ttm", ttm_operating, "operating_margin", "SEC TTM operating income / SEC TTM revenue"),
-        ("net_margin_ttm", ttm_net, "net_margin", "SEC TTM net income / SEC TTM revenue"),
-    ):
-        existing = (normalized.get("profitability") or {}).get(key) or {}
-        if existing.get("value") is None and numerator is not None and denominator not in (None, 0):
-            normalized["profitability"][key] = _fundamental_metric(
-                numerator / denominator,
-                metric,
-                "ttm",
-                period_end,
-                normalized["source"],
-                definition,
-                source_field=(ttm.get("revenue") or {}).get("source_field"),
-                last_updated=report.get("extraction_timestamp"),
-            )
-    normalized["inputs"] = inputs
-    return validate_normalized_fundamental_zeros(normalized, info)
-
-
-def finalize_normalized_fundamentals_valuation(normalized, info, price, price_as_of, ticker=None):
-    """Attach signed valuation metrics using one price timestamp and dated inputs."""
-    if not isinstance(normalized, dict):
-        return normalized
-    source = normalized.get("source") or "Yahoo Finance financial statements via yfinance"
-    metadata = normalized.get("metadata") or {}
-    inputs = normalized.get("inputs") or {}
-    ttm_period = metadata.get("profitability_period_end")
-    ttm_eps = _safe_float((inputs.get("ttm_diluted_eps") or {}).get("value"))
-    ttm_revenue = _safe_float((inputs.get("ttm_revenue") or {}).get("value"))
-    current_price = _safe_float(price)
-    market_cap = _safe_float((info or {}).get("marketCap"))
-    shares_outstanding = _safe_float((info or {}).get("sharesOutstanding"))
-    market_cap_calculated = False
-    if market_cap is None and current_price is not None and shares_outstanding is not None and shares_outstanding > 0:
-        market_cap = current_price * shares_outstanding
-        market_cap_calculated = True
-    forward_eps = _safe_float((info or {}).get("epsForward"))
-    expected_eps_growth = _safe_float((info or {}).get("nextYearEpsGrowth"))
-    trailing_pe = current_price / ttm_eps if current_price is not None and ttm_eps not in (None, 0) else None
-    if trailing_pe is None:
-        provider_trailing_pe = _safe_float((info or {}).get("trailingPE"))
-        trailing_pe = provider_trailing_pe if provider_trailing_pe not in (None, 0) else None
-    provider_forward_pe = _safe_float((info or {}).get("forwardPE"))
-    forward_pe = current_price / forward_eps if current_price is not None and forward_eps not in (None, 0) else provider_forward_pe if provider_forward_pe not in (None, 0) else None
-    provider_peg = _safe_float((info or {}).get("pegRatio"))
-    peg = trailing_pe / (expected_eps_growth * 100) if trailing_pe is not None and expected_eps_growth not in (None, 0) else provider_peg if provider_peg not in (None, 0) else None
-    provider_price_to_sales = _safe_float((info or {}).get("priceToSalesTrailing12Months"))
-    price_to_sales = market_cap / ttm_revenue if market_cap is not None and ttm_revenue not in (None, 0) else provider_price_to_sales if provider_price_to_sales not in (None, 0) else None
-    provider_ev_to_ebitda = _safe_float((info or {}).get("enterpriseToEbitda"))
-    ev_to_ebitda = provider_ev_to_ebitda if provider_ev_to_ebitda not in (None, 0) else None
-    normalized["valuation"] = {
-        "pe": _fundamental_metric(trailing_pe, "pe", "trailing", ttm_period, source,
-            "current price / TTM diluted EPS", calculated=ttm_eps not in (None, 0), source_field="TTM diluted EPS", last_updated=price_as_of,
-            missing_reason="missing_or_zero_ttm_diluted_eps"),
-        "forward_pe": _fundamental_metric(forward_pe, "forward_pe", "forward", ttm_period, source,
-            "current price / forward EPS estimate", calculated=forward_eps not in (None, 0), source_field="epsForward", last_updated=price_as_of,
-            missing_reason="missing_or_zero_forward_eps"),
-        "peg": _fundamental_metric(peg, "peg", "forward_growth", ttm_period, source,
-            "trailing PE / next-year EPS growth expressed in percentage points", calculated=trailing_pe is not None and expected_eps_growth not in (None, 0), source_field="nextYearEpsGrowth", last_updated=price_as_of,
-            missing_reason="missing_forward_eps_growth"),
-        "price_to_sales": _fundamental_metric(price_to_sales, "price_to_sales", "ttm", ttm_period, source,
-            "current market capitalization / TTM revenue", calculated=market_cap is not None and ttm_revenue not in (None, 0), source_field="sharesOutstanding × current price / TTM revenue" if market_cap_calculated else "marketCap / TTM revenue", last_updated=price_as_of,
-            missing_reason="missing_market_cap_or_ttm_revenue"),
-        "ev_to_ebitda": _fundamental_metric(ev_to_ebitda, "ev_to_ebitda", "trailing", ttm_period, source,
-            "provider enterprise value / trailing EBITDA", calculated=False, source_field="enterpriseToEbitda", last_updated=price_as_of,
-            missing_reason="provider_value_unavailable"),
-    }
-    normalized["metadata"] = {
-        **metadata,
-        "price_as_of": price_as_of,
-        "valuation_price_as_of": price_as_of,
-    }
-    return validate_normalized_fundamental_zeros(normalized, info, current_price, ticker=ticker)
-
-
-def normalized_fundamentals_display_adapter(normalized):
-    """Keep the old compact key names as a compatibility adapter during rollout."""
-    normalized = normalized or {}
-    profitability = normalized.get("profitability") or {}
-    balance = normalized.get("balance_sheet") or {}
-    growth = normalized.get("growth") or {}
-    valuation = normalized.get("valuation") or {}
-    mapping = {
-        "roe": profitability.get("roe_ttm"),
-        "gross_margin": profitability.get("gross_margin_ttm"),
-        "operating_margin": profitability.get("operating_margin_ttm"),
-        "net_margin": profitability.get("net_margin_ttm"),
-        "debt_to_equity": balance.get("debt_to_equity"),
-        "current_ratio": balance.get("current_ratio"),
-        "revenue_growth": growth.get("revenue_growth_yoy"),
-        "eps_growth": growth.get("eps_growth_yoy"),
-        "free_cash_flow_growth": growth.get("free_cash_flow_growth_yoy"),
-        "pe": valuation.get("pe"),
-        "forward_pe": valuation.get("forward_pe"),
-        "peg": valuation.get("peg"),
-        "price_to_sales": valuation.get("price_to_sales"),
-        "ev_to_ebitda": valuation.get("ev_to_ebitda"),
-    }
-    return {
-        "schema_version": FUNDAMENTAL_NORMALIZATION_SCHEMA_VERSION,
-        "source": normalized.get("source"),
-        "source_period_end": (normalized.get("metadata") or {}).get("latest_fiscal_quarter"),
-        "metrics": {key: value for key, value in mapping.items() if isinstance(value, dict)},
-    }
-
-
-def fetch_company_analysis_snapshot(instrument, quote_type, info):
-    """Build display-only statement facts from the existing Yahoo/yfinance source."""
-    if str(quote_type or "").upper() not in {"", "EQUITY"}:
-        return {"status": "not_applicable", "source": "yfinance financial statements"}
-
-    annual_income = _safe_statement_frame(instrument, "income_stmt")
-    annual_cashflow = _safe_statement_frame(instrument, "cashflow")
-    annual_balance = _safe_statement_frame(instrument, "balance_sheet")
-    quarterly_income = _safe_statement_frame(instrument, "quarterly_income_stmt")
-    quarterly_cashflow = _safe_statement_frame(instrument, "quarterly_cashflow")
-    quarterly_balance = _safe_statement_frame(instrument, "quarterly_balance_sheet")
-
-    revenue_labels = ["Total Revenue", "Operating Revenue"]
-    ocf_labels = ["Operating Cash Flow", "Total Cash From Operating Activities"]
-    fcf_labels = ["Free Cash Flow"]
-    capex_labels = ["Capital Expenditure", "Capital Expenditures"]
-    repurchase_labels = ["Repurchase Of Capital Stock", "Common Stock Payments", "Repurchase Of Stock"]
-    dividend_labels = ["Cash Dividends Paid", "Common Stock Dividend Paid", "Payment Of Dividends"]
-
-    def record_value(record):
-        return _safe_float((record or {}).get("raw_value"))
-
-    def absolute_record(record):
-        if record_value(record) is not None:
-            record = dict(record)
-            record["raw_value"] = abs(record["raw_value"])
-            record["calculation_method"] = f"absolute_cashflow_outflow:{record.get('calculation_method', 'reported')}"
-        return record
-
-    def metric(actual_record, estimate=None, period=None, previous_actual_record=None):
-        actual = record_value(actual_record)
-        estimate_value = _safe_float(estimate)
-        previous_actual = record_value(previous_actual_record)
-        return {
-            "actual": actual,
-            "estimate": estimate_value,
-            **build_earnings_surprise(actual, estimate_value),
-            "period": period or actual_record,
-            "previous_actual": previous_actual,
-            "previous_period": previous_actual_record,
-            "quarter_over_quarter": build_eps_quarter_comparison(actual, previous_actual),
-        }
-
-    ttm_revenue = _statement_ttm_record(quarterly_income, revenue_labels, annual_income, info.get("totalRevenue"))
-    ttm_ocf = _statement_ttm_record(quarterly_cashflow, ocf_labels, annual_cashflow, info.get("operatingCashflow"))
-    ttm_fcf = _statement_ttm_record(quarterly_cashflow, fcf_labels, annual_cashflow, info.get("freeCashflow"))
-    ttm_capex = absolute_record(_statement_ttm_record(quarterly_cashflow, capex_labels, annual_cashflow, info.get("capitalExpenditure")))
-    ttm_buyback = absolute_record(_statement_ttm_record(quarterly_cashflow, repurchase_labels, annual_cashflow))
-    ttm_dividends = absolute_record(_statement_ttm_record(quarterly_cashflow, dividend_labels, annual_cashflow))
-    fiscal_revenue = _statement_fiscal_year_record(annual_income, revenue_labels)
-    fiscal_ocf = _statement_fiscal_year_record(annual_cashflow, ocf_labels)
-    fiscal_fcf = _statement_fiscal_year_record(annual_cashflow, fcf_labels)
-    fiscal_capex = absolute_record(_statement_fiscal_year_record(annual_cashflow, capex_labels))
-    quarter_revenue = _statement_quarter_record(quarterly_income, revenue_labels)
-    quarter_ocf = _statement_quarter_record(quarterly_cashflow, ocf_labels)
-    quarter_fcf = _statement_quarter_record(quarterly_cashflow, fcf_labels)
-    quarter_capex = absolute_record(_statement_quarter_record(quarterly_cashflow, capex_labels))
-    quarter_gross_profit = _statement_quarter_record(quarterly_income, ["Gross Profit"])
-    quarter_operating_income = _statement_quarter_record(quarterly_income, ["Operating Income"])
-    quarter_eps = _statement_quarter_record(quarterly_income, ["Diluted EPS", "Basic EPS"])
-    previous_quarter_eps = _statement_quarter_record_at_index(quarterly_income, ["Diluted EPS", "Basic EPS"], 1)
-    quarter_net_income = _statement_quarter_record(quarterly_income, ["Net Income Common Stockholders", "Net Income"])
-    quarter_equity_securities_gain = _statement_quarter_record(quarterly_income, [
-        "Gain On Equity Securities",
-        "Gain On Sale Of Securities",
-        "Gain On Sale Of Security",
-        "Gain Loss On Investments",
-    ])
-    quarter_investment_income = _statement_quarter_record(quarterly_income, ["Investment Income", "Interest Income"])
-    quarter_asset_sale_gain = _statement_quarter_record(quarterly_income, ["Gain On Sale Of PPE", "Gain On Sale Of Business", "Gain On Sale Of Asset"])
-    quarter_other_non_operating = _statement_quarter_record(quarterly_income, ["Other Income Expense", "Other Non Operating Income Expenses"])
-    quarter_after_tax_equity_contribution = _statement_quarter_record(quarterly_income, ["After Tax Gain On Equity Securities", "After Tax Investment Gain"])
-    quarter_diluted_eps_equity_contribution = _statement_quarter_record(quarterly_income, ["Diluted EPS From Equity Securities Gain", "EPS From Investment Gain"])
-    earnings = _latest_earnings_dates(instrument)
-
-    ttm_ocf_value = record_value(ttm_ocf)
-    ttm_fcf_value = record_value(ttm_fcf)
-    ttm_capex_value = record_value(ttm_capex)
-    ttm_revenue_value = record_value(ttm_revenue)
-    quarter_revenue_value = record_value(quarter_revenue)
-    quarter_ocf_value = record_value(quarter_ocf)
-    quarter_fcf_value = record_value(quarter_fcf)
-    quarter_capex_value = record_value(quarter_capex)
-    fiscal_revenue_value = record_value(fiscal_revenue)
-    fiscal_ocf_value = record_value(fiscal_ocf)
-    fiscal_fcf_value = record_value(fiscal_fcf)
-    fiscal_capex_value = record_value(fiscal_capex)
-    reported_ttm_fcf = ttm_fcf_value
-    calculated_ttm_fcf = ttm_ocf_value - ttm_capex_value if ttm_ocf_value is not None and ttm_capex_value is not None else None
-    calculated_quarter_fcf = quarter_ocf_value - quarter_capex_value if quarter_ocf_value is not None and quarter_capex_value is not None else None
-    if ttm_fcf_value is None and calculated_ttm_fcf is not None and ttm_ocf.get("period_type") == ttm_capex.get("period_type"):
-        ttm_fcf = _period_record(calculated_ttm_fcf, ttm_ocf.get("period_type"), ttm_ocf.get("period_end_date"), "Operating Cash Flow - Capital Expenditure", calculation_method="ocf_minus_capex")
-        ttm_fcf_value = calculated_ttm_fcf
-    if quarter_fcf_value is None and calculated_quarter_fcf is not None and quarter_ocf.get("period_end_date") == quarter_capex.get("period_end_date"):
-        quarter_fcf = _period_record(calculated_quarter_fcf, "quarter", quarter_ocf.get("period_end_date"), "Operating Cash Flow - Capital Expenditure", calculation_method="ocf_minus_capex")
-        quarter_fcf_value = calculated_quarter_fcf
-
-    def consistency(calculated, reported):
-        if calculated is None or reported is None:
-            return {"calculated_value": calculated, "reported_value": reported, "difference": None, "difference_pct": None, "status": "insufficient_data"}
-        difference = calculated - reported
-        difference_pct = (difference / abs(reported)) * 100 if reported else None
-        status = "matched" if abs(difference) <= max(1.0, abs(reported) * 0.005) else "minor_rounding_difference" if abs(difference) <= max(1.0, abs(reported) * 0.02) else "mismatch"
-        return {"calculated_value": calculated, "reported_value": reported, "difference": difference, "difference_pct": difference_pct, "status": status}
-
-    previous_ttm_fcf = _previous_ttm_value(quarterly_cashflow, fcf_labels)
-    previous_ttm_ocf = _previous_ttm_value(quarterly_cashflow, ocf_labels)
-    previous_ttm_capex = _previous_ttm_value(quarterly_cashflow, capex_labels)
-    quarterly_fcf_values = _statement_values(quarterly_cashflow, fcf_labels, 0, 5)
-    quarterly_ocf_values = _statement_values(quarterly_cashflow, ocf_labels, 0, 5)
-    quarterly_capex_values = _statement_values(quarterly_cashflow, capex_labels, 0, 5)
-    quarterly_fcf_qoq = _safe_growth_comparison(
-        quarterly_fcf_values[0]["raw_value"] if len(quarterly_fcf_values) > 0 else None,
-        quarterly_fcf_values[1]["raw_value"] if len(quarterly_fcf_values) > 1 else None,
-    )
-    quarterly_fcf_yoy = _safe_growth_comparison(
-        quarterly_fcf_values[0]["raw_value"] if len(quarterly_fcf_values) > 0 else None,
-        quarterly_fcf_values[4]["raw_value"] if len(quarterly_fcf_values) > 4 else None,
-    )
-    quarterly_ocf_yoy = _safe_growth_comparison(
-        quarterly_ocf_values[0]["raw_value"] if len(quarterly_ocf_values) > 0 else None,
-        quarterly_ocf_values[4]["raw_value"] if len(quarterly_ocf_values) > 4 else None,
-    )
-    quarterly_capex_qoq = _safe_growth_comparison(
-        abs(quarterly_capex_values[0]["raw_value"]) if len(quarterly_capex_values) > 0 else None,
-        abs(quarterly_capex_values[1]["raw_value"]) if len(quarterly_capex_values) > 1 else None,
-    )
-    quarterly_capex_yoy = _safe_growth_comparison(
-        abs(quarterly_capex_values[0]["raw_value"]) if len(quarterly_capex_values) > 0 else None,
-        abs(quarterly_capex_values[4]["raw_value"]) if len(quarterly_capex_values) > 4 else None,
-    )
-    ttm_fcf_yoy = _safe_growth_comparison(ttm_fcf_value, previous_ttm_fcf)
-    ttm_ocf_yoy = _safe_growth_comparison(ttm_ocf_value, previous_ttm_ocf)
-    ttm_capex_yoy = _safe_growth_comparison(ttm_capex_value, abs(previous_ttm_capex) if previous_ttm_capex is not None else None)
-    fcf_yoy = ttm_fcf_yoy["pct_change"]
-    ocf_yoy = ttm_ocf_yoy["pct_change"]
-    capex_yoy = ttm_capex_yoy["pct_change"]
-    fcf_qoq = quarterly_fcf_qoq["pct_change"]
-    ocf_qoq = _safe_growth_comparison(
-        quarterly_ocf_values[0]["raw_value"] if len(quarterly_ocf_values) > 0 else None,
-        quarterly_ocf_values[1]["raw_value"] if len(quarterly_ocf_values) > 1 else None,
-    )["pct_change"]
-    capex_qoq = quarterly_capex_qoq["pct_change"]
-    quarter_revenue_prior = _statement_value(quarterly_income, revenue_labels, 4)
-    quarter_revenue_yoy = _pct_change_from_current(quarter_revenue_value, quarter_revenue_prior)
-    ttm_fcf_margin = ttm_fcf_value / ttm_revenue_value if ttm_fcf_value is not None and ttm_revenue_value not in (None, 0) and ttm_fcf.get("period_type") == ttm_revenue.get("period_type") else None
-    quarter_fcf_margin = quarter_fcf_value / quarter_revenue_value if quarter_fcf_value is not None and quarter_revenue_value not in (None, 0) and quarter_fcf.get("period_end_date") == quarter_revenue.get("period_end_date") else None
-    ttm_capex_to_revenue = ttm_capex_value / ttm_revenue_value if ttm_capex_value is not None and ttm_revenue_value not in (None, 0) and ttm_capex.get("period_type") == ttm_revenue.get("period_type") else None
-    quarter_capex_to_revenue = quarter_capex_value / quarter_revenue_value if quarter_capex_value is not None and quarter_revenue_value not in (None, 0) and quarter_capex.get("period_end_date") == quarter_revenue.get("period_end_date") else None
-    ttm_capex_to_ocf = ttm_capex_value / ttm_ocf_value if ttm_capex_value is not None and ttm_ocf_value not in (None, 0) and ttm_capex.get("period_type") == ttm_ocf.get("period_type") else None
-    quarter_capex_to_ocf = quarter_capex_value / quarter_ocf_value if quarter_capex_value is not None and quarter_ocf_value not in (None, 0) and quarter_capex.get("period_end_date") == quarter_ocf.get("period_end_date") else None
-    fiscal_fcf_margin = fiscal_fcf_value / fiscal_revenue_value if fiscal_fcf_value is not None and fiscal_revenue_value not in (None, 0) and fiscal_fcf.get("period_end_date") == fiscal_revenue.get("period_end_date") else None
-    fiscal_capex_to_revenue = fiscal_capex_value / fiscal_revenue_value if fiscal_capex_value is not None and fiscal_revenue_value not in (None, 0) and fiscal_capex.get("period_end_date") == fiscal_revenue.get("period_end_date") else None
-    fiscal_capex_to_ocf = fiscal_capex_value / fiscal_ocf_value if fiscal_capex_value is not None and fiscal_ocf_value not in (None, 0) and fiscal_capex.get("period_end_date") == fiscal_ocf.get("period_end_date") else None
-    period_mismatch_warning = any([
-        ttm_fcf_value is not None and ttm_revenue_value is not None and ttm_fcf.get("period_type") != ttm_revenue.get("period_type"),
-        ttm_capex_value is not None and ttm_revenue_value is not None and ttm_capex.get("period_type") != ttm_revenue.get("period_type"),
-        quarter_fcf_value is not None and quarter_revenue_value is not None and quarter_fcf.get("period_end_date") != quarter_revenue.get("period_end_date"),
-    ])
-
-    liquidity_frame = quarterly_balance if quarterly_balance is not None and not getattr(quarterly_balance, "empty", True) else annual_balance
-    liquidity_period_type = "point_in_time"
-    cash_equivalents_record = _statement_quarter_record(liquidity_frame, ["Cash And Cash Equivalents", "Cash Financial"])
-    short_investments_record = _statement_quarter_record(liquidity_frame, ["Other Short Term Investments", "Short Term Investments"])
-    marketable_securities_record = _statement_quarter_record(liquidity_frame, ["Available For Sale Securities", "Investmentin Financial Assets"])
-    cash_and_marketables_record = _statement_quarter_record(liquidity_frame, ["Cash Cash Equivalents And Short Term Investments"])
-    debt_record = _statement_quarter_record(liquidity_frame, ["Total Debt"])
-    for record in [cash_equivalents_record, short_investments_record, marketable_securities_record, cash_and_marketables_record, debt_record]:
-        record["period_type"] = liquidity_period_type
-    if record_value(cash_equivalents_record) is None and record_value(cash_and_marketables_record) is None:
-        cash_equivalents_record = _period_record(info.get("totalCash"), "point_in_time", None, "Yahoo quote summary totalCash", source="Yahoo Finance quote summary")
-    if record_value(debt_record) is None:
-        debt_record = _period_record(info.get("totalDebt"), "point_in_time", None, "Yahoo quote summary totalDebt", source="Yahoo Finance quote summary")
-    combined_cash_value = record_value(cash_and_marketables_record)
-    if combined_cash_value is None and record_value(cash_equivalents_record) is not None and record_value(short_investments_record) is not None and cash_equivalents_record.get("period_end_date") == short_investments_record.get("period_end_date"):
-        combined_cash_value = record_value(cash_equivalents_record) + record_value(short_investments_record)
-        cash_and_marketables_record = _period_record(combined_cash_value, "point_in_time", cash_equivalents_record.get("period_end_date"), "Cash And Cash Equivalents + Other Short Term Investments", calculation_method="same_period_sum")
-    total_liquidity_label = (
-        "cash_and_short_term_investments"
-        if "Short Term Investments" in str(cash_and_marketables_record.get("source_field") or "")
-        else "cash_and_marketable_securities"
-    )
-    cash_value = record_value(cash_equivalents_record)
-    debt_value = record_value(debt_record)
-    same_narrow_period = cash_value is not None and debt_value is not None and cash_equivalents_record.get("period_end_date") == debt_record.get("period_end_date")
-    same_liquidity_period = combined_cash_value is not None and debt_value is not None and cash_and_marketables_record.get("period_end_date") == debt_record.get("period_end_date")
-    net_cash_record = _period_record(cash_value - debt_value if same_narrow_period else None, "point_in_time", cash_equivalents_record.get("period_end_date") if same_narrow_period else None, "Cash And Cash Equivalents - Total Debt", calculation_method="same_period_cash_minus_debt")
-    net_liquidity_record = _period_record(combined_cash_value - debt_value if same_liquidity_period else None, "point_in_time", cash_and_marketables_record.get("period_end_date") if same_liquidity_period else None, "Cash And Short-Term Investments - Total Debt", calculation_method="same_period_liquidity_minus_debt")
-    narrow_balance_consistency = {
-        "cash_period": cash_equivalents_record.get("period_end_date"),
-        "debt_period": debt_record.get("period_end_date"),
-        "same_period": same_narrow_period,
-        "calculated_net_cash": record_value(net_cash_record),
-        "status": "matched" if same_narrow_period else "period_mismatch" if cash_value is not None and debt_value is not None else "insufficient_data",
-    }
-    liquidity_balance_consistency = {
-        "cash_period": cash_and_marketables_record.get("period_end_date"),
-        "debt_period": debt_record.get("period_end_date"),
-        "same_period": same_liquidity_period,
-        "calculated_net_cash": record_value(net_liquidity_record),
-        "status": "matched" if same_liquidity_period else "period_mismatch" if combined_cash_value is not None and debt_value is not None else "insufficient_data",
-    }
-    share_history = _share_count_history(instrument)
-    share_values = _statement_values(annual_balance, ["Ordinary Shares Number", "Share Issued"], 0, 2)
-    shares_current = share_history.get("current") if share_history else _safe_float(info.get("sharesOutstanding"))
-    shares_prior = share_history.get("prior") if share_history else None
-    shares_period = share_history.get("current_date") if share_history else None
-    shares_prior_period = share_history.get("prior_date") if share_history else None
-    share_comparison_status = share_history.get("comparison_status") if share_history else "unavailable"
-    if shares_current is None and share_values:
-        shares_current = share_values[0]["raw_value"]
-        shares_period = share_values[0]["period_end_date"]
-        shares_prior = share_values[1]["raw_value"] if len(share_values) > 1 else None
-        shares_prior_period = share_values[1]["period_end_date"] if len(share_values) > 1 else None
-        share_comparison_status = "fiscal_year_statement_fallback"
-    shares_yoy = _pct_change_from_current(shares_current, shares_prior)
-    share_trend = "shrinking" if shares_yoy is not None and shares_yoy <= -0.15 else "growing" if shares_yoy is not None and shares_yoy >= 0.15 else "stable" if shares_yoy is not None else "unavailable"
-    share_count_warning = "unusually_large_one_year_change_requires_verification" if shares_yoy is not None and abs(shares_yoy) >= 10 else None
-    buyback_value = record_value(ttm_buyback)
-    repurchase_effectiveness = "effective_reduction" if buyback_value is not None and share_trend == "shrinking" else "mostly_offsets_sbc" if buyback_value is not None and share_trend == "stable" else "dilution_continues" if buyback_value is not None and share_trend == "growing" else "unavailable"
-    capital_return_periods_match = (
-        buyback_value is not None
-        and record_value(ttm_dividends) is not None
-        and ttm_buyback.get("period_type") == "ttm"
-        and ttm_dividends.get("period_type") == "ttm"
-        and ttm_buyback.get("period_end_date") == ttm_dividends.get("period_end_date")
-    )
-    total_shareholder_return = (buyback_value + record_value(ttm_dividends)) if capital_return_periods_match else None
-
-    quarter_gross_margin = record_value(quarter_gross_profit) / quarter_revenue_value if record_value(quarter_gross_profit) is not None and quarter_revenue_value not in (None, 0) else None
-    quarter_operating_margin = record_value(quarter_operating_income) / quarter_revenue_value if record_value(quarter_operating_income) is not None and quarter_revenue_value not in (None, 0) else None
-    quarter_prior_operating_income = _statement_value(quarterly_income, ["Operating Income"], 4)
-    quarter_prior_operating_margin = quarter_prior_operating_income / quarter_revenue_prior if quarter_prior_operating_income is not None and quarter_revenue_prior not in (None, 0) else None
-    quarter_operating_margin_change_pp = quarter_operating_margin - quarter_prior_operating_margin if quarter_operating_margin is not None and quarter_prior_operating_margin is not None else None
-    quarter_net_margin = record_value(quarter_net_income) / quarter_revenue_value if record_value(quarter_net_income) is not None and quarter_revenue_value not in (None, 0) else None
-    capex_state = "rapidly_accelerating" if (capex_yoy is not None and capex_yoy >= 30) or (capex_qoq is not None and capex_qoq >= 20) else "high" if ttm_capex_to_revenue is not None and ttm_capex_to_revenue >= 0.25 else "elevated" if ttm_capex_to_revenue is not None and ttm_capex_to_revenue >= 0.15 else "normal" if ttm_capex_to_revenue is not None else "unavailable"
-    is_reit = bool(re.search(r"\breit\b|real estate", f"{info.get('sector', '')} {info.get('industry', '')}", re.I))
-    cash_flow_semantic = (
-        {"model": "reit_cash_flow_limited", "warning": "reit_fcf_is_not_a_substitute_for_ffo_or_affo"}
-        if is_reit
-        else financial_semantics(info)
-    )
-    earnings = _latest_earnings_dates(instrument)
-    quarter_eps_value = record_value(quarter_eps) if record_value(quarter_eps) is not None else earnings.get("epsActual")
-    quarter_net_income_value = record_value(quarter_net_income)
-    pretax_equity_securities_gain = record_value(quarter_equity_securities_gain)
-    after_tax_equity_contribution = record_value(quarter_after_tax_equity_contribution)
-    diluted_eps_equity_contribution = record_value(quarter_diluted_eps_equity_contribution)
-    net_income_contribution_pct = (
-        after_tax_equity_contribution / quarter_net_income_value
-        if after_tax_equity_contribution is not None and quarter_net_income_value not in (None, 0)
-        else None
-    )
-    eps_contribution_pct = (
-        diluted_eps_equity_contribution / quarter_eps_value
-        if diluted_eps_equity_contribution is not None and quarter_eps_value not in (None, 0)
-        else None
-    )
-    pretax_equity_gain_to_operating_income = (
-        pretax_equity_securities_gain / abs(record_value(quarter_operating_income))
-        if pretax_equity_securities_gain is not None and record_value(quarter_operating_income) not in (None, 0)
-        else None
-    )
-    material_equity_securities_gain = (
-        pretax_equity_securities_gain is not None
-        and pretax_equity_securities_gain > 0
-        and (pretax_equity_gain_to_operating_income is None or pretax_equity_gain_to_operating_income >= 0.10)
-    )
-    reported_eps_quality = (
-        "strong_but_non_operating_boost"
-        if material_equity_securities_gain
-        else "strong_core" if quarter_operating_margin is not None and quarter_operating_margin > 0
-        else "mixed" if quarter_net_income_value is not None
-        else "unavailable"
-    )
-    earnings_quality_explanation = (
-        "Core operating performance is strong, but this quarter's reported net income and EPS were materially lifted by equity securities investment gains. The source provides a pretax amount only, so no direct after-tax net-income or EPS contribution percentage is calculated."
-        if material_equity_securities_gain and after_tax_equity_contribution is None and diluted_eps_equity_contribution is None
-        else "Core operating performance is strong, but this quarter's reported net income and EPS were materially lifted by equity securities investment gains."
-        if material_equity_securities_gain
-        else "Operating profitability is available, but the data source does not provide a complete normalized-EPS bridge."
-        if reported_eps_quality == "strong_core"
-        else "Insufficient comparable operating and non-operating data to assess reported earnings quality."
-    )
-    guidance_source = "Yahoo Finance statements / fast market-data source"
-    guidance_unavailable_reason = "current_source_has_no_verified_structured_guidance_parser"
-    source_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    normalized_fundamentals = build_yahoo_normalized_fundamentals(
-        quarterly_income,
-        quarterly_cashflow,
-        quarterly_balance,
-        info,
-        source_timestamp,
-    )
-    guidance_fields = {
-        "revenueGuidance": {"value": None, "status": "source_not_supported", "unavailable_reason": guidance_unavailable_reason, "source": guidance_source, "source_timestamp": source_timestamp},
-        "epsGuidance": {"value": None, "status": "source_not_supported", "unavailable_reason": guidance_unavailable_reason, "source": guidance_source, "source_timestamp": source_timestamp},
-        "capexGuidance": {"value": None, "status": "source_not_supported", "unavailable_reason": guidance_unavailable_reason, "source": guidance_source, "source_timestamp": source_timestamp},
-        "managementOutlook": {"value": None, "status": "source_not_supported", "unavailable_reason": guidance_unavailable_reason, "source": guidance_source, "source_timestamp": source_timestamp},
-    }
-    available = any(value is not None for value in [ttm_ocf_value, ttm_fcf_value, ttm_revenue_value, cash_value, debt_value, quarter_revenue_value, earnings.get("epsActual")])
-    snapshot = {
-        "status": "available" if available else "unavailable",
-        "source": "Yahoo Finance via yfinance financial statements / earnings calendar",
-        "sourceTimestamp": source_timestamp,
-        "annualPeriodEnd": _statement_period_end(annual_income) or _statement_period_end(annual_cashflow),
-        "quarterlyPeriodEnd": _statement_period_end(quarterly_income) or _statement_period_end(quarterly_cashflow),
-        "normalizedFundamentals": normalized_fundamentals,
-        "displayFundamentals": normalized_fundamentals_display_adapter(normalized_fundamentals),
-        # Legacy numeric fields stay for existing, non-action display compatibility.
-        "cashFlow": {"operatingCashFlow": ttm_ocf_value, "freeCashFlow": ttm_fcf_value, "freeCashFlowMargin": ttm_fcf_margin, "freeCashFlowYoyGrowth": fcf_yoy},
-        "capitalAllocation": {"capitalExpenditure": ttm_capex_value, "capexToRevenue": ttm_capex_to_revenue, "buybackTtm": buyback_value, "sharesOutstanding": shares_current, "sharesOutstandingYoy": shares_yoy},
-        "balanceSheet": {"cash": cash_value, "totalDebt": debt_value, "netCash": record_value(net_cash_record)},
-        "financialFacts": {
-            "cashFlow": {
-                "ttm": {"revenue": ttm_revenue, "operatingCashFlow": ttm_ocf, "freeCashFlow": ttm_fcf, "capitalExpenditure": ttm_capex, "fcfMargin": ttm_fcf_margin, "capexToRevenue": ttm_capex_to_revenue, "capexToOperatingCashFlow": ttm_capex_to_ocf},
-                "quarterly": {"revenue": quarter_revenue, "operatingCashFlow": quarter_ocf, "freeCashFlow": quarter_fcf, "capitalExpenditure": quarter_capex, "fcfMargin": quarter_fcf_margin, "capexToRevenue": quarter_capex_to_revenue, "capexToOperatingCashFlow": quarter_capex_to_ocf},
-                "quarter": {"revenue": quarter_revenue, "operatingCashFlow": quarter_ocf, "freeCashFlow": quarter_fcf, "capitalExpenditure": quarter_capex, "fcfMargin": quarter_fcf_margin, "capexToRevenue": quarter_capex_to_revenue, "capexToOperatingCashFlow": quarter_capex_to_ocf},
-                "fiscalYear": {"revenue": fiscal_revenue, "operatingCashFlow": fiscal_ocf, "freeCashFlow": fiscal_fcf, "capitalExpenditure": fiscal_capex, "fcfMargin": fiscal_fcf_margin, "capexToRevenue": fiscal_capex_to_revenue, "capexToOperatingCashFlow": fiscal_capex_to_ocf},
-                "growth": {"operatingCashFlowYoy": ocf_yoy, "operatingCashFlowQoq": ocf_qoq, "freeCashFlowYoy": fcf_yoy, "freeCashFlowQoq": fcf_qoq, "capexYoy": capex_yoy, "capexQoq": capex_qoq, "quarterRevenueYoy": quarter_revenue_yoy, "capexState": capex_state, "periodMismatchWarning": period_mismatch_warning},
-                "comparisons": {"quarterlyFcfYoy": quarterly_fcf_yoy, "quarterlyFcfQoq": quarterly_fcf_qoq, "ttmFcfYoy": ttm_fcf_yoy, "quarterlyCapexYoy": quarterly_capex_yoy, "quarterlyCapexQoq": quarterly_capex_qoq, "ttmCapexYoy": ttm_capex_yoy, "quarterlyOcfYoy": quarterly_ocf_yoy, "ttmOcfYoy": ttm_ocf_yoy},
-                "consistency": {"freeCashFlowTtm": consistency(calculated_ttm_fcf, reported_ttm_fcf), "freeCashFlowQuarter": consistency(calculated_quarter_fcf, record_value(quarter_fcf))},
-            },
-            "cashFlowSemantic": cash_flow_semantic,
-            "balanceSheet": {
-                "cash": cash_equivalents_record,
-                "cashAndCashEquivalents": cash_equivalents_record,
-                "shortTermInvestments": short_investments_record,
-                "marketableSecurities": marketable_securities_record,
-                "totalCashAndMarketableSecurities": cash_and_marketables_record,
-                "totalDebt": debt_record,
-                "netCash": net_cash_record,
-                "netLiquidity": net_liquidity_record,
-                "liquidityStructure": {"cashAndCashEquivalents": cash_equivalents_record, "shortTermInvestments": short_investments_record, "marketableSecurities": marketable_securities_record, "totalCashAndMarketableSecurities": cash_and_marketables_record, "totalLiquidityLabel": total_liquidity_label, "totalDebt": debt_record, "netCashNarrow": net_cash_record, "netLiquidity": net_liquidity_record, "periodEndDate": cash_equivalents_record.get("period_end_date") or cash_and_marketables_record.get("period_end_date"), "sourceFields": {"cashAndCashEquivalents": cash_equivalents_record.get("source_field"), "shortTermInvestments": short_investments_record.get("source_field"), "marketableSecurities": marketable_securities_record.get("source_field"), "totalLiquidity": cash_and_marketables_record.get("source_field"), "totalDebt": debt_record.get("source_field")}, "scopeLabel": "cash_and_marketables_separated_by_source_field", "dataQuality": "high" if same_narrow_period or same_liquidity_period else "partial" if cash_value is not None or combined_cash_value is not None else "unavailable"},
-                "consistency": {"netCash": narrow_balance_consistency, "netLiquidity": liquidity_balance_consistency},
-            },
-            "capitalReturn": {"shareRepurchasesTtm": ttm_buyback, "dividendsPaidTtm": ttm_dividends, "totalShareholderReturnTtm": _period_record(total_shareholder_return, "ttm" if capital_return_periods_match else "unavailable", ttm_buyback.get("period_end_date") if capital_return_periods_match else None, "share repurchases + dividends paid", calculation_method="sum_same_period_components"), "sourceFields": {"repurchases": ttm_buyback.get("source_field"), "dividends": ttm_dividends.get("source_field")}, "classificationStatus": "separate_components" if capital_return_periods_match else "mixed_period_components" if buyback_value is not None or record_value(ttm_dividends) is not None else "unavailable"},
-            "shareCount": {"currentShares": _period_record(shares_current, "point_in_time", shares_period, "Yahoo shares history / shares outstanding"), "priorYearShares": _period_record(shares_prior, "point_in_time", shares_prior_period, "Yahoo shares history / annual statement fallback"), "yoyChangePct": shares_yoy, "trend": share_trend, "repurchaseEffectiveness": repurchase_effectiveness, "comparisonStatus": share_comparison_status, "unitWarning": share_count_warning, "audit": {"current": shares_current, "prior": shares_prior, "shareClassScope": "provider_reported_common_shares", "basicOrDiluted": "share_count_not_eps_weighted_average", "sameScope": bool(share_comparison_status == "comparable_one_year_history" and not share_count_warning), "samePeriodBasis": bool(shares_period and shares_prior_period), "yoyChangePct": shares_yoy, "warning": share_count_warning or ("share_count_scope_not_verified" if share_comparison_status != "comparable_one_year_history" else None)}},
-        },
-        "guidance": {**guidance_fields, "sourceStatus": "source_not_supported", "unavailableReason": guidance_unavailable_reason},
-        "earningsMetrics": {
-            "revenue": metric(quarter_revenue),
-            "eps": metric(
-                _period_record(quarter_eps_value, "quarter", quarter_eps.get("period_end_date") or _statement_period_end(quarterly_income), "Diluted EPS / earnings calendar"),
-                earnings.get("epsEstimate"),
-                previous_actual_record=previous_quarter_eps,
-            ),
-            "grossMargin": metric(_period_record(quarter_gross_margin, "quarter", quarter_revenue.get("period_end_date"), "Gross Profit / Revenue", calculation_method="gross_profit_divided_by_revenue")),
-            "operatingMargin": metric(_period_record(quarter_operating_margin, "quarter", quarter_revenue.get("period_end_date"), "Operating Income / Revenue", calculation_method="operating_income_divided_by_revenue")),
-            "freeCashFlow": metric(quarter_fcf),
-            "capitalExpenditure": metric(quarter_capex),
-        },
-        "earningsQuality": {
-            "operatingIncomeGrowth": _safe_growth_comparison(record_value(quarter_operating_income), _statement_value(quarterly_income, ["Operating Income"], 4)),
-            "operatingMargin": quarter_operating_margin,
-            "operatingMarginChangePp": quarter_operating_margin_change_pp,
-            "netMargin": quarter_net_margin,
-            "netIncome": quarter_net_income,
-            "equitySecuritiesGain": {
-                "label": "equity_securities_gain",
-                "pretax_equity_securities_gain": quarter_equity_securities_gain,
-                "after_tax_net_income_contribution": quarter_after_tax_equity_contribution,
-                "diluted_eps_contribution": quarter_diluted_eps_equity_contribution,
-                "net_income_contribution_pct": net_income_contribution_pct,
-                "eps_contribution_pct": eps_contribution_pct,
-                "pretax_gain_to_operating_income_pct": pretax_equity_gain_to_operating_income,
-                "materiality_status": "material" if material_equity_securities_gain else "reported_not_material_or_unverified" if pretax_equity_securities_gain is not None else "unavailable",
-                "comparison_status": "after_tax_contribution_available" if after_tax_equity_contribution is not None else "pretax_only_cannot_compare_to_net_income" if pretax_equity_securities_gain is not None else "unavailable",
-            },
-            "investmentIncome": quarter_investment_income,
-            "assetSaleGain": quarter_asset_sale_gain,
-            "otherNonOperatingIncome": quarter_other_non_operating,
-            "coreEpsProxyStatus": "operating_income_and_margin_available" if record_value(quarter_operating_income) is not None else "unavailable",
-            "reportedEpsQuality": reported_eps_quality,
-            "label": reported_eps_quality,
-            "explanation": earnings_quality_explanation,
-        },
-        "latestEarnings": {**earnings, "revenueActual": quarter_revenue_value, "revenueYoyGrowth": quarter_revenue_yoy, "grossMargin": quarter_gross_margin, "operatingMargin": quarter_operating_margin, "freeCashFlow": quarter_fcf_value, "capitalExpenditure": quarter_capex_value, "reportedEps": quarter_eps_value},
-    }
-    ticker = normalize_ticker_input(info.get("symbol") or getattr(instrument, "ticker", ""))
-    if ticker:
-        try:
-            # Never use the income/EPS date as a proxy for the entire statement.
-            # The fallback decision is based on the cash-flow, balance-sheet and
-            # TTM periods that the detail panel actually displays.
-            primary_display_audit = build_financial_display_audit(snapshot)
-            primary_display_period = primary_display_audit.get("displayed_complete_period_end") or snapshot.get("quarterlyPeriodEnd")
-            freshness_result = fetch_financial_statement_freshness(
-                ticker,
-                primary_display_period,
-                snapshot.get("sourceTimestamp"),
-                earnings,
-                info,
-            )
-            snapshot = apply_sec_financial_report(snapshot, freshness_result.get("report"), freshness_result.get("freshness") or {}, info)
-            snapshot = apply_financial_display_status(snapshot, freshness_result.get("freshness") or {}, freshness_result.get("report"))
-            if FINANCIAL_DEBUG_ENABLED:
-                snapshot["financialStatementDiagnostic"] = freshness_result.get("diagnostic") or {
-                    "status": "unavailable",
-                    "reason": (freshness_result.get("freshness") or {}).get("reason") or "no_sec_diagnostic_available",
-                }
-        except Exception as exc:
-            # Financial freshness is display enrichment; a source failure must
-            # never block a quote or the independent recommendation engine.
-            snapshot["financialStatementFreshness"] = {
-                "status": "stale_and_unavailable",
-                "reason": f"financial_enrichment_failed:{type(exc).__name__}",
-                "primary_period_end_date": snapshot.get("quarterlyPeriodEnd"),
-            }
-    # The detailed statement tree only powered the removed Basic Fundamentals
-    # panel. Keep the compact EPS payload, but do not cache or send the large
-    # cash-flow, CapEx, liquidity, and shareholder-return structures.
-    return strip_basic_fundamental_payload(snapshot)
 
 
 def fetch_fred_series_points(series_id, limit=120):
@@ -3661,33 +2123,9 @@ def build_unavailable_quote(ticker, reason, stale_value=None):
         "shortName": base.get("shortName"),
         "longName": base.get("longName"),
         "exchangeName": base.get("exchangeName"),
-        "trailingPE": base.get("trailingPE"),
-        "forwardPE": base.get("forwardPE"),
-        "marketCap": base.get("marketCap"),
         "metadata": {
             "sector": metadata.get("sector"),
             "industry": metadata.get("industry"),
-            "beta": metadata.get("beta"),
-            "dividendYield": metadata.get("dividendYield"),
-            "dividendYieldUnit": metadata.get("dividendYieldUnit"),
-            "dividendYieldSource": metadata.get("dividendYieldSource"),
-            "payoutRatio": metadata.get("payoutRatio"),
-            "enterpriseToEbitda": metadata.get("enterpriseToEbitda"),
-            "priceToSalesTrailing12Months": metadata.get("priceToSalesTrailing12Months"),
-            "enterpriseToRevenue": metadata.get("enterpriseToRevenue"),
-            "pegRatio": metadata.get("pegRatio"),
-            "operatingMargins": metadata.get("operatingMargins"),
-            "profitMargins": metadata.get("profitMargins"),
-            "revenueGrowth": metadata.get("revenueGrowth"),
-            "grossMargins": metadata.get("grossMargins"),
-            "returnOnEquity": metadata.get("returnOnEquity"),
-            "debtToEquity": metadata.get("debtToEquity"),
-            "currentRatio": metadata.get("currentRatio"),
-            "quickRatio": metadata.get("quickRatio"),
-            "freeCashflow": metadata.get("freeCashflow"),
-            "totalCash": metadata.get("totalCash"),
-            "totalDebt": metadata.get("totalDebt"),
-            "capex": metadata.get("capex"),
             "businessSummary": metadata.get("businessSummary"),
             "country": metadata.get("country"),
             "city": metadata.get("city"),
@@ -3695,9 +2133,12 @@ def build_unavailable_quote(ticker, reason, stale_value=None):
             "exchange": metadata.get("exchange"),
             "quoteType": metadata.get("quoteType"),
             "ipoDate": metadata.get("ipoDate"),
-            "floatShares": metadata.get("floatShares"),
-            "sharesOutstanding": metadata.get("sharesOutstanding"),
-            "companyAnalysis": metadata.get("companyAnalysis"),
+            "earningsDate": metadata.get("earningsDate"),
+            "earningsTimestamp": metadata.get("earningsTimestamp"),
+            "earningsTimestampStart": metadata.get("earningsTimestampStart"),
+            "earningsTimestampEnd": metadata.get("earningsTimestampEnd"),
+            "daysToEarnings": metadata.get("daysToEarnings"),
+            "earningsCountdown": metadata.get("earningsCountdown"),
         },
         "history": {
             "timestamps": history.get("timestamps", []),
@@ -4940,135 +3381,42 @@ def load_yfinance_history_frame(instrument, symbol, period="1y", interval="1d"):
 def fetch_us_quote_with_yfinance(ticker, include_options=False):
     symbol = resolve_market_symbol(ticker)
     instrument = yf.Ticker(symbol)
-
     history = load_yfinance_history_frame(instrument, symbol, period="1y", interval="1d")
     if history is None or history.empty:
         raise ValueError(f"No yfinance history for {ticker}")
-
     history = history.dropna(subset=["Open", "High", "Low", "Close", "Volume"]).tail(252)
     if history.empty:
         raise ValueError(f"No clean yfinance history for {ticker}")
 
-    info = {}
-    fast_info = {}
-    try:
-        fast_info = dict(instrument.fast_info or {})
-    except Exception:
-        fast_info = {}
     try:
         info = instrument.info or {}
     except Exception:
         info = {}
-    quote_summary = {}
+    try:
+        fast_info = dict(instrument.fast_info or {})
+    except Exception:
+        fast_info = {}
+
+    fallback_fields = ["shortName", "longName", "sector", "industry", "longBusinessSummary", "quoteType", "earningsTimestamp", "earningsTimestampStart", "earningsTimestampEnd"]
     quote_snapshot = {}
+    quote_summary = {}
     quote_summary_attempted = False
-    fallback_fields = [
-        "trailingPE",
-        "forwardPE",
-        "pegRatio",
-        "enterpriseToEbitda",
-        "freeCashflow",
-        "revenueGrowth",
-        "profitMargins",
-        "marketCap",
-        "targetMeanPrice",
-        "targetMedianPrice",
-        "targetHighPrice",
-        "targetLowPrice",
-        "earningsGrowth",
-        "earningsQuarterlyGrowth",
-        "epsForward",
-        "epsTrailingTwelveMonths",
-        "earningsTimestamp",
-        "earningsTimestampStart",
-        "earningsTimestampEnd",
-        "nextYearEpsGrowth",
-        "shortName",
-        "longName",
-        "sector",
-        "industry",
-        "longBusinessSummary",
-    ]
     if any(info.get(field) is None for field in fallback_fields):
         quote_summary_attempted = True
         info, quote_snapshot, quote_summary = merge_yahoo_fallback_info(symbol, info)
 
-    company_analysis = fetch_company_analysis_snapshot(
-        instrument,
-        info.get("quoteType"),
-        info,
-    )
-
     latest_row = history.iloc[-1]
     previous_row = history.iloc[-2] if len(history) > 1 else latest_row
-    regular_close = _safe_float(latest_row["Close"])
-    regular_market_time = dt_from_epoch(info.get("regularMarketTime"))
-
-    # Use the official daily close as the dashboard price so the homepage,
-    # detail page, and all daily indicators stay aligned on the same data point.
-    price = regular_close
-    updated_at_dt = regular_market_time
-    dividend_yield = canonical_dividend_yield(info, price)
-
-    previous_close = (
-        _safe_float(info.get("regularMarketPreviousClose"))
-        or _safe_float(info.get("previousClose"))
-        or _safe_float(fast_info.get("previous_close"))
-        or _safe_float(previous_row["Close"])
-    )
+    price = _safe_float(latest_row["Close"])
+    previous_close = _safe_float(info.get("regularMarketPreviousClose")) or _safe_float(info.get("previousClose")) or _safe_float(fast_info.get("previous_close")) or _safe_float(previous_row["Close"])
     change = price - previous_close if price is not None and previous_close is not None else None
     change_percent = (change / previous_close) * 100 if change is not None and previous_close else None
-
-    updated_at = (
-        updated_at_dt.strftime("%Y-%m-%dT%H:%M:%SZ") if updated_at_dt
-        else iso_from_local_close(history.index[-1], 16, 0, -4)
-    )
-    # yfinance can expose market capitalization only through fast_info while
-    # the statement snapshot uses info.  Normalize the already fetched value
-    # once so all valuation multiples share the same price and market-cap view.
-    market_cap = _safe_int(info.get("marketCap")) or _safe_int(fast_info.get("market_cap"))
-    valuation_info = dict(info)
-    if valuation_info.get("marketCap") is None and market_cap is not None:
-        valuation_info["marketCap"] = market_cap
-    # Yahoo's lightweight endpoint commonly exposes the current share count as
-    # `shares` rather than `sharesOutstanding`.  It is a valid same-quote
-    # fallback for market cap when the quote summary omits marketCap.
-    if valuation_info.get("sharesOutstanding") is None:
-        fast_shares = _safe_int(fast_info.get("shares"))
-        if fast_shares is not None and fast_shares > 0:
-            valuation_info["sharesOutstanding"] = fast_shares
-    # Market price arrives after statement normalization. Finalize valuation
-    # here so PE, forward PE, PEG, PS and EV/EBITDA share one price timestamp.
-    if isinstance(company_analysis, dict) and isinstance(company_analysis.get("normalizedFundamentals"), dict):
-        normalized_fundamentals = finalize_normalized_fundamentals_valuation(
-            company_analysis.get("normalizedFundamentals"),
-            valuation_info,
-            price,
-            updated_at,
-            ticker=ticker,
-        )
-        company_analysis["normalizedFundamentals"] = normalized_fundamentals
-        company_analysis["displayFundamentals"] = normalized_fundamentals_display_adapter(normalized_fundamentals)
-    free_cashflow = _safe_float(info.get("freeCashflow"))
-    trailing_eps = _safe_float(info.get("epsTrailingTwelveMonths"))
-    forward_eps = _safe_float(info.get("epsForward"))
-    trailing_pe = _safe_float(info.get("trailingPE"))
-    forward_pe = _safe_float(info.get("forwardPE"))
-    if trailing_pe is None and price is not None and trailing_eps not in (None, 0):
-        trailing_pe = price / trailing_eps
-    if forward_pe is None and price is not None and forward_eps not in (None, 0):
-        forward_pe = price / forward_eps
-    earnings_timestamp = (
-        info.get("earningsTimestamp")
-        or info.get("earningsTimestampStart")
-        or info.get("earningsTimestampEnd")
-    )
-    earnings_date = iso_from_epoch(earnings_timestamp)
-    days_to_earnings = None
+    regular_market_time = dt_from_epoch(info.get("regularMarketTime"))
+    updated_at = regular_market_time.strftime("%Y-%m-%dT%H:%M:%SZ") if regular_market_time else iso_from_local_close(history.index[-1], 16, 0, -4)
+    earnings_timestamp = info.get("earningsTimestamp") or info.get("earningsTimestampStart") or info.get("earningsTimestampEnd")
     earnings_dt = dt_from_epoch(earnings_timestamp)
-    if earnings_dt is not None:
-        days_to_earnings = (earnings_dt.date() - datetime.now(timezone.utc).date()).days
-    earnings_countdown = _earnings_countdown(earnings_dt)
+    earnings_date = iso_from_epoch(earnings_timestamp)
+    days_to_earnings = (earnings_dt.date() - datetime.now(timezone.utc).date()).days if earnings_dt is not None else None
 
     return {
         "price": price,
@@ -5083,48 +3431,9 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         "shortName": info.get("shortName") or info.get("displayName"),
         "longName": info.get("longName") or info.get("shortName") or info.get("displayName"),
         "exchangeName": info.get("exchange") or info.get("fullExchangeName"),
-        "trailingPE": trailing_pe,
-        "forwardPE": forward_pe,
-        "marketCap": market_cap,
         "metadata": {
             "sector": info.get("sector"),
             "industry": info.get("industry"),
-            "beta": _safe_float(info.get("beta")),
-            "dividendYield": dividend_yield["value"],
-            "dividendYieldUnit": dividend_yield["unit"],
-            "dividendYieldSource": dividend_yield["source"],
-            "payoutRatio": _safe_float(info.get("payoutRatio")),
-            "enterpriseToEbitda": _safe_float(info.get("enterpriseToEbitda")),
-            "priceToSalesTrailing12Months": _safe_float(info.get("priceToSalesTrailing12Months")),
-            "enterpriseToRevenue": _safe_float(info.get("enterpriseToRevenue")),
-            "pegRatio": _safe_float(info.get("pegRatio")),
-            "targetMeanPrice": _safe_float(info.get("targetMeanPrice")),
-            "targetMedianPrice": _safe_float(info.get("targetMedianPrice")),
-            "targetHighPrice": _safe_float(info.get("targetHighPrice")),
-            "targetLowPrice": _safe_float(info.get("targetLowPrice")),
-            "earningsGrowth": _safe_float(info.get("earningsGrowth")),
-            "earningsQuarterlyGrowth": _safe_float(info.get("earningsQuarterlyGrowth")),
-            "nextYearEpsGrowth": _safe_float(info.get("nextYearEpsGrowth")),
-            "epsForward": _safe_float(info.get("epsForward")),
-            "epsTrailingTwelveMonths": _safe_float(info.get("epsTrailingTwelveMonths")),
-            "earningsDate": earnings_date,
-            "earningsTimestamp": _safe_int(earnings_timestamp),
-            "earningsTimestampStart": _safe_int(info.get("earningsTimestampStart")),
-            "earningsTimestampEnd": _safe_int(info.get("earningsTimestampEnd")),
-            "daysToEarnings": days_to_earnings,
-            "earningsCountdown": earnings_countdown,
-            "operatingMargins": _safe_float(info.get("operatingMargins")),
-            "profitMargins": _safe_float(info.get("profitMargins")),
-            "revenueGrowth": _safe_float(info.get("revenueGrowth")),
-            "grossMargins": _safe_float(info.get("grossMargins")),
-            "returnOnEquity": _safe_float(info.get("returnOnEquity")),
-            "debtToEquity": _safe_float(info.get("debtToEquity")),
-            "currentRatio": _safe_float(info.get("currentRatio")),
-            "quickRatio": _safe_float(info.get("quickRatio")),
-            "freeCashflow": free_cashflow,
-            "totalCash": _safe_float(info.get("totalCash")),
-            "totalDebt": _safe_float(info.get("totalDebt")),
-            "capex": _safe_float(info.get("capitalExpenditure")),
             "businessSummary": info.get("longBusinessSummary") or info.get("shortBusinessSummary"),
             "country": info.get("country"),
             "city": info.get("city"),
@@ -5132,23 +3441,24 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
             "exchange": info.get("exchange") or info.get("fullExchangeName"),
             "quoteType": info.get("quoteType"),
             "ipoDate": iso_from_epoch(info.get("firstTradeDateEpochUtc")),
-            "floatShares": _safe_int(info.get("floatShares")) or _safe_int(info.get("sharesFloat")) or _safe_int(info.get("publicFloat")) or _safe_int(fast_info.get("float_shares")),
-            "sharesOutstanding": _safe_int(info.get("sharesOutstanding")) or _safe_int(info.get("impliedSharesOutstanding")) or _safe_int(fast_info.get("shares")),
-            "companyAnalysis": company_analysis,
+            "earningsDate": earnings_date,
+            "earningsTimestamp": _safe_int(earnings_timestamp),
+            "earningsTimestampStart": _safe_int(info.get("earningsTimestampStart")),
+            "earningsTimestampEnd": _safe_int(info.get("earningsTimestampEnd")),
+            "daysToEarnings": days_to_earnings,
+            "earningsCountdown": _earnings_countdown(earnings_dt),
         },
         "earnings": {
             "earningsDate": earnings_date,
             "daysToEarnings": days_to_earnings,
-            "earningsCountdown": earnings_countdown,
+            "earningsCountdown": _earnings_countdown(earnings_dt),
             "earningsTimestampStart": iso_from_epoch(info.get("earningsTimestampStart")),
             "earningsTimestampEnd": iso_from_epoch(info.get("earningsTimestampEnd")),
             "source": "yfinance-info-yahoo-quote-summary",
         },
         "debug": {
             "yfinance_import_success": True,
-            "yfinance_fields_found": [field for field in fallback_fields if info.get(field) is not None],
             "yahoo_quote_summary_attempt": quote_summary_attempted,
-            "company_analysis_status": company_analysis.get("status"),
             "yahoo_quote_snapshot_attempt": bool(quote_snapshot),
             "raw_keys_sample": sorted(list(info.keys()))[:20],
             "quote_summary_keys_sample": sorted(list(quote_summary.keys()))[:20] if quote_summary else [],
@@ -5162,7 +3472,6 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
             "volumes": [_safe_int(value) for value in history["Volume"].tolist()],
         },
     }
-
 
 def fetch_quote(ticker, include_options=False):
     return fetch_us_quote_with_yfinance(ticker, include_options=include_options)
@@ -5302,685 +3611,6 @@ def parse_iso_datetime(value):
         return None
 
 
-def financial_statement_cache_is_compatible(payload):
-    """Reject cache entries built before the atomic statement-snapshot schema."""
-    return isinstance(payload, dict) and payload.get("schema_version") == FINANCIAL_STATEMENT_SCHEMA_VERSION
-
-
-def _financial_record_period(record):
-    value = (record or {}).get("period_end_date") if isinstance(record, dict) else None
-    return str(value)[:10] if value else None
-
-
-def same_fiscal_calendar_period(left, right, tolerance_days=10):
-    """Treat nearby non-calendar fiscal quarter ends as the same quarter."""
-    try:
-        left_date = datetime.fromisoformat(str(left)[:10]).date() if left else None
-        right_date = datetime.fromisoformat(str(right)[:10]).date() if right else None
-    except (TypeError, ValueError):
-        return False
-    return bool(left_date and right_date and abs((left_date - right_date).days) <= tolerance_days)
-
-
-def _group_period(records):
-    periods = sorted({period for period in (_financial_record_period(record) for record in records) if period})
-    if not periods:
-        return {"period_end": None, "periods": [], "consistent": False}
-    return {"period_end": periods[0] if len(periods) == 1 else None, "periods": periods, "consistent": len(periods) == 1}
-
-
-def build_financial_display_audit(snapshot):
-    """Audit the exact record tree consumed by the fundamental-panel renderer."""
-    facts = (snapshot or {}).get("financialFacts") or {}
-    cash_flow = facts.get("cashFlow") or {}
-    quarter = cash_flow.get("quarterly") or cash_flow.get("quarter") or {}
-    ttm = cash_flow.get("ttm") or {}
-    balance = facts.get("balanceSheet") or {}
-    earnings = (snapshot or {}).get("earningsMetrics") or {}
-    groups = {
-        "income_statement": _group_period([earnings.get("revenue", {}).get("period"), earnings.get("eps", {}).get("period")]),
-        "cash_flow_statement": _group_period([quarter.get("operatingCashFlow"), quarter.get("freeCashFlow"), quarter.get("capitalExpenditure")]),
-        "balance_sheet": _group_period([balance.get("cashAndCashEquivalents") or balance.get("cash"), balance.get("shortTermInvestments"), balance.get("totalDebt")]),
-        "ttm": _group_period([ttm.get("operatingCashFlow"), ttm.get("freeCashFlow"), ttm.get("capitalExpenditure")]),
-        "earnings_surprise": _group_period([earnings.get("eps", {}).get("period")]),
-    }
-    major_periods = [groups[name].get("period_end") for name in ("cash_flow_statement", "balance_sheet", "ttm") if groups[name].get("period_end")]
-    displayed_complete_period = min(major_periods) if major_periods else None
-    return {
-        "schema_version": FINANCIAL_STATEMENT_SCHEMA_VERSION,
-        "groups": groups,
-        "displayed_complete_period_end": displayed_complete_period,
-        "mixed_group_periods": len({period for group in groups.values() for period in group.get("periods", [])}) > 1,
-    }
-
-
-def apply_financial_display_status(snapshot, freshness, report=None):
-    """Make source metadata describe the periods of fields that the UI will render."""
-    audit = build_financial_display_audit(snapshot)
-    expected_period = (report or {}).get("fiscal_period_end_date") or (freshness or {}).get("latest_reported_fiscal_period_end_date")
-    groups = audit["groups"]
-    major = [groups[name].get("period_end") for name in ("cash_flow_statement", "balance_sheet", "ttm")]
-    major_available = [period for period in major if period]
-    all_major_current = bool(expected_period and len(major_available) == 3 and all(same_fiscal_calendar_period(period, expected_period) for period in major_available))
-    some_current = bool(expected_period and any(any(same_fiscal_calendar_period(period, expected_period) for period in group.get("periods", [])) for group in groups.values()))
-    unresolved_release = (freshness or {}).get("status") in {"released_primary_source_pending", "stale_and_unavailable"}
-    if unresolved_release and not report:
-        status, completeness = "primary_source_pending", "partial"
-    elif expected_period and all_major_current:
-        status, completeness = "latest_complete", "complete"
-    elif expected_period and some_current:
-        status, completeness = "latest_partial", "partial"
-    elif expected_period and major_available:
-        status, completeness = "stale", "stale"
-    elif expected_period:
-        status, completeness = "unavailable", "unavailable"
-    else:
-        status, completeness = "unavailable", "unavailable"
-
-    release_reference = (freshness or {}).get("release_reference") or {}
-    existing_source = (snapshot or {}).get("financialStatementSource") or {}
-    report_filing = (report or {}).get("filing") or {}
-    source_name = (report or {}).get("source_name") or existing_source.get("source") or "Yahoo Finance via yfinance"
-    source_type = "sec_8k" if (report or {}).get("completeness") == "headline_release_partial" else "sec_10q_or_10k" if report else "yahoo"
-    snapshot["financialStatementSnapshot"] = {
-        "schema_version": FINANCIAL_STATEMENT_SCHEMA_VERSION,
-        "groups": groups,
-        "displayed_complete_period_end": audit.get("displayed_complete_period_end"),
-        "expected_latest_period_end": expected_period,
-        "fiscal_calendar_equivalent": bool(expected_period and audit.get("displayed_complete_period_end") and same_fiscal_calendar_period(expected_period, audit.get("displayed_complete_period_end"))),
-        "completeness": completeness,
-        "source_type": source_type,
-        "mixed_group_periods": audit.get("mixed_group_periods"),
-    }
-    snapshot["financialStatementFreshness"] = {
-        **(freshness or {}),
-        "status": status,
-        "expected_latest_fiscal_period_end": expected_period,
-        "displayed_complete_period_end": audit.get("displayed_complete_period_end"),
-        "completeness": completeness,
-        "groups": groups,
-    }
-    snapshot["financialStatementSource"] = {
-        "source": source_name,
-        "source_type": source_type,
-        "source_url": (report or {}).get("source_url") or existing_source.get("source_url"),
-        "filing_accession": report_filing.get("accessionNumber") or existing_source.get("filing_accession"),
-        "fiscal_period_end_date": audit.get("displayed_complete_period_end"),
-        "source_data_period_end": audit.get("displayed_complete_period_end"),
-        "latest_fiscal_period_end": expected_period,
-        "earnings_release_date": release_reference.get("filing_date") or (freshness or {}).get("latest_reported_earnings_date"),
-        "sec_filing_date": report_filing.get("filingDate") or (freshness or {}).get("official_filing_date"),
-        "extraction_timestamp": (report or {}).get("extraction_timestamp") or existing_source.get("extraction_timestamp") or (snapshot or {}).get("sourceTimestamp"),
-    }
-    # Keep a compact, user-safe status after the verbose statement tree is
-    # removed from the API payload.  It prevents an older Yahoo statement from
-    # looking current while a newer official release awaits normalization.
-    snapshot["financialDataStatus"] = {
-        "status": status,
-        "displayed_period_end": audit.get("displayed_complete_period_end"),
-        "expected_period_end": expected_period,
-        "source": source_name,
-        "reason": (freshness or {}).get("reason"),
-    }
-    normalized = snapshot.get("normalizedFundamentals") if isinstance(snapshot, dict) else None
-    if isinstance(normalized, dict):
-        normalized_metadata = normalized.get("metadata") or {}
-        normalized_metadata.update({
-            "latest_reported_fiscal_period": expected_period,
-            "stale_fundamentals": status in {"stale", "primary_source_pending", "source_conflict"},
-            "completeness_status": status,
-        })
-        normalized["metadata"] = normalized_metadata
-        for group in ("profitability", "balance_sheet", "growth", "valuation", "inputs"):
-            for metric in (normalized.get(group) or {}).values():
-                if not isinstance(metric, dict):
-                    continue
-                metric_period = metric.get("period_end_date")
-                metric["stale"] = bool(
-                    expected_period
-                    and metric_period
-                    and not same_fiscal_calendar_period(metric_period, expected_period)
-                )
-    return snapshot
-
-
-SEC_TICKER_CIK_MEMORY_CACHE = {"payload": None, "expires_at": 0}
-
-
-def http_get_sec_json(url, timeout=10):
-    """SEC requires an identifiable user agent; retry transient public-feed failures."""
-    last_error = None
-    for attempt in range(2):
-        try:
-            request = Request(url, headers={
-                "User-Agent": SEC_USER_AGENT,
-                "Accept": "application/json, text/plain;q=0.9, */*;q=0.8",
-            })
-            with urlopen(request, timeout=timeout) as response:
-                return json.loads(response.read().decode("utf-8", errors="ignore"))
-        except Exception as exc:
-            last_error = exc
-            if attempt == 0:
-                time.sleep(0.35)
-    raise last_error or RuntimeError("SEC response unavailable")
-
-
-def http_get_sec_text(url, timeout=10):
-    request = Request(url, headers={
-        "User-Agent": SEC_USER_AGENT,
-        "Accept": "text/html, application/xhtml+xml, text/plain;q=0.9, */*;q=0.8",
-    })
-    with urlopen(request, timeout=timeout) as response:
-        return response.read().decode("utf-8", errors="ignore")
-
-
-def sec_ticker_cik_map():
-    now = time.time()
-    cached = SEC_TICKER_CIK_MEMORY_CACHE.get("payload")
-    if cached and SEC_TICKER_CIK_MEMORY_CACHE.get("expires_at", 0) > now:
-        return cached
-    payload = http_get_sec_json(SEC_COMPANY_TICKERS_URL, timeout=10)
-    SEC_TICKER_CIK_MEMORY_CACHE.update({"payload": payload, "expires_at": now + (24 * 60 * 60)})
-    return payload
-
-
-def financial_statement_cache_age_seconds(payload):
-    updated = parse_iso_datetime((payload or {}).get("updated_at"))
-    if updated is None:
-        return None
-    return max(0, (datetime.now(timezone.utc) - updated).total_seconds())
-
-
-def financial_statement_cache_fresh(payload):
-    age = financial_statement_cache_age_seconds(payload)
-    return age is not None and age <= FINANCIAL_STATEMENT_CACHE_SECONDS
-
-
-def financial_release_is_recent(earnings):
-    event_date = parse_iso_datetime((earnings or {}).get("eventDate"))
-    if event_date is None:
-        return False
-    if event_date.tzinfo is None:
-        event_date = event_date.replace(tzinfo=timezone.utc)
-    age_seconds = (datetime.now(timezone.utc) - event_date).total_seconds()
-    # Calendar providers do not always mark a completed report as released.
-    # A past earnings event is sufficient to recheck SEC for a limited window;
-    # this keeps post-release checks prompt without polling every issuer hourly.
-    return 0 <= age_seconds <= (7 * 24 * 60 * 60)
-
-
-def _financial_release_reference(cik, release_filing):
-    if not release_filing:
-        return None
-    return {
-        "source_name": "SEC EDGAR Form 8-K earnings release",
-        "filing_accession": release_filing.get("accessionNumber"),
-        "filing_date": release_filing.get("filingDate"),
-        "source_url": filing_url(cik, release_filing.get("accessionNumber"), release_filing.get("primaryDocument")),
-    }
-
-
-def official_release_exhibit_url(cik, release_filing):
-    """Locate the 99.1-style exhibit in a SEC-filed earnings-release 8-K."""
-    accession = str((release_filing or {}).get("accessionNumber") or "").replace("-", "")
-    if not cik or not accession:
-        return None
-    index_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession}/index.json"
-    try:
-        listing = http_get_sec_json(index_url, timeout=10)
-        names = [item.get("name") for item in (listing.get("directory", {}) or {}).get("item", []) if item.get("name")]
-        preferred = [
-            name for name in names
-            if name.lower().endswith((".htm", ".html"))
-            and any(token in name.lower() for token in ("exhibit99", "ex99", "earningsrelease", "earnings_release", "release"))
-        ]
-        if preferred:
-            return f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession}/{preferred[0]}"
-    except Exception:
-        return None
-    return None
-
-
-def fetch_financial_statement_freshness(ticker, primary_period, primary_updated_at, earnings, info):
-    """Prefer Yahoo while current; use a cached SEC-normalized report when it is newer."""
-    cached = read_module_cache("financial_statements", ticker)
-    if not financial_statement_cache_is_compatible(cached):
-        cached = None
-    cached_report = (cached or {}).get("report") if isinstance((cached or {}).get("report"), dict) else None
-    cached_partial_report = (cached or {}).get("latest_partial_report") if isinstance((cached or {}).get("latest_partial_report"), dict) else None
-    cached_filing = (cached or {}).get("filing") if isinstance((cached or {}).get("filing"), dict) else None
-    cached_release = (cached or {}).get("release_reference") if isinstance((cached or {}).get("release_reference"), dict) else None
-    cache_age = financial_statement_cache_age_seconds(cached)
-    should_recheck_after_release = financial_release_is_recent(earnings) and (
-        cache_age is None or cache_age > FINANCIAL_STATEMENT_EARNINGS_CHECK_SECONDS
-    )
-    if financial_statement_cache_fresh(cached) and not should_recheck_after_release:
-        cached_is_newer = bool(
-            cached_report
-            and compare_periods(primary_period, cached_report.get("fiscal_period_end_date")) == 1
-        )
-        freshness = determine_freshness(primary_period, primary_updated_at, earnings, cached_filing, cached_is_newer, cached_release)
-        # Keep the complete statement as the cache base, but reapply a newer 8-K
-        # headline release so the UI can state exactly which Q2 metrics are new.
-        display_report = cached_partial_report or cached_report
-        # Never overlay an older cached SEC snapshot onto a newer Yahoo base.
-        # The UI only receives a fallback report when it covers the same or a
-        # newer fiscal period than the values it replaces.
-        display_period_comparison = compare_periods(primary_period, (display_report or {}).get("fiscal_period_end_date"))
-        if display_period_comparison == -1:
-            display_report = None
-        return {
-            "freshness": freshness,
-            "report": display_report,
-            "source": select_source(primary_period, display_report, freshness),
-            "cache_used": True,
-            "diagnostic": (display_report or {}).get("concept_diagnostics") or {"status": "unavailable", "reason": "no_cached_sec_concept_diagnostic"},
-        }
-
-    try:
-        cik = find_cik_for_ticker(sec_ticker_cik_map(), ticker)
-        if cik is None:
-            freshness = determine_freshness(primary_period, primary_updated_at, earnings, None, False, None)
-            freshness["status"] = "latest" if primary_period else "stale_and_unavailable"
-            freshness["reason"] = "no_sec_cik_for_ticker"
-            return {
-                "freshness": freshness,
-                "report": cached_report,
-                "source": "yahoo_finance",
-                "cache_used": bool(cached_report),
-                "diagnostic": {"status": "unavailable", "reason": "no_sec_cik_for_ticker"},
-            }
-        submissions = http_get_sec_json(SEC_SUBMISSIONS_URL.format(cik=cik), timeout=10)
-        filing = latest_official_filing(submissions)
-        release_reference = _financial_release_reference(cik, latest_earnings_release_filing(submissions, primary_period))
-        initial_freshness = determine_freshness(primary_period, primary_updated_at, earnings, filing, False, release_reference)
-        candidate_report = None
-        company_facts = None
-        if initial_freshness.get("primary_source_is_older") and filing:
-            company_facts = http_get_sec_json(SEC_COMPANY_FACTS_URL.format(cik=cik), timeout=12)
-            candidate_report = build_sec_normalized_report(company_facts, cik, filing)
-            if _financial_record_value((candidate_report or {}).get("quarter", {}).get("revenue")) is None:
-                candidate_report = None
-        # A filed 8-K earnings release can be authoritative before companyfacts
-        # receives the corresponding 10-Q/10-K.  Only headline GAAP metrics are
-        # extracted here; cash flow and TTM remain untouched until filed data is
-        # available.
-        # A Form 8-K Item 2.02 may precede its 10-Q/K.  Parse it first, then
-        # require the release's fiscal period to be genuinely newer below.
-        release_pending = bool(release_reference)
-        release_matches_primary = False
-        # A complete Item 2.02 Inline-XBRL release can arrive before a 10-Q.
-        # Resolve its real fiscal period from tagged revenue facts, then run the
-        # same normalizer used for 10-Q/10-K statements.
-        release_filing = latest_earnings_release_filing(submissions, primary_period)
-        if release_pending and not candidate_report and release_filing:
-            if company_facts is None:
-                company_facts = http_get_sec_json(SEC_COMPANY_FACTS_URL.format(cik=cik), timeout=12)
-            inline_release_filing = latest_inline_xbrl_release_period(company_facts, release_filing, primary_period)
-            if not inline_release_filing:
-                accession = str(release_filing.get("accessionNumber") or "").replace("-", "")
-                index_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession}/index.json"
-                instance_document = official_release_instance_document(
-                    http_get_sec_json(index_url, timeout=10),
-                    release_filing,
-                )
-                if instance_document:
-                    instance_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession}/{instance_document}"
-                    merge_sec_instance_facts(
-                        company_facts,
-                        http_get_sec_text(instance_url, timeout=12),
-                        release_filing,
-                    )
-                    inline_release_filing = latest_inline_xbrl_release_period(company_facts, release_filing, primary_period)
-            if inline_release_filing:
-                candidate_report = build_sec_normalized_report(company_facts, cik, inline_release_filing)
-                if _financial_record_value((candidate_report or {}).get("quarter", {}).get("revenue")) is None:
-                    candidate_report = None
-        if (initial_freshness.get("primary_source_is_older") or release_pending) and not candidate_report and release_reference:
-            exhibit_url = official_release_exhibit_url(cik, release_filing)
-            if exhibit_url:
-                candidate_report = parse_official_earnings_release(
-                    http_get_sec_text(exhibit_url, timeout=12), cik, release_filing, exhibit_url,
-                )
-                if candidate_report and compare_periods(primary_period, candidate_report.get("fiscal_period_end_date")) != 1:
-                    release_matches_primary = True
-                    candidate_report = None
-        report = preserve_cached_statement(cached_report, candidate_report)
-        # A partial 8-K must update only its headline records at render time.
-        # It never replaces a validated 10-Q/10-K in the durable statement cache.
-        display_report = candidate_report or cached_partial_report or report
-        effective_filing = dict(filing or {})
-        if display_report and display_report.get("fiscal_period_end_date"):
-            effective_filing["reportDate"] = display_report.get("fiscal_period_end_date")
-            effective_filing["filingDate"] = ((display_report.get("filing") or {}).get("filingDate") or effective_filing.get("filingDate"))
-        cached_is_newer = bool(
-            report and compare_periods(primary_period, report.get("fiscal_period_end_date")) == 1
-        )
-        freshness = determine_freshness(primary_period, primary_updated_at, earnings, effective_filing, cached_is_newer, release_reference)
-        if initial_freshness.get("primary_source_is_older") and not candidate_report and not cached_is_newer and not release_matches_primary:
-            freshness["status"] = "stale_and_unavailable"
-            freshness["reason"] = "newer_official_report_found_but_complete_normalized_statement_unavailable"
-        elif release_pending and not candidate_report and not cached_is_newer and not release_matches_primary:
-            # The SEC 8-K confirms a new report exists, but an image-only or
-            # otherwise untagged exhibit cannot safely supply statement values.
-            # Do not relabel old statements as latest and do not invent a
-            # fiscal-period end from the calendar.
-            freshness["status"] = "released_primary_source_pending"
-            freshness["reason"] = "official_earnings_release_has_no_reliably_normalizable_statement_facts"
-        payload = {
-            "schema_version": FINANCIAL_STATEMENT_SCHEMA_VERSION,
-            "ticker": ticker,
-            "updated_at": financial_now_iso(),
-            "filing": effective_filing,
-            "release_reference": release_reference,
-            "report": report,
-            "latest_partial_report": candidate_report if (candidate_report or {}).get("completeness") == "headline_release_partial" else None,
-            "freshness": freshness,
-            "source": "official_earnings_release" if (candidate_report or {}).get("completeness") == "headline_release_partial" else "sec_edgar" if candidate_report else "yahoo_finance",
-        }
-        # A failed SEC refresh never writes an empty report over a usable cache.
-        if candidate_report or not cached:
-            write_module_cache("financial_statements", ticker, payload)
-        return {
-            "freshness": freshness,
-            "report": display_report if (
-                freshness.get("primary_source_is_older")
-                or (display_report or {}).get("completeness") == "headline_release_partial"
-            ) else None,
-            "source": select_source(primary_period, display_report, freshness),
-            "cache_used": False,
-            "diagnostic": (display_report or {}).get("concept_diagnostics") or {"status": "unavailable", "reason": "no_sec_concept_diagnostic"},
-        }
-    except Exception as exc:
-        freshness = determine_freshness(primary_period, primary_updated_at, earnings, cached_filing, bool(cached_report), cached_release)
-        freshness["reason"] = f"sec_refresh_failed:{type(exc).__name__}"
-        if freshness.get("primary_source_is_older") and not cached_report:
-            freshness["status"] = "stale_and_unavailable"
-        return {
-            "freshness": freshness,
-            "report": cached_report if freshness.get("primary_source_is_older") else None,
-            "source": "sec_edgar_cache" if cached_report else "yahoo_finance",
-            "cache_used": bool(cached_report),
-            "diagnostic": (cached_report or {}).get("concept_diagnostics") or {"status": "unavailable", "reason": f"sec_refresh_failed:{type(exc).__name__}"},
-        }
-
-
-def _financial_record_value(record):
-    return _safe_float((record or {}).get("raw_value"))
-
-
-def _verified_ttm_record_value(record):
-    """Only expose a TTM valuation denominator when it is truly a dated TTM record."""
-    if not isinstance(record, dict) or record.get("period_type") != "ttm" or not record.get("period_end_date"):
-        return None
-    return _financial_record_value(record)
-
-
-def _set_sec_actual_metric(existing, record, previous_record=None):
-    actual = _financial_record_value(record)
-    estimate = _safe_float((existing or {}).get("estimate"))
-    previous_actual = _financial_record_value(previous_record)
-    result = {
-        "actual": actual,
-        "estimate": estimate,
-        **build_earnings_surprise(actual, estimate),
-        "period": record,
-    }
-    if previous_record is not None:
-        result.update({
-            "previous_actual": previous_actual,
-            "previous_period": previous_record,
-            "quarter_over_quarter": build_eps_quarter_comparison(actual, previous_actual),
-        })
-    return result
-
-
-def apply_sec_financial_report(snapshot, report, freshness, info):
-    """Overlay only a newer SEC period onto the display-only company-analysis tree."""
-    if not isinstance(snapshot, dict):
-        return snapshot
-    snapshot["financialStatementFreshness"] = freshness
-    snapshot["financialStatementSource"] = {
-        "source": (report or {}).get("source_name") or "Yahoo Finance via yfinance",
-        "source_url": (report or {}).get("source_url"),
-        "filing_accession": ((report or {}).get("filing") or {}).get("accessionNumber"),
-        "filing_date": ((report or {}).get("filing") or {}).get("filingDate"),
-        "fiscal_period_end_date": (report or {}).get("fiscal_period_end_date") or snapshot.get("quarterlyPeriodEnd"),
-        "extraction_timestamp": (report or {}).get("extraction_timestamp") or snapshot.get("sourceTimestamp"),
-    }
-    semantic = financial_semantics(info)
-    if snapshot.get("financialFacts"):
-        current_semantic = snapshot["financialFacts"].get("cashFlowSemantic") or {}
-        if current_semantic.get("model") != "reit_cash_flow_limited":
-            snapshot["financialFacts"]["cashFlowSemantic"] = semantic
-    if not report:
-        return snapshot
-
-    quarter = report.get("quarter") or {}
-    if report.get("completeness") == "headline_release_partial":
-        earnings_metrics = snapshot.setdefault("earningsMetrics", {})
-        earnings_metrics["revenue"] = _set_sec_actual_metric(earnings_metrics.get("revenue"), quarter.get("revenue"))
-        if quarter.get("diluted_eps"):
-            earnings_metrics["eps"] = _set_sec_actual_metric(
-                earnings_metrics.get("eps"),
-                quarter.get("diluted_eps"),
-            )
-        if quarter.get("net_income"):
-            snapshot.setdefault("earningsQuality", {})["netIncome"] = quarter.get("net_income")
-        snapshot["latestEarnings"] = {
-            **(snapshot.get("latestEarnings") or {}),
-            "revenueActual": _financial_record_value(quarter.get("revenue")),
-            "reportedEps": _financial_record_value(quarter.get("diluted_eps"))
-                if quarter.get("diluted_eps") else (snapshot.get("latestEarnings") or {}).get("reportedEps"),
-        }
-        # The 8-K release updates only headline earnings.  It must not relabel
-        # prior-period cash flow, TTM, or balance-sheet records as current.
-        snapshot["financialStatementLatestRelease"] = {
-            "fiscal_period_end_date": report.get("fiscal_period_end_date"),
-            "source": report.get("source_name"),
-            "source_url": report.get("source_url"),
-            "earnings_release_date": ((report.get("filing") or {}).get("filingDate")),
-            "completeness": "headline_release_partial",
-        }
-        return snapshot
-
-    ttm = report.get("ttm") or {}
-    ratios = report.get("ratios") or {}
-    facts = snapshot.setdefault("financialFacts", {})
-    cash_flow = facts.setdefault("cashFlow", {})
-    cash_flow["quarterly"] = {
-        "revenue": quarter.get("revenue"),
-        "operatingCashFlow": quarter.get("operating_cash_flow"),
-        "freeCashFlow": quarter.get("standardized_free_cash_flow"),
-        "capitalExpenditure": quarter.get("capital_expenditure"),
-        "fcfMargin": ratios.get("quarter_fcf_margin"),
-        "capexToRevenue": abs(_financial_record_value(quarter.get("capital_expenditure")) or 0) / _financial_record_value(quarter.get("revenue")) if _financial_record_value(quarter.get("revenue")) not in (None, 0) else None,
-        "capexToOperatingCashFlow": ratios.get("quarter_capex_to_ocf"),
-    }
-    cash_flow["quarter"] = dict(cash_flow["quarterly"])
-    cash_flow["ttm"] = {
-        "revenue": ttm.get("revenue"),
-        "operatingCashFlow": ttm.get("operating_cash_flow"),
-        "freeCashFlow": ttm.get("standardized_free_cash_flow"),
-        "capitalExpenditure": ttm.get("capital_expenditure"),
-        "fcfMargin": ratios.get("ttm_fcf_margin"),
-        "capexToRevenue": abs(_financial_record_value(ttm.get("capital_expenditure")) or 0) / _financial_record_value(ttm.get("revenue")) if _financial_record_value(ttm.get("revenue")) not in (None, 0) else None,
-        "capexToOperatingCashFlow": ratios.get("ttm_capex_to_ocf"),
-    }
-    cash_flow["comparisons"] = {"status": "rebuild_requires_additional_normalized_prior_quarters"}
-    cash_flow["growth"] = {"periodMismatchWarning": False, "source": "SEC normalized standalone-quarter rebuild"}
-    quarterly = cash_flow["quarterly"]
-    ttm_values = cash_flow["ttm"]
-    snapshot["cashFlow"] = {
-        "operatingCashFlow": _financial_record_value(ttm_values.get("operatingCashFlow")),
-        "freeCashFlow": _financial_record_value(ttm_values.get("freeCashFlow")),
-        "freeCashFlowMargin": ttm_values.get("fcfMargin"),
-        "freeCashFlowYoyGrowth": None,
-    }
-    snapshot["capitalAllocation"] = {
-        "capitalExpenditure": _financial_record_value(ttm_values.get("capitalExpenditure")),
-        "capexToRevenue": ttm_values.get("capexToRevenue"),
-        "buybackTtm": _financial_record_value(ttm.get("share_repurchases")),
-        "sharesOutstanding": _financial_record_value((report.get("balance") or {}).get("period_end_shares")),
-        "sharesOutstandingYoy": None,
-    }
-    balance = report.get("balance") or {}
-    cash = _financial_record_value(balance.get("cash_and_cash_equivalents"))
-    debt = _financial_record_value(balance.get("total_debt"))
-    period_end = report.get("fiscal_period_end_date")
-    net_cash = cash - debt if cash is not None and debt is not None else None
-    total_liquidity = sum(
-        value for value in (
-            cash,
-            _financial_record_value(balance.get("short_term_investments")),
-            _financial_record_value(balance.get("marketable_securities")),
-        ) if value is not None
-    )
-    has_liquidity = any(
-        _financial_record_value(balance.get(field)) is not None
-        for field in ("cash_and_cash_equivalents", "short_term_investments", "marketable_securities")
-    )
-    net_liquidity = total_liquidity - debt if has_liquidity and debt is not None else None
-    net_cash_record = _period_record(
-        net_cash,
-        "point_in_time",
-        period_end,
-        "cash_and_cash_equivalents - total_debt",
-        source="SEC EDGAR companyfacts",
-        calculation_method="same_period_cash_minus_total_debt",
-    )
-    net_liquidity_record = _period_record(
-        net_liquidity,
-        "point_in_time",
-        period_end,
-        "cash_and_investments - total_debt",
-        source="SEC EDGAR companyfacts",
-        calculation_method="same_period_liquidity_minus_total_debt",
-    )
-    total_liquidity_record = _period_record(
-        total_liquidity if has_liquidity else None,
-        "point_in_time",
-        period_end,
-        "cash_and_cash_equivalents + short_term_investments + marketable_securities",
-        source="SEC EDGAR companyfacts",
-        calculation_method="sum_available_same_period_liquidity_components",
-    )
-    snapshot["balanceSheet"] = {"cash": cash, "totalDebt": debt, "netCash": net_cash}
-    balance_facts = facts.setdefault("balanceSheet", {})
-    balance_facts.update({
-        "cash": balance.get("cash_and_cash_equivalents"),
-        "cashAndCashEquivalents": balance.get("cash_and_cash_equivalents"),
-        "shortTermInvestments": balance.get("short_term_investments"),
-        "marketableSecurities": balance.get("marketable_securities"),
-        "totalCashAndMarketableSecurities": total_liquidity_record,
-        "totalDebt": balance.get("total_debt"),
-        "netCash": net_cash_record,
-        "netLiquidity": net_liquidity_record,
-        "liquidityStructure": {
-            "cashAndCashEquivalents": balance.get("cash_and_cash_equivalents"),
-            "shortTermInvestments": balance.get("short_term_investments"),
-            "marketableSecurities": balance.get("marketable_securities"),
-            "totalCashAndMarketableSecurities": total_liquidity_record,
-            "totalLiquidityLabel": "cash_and_marketable_securities",
-            "totalDebt": balance.get("total_debt"),
-            "netCashNarrow": net_cash_record,
-            "netLiquidity": net_liquidity_record,
-            "periodEndDate": period_end,
-            "sourceFields": {
-                "cashAndCashEquivalents": (balance.get("cash_and_cash_equivalents") or {}).get("source_field"),
-                "shortTermInvestments": (balance.get("short_term_investments") or {}).get("source_field"),
-                "marketableSecurities": (balance.get("marketable_securities") or {}).get("source_field"),
-                "totalDebt": (balance.get("total_debt") or {}).get("source_field"),
-            },
-            "scopeLabel": "sec_same_period_components",
-            "dataQuality": "high" if cash is not None and debt is not None else "partial" if has_liquidity else "unavailable",
-        },
-    })
-    capital_return = facts.setdefault("capitalReturn", {})
-    capital_return["shareRepurchasesTtm"] = ttm.get("share_repurchases")
-    capital_return["dividendsPaidTtm"] = ttm.get("dividends_paid")
-    total_distributions = sum(value for value in (_financial_record_value(ttm.get("share_repurchases")), _financial_record_value(ttm.get("dividends_paid"))) if value is not None)
-    capital_return["totalShareholderReturnTtm"] = _period_record(total_distributions if any(_financial_record_value(ttm.get(key)) is not None for key in ("share_repurchases", "dividends_paid")) else None, "ttm", report.get("fiscal_period_end_date"), "SEC normalized shareholder distributions", source="SEC EDGAR companyfacts", calculation_method="sum_four_normalized_standalone_quarters")
-
-    earnings_metrics = snapshot.setdefault("earningsMetrics", {})
-    earnings_metrics["revenue"] = _set_sec_actual_metric(earnings_metrics.get("revenue"), quarter.get("revenue"))
-    earnings_metrics["eps"] = _set_sec_actual_metric(
-        earnings_metrics.get("eps"),
-        quarter.get("diluted_eps"),
-        ((report.get("previous_quarter") or {}).get("diluted_eps")),
-    )
-    gross_margin = _financial_record_value(quarter.get("gross_profit")) / _financial_record_value(quarter.get("revenue")) if _financial_record_value(quarter.get("gross_profit")) is not None and _financial_record_value(quarter.get("revenue")) not in (None, 0) else None
-    operating_margin = _financial_record_value(quarter.get("operating_income")) / _financial_record_value(quarter.get("revenue")) if _financial_record_value(quarter.get("operating_income")) is not None and _financial_record_value(quarter.get("revenue")) not in (None, 0) else None
-    earnings_metrics["grossMargin"] = _set_sec_actual_metric(earnings_metrics.get("grossMargin"), _period_record(gross_margin, "quarter", report.get("fiscal_period_end_date"), "GrossProfit / Revenue", source="SEC EDGAR companyfacts", calculation_method="sec_normalized_margin"))
-    earnings_metrics["operatingMargin"] = _set_sec_actual_metric(earnings_metrics.get("operatingMargin"), _period_record(operating_margin, "quarter", report.get("fiscal_period_end_date"), "OperatingIncomeLoss / Revenue", source="SEC EDGAR companyfacts", calculation_method="sec_normalized_margin"))
-    earnings_metrics["freeCashFlow"] = _set_sec_actual_metric(earnings_metrics.get("freeCashFlow"), quarter.get("standardized_free_cash_flow"))
-    earnings_metrics["capitalExpenditure"] = _set_sec_actual_metric(earnings_metrics.get("capitalExpenditure"), quarter.get("capital_expenditure"))
-    quality = snapshot.setdefault("earningsQuality", {})
-    quality.update({
-        "operatingMargin": operating_margin,
-        "netMargin": _financial_record_value(quarter.get("net_income")) / _financial_record_value(quarter.get("revenue")) if _financial_record_value(quarter.get("net_income")) is not None and _financial_record_value(quarter.get("revenue")) not in (None, 0) else None,
-        "netIncome": quarter.get("net_income"),
-        "coreEpsProxyStatus": "operating_income_and_margin_available" if operating_margin is not None else "unavailable",
-    })
-    snapshot["latestEarnings"] = {
-        **(snapshot.get("latestEarnings") or {}),
-        "revenueActual": _financial_record_value(quarter.get("revenue")),
-        "grossMargin": gross_margin,
-        "operatingMargin": operating_margin,
-        "freeCashFlow": _financial_record_value(quarter.get("standardized_free_cash_flow")),
-        "capitalExpenditure": _financial_record_value(quarter.get("capital_expenditure")),
-        "reportedEps": _financial_record_value(quarter.get("diluted_eps")),
-    }
-    # Keep the fields rendered in the lower fundamental cards in sync with the
-    # same SEC period as earnings/cash-flow data.  This is display-only and
-    # intentionally does not change the recommendation-model inputs.
-    display = snapshot.setdefault("displayFundamentals", {})
-    display["schema_version"] = FINANCIAL_STATEMENT_SCHEMA_VERSION
-    display["source"] = report.get("source_name") or "SEC EDGAR companyfacts"
-    display["source_period_end"] = period_end
-    display_metrics = display.setdefault("metrics", {})
-
-    def set_display_metric(name, value, period_type, definition):
-        if value is not None:
-            display_metrics[name] = _display_fundamental_metric(
-                value,
-                period_type,
-                period_end,
-                report.get("source_name") or "SEC EDGAR companyfacts",
-                definition,
-            )
-
-    ttm_revenue = _financial_record_value(ttm.get("revenue"))
-    ttm_gross_profit = _financial_record_value(ttm.get("gross_profit"))
-    ttm_operating_income = _financial_record_value(ttm.get("operating_income"))
-    ttm_net_income = _financial_record_value(ttm.get("net_income"))
-    stockholders_equity = _financial_record_value(balance.get("stockholders_equity"))
-    revenue_series = report.get("quarter_series", {}).get("revenue") or []
-    eps_series = report.get("quarter_series", {}).get("diluted_eps") or []
-
-    def comparable_yoy(series):
-        current = _safe_float(((series[0] if len(series) > 0 else {}).get("derivation") or {}).get("value"))
-        prior = _safe_float(((series[4] if len(series) > 4 else {}).get("derivation") or {}).get("value"))
-        return (current / prior) - 1 if current is not None and prior not in (None, 0) else None
-
-    set_display_metric("gross_margin", ttm_gross_profit / ttm_revenue if ttm_gross_profit is not None and ttm_revenue not in (None, 0) else None, "ttm", "SEC GrossProfit / Revenue, four standalone quarters")
-    set_display_metric("operating_margin", ttm_operating_income / ttm_revenue if ttm_operating_income is not None and ttm_revenue not in (None, 0) else None, "ttm", "SEC OperatingIncomeLoss / Revenue, four standalone quarters")
-    set_display_metric("net_margin", ttm_net_income / ttm_revenue if ttm_net_income is not None and ttm_revenue not in (None, 0) else None, "ttm", "SEC NetIncomeLoss / Revenue, four standalone quarters")
-    set_display_metric("roe", ttm_net_income / stockholders_equity if ttm_net_income is not None and stockholders_equity not in (None, 0) else None, "ttm", "SEC TTM net income / period-end stockholders equity")
-    set_display_metric("debt_to_equity", debt / stockholders_equity if debt is not None and stockholders_equity not in (None, 0) else None, "point_in_time", "SEC total debt / stockholders equity")
-    set_display_metric("revenue_growth", comparable_yoy(revenue_series), "quarter", "SEC current-quarter revenue versus comparable prior-year quarter")
-    set_display_metric("eps_growth", comparable_yoy(eps_series), "quarter", "SEC current-quarter diluted EPS versus comparable prior-year quarter")
-    set_display_metric("price_to_sales", _safe_float(info.get("marketCap")) / ttm_revenue if _safe_float(info.get("marketCap")) is not None and ttm_revenue not in (None, 0) else None, "ttm", "Yahoo market capitalization / SEC TTM revenue")
-    # The canonical object is the only data tree consumed by the fundamental UI.
-    # Keep the legacy compact map as an adapter, not as a second calculation path.
-    normalized_fundamentals = build_sec_normalized_fundamentals(report, info)
-    snapshot["normalizedFundamentals"] = normalized_fundamentals
-    snapshot["displayFundamentals"] = normalized_fundamentals_display_adapter(normalized_fundamentals)
-    snapshot["source"] = "SEC EDGAR normalized financial statements"
-    snapshot["sourceTimestamp"] = report.get("extraction_timestamp")
-    snapshot["quarterlyPeriodEnd"] = report.get("fiscal_period_end_date")
-    return snapshot
-
 
 def read_market_cache(ticker):
     try:
@@ -6006,17 +3636,6 @@ def is_market_cache_fresh(cached):
     age_seconds = cached.get("cache_age_seconds")
     if age_seconds is None or age_seconds > MARKET_CACHE_TTL_SECONDS:
         return False
-    quote = cached.get("quote") if isinstance(cached.get("quote"), dict) else cached
-    metadata = quote.get("metadata") if isinstance(quote, dict) else {}
-    company_analysis = (metadata or {}).get("companyAnalysis") if isinstance(metadata, dict) else None
-    quote_type = str((metadata or {}).get("quoteType") or "").upper()
-    # Do not serve an hourly quote cache produced before the canonical
-    # period-aware fundamental schema. ETFs and non-equities have no company
-    # statements and retain their normal cache behavior.
-    if quote_type in {"", "EQUITY"} and isinstance(company_analysis, dict) and company_analysis.get("status") == "available":
-        normalized = company_analysis.get("normalizedFundamentals") or {}
-        if normalized.get("schema_version") != FUNDAMENTAL_NORMALIZATION_SCHEMA_VERSION:
-            return False
     return True
 
 
@@ -6035,26 +3654,26 @@ def normalize_cached_market_quote(ticker, cached, stale=False):
     normalized["cache_age_seconds"] = cached.get("cache_age_seconds") if isinstance(cached, dict) else None
     normalized["cache_updated_at"] = cached.get("updated_at") if isinstance(cached, dict) else None
     normalized["last_quote_time"] = normalized.get("updatedAt") or normalized.get("last_successful_update")
+    # Preserve cached price history while preventing retired fundamentals from
+    # leaking back through quote entries written by earlier app versions.
+    for key in (
+        "trailingPE", "forwardPE", "marketCap", "enterpriseValue",
+        "enterpriseToEbitda", "pegRatio", "priceToSalesTrailing12Months",
+        "dividendYield", "trailingEps", "forwardEps",
+    ):
+        normalized.pop(key, None)
+    metadata = normalized.get("metadata")
+    if isinstance(metadata, dict):
+        for key in (
+            "fundamentals", "companyAnalysis", "financialData", "financialFacts",
+            "financialStatement", "financialDataStatus", "normalizedFundamentals",
+            "earningsMetrics", "earningsQuality", "capitalAllocation", "cashFlow",
+            "balanceSheet", "valuation", "growth",
+        ):
+            metadata.pop(key, None)
     normalized.pop("optionsMarket", None)
     return normalized
 
-
-def extract_fundamental_fields_from_quote(quote):
-    metadata = quote.get("metadata") if isinstance(quote, dict) else {}
-    if not isinstance(metadata, dict):
-        metadata = {}
-    market_cap = quote.get("marketCap") if isinstance(quote, dict) else None
-    free_cashflow = metadata.get("freeCashflow")
-    return {
-        "pe": quote.get("trailingPE") if isinstance(quote, dict) else None,
-        "forward_pe": quote.get("forwardPE") if isinstance(quote, dict) else None,
-        "peg": metadata.get("pegRatio"),
-        "ev_ebitda": metadata.get("enterpriseToEbitda"),
-        "market_cap": market_cap,
-        "revenue_growth": metadata.get("revenueGrowth"),
-        "profit_margins": metadata.get("profitMargins"),
-        "free_cashflow": free_cashflow,
-    }
 
 
 def extract_options_fields_from_quote(quote):
@@ -6085,12 +3704,6 @@ def extract_options_fields_from_quote(quote):
         "gamma_flip_status": options_market.get("gammaFlipStatus"),
     }
 
-
-def fundamentals_cache_valid(payload):
-    if not isinstance(payload, dict):
-        return False
-    fields = payload.get("fields") or {}
-    return any(value is not None for value in fields.values())
 
 
 def options_cache_valid(payload):
@@ -6180,7 +3793,7 @@ def merge_quote_with_cached_modules(ticker, quote, cached):
     cached_quote = normalize_cached_market_quote(ticker, cached, stale=False)
     merged = dict(quote)
 
-    for field in ("shortName", "longName", "exchangeName", "marketCap", "trailingPE", "forwardPE"):
+    for field in ("shortName", "longName", "exchangeName"):
         if merged.get(field) is None and cached_quote.get(field) is not None:
             merged[field] = cached_quote.get(field)
 
@@ -6206,14 +3819,6 @@ def write_market_cache(ticker, quote):
             "updated_at": updated_at,
         }
         write_json_cache_file(market_cache_path(normalized, "quotes"), quote_payload)
-        write_module_cache("fundamentals", normalized, {
-            "ticker": normalized,
-            "market_type": infer_market_type(ticker),
-            "updated_at": updated_at,
-            "fields": extract_fundamental_fields_from_quote(quote),
-            "quote_status": quote.get("quote_status"),
-            "quote_source": quote.get("quote_source"),
-        })
         return updated_at
     except Exception:
         traceback.print_exc()
@@ -6769,30 +4374,13 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
             quote["data_quality"] = {
                 "quote_status": quote.get("quote_status") or ("stale" if quote.get("stale") else "available"),
                 "quote_source": quote.get("quote_source"),
-                "fundamental_status": "stale" if quote.get("stale") else "available" if (
-                    quote.get("trailingPE") is not None
-                    or quote.get("forwardPE") is not None
-                    or ((quote.get("metadata") or {}).get("freeCashflow") is not None)
-                ) else "unavailable",
                 "market_context_status": market_context_meta.get("status"),
                 "cache_used": bool(quote.get("quote_source") == "cache" or quote.get("stale")),
                 "stale_fields": ["price"] if quote.get("stale") else [],
-                "unavailable_fields": [
-                    field for field, value in {
-                        "price": quote.get("price"),
-                        "trailingPE": quote.get("trailingPE"),
-                        "forwardPE": quote.get("forwardPE"),
-                    }.items()
-                    if value is None
-                ],
+                "unavailable_fields": ["price"] if quote.get("price") is None else [],
                 "warnings": [quote.get("error")] if quote.get("error") else [],
             }
             quote["source_attempts"] = source_attempts_by_ticker.get(ticker, [])
-            quote["fundamentals"] = {
-                "fields": extract_fundamental_fields_from_quote(quote),
-                "status": quote["data_quality"]["fundamental_status"],
-                "source_attempts": source_attempts_by_ticker.get(ticker, []),
-            }
 
     warning = None
     if requested_count > len(normalized_tickers):
@@ -7092,32 +4680,11 @@ class Handler(SimpleHTTPRequestHandler):
                     "shortName": None,
                     "longName": None,
                     "exchangeName": None,
-                    "trailingPE": None,
-                    "forwardPE": None,
-                    "marketCap": None,
                     "metadata": {
                         "sector": None,
                         "industry": None,
-                        "beta": None,
-                        "dividendYield": None,
-                        "payoutRatio": None,
-                        "enterpriseToEbitda": None,
-                        "priceToSalesTrailing12Months": None,
-                        "enterpriseToRevenue": None,
-                        "operatingMargins": None,
-                        "grossMargins": None,
-                        "returnOnEquity": None,
-                        "debtToEquity": None,
-                        "currentRatio": None,
-                        "quickRatio": None,
-                        "freeCashflow": None,
-                        "totalCash": None,
-                        "totalDebt": None,
-                        "capex": None,
                         "businessSummary": None,
                         "ipoDate": None,
-                        "floatShares": None,
-                        "sharesOutstanding": None,
                     },
                     "history": {"timestamps": [], "closes": [], "highs": [], "lows": [], "volumes": []},
                     "error": str(exc),
@@ -7427,39 +4994,6 @@ def api_debug_quote(ticker):
             "error": str(exc),
         }), 500
 
-
-@app.route("/api/debug/financial-freshness/<path:ticker>")
-def api_debug_financial_freshness(ticker):
-    if not FINANCIAL_DEBUG_ENABLED:
-        return jsonify({"success": False, "error": "Financial freshness debug is disabled."}), 404
-    normalized = normalize_ticker_input(ticker)
-    cached = read_market_cache(normalized)
-    quote = (cached or {}).get("quote") if isinstance(cached, dict) else None
-    metadata = (quote or {}).get("metadata") or {}
-    statement = metadata.get("companyAnalysis") or {}
-    freshness = statement.get("financialStatementFreshness") or {}
-    source = statement.get("financialStatementSource") or {}
-    view = statement.get("financialStatementSnapshot") or {}
-    diagnostic = statement.get("financialStatementDiagnostic") or {}
-    return jsonify({
-        "success": bool(quote),
-        "ticker": normalized,
-        "expected_latest_fiscal_period": freshness.get("expected_latest_fiscal_period_end"),
-        "displayed_income_statement_period": ((view.get("groups") or {}).get("income_statement") or {}).get("periods"),
-        "displayed_cash_flow_period": ((view.get("groups") or {}).get("cash_flow_statement") or {}).get("periods"),
-        "displayed_balance_sheet_period": ((view.get("groups") or {}).get("balance_sheet") or {}).get("periods"),
-        "displayed_ttm_period": ((view.get("groups") or {}).get("ttm") or {}).get("periods"),
-        "earnings_release_date": source.get("earnings_release_date"),
-        "sec_filing_date": source.get("sec_filing_date"),
-        "selected_source": source.get("source"),
-        "source_type": source.get("source_type"),
-        "completeness": freshness.get("completeness"),
-        "status": freshness.get("status"),
-        "cache_age_seconds": (cached or {}).get("cache_age_seconds"),
-        "concept_diagnostic": diagnostic,
-    })
-
-
 @app.route("/api/debug/bulk-status")
 def api_debug_bulk_status():
     try:
@@ -7474,10 +5008,6 @@ def api_debug_bulk_status():
             quote_payload = (quote_cache.get("quote") if isinstance(quote_cache, dict) else None) or {}
             quote_updated_at, quote_age = cache_updated_at_and_age(quote_cache)
 
-            fundamentals_cache = read_module_cache("fundamentals", ticker)
-            fundamentals_fields = (fundamentals_cache or {}).get("fields") or {}
-            fundamentals_updated_at, fundamentals_age = cache_updated_at_and_age(fundamentals_cache)
-
             items.append({
                 "ticker": ticker,
                 "market_type": infer_market_type(ticker),
@@ -7490,14 +5020,6 @@ def api_debug_bulk_status():
                     "updated_at": quote_updated_at,
                     "age_minutes": round(quote_age / 60, 2) if quote_age is not None else None,
                     "last_successful_refresh": quote_payload.get("last_successful_update") or quote_payload.get("updatedAt") or quote_updated_at,
-                },
-                "fundamentals": {
-                    "cache_exists": bool(fundamentals_cache),
-                    "cache_valid": fundamentals_cache_valid(fundamentals_cache),
-                    "fields_available": fields_available_from_mapping(fundamentals_fields),
-                    "status": "available" if fundamentals_cache_valid(fundamentals_cache) else "unavailable",
-                    "updated_at": fundamentals_updated_at,
-                    "age_minutes": round(fundamentals_age / 60, 2) if fundamentals_age is not None else None,
                 },
             })
 
@@ -7539,61 +5061,6 @@ def api_debug_bulk_status():
             "items": [],
             "market_context": {},
         }), 500
-
-
-@app.route("/api/debug/fundamentals/<path:ticker>")
-def api_debug_fundamentals(ticker):
-    normalized = normalize_ticker_input(ticker)
-    if not normalized:
-        return jsonify({"success": False, "error": "Ticker is required"}), 400
-    try:
-        cached = read_module_cache("fundamentals", normalized)
-        cache_valid = fundamentals_cache_valid(cached)
-        quote, cache_used, error = get_quote_for_debug_modules(normalized, force=False)
-        fields = extract_fundamental_fields_from_quote(quote)
-        missing_fields = [key for key, value in fields.items() if value is None]
-        debug_info = (quote.get("debug") if isinstance(quote, dict) else {}) or {}
-        attempts = []
-        if cached:
-            attempts.append({
-                "source": "fundamentals_cache",
-                "success": True,
-                "updated_at": cached.get("updated_at"),
-                "valid": cache_valid,
-            })
-        attempts.append({
-            "source": quote.get("quote_source") or ("cache" if cache_used else "live"),
-            "success": error is None,
-            "error": error,
-        })
-        return jsonify({
-            "success": any(value is not None for value in fields.values()),
-            "ticker": normalized,
-            "cache_exists": bool(cached),
-            "cache_valid": cache_valid,
-            "source_attempts": attempts,
-            "fields": fields,
-            "missing_fields": missing_fields,
-            "cache_used": bool(cache_used),
-            "yfinance_import_success": debug_info.get("yfinance_import_success", error is None),
-            "yfinance_fields_found": debug_info.get("yfinance_fields_found") or [],
-            "yahoo_quote_summary_attempt": debug_info.get("yahoo_quote_summary_attempt"),
-            "raw_keys_sample": debug_info.get("raw_keys_sample") or [],
-            "final_status": "available" if any(value is not None for value in fields.values()) else "stale" if cache_valid else "unavailable",
-            "error": error,
-        })
-    except Exception as exc:
-        traceback.print_exc()
-        return jsonify({
-            "success": False,
-            "ticker": normalized,
-            "source_attempts": [],
-            "fields": {},
-            "missing_fields": [],
-            "cache_used": False,
-            "error": str(exc),
-        }), 500
-
 
 @app.route("/api/debug/market-context")
 def api_debug_market_context():
@@ -7689,7 +5156,6 @@ def api_health():
         "market_cache_dir": MARKET_CACHE_DIR,
         "market_cache_dir_exists": os.path.isdir(MARKET_CACHE_DIR) if MARKET_CACHE_DIR else False,
         "quotes_cache_count": count_cache_files("quotes"),
-        "fundamentals_cache_count": count_cache_files("fundamentals"),
         "options_cache_count": count_cache_files("options"),
         "market_context_cache_exists": market_context_cache_exists,
         "background_market_refresh": background_refresh,
