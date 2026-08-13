@@ -2,8 +2,7 @@
  * Canonical technical feature layer.
  *
  * This file deliberately has no scoring or recommendation code. It converts
- * raw OHLCV histories into horizon-aware, machine-readable technical features
- * and provides a read-only compatibility adapter for the legacy dashboard.
+ * raw OHLCV histories into horizon-aware, machine-readable technical features.
  */
 (function exposeCanonicalTechnicalFeatures(root) {
   "use strict";
@@ -124,62 +123,6 @@
     if (interval === "1h") return normalizeBars(intervals["1h"] || intervals.hourly || {});
     if (interval === "4h") return normalizeBars(intervals["4h"] || {});
     return [];
-  }
-
-  // Deprecated audit helper only. It models the retired morning-only 1H
-  // aggregation so its output can be compared in tests/audits. Production
-  // features must source 4H bars from history.intervals["4h"] only.
-  function aggregateFourHourBarsLegacy(hourlyBars = []) {
-    const grouped = [];
-    let bucket = null;
-    let bucketDay = null;
-    let expectedTimestamp = null;
-    const timestampMillis = (timestamp) => {
-      const parsed = new Date(timestamp).getTime();
-      return Number.isFinite(parsed) ? parsed : null;
-    };
-    const localTime = (timestamp) => {
-      const match = typeof timestamp === "string" && timestamp.match(/T(\d{2}):(\d{2})/);
-      return match ? `${match[1]}:${match[2]}` : null;
-    };
-    // Incomplete session buckets are intentionally discarded. A partial 4H
-    // candle must not masquerade as a completed feature input.
-    const reset = () => { bucket = null; bucketDay = null; expectedTimestamp = null; };
-    hourlyBars.forEach((bar) => {
-      const day = typeof bar.timestamp === "string" ? bar.timestamp.slice(0, 10) : null;
-      const currentTimestamp = timestampMillis(bar.timestamp);
-      const isRegularSessionStart = localTime(bar.timestamp) === "09:30";
-      if (!bucket && isRegularSessionStart) {
-        bucketDay = day;
-        bucket = { ...bar, volume: Number.isFinite(bar.volume) ? bar.volume : null };
-        expectedTimestamp = currentTimestamp == null ? null : currentTimestamp + 60 * 60 * 1000;
-        return;
-      }
-      if (!bucket) return;
-      if (day !== bucketDay || currentTimestamp == null || currentTimestamp !== expectedTimestamp) {
-        reset();
-        if (isRegularSessionStart) {
-          bucketDay = day;
-          bucket = { ...bar, volume: Number.isFinite(bar.volume) ? bar.volume : null };
-          expectedTimestamp = currentTimestamp == null ? null : currentTimestamp + 60 * 60 * 1000;
-        }
-        return;
-      }
-      if (bucket) {
-        bucket.high = Math.max(bucket.high, bar.high);
-        bucket.low = Math.min(bucket.low, bar.low);
-        bucket.close = bar.close;
-        bucket.timestamp = bar.timestamp;
-        bucket.volume = Number.isFinite(bucket.volume) && Number.isFinite(bar.volume) ? bucket.volume + bar.volume : null;
-        if (localTime(bar.timestamp) === "12:30") {
-          grouped.push(bucket);
-          reset();
-        } else {
-          expectedTimestamp = currentTimestamp + 60 * 60 * 1000;
-        }
-      }
-    });
-    return grouped;
   }
 
   function completedWeeklyBars(dailyBars = []) {
@@ -604,7 +547,7 @@
     }));
     const obvByLookback = Object.fromEntries([5, 20, 60].map((lookback) => [`d${lookback}`, obvFeature(bars, "1d", lookback, calculatedAt)]));
     // One canonical OBV calculation family. The 20D view remains the primary
-    // value for compatibility, while 5D/60D are child trend context only.
+        // value, while 5D/60D are child trend context only.
     const obv = obvByLookback.d20;
     const ma5vs20 = Number.isFinite(averages.avg_5d) && Number.isFinite(averages.avg_20d) && averages.avg_20d > 0 ? averages.avg_5d / averages.avg_20d : null;
     const ma20vs60 = Number.isFinite(averages.avg_20d) && Number.isFinite(averages.avg_60d) && averages.avg_60d > 0 ? averages.avg_20d / averages.avg_60d : null;
@@ -700,12 +643,6 @@
       vs_qqq: vsQqq,
       primary: { stock_return: primaryReturn, vs_spy: spy, vs_qqq: qqq, average },
       consistency: { value: state, state },
-      // Compatibility aliases. These point to the canonical values above and
-      // never recalculate relative strength independently.
-      stock_return: primaryReturn,
-      relative_strength_vs_spy: spy,
-      relative_strength_vs_qqq: qqq,
-      relative_strength_average: average,
       state: average == null ? "unavailable" : average > 3 ? "outperforming" : average < -3 ? "underperforming" : "neutral",
       consistency_state: state,
     };
@@ -743,7 +680,6 @@
         fib_zone: item.current_position_label ?? "unavailable",
         above_or_below_50_retracement: Number.isFinite(level50) && Number.isFinite(currentPrice) ? currentPrice >= level50 ? "above" : "below" : "unavailable",
         above_or_below_61_8_retracement: Number.isFinite(level618) && Number.isFinite(currentPrice) ? currentPrice >= level618 ? "above" : "below" : "unavailable",
-        legacy: item,
       };
     };
     return { short: normalize(fibonacciStructure.short_term), medium: normalize(fibonacciStructure.mid_term), long: normalize(fibonacciStructure.long_term) };
@@ -838,66 +774,7 @@
     };
   }
 
-  // Adapter only: legacy detail cards keep their current field names while all
-  // values below are sourced from the canonical feature object above.
-  function legacyHorizon(canonical, horizon) {
-    const source = canonical?.horizons?.[horizon] || {};
-    const maFeatures = Object.values(source.trend?.moving_averages || {});
-    const rsiFeatures = Object.values(source.momentum?.rsi || {});
-    const primaryInterval = horizon === "short" ? "4h" : horizon === "medium" ? "1d" : "1w";
-    const macd = Object.values(source.momentum?.macd || {}).find((feature) => feature.interval === primaryInterval) || Object.values(source.momentum?.macd || {})[0] || {};
-    const obv = Object.values(source.participation?.obv || {})[0] || {};
-    const atr = Object.values(source.volatility?.atr || {})[0] || {};
-    const bollinger = Object.values(source.volatility?.bollinger || {})[0] || {};
-    const kdj = Object.values(source.momentum?.kdj || {})[0] || {};
-    const adx = Object.values(source.trend?.adx || {})[0] || {};
-    const volume = canonical?.volume || {};
-    const rs = source.relative_strength || {};
-    const primaryRsi = rsiFeatures.find((feature) => feature.interval === (horizon === "long" ? "1w" : horizon === "medium" ? "1d" : "4h")) || rsiFeatures[0] || {};
-    return {
-      ma: { relevant_mas: maFeatures.map((feature) => ({ period: feature.period, type: feature.indicator, interval: feature.interval, current_value: feature.value, distance_pct: feature.price_distance_pct, slope_direction: feature.slope?.state, price_above: feature.price_state === "above" })), ma_alignment: source.trend?.ma_structure?.alignment || "unavailable", trend_state: source.trend?.ma_structure?.alignment || "unavailable", compression_state: source.trend?.ma_structure?.compression_state || "unavailable", expansion_state: source.trend?.ma_structure?.expansion_state || false, fast_ma_slope: maFeatures[0]?.slope?.state || "unavailable", medium_ma_slope: maFeatures[1]?.slope?.state || "unavailable", slow_ma_slope: maFeatures[2]?.slope?.state || "unavailable", nearest_ma: null, extension_state: "unavailable", bullish_crosses: [], bearish_crosses: [], recent_reclaims: [], recent_breakdowns: [] },
-      rsi: { values: Object.fromEntries(rsiFeatures.map((feature) => [`RSI${feature.period}`, feature.value])), primary_rsi: primaryRsi.value ?? null, state: primaryRsi.state || "unavailable", range_regime: primaryRsi.value >= 55 ? "bull_range" : primaryRsi.value <= 45 ? "bear_range" : "neutral_range", slope: primaryRsi.slope || {}, divergence: primaryRsi.divergence || "unavailable", failure_swing: "none" },
-      macd: { macd_line: macd.macd_line ?? null, signal_line: macd.signal_line ?? null, histogram: macd.histogram ?? null, histogram_change_1: macd.histogram_change_1 ?? null, histogram_change_3: macd.histogram_change_3 ?? null, histogram_change_5: macd.histogram_change_5 ?? null, cross_state: macd.crossover_state || "unavailable", zero_line_state: macd.above_or_below_zero || "unavailable", momentum_state: macd.state || "unavailable" },
-      obv: { trend: obv.trend || "unavailable", price_obv_divergence: obv.divergence || "unavailable", confirmation_state: obv.price_obv_confirmation || "unavailable", weekly_obv_trend: horizon === "long" ? obv.trend || "unavailable" : "not_primary" },
-      relative_strength: { vs_spy: { [`stock_vs_spy_${horizon === "short" ? 20 : horizon === "medium" ? 60 : 120}d`]: rs.relative_strength_vs_spy ?? null }, vs_qqq: { [`stock_vs_qqq_${horizon === "short" ? 20 : horizon === "medium" ? 60 : 120}d`]: rs.relative_strength_vs_qqq ?? null }, regime: rs.state || "unavailable", consistency: rs.consistency_state || "unavailable", rs_slope: null, explanation: "Canonical relative-strength feature" },
-      volume: {
-        latest_volume: volume.current_volume ?? null,
-        averages: volume.moving_average_volume || {},
-        ratios: {
-          ...(volume.relative_volume || {}),
-          volume_ratio_5d: volume.relative_volume?.rvol_5d ?? null,
-          volume_ratio_20d: volume.relative_volume?.rvol_20d ?? null,
-          volume_ratio_60d: volume.relative_volume?.rvol_60d ?? null,
-        },
-        volume_ratio_5d: volume.relative_volume?.rvol_5d ?? null,
-        volume_ratio_20d: volume.relative_volume?.rvol_20d ?? null,
-        volume_ratio_60d: volume.relative_volume?.rvol_60d ?? null,
-        turnover_latest: volume.turnover?.turnover_current ?? null, turnover_average: volume.turnover?.turnover_20d_avg ?? null, turnover_period: 20, up_down_volume_ratio: null, weekly_volume_trend: horizon === "long" ? volume.trend?.volume_trend || "unavailable" : "not_primary", state: volume.relative_volume?.state || "unavailable", accumulation_distribution_balance: volume.accumulation_distribution || "unavailable",
-      },
-      atr: { ATR14: atr.value ?? null, ATR_pct: atr.atr_pct ?? null, ATR_percentile_60D: atr.atr_percentile_60 ?? null, ATR_percentile_120D: atr.atr_percentile_120 ?? null, ATR_percentile_250D: atr.atr_percentile_250 ?? null, volatility_state: atr.volatility_regime || "unavailable", volatility_trend: atr.expansion_state || "unavailable", range_efficiency: "unavailable", range_efficiency_ratio: null },
-      momentum: { momentum_direction: macd.improving_or_deteriorating || "unavailable", momentum_strength: macd.state || "unavailable", consistency: rs.consistency_state || "unavailable" },
-      adx: { adx: adx.adx ?? null, plus_di: adx.plus_di ?? null, minus_di: adx.minus_di ?? null, di_cross: "none", trend_strength: adx.trend_strength || "unavailable", direction: adx.directional_bias || "unavailable" },
-      bollinger: { percent_b: bollinger.percent_b ?? null, band_width_pct: bollinger.bandwidth_pct ?? null, band_walk_state: bollinger.price_position || "unavailable", squeeze_state: bollinger.squeeze_state || "unavailable" },
-      kdj: { status: kdj.availability === "available" ? "available" : "unavailable", k: kdj.k ?? null, d: kdj.d ?? null, j: kdj.j ?? null, cross_state: kdj.crossover_state || "unavailable", k_slope: kdj.k_slope || {}, d_slope: kdj.d_slope || {}, j_slope: kdj.j_slope || {}, persistent_overbought: false, persistent_oversold: false },
-      used_indicators: Object.keys(source.trend || {}),
-      missing_indicators: source.missing_families || [],
-      data_window: [...(source.primary_intervals || []), ...(source.supporting_intervals || [])].join(" / "),
-      data_quality: source.availability || "unavailable",
-    };
-  }
-
-  function toLegacyTechnicalStructure(canonical) {
-    return {
-      short_term: legacyHorizon(canonical, "short"),
-      mid_term: legacyHorizon(canonical, "medium"),
-      long_term: legacyHorizon(canonical, "long"),
-      configuration: HORIZON_CONFIG,
-      canonical_schema_version: canonical?.schema_version || SCHEMA_VERSION,
-      adapter: "canonical_feature_layer",
-    };
-  }
-
-  const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, toLegacyTechnicalStructure, _test: { normalizeBars, aggregateFourHourBarsLegacy, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, pricePositionFeatures, canonicalVolumeFeature } };
+  const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, _test: { normalizeBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, pricePositionFeatures, canonicalVolumeFeature } };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.CanonicalTechnicalFeatures = api;
 }(typeof globalThis !== "undefined" ? globalThis : window));

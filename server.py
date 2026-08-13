@@ -1645,33 +1645,6 @@ def build_index_trend(symbol, label):
     }
 
 
-def build_strategy_impact_summary(regime, fed_event, fear_greed_label_value):
-    buy_stock = "Neutral backdrop for staged stock entries."
-    sell_put = "Neutral for cash-secured puts if the strike still sits near support."
-    covered_call = "Neutral for covered calls."
-    wait_no_action = "Waiting is optional, not mandatory."
-    if regime == "risk_off":
-        buy_stock = "Risk-off backdrop lowers the quality of aggressive chase entries."
-        sell_put = "Sell puts should be more conservative with lower strikes and tighter duration."
-        covered_call = "Covered calls become relatively more attractive if upside is capped by resistance."
-        wait_no_action = "Waiting or scaling slowly becomes more attractive in a risk-off tape."
-    elif regime == "risk_on":
-        buy_stock = "Risk-on backdrop is more supportive for staged stock entries."
-        sell_put = "Sell puts can stay constructive if the stock also has clean support."
-        covered_call = "Covered calls are still usable, but upside capping matters more in a risk-on tape."
-        wait_no_action = "Waiting is less necessary unless the stock is stretched."
-    if fed_event.get("active") and fed_event.get("type") in {"fed_rate_hike", "fed_hawkish"}:
-        sell_put = "Fed hawkish pressure argues for lower put strikes, shorter DTE, and explicit rate-risk caution."
-    if fear_greed_label_value == "Extreme Greed":
-        covered_call = "Extreme greed raises chase risk, which can make covered calls more attractive near resistance."
-    return {
-        "buy_stock": buy_stock,
-        "sell_put": sell_put,
-        "covered_call": covered_call,
-        "wait_no_action": wait_no_action,
-    }
-
-
 SECTOR_ETF_BENCHMARKS = {
     "XLK": "Technology",
     "SMH": "Semiconductors",
@@ -1784,97 +1757,16 @@ def fetch_market_context_payload():
         market="macro",
     )
     broad_events = [event for event in classify_macro_events(macro_articles) if event.get("event_type") != "other"][:5]
-    base_score = 50
-    vix_delta = 0
-    vix_momentum_delta = 0
-    if vix is not None:
-        if vix < 15:
-            vix_delta = 5
-        elif vix <= 20:
-            vix_delta = 0
-        elif vix <= 30:
-            vix_delta = -5
-        else:
-            vix_delta = -10
-        if (vix_5d_change or 0) >= 2:
-            vix_momentum_delta = -5
-        elif (vix_5d_change or 0) <= -2:
-            vix_momentum_delta = 2
-
-    yield_delta = 0
-    if yield_5d_change_bps is not None:
-        if yield_5d_change_bps >= 10:
-            yield_delta -= 5
-        elif yield_5d_change_bps <= -10:
-            yield_delta += 3
-    if yield_20d_change_bps is not None:
-        if yield_20d_change_bps >= 25:
-            yield_delta -= 8
-        elif yield_20d_change_bps <= -25:
-            yield_delta += 5
-
-    fear_greed_short_delta = 0
-    fear_greed_long_delta = 0
-    if fear_greed_label_value == "Extreme Fear":
-        fear_greed_short_delta = -5
-        fear_greed_long_delta = 3
-    elif fear_greed_label_value == "Fear":
-        fear_greed_short_delta = -2
-    elif fear_greed_label_value == "Greed":
-        fear_greed_short_delta = -2
-    elif fear_greed_label_value == "Extreme Greed":
-        fear_greed_short_delta = -6
-
-    fed_short_delta = 0
-    fed_mid_delta = 0
-    fed_long_delta = 0
     fed_type = active_event.get("type")
-    fed_summary_lower = _safe_text(active_event.get("summary")).lower()
-    if active_event.get("active") and fed_type in {"fed_rate_hike", "fed_hawkish"}:
-        fed_short_delta = -8
-        fed_mid_delta = -6
-        fed_long_delta = -3
-    elif active_event.get("active") and fed_type in {"fed_rate_cut", "fed_dovish"}:
-        if any(word in fed_summary_lower for word in ["recession", "slowdown", "stress", "weakness"]):
-            fed_short_delta = 1
-            fed_mid_delta = 0
-            fed_long_delta = -1
-        else:
-            fed_short_delta = 5
-            fed_mid_delta = 5
-            fed_long_delta = 2
-
-    equity_trend_delta = 0
     rising_indices = [item for item in [spy_trend, qqq_trend] if item.get("trend") == "rising"]
     falling_indices = [item for item in [spy_trend, qqq_trend] if item.get("trend") == "falling"]
-    if len(rising_indices) == 2:
-        equity_trend_delta = 4
-    elif len(falling_indices) == 2:
-        equity_trend_delta = -4
-
-    macro_news_delta = 0
-    if macro_news["sentiment"] == "bullish":
-        macro_news_delta = 2
-    elif macro_news["sentiment"] == "bearish":
-        macro_news_delta = -2
-
-    macro_score = base_score + vix_delta + vix_momentum_delta + yield_delta + fear_greed_short_delta + fed_short_delta + equity_trend_delta + macro_news_delta
-    macro_score = max(25, min(85, int(round(macro_score))))
-
-    missing_core_count = 0
-    missing_core_count += 0 if vix is not None else 1
-    missing_core_count += 0 if treasury_yield is not None else 1
-    missing_core_count += 0 if fear_greed is not None else 1
-    missing_core_count += 0 if fed_funds_value is not None else 1
-    missing_core_count += 0 if spy_trend.get("value") is not None or qqq_trend.get("value") is not None else 1
-    confidence = max(42, min(95, 88 - missing_core_count * 10 - (0 if macro_articles else 5)))
 
     regime = "neutral"
     if active_event.get("active") and fed_type in {"fed_rate_hike", "fed_hawkish"}:
         regime = "risk_off"
-    elif macro_score <= 45:
+    elif (vix is not None and vix >= 30) or len(falling_indices) == 2:
         regime = "risk_off"
-    elif macro_score >= 60:
+    elif vix is not None and vix < 20 and len(rising_indices) == 2:
         regime = "risk_on"
 
     vix_impact = "Neutral volatility backdrop."
@@ -1931,9 +1823,7 @@ def fetch_market_context_payload():
         macro_summary_bits.append(active_event["summary"])
 
     market_context = {
-        "score": macro_score,
         "regime": regime,
-        "confidence": confidence,
         "vix": {
             "value": vix,
             "change_5d": vix_5d_change,
@@ -1959,25 +1849,10 @@ def fetch_market_context_payload():
             "spy": spy_trend,
             "qqq": qqq_trend,
             "summary": trend_summary,
-            "impact": "supportive" if equity_trend_delta > 0 else "cautious" if equity_trend_delta < 0 else "neutral",
+            "impact": "supportive" if len(rising_indices) == 2 else "cautious" if len(falling_indices) == 2 else "neutral",
         },
         "sector_trends": sector_trends,
         "summary": market_summary,
-        "breakdown": {
-            "base": base_score,
-            "vix": vix_delta,
-            "vix_momentum": vix_momentum_delta,
-            "fear_greed_short": fear_greed_short_delta,
-            "fear_greed_long": fear_greed_long_delta,
-            "ten_year_yield": yield_delta,
-            "fed_event_short": fed_short_delta,
-            "fed_event_mid": fed_mid_delta,
-            "fed_event_long": fed_long_delta,
-            "equity_trend": equity_trend_delta,
-            "macro_news": macro_news_delta,
-            "final_score": macro_score,
-        },
-        "strategy_impact": build_strategy_impact_summary(regime, active_event, fear_greed_label_value),
         "source_info": {
             "vix": build_source_info("Live" if vix is not None else "Data unavailable", missing_source="Cboe / FRED / Yahoo Finance", suggested_source="FRED VIXCLS / Yahoo Finance ^VIX / Cboe", source_name="FRED VIXCLS"),
             "fear_greed": build_source_info(
@@ -2000,7 +1875,6 @@ def fetch_market_context_payload():
             "treasury_yield": treasury_yield,
             "fed_funds_rate": fed_funds_value,
             "fomc_rate_path": fomc_rate_path,
-            "score": macro_score,
             "summary": " · ".join(macro_summary_bits) if macro_summary_bits else "Macro data is neutral due to missing live feeds.",
             "source_info": {
                 "vix": build_source_info("Live" if vix is not None else "Data unavailable", missing_source="Cboe / FRED / Yahoo Finance", suggested_source="FRED VIXCLS / Yahoo Finance ^VIX / Cboe", source_name="FRED VIXCLS"),
@@ -4078,9 +3952,7 @@ def flatten_market_context_payload(payload, meta=None):
         "spy_trend": equity_trend.get("spy") or {},
         "qqq_trend": equity_trend.get("qqq") or {},
         "fear_greed": market_context.get("fear_greed") or {},
-        "score": market_context.get("score"),
         "regime": market_context.get("regime"),
-        "confidence": market_context.get("confidence"),
         "summary": market_context.get("summary"),
         "cache_used": (meta or {}).get("cache_used"),
         "source_attempts": (meta or {}).get("source_attempts") or [],
@@ -4181,9 +4053,7 @@ def build_unavailable_market_context(reason="Market context skipped for fast mar
             "source_info": source_info,
         },
         "market_context": {
-            "score": 50,
             "regime": "neutral",
-            "confidence": 35,
             "vix": {"value": None, "change_5d": None, "change_20d": None, "trend": "neutral", "impact": "Data unavailable"},
             "fear_greed": {"value": None, "label": None, "trend": None, "impact": "Data unavailable"},
             "ten_year_yield": {"value": None, "change_5d_bps": None, "change_20d_bps": None, "trend": "neutral", "impact": "Data unavailable"},
@@ -4195,8 +4065,6 @@ def build_unavailable_market_context(reason="Market context skipped for fast mar
             },
             "sector_trends": {},
             "summary": reason,
-            "breakdown": {"base": 50, "final_score": 50},
-            "strategy_impact": {},
             "source_info": source_info,
         },
         "broad_macro_news": {
@@ -5055,9 +4923,7 @@ class Handler(SimpleHTTPRequestHandler):
                     },
                 },
                 "market_context": {
-                    "score": 50,
                     "regime": "neutral",
-                    "confidence": 45,
                     "vix": {"value": None, "change_5d": None, "change_20d": None, "trend": "neutral", "impact": "Data unavailable"},
                     "fear_greed": {"value": None, "label": None, "trend": None, "impact": "Data unavailable"},
                     "ten_year_yield": {"value": None, "change_5d_bps": None, "change_20d_bps": None, "trend": "neutral", "impact": "Data unavailable"},
@@ -5078,26 +4944,6 @@ class Handler(SimpleHTTPRequestHandler):
                         "impact": "neutral",
                     },
                     "summary": f"Market context feed unavailable: {exc}",
-                    "breakdown": {
-                        "base": 50,
-                        "vix": 0,
-                        "vix_momentum": 0,
-                        "fear_greed_short": 0,
-                        "fear_greed_long": 0,
-                        "ten_year_yield": 0,
-                        "fed_event_short": 0,
-                        "fed_event_mid": 0,
-                        "fed_event_long": 0,
-                        "equity_trend": 0,
-                        "macro_news": 0,
-                        "final_score": 50,
-                    },
-                    "strategy_impact": {
-                        "buy_stock": "Data unavailable",
-                        "sell_put": "Data unavailable",
-                        "covered_call": "Data unavailable",
-                        "wait_no_action": "Data unavailable",
-                    },
                     "source_info": {
                         "vix": build_source_info("Data unavailable", "Cboe / FRED / Yahoo Finance", "FRED VIXCLS / Yahoo Finance ^VIX / Cboe", "Macro Feed"),
                         "fear_greed": build_source_info("Data unavailable", "CNN Fear & Greed", "CNN Fear & Greed direct endpoint / CNN scraper / RapidAPI / custom in-house sentiment composite.", "Fear & Greed Feed"),

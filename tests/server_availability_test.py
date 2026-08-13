@@ -28,7 +28,8 @@ class ServerAvailabilityTests(unittest.TestCase):
             self.assertEqual(len(calls), 1)
             self.assertIs(payload["marketContext"], fixture)
             self.assertEqual(payload["market_context"]["vix"]["value"], 19.5)
-            self.assertIsNone(payload["market_context"]["score"])
+            self.assertNotIn("score", payload["market_context"])
+            self.assertNotIn("confidence", payload["market_context"])
         finally:
             server.get_market_context_cached_snapshot = original
 

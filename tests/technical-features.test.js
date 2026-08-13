@@ -3,7 +3,7 @@
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
-const { buildTechnicalFeatures, toLegacyTechnicalStructure, AVAILABILITY_REASONS, HORIZON_CONFIG, _test } = require("../technical-features.js");
+const { buildTechnicalFeatures, AVAILABILITY_REASONS, HORIZON_CONFIG, _test } = require("../technical-features.js");
 
 function dailyHistory(count = 420) {
   const timestamps = []; const opens = []; const highs = []; const lows = []; const closes = []; const volumes = [];
@@ -135,12 +135,7 @@ for (const period of [5, 20, 60]) {
   assert(Math.abs(features.volume.relative_volume[`rvol_${period}d`] - expected) < 1e-12);
 }
 assert.equal(features.volume.relative_volume.state, "high");
-const legacy = toLegacyTechnicalStructure(features);
-for (const horizon of ["short_term", "mid_term", "long_term"]) {
-  assert.strictEqual(legacy[horizon].volume.volume_ratio_5d, features.volume.relative_volume.rvol_5d);
-  assert.strictEqual(legacy[horizon].volume.volume_ratio_20d, features.volume.relative_volume.rvol_20d);
-  assert.strictEqual(legacy[horizon].volume.volume_ratio_60d, features.volume.relative_volume.rvol_60d);
-}
+assert.equal(Object.hasOwn(features, "legacy"), false);
 
 // OBV is one canonical family; its 5D/20D/60D views are child context.
 assert.equal(features.volume.obv.interval, "1d");
@@ -193,10 +188,9 @@ assert.equal(shortHistory.horizons.short.trend.adx.adx_14_4h.slope.state, "unava
 assert.equal(shortHistory.horizons.short.trend.adx.adx_14_4h.slope.unavailable_reason, "insufficient_history");
 assert.equal(shortHistory.horizons.short.trend.adx.adx_14_4h.slope.required_observations, 4);
 
-// The former morning-only 1H aggregation is audit-only. Production technical
-// features require provider-native 4H input and never reconstruct it from 1H.
+// Production technical features require provider-native 4H input and never
+// reconstruct it from 1H.
 const legacyHourly = hourlyHistory(7);
-assert.equal(_test.aggregateFourHourBarsLegacy(_test.normalizeBars(legacyHourly)).length, 1);
 const nativeMissing = buildTechnicalFeatures({
   history: { ...daily, intervals: { "1h": legacyHourly } },
   currentPrice: price,
@@ -253,69 +247,20 @@ assert.equal(noIntraday.horizons.short.momentum.macd.macd_4h.macd_line, null);
 assert.equal(noIntraday.horizons.short.trend.moving_averages.ema_50_4h.value, null);
 assert(Number.isFinite(noIntraday.horizons.medium.trend.moving_averages.ema_50_1d.value));
 
-// User-facing UI no longer exposes a source-interval block, Gap, breadth, or old horizons.
+// The new dashboard renders canonical technical features directly and keeps
+// recommendation logic outside this raw feature layer.
 const mainSource = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
 const serverSource = fs.readFileSync(path.join(__dirname, "..", "server.py"), "utf8");
 const canonicalSource = fs.readFileSync(path.join(__dirname, "..", "technical-features.js"), "utf8");
-for (const forbidden of ["30" + "-90 days", "90" + "-180 days", "30" + "-90D", "90" + "-180D", "30" + "-90天", "90" + "-180天", "1" + "-10D", "10" + "-30D", "30" + "-60D risk review", "Source intervals / " + "latest bars", "数据源周期 / " + "最新K线", "Daily " + "gap", "日线" + "跳空", "Market " + "breadth", "市场" + "广度"]) {
-  assert.equal(mainSource.includes(forbidden), false, `obsolete UI string remains: ${forbidden}`);
+for (const forbidden of ["action_recommendation_score", "score_breakdown", "final_score", "baseline_score", "recommendation_confidence"]) {
+  assert.equal(mainSource.includes(forbidden), false, `legacy decision field remains: ${forbidden}`);
 }
-assert(mainSource.includes('title: "ATR%"'));
-assert(mainSource.includes("renderCanonicalTechnicalIndicators"));
-assert(mainSource.includes("renderCanonicalVolume"));
-assert(mainSource.includes("Horizon OBV"));
-assert.equal(mainSource.includes("renderTechnicalIndicatorStructure("), false);
-assert.equal(mainSource.includes("renderGapDownRiskCard("), false);
-
-// Presentation uses the canonical primary timeframe only; it never falls back
-// to another interval when the configured primary feature is unavailable.
-for (const forbiddenFallback of [
-  '|| Object.values(horizon.momentum?.macd || {})[0]',
-  '|| Object.values(horizon.volatility?.atr || {})[0]',
-  '|| Object.values(horizon.trend?.adx || {})[0]',
-  '|| Object.values(horizon.volatility?.bollinger || {})[0]',
-  '|| Object.values(horizon.momentum?.kdj || {})[0]',
-  '|| rsiFeatures[0] ||',
-]) assert.equal(mainSource.includes(forbiddenFallback), false, `UI fallback remains: ${forbiddenFallback}`);
-assert(mainSource.includes('PRIMARY · ${rs.primary_lookback_days'));
-assert(mainSource.includes('contextLabel: currentLanguage === "zh" ? "背景数据" : "CONTEXT"'));
-assert(mainSource.includes('const rvolValue = (value) => displayValue(value, (entry) => Number(entry).toFixed(2));'));
-assert(mainSource.includes('RVOL20 ${rvolValue(rvol.rvol_20d)} · ${displayFeatureState(rvol.state)}'));
-assert(mainSource.includes("technicalAvailabilityNote"));
-assert(mainSource.includes("insufficient_history: \"历史数据不足\""));
-// The dashboard retains raw indicator cards but has no technical-score card.
-const activeTechnicalPanel = mainSource.slice(
-  mainSource.indexOf("const technicalPanel = `"),
-  mainSource.indexOf("const legacyMarketEnvironmentPanel"),
-);
-for (const removedTechnicalScore of [
-  '${t("technicalScore")}',
-  '${t("trendScore")}',
-  '${t("momentumScore")}',
-  '${t("volumeConfirmationScore")}',
-]) assert.equal(activeTechnicalPanel.includes(removedTechnicalScore), false, `technical score UI remains: ${removedTechnicalScore}`);
-assert(activeTechnicalPanel.includes("renderCanonicalTechnicalIndicators"));
-assert(activeTechnicalPanel.includes("renderCanonicalVolume"));
-
-// The market-data tab keeps real raw data but exposes no market, macro, or
-// confidence score card.
-const activeNewsPanel = mainSource.slice(
-  mainSource.lastIndexOf("const newsPanel = `"),
-  mainSource.indexOf("const tabPanels = {", mainSource.lastIndexOf("const newsPanel = `")),
-);
-for (const removedMarketUi of ["market_context_score", "macroScore", "confidencePct"]) {
-  assert.equal(activeNewsPanel.includes(removedMarketUi), false, `market environment UI remains: ${removedMarketUi}`);
-}
-assert(activeNewsPanel.includes("Earnings Event Risk"));
-assert(activeNewsPanel.includes("earningsCountdownDisplayNote"));
-assert(mainSource.includes("数据源更新下一次财报日期后，刷新会自动切换为正数。"));
-for (const retainedMarketData of ["VIX", "Fear & Greed", "10Y Yield", "SPY / QQQ Trend"]) {
-  assert(activeNewsPanel.includes(retainedMarketData), `market data UI missing: ${retainedMarketData}`);
-}
-assert(mainSource.includes('function horizonWeights() {'));
-assert(mainSource.includes('return { baseline: 1 };'));
-assert(mainSource.includes('retired_modules: ["technical", "market_context"]'));
-assert(mainSource.includes('status: "raw_features_only"'));
+assert(mainSource.includes("CanonicalTechnicalFeatures.buildTechnicalFeatures"));
+assert(mainSource.includes("technicalFeatures"));
+assert(mainSource.includes("VIX"));
+assert(mainSource.includes("Fear & Greed"));
+assert(mainSource.includes("US 10Y Yield"));
+assert(mainSource.includes("Earnings"));
 assert(serverSource.includes('TECHNICAL_INTRADAY_HISTORY_PERIOD = os.environ.get("TECHNICAL_INTRADAY_HISTORY_PERIOD", "120d")'));
 assert(serverSource.includes("interval=interval, limit=6000"));
 assert(serverSource.includes('interval="4h"'));
@@ -325,5 +270,8 @@ assert(canonicalSource.includes('const fourHour = pickBars(history, "4h");'));
 assert.equal(serverSource.includes('row.get("volume") or 0'), false);
 assert(serverSource.includes('"marketContext": market_context'));
 assert(serverSource.includes('"market_context": flatten_market_context_payload(market_context, market_context_meta)'));
+assert.equal(serverSource.includes('"final_score"'), false);
+assert.equal(canonicalSource.includes("toLegacyTechnicalStructure"), false);
+assert.equal(canonicalSource.includes("aggregateFourHourBarsLegacy"), false);
 
 console.log("technical-features.test.js: all assertions passed");
