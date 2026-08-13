@@ -4,7 +4,7 @@
   const engine = root.DecisionEngine || (root.DecisionEngine = {});
   const normalizeLabel = (value) => String(value || "").toLowerCase();
   function evaluate(marketContext = {}, metadata = {}) {
-    const market = marketContext.market_engine || marketContext || {};
+    const market = marketContext.market_engine || marketContext.market_context || marketContext || {};
     const vix = Number(market.vix?.value ?? market.vix?.current_value);
     const fearGreed = normalizeLabel(market.fear_greed?.label ?? market.fearGreed?.label);
     const trend = market.equity_trend || {};

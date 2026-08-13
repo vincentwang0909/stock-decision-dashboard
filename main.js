@@ -108,12 +108,39 @@ function profileFor(ticker, quote = {}) {
   };
 }
 
-function buildFeatures(quote, price) {
+function returnPct(closes, lookback) {
+  const values = (Array.isArray(closes) ? closes : []).map(finite).filter((value) => value != null);
+  const latest = values.at(-1);
+  const base = values.at(-1 - lookback);
+  return Number.isFinite(latest) && Number.isFinite(base) && base !== 0 ? (latest / base - 1) * 100 : null;
+}
+
+function marketCore(marketContext = {}) {
+  return marketContext.market_engine || marketContext.market_context || marketContext || {};
+}
+
+function buildRelativeStrength(quote = {}, marketContext = {}) {
+  const closes = quote.history?.closes || quote.history?.daily?.closes || [];
+  const equityTrend = marketCore(marketContext).equity_trend || {};
+  const stockReturn = (lookback) => returnPct(closes, lookback);
+  const vsBenchmark = (benchmark, lookback) => {
+    const stock = stockReturn(lookback);
+    const benchmarkReturn = finite(benchmark?.[`change_${lookback}d_pct`]);
+    return stock != null && benchmarkReturn != null ? stock - benchmarkReturn : null;
+  };
+  return Object.fromEntries([20, 60, 120].flatMap((lookback) => [
+    [`stock_return_${lookback}d`, stockReturn(lookback)],
+    [`stock_vs_spy_${lookback}d`, vsBenchmark(equityTrend.spy, lookback)],
+    [`stock_vs_qqq_${lookback}d`, vsBenchmark(equityTrend.qqq, lookback)],
+  ]));
+}
+
+function buildFeatures(quote, price, marketContext) {
   if (!window.CanonicalTechnicalFeatures) return null;
   return window.CanonicalTechnicalFeatures.buildTechnicalFeatures({
     history: quote?.history || {},
     currentPrice: price,
-    relativeStrength: quote?.relativeStrength || quote?.relative_strength || {},
+    relativeStrength: buildRelativeStrength(quote, marketContext),
     fibonacciStructure: quote?.technical?.fibonacci_structure || {},
     shareBase: quote?.metadata?.sharesOutstanding || null,
   });
@@ -122,7 +149,7 @@ function buildFeatures(quote, price) {
 function buildRow(ticker, quote = {}, marketContext = {}) {
   const price = finite(quote.price);
   const historyCount = (quote.history?.closes || []).filter((value) => Number.isFinite(value)).length;
-  const features = buildFeatures(quote, price);
+  const features = buildFeatures(quote, price, marketContext);
   const classification = profileFor(ticker, quote);
   const ready = Boolean(price != null && historyCount >= 2 && features?.availability !== "unavailable");
   const decision = ready && window.DecisionEngine?.decide
@@ -186,48 +213,18 @@ function renderStockList() {
   if (!list) return;
   const rows = sortRows(state.rows.filter(matchesFilter));
   list.innerHTML = rows.map((row) => `
-    <article class="stock-item${row.ticker === state.selectedTicker ? " active" : ""}" data-open-ticker="${escapeHtml(row.ticker)}">
+    <article class="stock-item${row.ticker === state.selectedTicker ? " active" : ""}" data-open-ticker="${escapeHtml(row.ticker)}" role="button" tabindex="0">
       <div class="stock-item-header">
         <div class="stock-copy">
           <div class="stock-symbol-row"><strong class="stock-symbol">${escapeHtml(row.ticker)}</strong><span class="stock-profile-pill">${escapeHtml(row.classification.category)}</span></div>
           <div class="stock-company">${escapeHtml(row.companyName)}</div>
           <div class="stock-price-row"><strong>${formatPrice(row.price, row.currency)}</strong><span class="stock-day-move ${row.changePercent >= 0 ? "buy" : "sell"}">${t("dayMove")} ${formatPct(row.changePercent)}</span></div>
         </div>
-        <button class="stock-remove-btn" type="button" data-remove-ticker="${escapeHtml(row.ticker)}" aria-label="${t("remove")} ${escapeHtml(row.ticker)}">×</button>
+        <button class="stock-remove-btn" type="button" data-remove-ticker="${escapeHtml(row.ticker)}" aria-label="${t("remove")} ${escapeHtml(row.ticker)}"><span class="stock-remove-icon" aria-hidden="true">×</span></button>
       </div>
-      <div class="stock-horizon-inline">${actionChip(row, "short")}${actionChip(row, "mid")}${actionChip(row, "long")}</div>
+      <div class="stock-item-body"><div class="stock-horizon-inline">${actionChip(row, "short")}${actionChip(row, "mid")}${actionChip(row, "long")}</div></div>
     </article>
   `).join("") || `<p class="empty-state">${t("noData")}</p>`;
-}
-
-function stateBadge(label, stateItem) {
-  return `<div class="decision-state"><span>${escapeHtml(label)}</span><strong>${escapeHtml(stateItem?.label || t("unavailable"))}</strong></div>`;
-}
-
-function reasons(items, tone) {
-  return items?.length ? `<ul class="decision-reasons ${tone}">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : `<p class="muted">${t("unavailable")}</p>`;
-}
-
-function renderDecisionCard(row, horizon) {
-  const decision = decisionFor(row, horizon);
-  if (!decision) return `<article class="decision-card"><h3>${t(horizon)}</h3><p>${t("noData")}</p></article>`;
-  return `
-    <article class="decision-card ${actionTone(decision.action)}">
-      <div class="decision-card-head"><div><span>${t(horizon)} · ${escapeHtml(window.DecisionEngine.config.horizons[horizon].label)}</span><h3>${escapeHtml(decision.actionLabel)}</h3></div><strong>${decision.confidence}%</strong></div>
-      <div class="decision-state-grid">
-        ${stateBadge(t("direction"), decision.states.direction)}
-        ${stateBadge(t("confirmation"), decision.states.confirmation)}
-        ${stateBadge(t("risk"), decision.states.risk)}
-        ${stateBadge(t("opportunity"), decision.states.priceOpportunity)}
-      </div>
-      <dl class="decision-levels">
-        <div><dt>${t("entryRange")}</dt><dd>${formatRange(decision.recommendedRange, row.currency)}</dd></div>
-        <div><dt>${t("targetRange")}</dt><dd>${formatRange(decision.targetRange, row.currency)}</dd></div>
-        <div><dt>${t("invalidation")}</dt><dd>${formatPrice(decision.invalidation, row.currency)}</dd></div>
-      </dl>
-      <div class="decision-evidence"><div><h4>${t("supporting")}</h4>${reasons(decision.reasons.supporting, "positive")}</div><div><h4>${t("limiting")}</h4>${reasons(decision.reasons.limiting, "limiting")}</div></div>
-    </article>
-  `;
 }
 
 function indicatorValue(feature, key, formatter = (value) => value) {
@@ -236,6 +233,50 @@ function indicatorValue(feature, key, formatter = (value) => value) {
 
 function firstAvailable(group = {}) {
   return Object.values(group).find((item) => item?.availability === "available") || {};
+}
+
+function movingAverageCards(featureSet, row) {
+  const movingAverages = Object.values(featureSet.trend?.moving_averages || {})
+    .filter((item) => item?.availability === "available" && Number.isFinite(item.value))
+    .sort((left, right) => `${left.interval}-${left.indicator}-${left.period}`.localeCompare(`${right.interval}-${right.indicator}-${right.period}`));
+  if (!movingAverages.length) return `<article class="detail-kpi-card"><span>Moving averages</span><strong>${t("unavailable")}</strong></article>`;
+  return movingAverages.map((item) => {
+    const name = `${String(item.indicator || "MA").toUpperCase()} ${item.period} · ${item.interval}`;
+    const position = item.price_state === "above" ? "↑" : item.price_state === "below" ? "↓" : "=";
+    const slope = item.slope?.state && item.slope.state !== "unavailable" ? ` · ${item.slope.state}` : "";
+    return `<article class="detail-kpi-card"><span>${escapeHtml(name)}</span><strong>${formatPrice(item.value, row.currency)}</strong><small>${position}${escapeHtml(slope)}</small></article>`;
+  }).join("");
+}
+
+function detailKpi(label, value, note = "") {
+  return `<article class="detail-kpi-card"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>${note ? `<small>${escapeHtml(note)}</small>` : ""}</article>`;
+}
+
+function decisionBullets(items, tone) {
+  return items?.length
+    ? items.map((item) => `<div class="decision-bullet ${tone}">${tone === "positive" ? "✓" : "⚠"} ${escapeHtml(item)}</div>`).join("")
+    : `<div class="decision-bullet muted">${t("unavailable")}</div>`;
+}
+
+function horizonCoreCard(row, horizon) {
+  const decision = decisionFor(row, horizon);
+  const config = window.DecisionEngine.config.horizons[horizon];
+  if (!decision) return `<article class="decision-core-card"><span>${t(horizon)}</span><strong>${t("unavailable")}</strong></article>`;
+  return `
+    <article class="decision-core-card ${actionTone(decision.action)}">
+      <span>${t(horizon)} · ${escapeHtml(config.label)}</span>
+      <strong>${escapeHtml(decision.actionLabel)}</strong>
+      <small>${t("confidence")}: ${decision.confidence}%</small>
+      <small>${t("direction")}: ${escapeHtml(decision.states.direction.label)} · ${t("confirmation")}: ${escapeHtml(decision.states.confirmation.label)}</small>
+      <small>${t("risk")}: ${escapeHtml(decision.states.risk.label)} · ${t("opportunity")}: ${escapeHtml(decision.states.priceOpportunity.label)}</small>
+    </article>
+  `;
+}
+
+function executionTargetCard(row, horizon) {
+  const decision = decisionFor(row, horizon);
+  if (!decision) return "";
+  return `<article class="decision-target-card"><span>${t(horizon)} · ${escapeHtml(decision.actionLabel)}</span><strong>${formatRange(decision.recommendedRange, row.currency)}</strong><small>${t("targetRange")}: ${formatRange(decision.targetRange, row.currency)} · ${t("invalidation")}: ${formatPrice(decision.invalidation, row.currency)}</small></article>`;
 }
 
 function technicalBlock(row, horizon) {
@@ -247,44 +288,46 @@ function technicalBlock(row, horizon) {
   const bands = firstAvailable(featureSet.volatility?.bollinger);
   const obv = firstAvailable(featureSet.participation?.obv);
   return `
-    <article class="technical-card">
-      <h3>${t(horizon)} · ${escapeHtml(featureSet.horizon_label || window.DecisionEngine.config.horizons[horizon].label)}</h3>
-      <p class="muted">${t("dataStatus")}: ${escapeHtml(featureSet.availability || t("unavailable"))}</p>
-      <div class="metric-grid">
-        <div><span>MA</span><strong>${escapeHtml(featureSet.trend?.ma_structure?.alignment || t("unavailable"))}</strong></div>
-        <div><span>RSI</span><strong>${indicatorValue(rsi, "value", (value) => value.toFixed(1))}</strong></div>
-        <div><span>MACD</span><strong>${escapeHtml(macd.state || t("unavailable"))}</strong></div>
-        <div><span>ADX</span><strong>${indicatorValue(adx, "adx", (value) => value.toFixed(1))}</strong></div>
-        <div><span>ATR</span><strong>${indicatorValue(atr, "atr_pct", (value) => `${value.toFixed(2)}%`)}</strong></div>
-        <div><span>OBV</span><strong>${escapeHtml(obv.trend || t("unavailable"))}</strong></div>
-        <div><span>Bollinger</span><strong>${escapeHtml(bands.price_position || t("unavailable"))}</strong></div>
-        <div><span>Relative strength</span><strong>${escapeHtml(featureSet.relative_strength?.state || t("unavailable"))}</strong></div>
+    <section class="detail-section-card">
+      <div class="detail-section-head"><h3>${t(horizon)} · ${escapeHtml(featureSet.horizon_label || window.DecisionEngine.config.horizons[horizon].label)}</h3></div>
+      <div class="detail-line-note">${t("dataStatus")}: ${escapeHtml(featureSet.availability || t("unavailable"))}</div>
+      <div class="detail-kpi-grid">
+        ${movingAverageCards(featureSet, row)}
+        ${detailKpi("RSI", indicatorValue(rsi, "value", (value) => value.toFixed(1)))}
+        ${detailKpi("MACD", macd.state || t("unavailable"))}
+        ${detailKpi("ADX", indicatorValue(adx, "adx", (value) => value.toFixed(1)))}
+        ${detailKpi("ATR", indicatorValue(atr, "atr_pct", (value) => `${value.toFixed(2)}%`))}
+        ${detailKpi("OBV", obv.trend || t("unavailable"))}
+        ${detailKpi("Bollinger", bands.price_position || t("unavailable"))}
+        ${detailKpi("Relative strength", featureSet.relative_strength?.state || t("unavailable"), `SPY ${formatPct(featureSet.relative_strength?.primary?.vs_spy)} · QQQ ${formatPct(featureSet.relative_strength?.primary?.vs_qqq)}`)}
       </div>
-    </article>
+    </section>
   `;
 }
 
 function renderTechnicalPanel(row) {
   if (!row.technicalFeatures) return `<section class="detail-tab-section"><p>${t("noData")}</p></section>`;
   const position = row.technicalFeatures.price_position || {};
-  return `<section class="detail-tab-section"><article class="technical-card"><h3>${t("technicalData")}</h3><div class="metric-grid"><div><span>52W high</span><strong>${formatPrice(position.high_52w, row.currency)}</strong></div><div><span>52W low</span><strong>${formatPrice(position.low_52w, row.currency)}</strong></div><div><span>52W position</span><strong>${Number.isFinite(position.position_52w_pct) ? `${position.position_52w_pct.toFixed(1)}%` : t("unavailable")}</strong></div><div><span>Volume</span><strong>${escapeHtml(row.technicalFeatures.volume?.relative_volume?.state || t("unavailable"))}</strong></div></div></article>${technicalBlock(row, "short")}${technicalBlock(row, "mid")}${technicalBlock(row, "long")}</section>`;
+  return `<section class="detail-tab-section"><section class="detail-section-card"><div class="detail-section-head"><h3>${t("technicalData")}</h3></div><div class="detail-kpi-grid">${detailKpi("52W high", formatPrice(position.high_52w, row.currency))}${detailKpi("52W low", formatPrice(position.low_52w, row.currency))}${detailKpi("52W position", Number.isFinite(position.position_52w_pct) ? `${position.position_52w_pct.toFixed(1)}%` : t("unavailable"))}${detailKpi("Volume", row.technicalFeatures.volume?.relative_volume?.state || t("unavailable"))}</div></section>${technicalBlock(row, "short")}${technicalBlock(row, "mid")}${technicalBlock(row, "long")}</section>`;
+}
+
+function marketLine(label, value, note = "") {
+  return `<div class="detail-line-row"><div><div class="detail-line-label">${escapeHtml(label)}</div>${note ? `<div class="detail-line-note">${escapeHtml(note)}</div>` : ""}</div><div class="detail-line-side"><strong>${escapeHtml(value)}</strong></div></div>`;
 }
 
 function renderMarketPanel(row) {
   const market = state.snapshot?.marketContext || state.snapshot?.market_context || {};
-  const engine = market.market_engine || market;
+  const engine = marketCore(market);
   const earnings = decisionFor(row, "short")?.market?.earnings || {};
-  const priceTrend = (item) => item?.value == null ? t("unavailable") : `${formatPrice(item.value)} · ${escapeHtml(item.trend || t("unavailable"))}`;
+  const priceTrend = (item) => item?.value == null ? t("unavailable") : `${formatPrice(item.value)} · ${item.trend || t("unavailable")}`;
+  const vixChange = (value) => Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${Number(value).toFixed(2)}` : t("unavailable");
+  const indexHistory = (item) => `5D ${formatPct(item?.change_5d_pct)} · 20D ${formatPct(item?.change_20d_pct)} · 60D ${formatPct(item?.change_60d_pct)} · 120D ${formatPct(item?.change_120d_pct)}`;
   return `
     <section class="detail-tab-section">
-      <article class="technical-card"><h3>${t("marketState")}</h3><div class="metric-grid">
-        <div><span>VIX</span><strong>${engine.vix?.value ?? t("unavailable")}</strong></div>
-        <div><span>Fear & Greed</span><strong>${escapeHtml(engine.fear_greed?.label || engine.fearGreed?.label || t("unavailable"))}</strong></div>
-        <div><span>US 10Y Yield</span><strong>${engine.ten_year_yield?.value == null ? t("unavailable") : `${Number(engine.ten_year_yield.value).toFixed(2)}%`}</strong></div>
-        <div><span>SPY</span><strong>${priceTrend(engine.equity_trend?.spy)}</strong></div>
-        <div><span>QQQ</span><strong>${priceTrend(engine.equity_trend?.qqq)}</strong></div>
-        <div><span>Earnings</span><strong>${earnings.date ? `${formatDate(earnings.date)}${Number.isFinite(earnings.daysToEarnings) ? ` · ${earnings.daysToEarnings}d` : ""}` : t("unavailable")}</strong></div>
-      </div></article>
+      <section class="detail-section-card"><div class="detail-section-head"><h3>${t("marketState")}</h3></div><div class="detail-line-list">${marketLine("Regime", engine.regime || engine.summary || t("unavailable"))}${marketLine("Earnings", earnings.date ? `${formatDate(earnings.date)}${Number.isFinite(earnings.daysToEarnings) ? ` · ${earnings.daysToEarnings}d` : ""}` : t("unavailable"))}</div></section>
+      <section class="detail-section-card"><div class="detail-section-head"><h3>VIX</h3></div><div class="detail-line-list">${marketLine("Current VIX", Number.isFinite(finite(engine.vix?.value)) ? finite(engine.vix.value).toFixed(2) : t("unavailable"), engine.vix?.impact || "")}${marketLine("5D change", vixChange(engine.vix?.change_5d))}${marketLine("20D change", vixChange(engine.vix?.change_20d))}${marketLine("Trend", engine.vix?.trend || t("unavailable"))}</div></section>
+      <section class="detail-section-card"><div class="detail-section-head"><h3>SPY / QQQ</h3></div><div class="detail-line-list">${marketLine("SPY", priceTrend(engine.equity_trend?.spy), indexHistory(engine.equity_trend?.spy))}${marketLine("QQQ", priceTrend(engine.equity_trend?.qqq), indexHistory(engine.equity_trend?.qqq))}</div></section>
+      <section class="detail-section-card"><div class="detail-section-head"><h3>Fear & Greed / US 10Y Yield</h3></div><div class="detail-line-list">${marketLine("Fear & Greed", engine.fear_greed?.label || engine.fearGreed?.label || t("unavailable"), engine.fear_greed?.value == null ? "" : `${Math.round(engine.fear_greed.value)}/100`)}${marketLine("US 10Y Yield", engine.ten_year_yield?.value == null ? t("unavailable") : `${Number(engine.ten_year_yield.value).toFixed(2)}%`, `5D ${engine.ten_year_yield?.change_5d_bps ?? t("unavailable")} bps · 20D ${engine.ten_year_yield?.change_20d_bps ?? t("unavailable")} bps`)}</div></section>
     </section>
   `;
 }
@@ -296,14 +339,16 @@ function renderDetailModal() {
   modal.hidden = !state.modalOpen;
   document.body.classList.toggle("modal-open", state.modalOpen);
   if (!state.modalOpen) return;
+  const short = decisionFor(row, "short");
   const tabPanels = {
-    summary: `<section class="detail-tab-section"><article class="decision-context"><div><span>${t("companyProfile")}</span><strong>${escapeHtml(row.classification.category)}</strong></div><div><span>scoring_profile</span><strong>${escapeHtml(row.classification.scoring_profile)}</strong></div><div><span>${t("marketState")}</span><strong>${escapeHtml(decisionFor(row, "short")?.market?.label || t("unavailable"))}</strong></div></article>${renderDecisionCard(row, "short")}${renderDecisionCard(row, "mid")}${renderDecisionCard(row, "long")}</section>`,
+    summary: `<section class="detail-tab-section"><div class="decision-core-grid">${horizonCoreCard(row, "short")}${horizonCoreCard(row, "mid")}${horizonCoreCard(row, "long")}</div><section class="detail-card detail-overview-card"><div class="detail-overview-grid"><div><div class="detail-overview-label">${t("companyProfile")}</div><div class="detail-overview-value">${escapeHtml(row.classification.category)}</div><div class="detail-consensus-mini">${(row.classification.tags || []).slice(0, 6).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("") || `<span>${t("unavailable")}</span>`}</div></div><div><div class="detail-overview-label">${t("price")}</div><div class="detail-overview-value">${formatPrice(row.price, row.currency)}</div><p class="detail-overview-reason">${t("dayMove")}: <span class="${row.changePercent >= 0 ? "buy" : "sell"}">${formatPct(row.changePercent)}</span></p></div><div><div class="detail-overview-label">${t("marketState")}</div><div class="detail-overview-value">${escapeHtml(short?.market?.label || t("unavailable"))}</div><p class="detail-overview-reason">${t("short")}: ${escapeHtml(short?.actionLabel || t("unavailable"))} · ${t("mid")}: ${escapeHtml(decisionFor(row, "mid")?.actionLabel || t("unavailable"))} · ${t("long")}: ${escapeHtml(decisionFor(row, "long")?.actionLabel || t("unavailable"))}</p></div></div></section><section class="detail-section-card"><div class="detail-section-head"><h3>${t("entryRange")} / ${t("targetRange")}</h3></div><div class="decision-target-grid">${executionTargetCard(row, "short")}${executionTargetCard(row, "mid")}${executionTargetCard(row, "long")}</div></section><section class="detail-section-card"><div class="detail-section-head"><h3>${t("supporting")} / ${t("limiting")}</h3></div><div class="decision-summary-grid"><div class="decision-list-card"><div class="decision-list-title">${t("supporting")}</div><div class="decision-bullets">${decisionBullets([...(short?.reasons?.supporting || []), ...(decisionFor(row, "mid")?.reasons?.supporting || [])].slice(0, 5), "positive")}</div></div><div class="decision-list-card"><div class="decision-list-title">${t("limiting")}</div><div class="decision-bullets">${decisionBullets([...(short?.reasons?.limiting || []), ...(decisionFor(row, "mid")?.reasons?.limiting || [])].slice(0, 5), "warning")}</div></div></div></section></section>`,
     technical: renderTechnicalPanel(row),
     market: renderMarketPanel(row),
   };
   $(".detail-sheet").innerHTML = `
     <button class="detail-close" type="button" aria-label="${t("close")}">×</button>
-    <header class="detail-sheet-header"><div><h2>${escapeHtml(row.ticker)}</h2><p>${escapeHtml(row.companyName)}</p><p>${t("price")} ${formatPrice(row.price, row.currency)} · <span class="${row.changePercent >= 0 ? "buy" : "sell"}">${formatPct(row.changePercent)}</span></p></div><time>${t("updated")} ${formatDate(row.updatedAt || state.snapshot?.updatedAt)}</time></header>
+    <div class="detail-sheet-header detail-sheet-header-dark"><div class="detail-sheet-stamp">${t("updated")} ${formatDate(row.updatedAt || state.snapshot?.updatedAt)}</div></div>
+    <section class="decision-hero"><div class="decision-hero-main"><div class="decision-code">${escapeHtml(row.ticker)}</div><div class="decision-company">${escapeHtml(row.companyName)}</div><div class="detail-consensus-mini"><span>${t("price")} ${formatPrice(row.price, row.currency)}</span><span class="${row.changePercent >= 0 ? "buy" : "sell"}">${t("dayMove")} ${formatPct(row.changePercent)}</span><span>${escapeHtml(row.classification.category)}</span><span>${t("short")} ${escapeHtml(short?.actionLabel || t("unavailable"))}</span><span>${t("mid")} ${escapeHtml(decisionFor(row, "mid")?.actionLabel || t("unavailable"))}</span><span>${t("long")} ${escapeHtml(decisionFor(row, "long")?.actionLabel || t("unavailable"))}</span></div></div></section>
     <nav class="detail-tabs" role="tablist">${["summary", "technical", "market"].map((tab) => `<button class="detail-tab${state.activeTab === tab ? " active" : ""}" type="button" data-detail-tab="${tab}">${t(tab === "summary" ? "aiDecision" : tab)}</button>`).join("")}</nav>
     <div class="detail-tab-panel">${tabPanels[state.activeTab]}</div>
   `;
