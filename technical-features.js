@@ -65,8 +65,17 @@
       fibonacci_horizon: "long_term",
     },
   });
+  // Fibonacci is a technical-structure feature, not a decision score.  These
+  // are the pre-existing confirmed-pivot windows, moved here so the canonical
+  // feature layer remains complete even when the API does not attach a legacy
+  // presentation object to a quote.
+  const FIBONACCI_HORIZON_CONFIG = Object.freeze({
+    short_term: { lookback: 40, min_lookback: 25, max_lookback: 65, pivot_bars: 2, min_pivot_separation: 5, min_swing_pct: 5, stale_after_bars: 20 },
+    mid_term: { lookback: 100, min_lookback: 60, max_lookback: 150, pivot_bars: 4, min_pivot_separation: 10, min_swing_pct: 10, stale_after_bars: 50 },
+    long_term: { lookback: 104, min_lookback: 26, max_lookback: 130, pivot_bars: 2, min_pivot_separation: 5, min_swing_pct: 15, stale_after_bars: 26 },
+  });
 
-  const finite = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
+  const finite = (value) => value == null || value === "" ? null : Number.isFinite(Number(value)) ? Number(value) : null;
   const mean = (values) => {
     const valid = values.filter(Number.isFinite);
     return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : null;
@@ -648,7 +657,159 @@
     };
   }
 
-  function fibonacciFeatures(fibonacciStructure = {}) {
+  function fibonacciDate(value) {
+    if (value == null) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value).slice(0, 10) : date.toISOString().slice(0, 10);
+  }
+
+  function fibonacciLevel(ratio, price, type, direction, currentPrice) {
+    const distance = Number.isFinite(price) && Number.isFinite(currentPrice) ? price - currentPrice : null;
+    return {
+      ratio: ratio * 100,
+      label: `${(ratio * 100).toFixed(1)}%`,
+      price,
+      type,
+      direction,
+      valid_for_display: Number.isFinite(price) && price > 0,
+      distance_from_current: distance,
+      distance_from_current_pct: Number.isFinite(distance) && currentPrice > 0 ? distance / currentPrice * 100 : null,
+      current_price_above: Number.isFinite(currentPrice) && Number.isFinite(price) ? currentPrice > price : null,
+      current_price_below: Number.isFinite(currentPrice) && Number.isFinite(price) ? currentPrice < price : null,
+    };
+  }
+
+  function confirmedPivots(bars, side, width) {
+    const key = side === "high" ? "high" : "low";
+    const comparison = side === "high" ? (value, other) => value > other : (value, other) => value < other;
+    const pivots = [];
+    for (let index = width; index < bars.length - width; index += 1) {
+      const value = bars[index]?.[key];
+      const neighbours = bars.slice(index - width, index).concat(bars.slice(index + 1, index + width + 1));
+      if (Number.isFinite(value) && neighbours.length === width * 2 && neighbours.every((bar) => comparison(value, bar[key]))) {
+        pivots.push({ index, price: value, date: fibonacciDate(bars[index].timestamp) });
+      }
+    }
+    return pivots;
+  }
+
+  function canonicalFibonacciHorizon(sourceBars, horizon, currentPrice) {
+    const config = FIBONACCI_HORIZON_CONFIG[horizon];
+    const bars = sourceBars.slice(-config.max_lookback).slice(-config.lookback);
+    const interval = horizon === "long_term" ? "weekly" : "daily";
+    const base = {
+      horizon,
+      status: "insufficient_history",
+      data_window: `recent ${bars.length} ${interval} bars`,
+      source_bar_count: bars.length,
+      data_quality: bars.length >= config.min_lookback ? "partial" : "insufficient",
+      pivot_method: `confirmed ${interval} pivots (${config.pivot_bars}/${config.pivot_bars})`,
+      pivot_confirmation: `left ${config.pivot_bars} / right ${config.pivot_bars} bars confirmed`,
+      swing_direction: null,
+      swing_start_date: null,
+      swing_end_date: null,
+      swing_low: null,
+      swing_low_date: null,
+      swing_high: null,
+      swing_high_date: null,
+      swing_range: null,
+      swing_range_pct: null,
+      bars_since_swing_end: null,
+      pivot_high_count: 0,
+      pivot_low_count: 0,
+      retracement_levels: {},
+      extension_levels: {},
+      current_price: Number.isFinite(currentPrice) ? currentPrice : null,
+      current_position_ratio: null,
+      current_position_label: null,
+      nearest_level_below: null,
+      nearest_level_above: null,
+      distance_to_level_below_pct: null,
+      distance_to_level_above_pct: null,
+      invalidation_reason: null,
+      explanation: `Insufficient ${interval} history to confirm a Fibonacci swing.`,
+    };
+    if (bars.length < config.min_lookback || !Number.isFinite(currentPrice)) return base;
+
+    const highs = confirmedPivots(bars, "high", config.pivot_bars);
+    const lows = confirmedPivots(bars, "low", config.pivot_bars);
+    const candidates = [];
+    lows.forEach((low) => highs.forEach((high) => {
+      if (high.index <= low.index || high.index - low.index < config.min_pivot_separation) return;
+      const range = high.price - low.price;
+      if (range > 0 && range / low.price * 100 >= config.min_swing_pct) candidates.push({ direction: "up_swing", start: low, end: high, low: low.price, high: high.price, range });
+    }));
+    highs.forEach((high) => lows.forEach((low) => {
+      if (low.index <= high.index || low.index - high.index < config.min_pivot_separation) return;
+      const range = high.price - low.price;
+      if (range > 0 && range / low.price * 100 >= config.min_swing_pct) candidates.push({ direction: "down_swing", start: high, end: low, low: low.price, high: high.price, range });
+    }));
+    // Select a current, confirmed structure deterministically.  No weighting
+    // or recommendation score is involved in this technical calculation.
+    const swing = candidates.sort((left, right) => right.end.index - left.end.index || right.range - left.range)[0];
+    if (!swing) return {
+      ...base,
+      status: "no_valid_swing",
+      data_quality: bars.every((bar) => bar.timestamp) ? "medium" : "low",
+      pivot_high_count: highs.length,
+      pivot_low_count: lows.length,
+      explanation: "No confirmed swing met the Fibonacci time and range requirements.",
+    };
+
+    const retracementRatios = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+    const extensionRatios = [1.272, 1.618, 2, 2.618];
+    const retracementLevels = Object.fromEntries(retracementRatios.map((ratio) => {
+      const price = swing.direction === "up_swing" ? swing.high - swing.range * ratio : swing.low + swing.range * ratio;
+      return [(ratio * 100).toFixed(1), fibonacciLevel(ratio, price, "retracement", swing.direction, currentPrice)];
+    }));
+    const extensionLevels = Object.fromEntries(extensionRatios.map((ratio) => {
+      const price = swing.direction === "up_swing" ? swing.low + swing.range * ratio : swing.high - swing.range * ratio;
+      return [(ratio * 100).toFixed(1), fibonacciLevel(ratio, price, "extension", swing.direction, currentPrice)];
+    }));
+    const levels = [...Object.values(retracementLevels), ...Object.values(extensionLevels)].filter((level) => level.valid_for_display).sort((left, right) => left.price - right.price);
+    const below = levels.filter((level) => level.price <= currentPrice).at(-1) || null;
+    const above = levels.find((level) => level.price >= currentPrice) || null;
+    const barsSinceSwingEnd = bars.length - 1 - swing.end.index;
+    const stale = barsSinceSwingEnd > config.stale_after_bars;
+    return {
+      ...base,
+      status: stale ? "stale_swing" : "available",
+      swing_direction: swing.direction,
+      swing_start_date: swing.start.date,
+      swing_end_date: swing.end.date,
+      swing_low: swing.low,
+      swing_low_date: swing.direction === "up_swing" ? swing.start.date : swing.end.date,
+      swing_high: swing.high,
+      swing_high_date: swing.direction === "up_swing" ? swing.end.date : swing.start.date,
+      swing_range: swing.range,
+      swing_range_pct: swing.range / swing.low * 100,
+      bars_since_swing_end: barsSinceSwingEnd,
+      pivot_high_count: highs.length,
+      pivot_low_count: lows.length,
+      retracement_levels: retracementLevels,
+      extension_levels: extensionLevels,
+      current_position_ratio: swing.direction === "up_swing" ? (currentPrice - swing.low) / swing.range : (swing.high - currentPrice) / swing.range,
+      current_position_label: below && above && below !== above ? `Between ${below.label} and ${above.label}` : below ? `Above ${below.label}` : above ? `Below ${above.label}` : "Outside selected swing range",
+      nearest_level_below: below,
+      nearest_level_above: above,
+      distance_to_level_below_pct: below?.distance_from_current_pct ?? null,
+      distance_to_level_above_pct: above?.distance_from_current_pct ?? null,
+      invalidation_reason: swing.direction === "up_swing" && currentPrice < swing.low ? "current_price_below_up_swing_low" : swing.direction === "down_swing" && currentPrice > swing.high ? "current_price_above_down_swing_high" : null,
+      data_quality: bars.every((bar) => bar.timestamp) ? "high" : "medium",
+      explanation: `Confirmed ${swing.direction === "up_swing" ? "up" : "down"} swing from ${bars.length} ${interval} bars; display-only technical structure.`,
+    };
+  }
+
+  function canonicalFibonacciStructure(dailyBars, weeklyBars, currentPrice) {
+    return {
+      short_term: canonicalFibonacciHorizon(dailyBars, "short_term", currentPrice),
+      mid_term: canonicalFibonacciHorizon(dailyBars, "mid_term", currentPrice),
+      long_term: canonicalFibonacciHorizon(weeklyBars, "long_term", currentPrice),
+    };
+  }
+
+  function fibonacciFeatures(fibonacciStructure = {}, dailyBars = [], weeklyBars = [], currentPrice = null) {
+    const generatedStructure = canonicalFibonacciStructure(dailyBars, weeklyBars, currentPrice);
     const normalize = (item) => {
       if (!item) return { availability: "unavailable" };
       const levels = [...Object.values(item.retracement_levels || {}), ...Object.values(item.extension_levels || {})].filter((entry) => Number.isFinite(entry?.price));
@@ -682,7 +843,13 @@
         above_or_below_61_8_retracement: Number.isFinite(level618) && Number.isFinite(currentPrice) ? currentPrice >= level618 ? "above" : "below" : "unavailable",
       };
     };
-    return { short: normalize(fibonacciStructure.short_term), medium: normalize(fibonacciStructure.mid_term), long: normalize(fibonacciStructure.long_term) };
+    const source = (key) => fibonacciStructure[key]?.status === "available" || fibonacciStructure[key]?.status === "stale_swing" ? fibonacciStructure[key] : generatedStructure[key];
+    return {
+      short: normalize(source("short_term")),
+      medium: normalize(source("mid_term")),
+      long: normalize(source("long_term")),
+      structure: { short_term: source("short_term"), mid_term: source("mid_term"), long_term: source("long_term") },
+    };
   }
 
   function horizonFeatureSet(horizon, sources, currentPrice, relativeStrength, fibonacci, calculatedAt) {
@@ -726,7 +893,7 @@
     const weekly = completedWeeklyBars(daily);
     const sources = { "1h": hourly, "4h": fourHour, "1d": daily, "1w": weekly };
     const normalizedPrice = Number.isFinite(currentPrice) ? currentPrice : last(daily)?.close ?? null;
-    const fibonacci = fibonacciFeatures(fibonacciStructure);
+    const fibonacci = fibonacciFeatures(fibonacciStructure, daily, weekly, normalizedPrice);
     const volume = canonicalVolumeFeature(daily, finite(shareBase), calculatedAt);
     const hourlySource = history.intervals?.["1h"] || history.by_interval?.["1h"] || history.intervals?.hourly || {};
     const fourHourSource = history.intervals?.["4h"] || history.by_interval?.["4h"] || {};
@@ -764,7 +931,8 @@
       },
       volume,
       price_position: pricePositionFeatures(daily, normalizedPrice, calculatedAt, history.daily_history_metadata || {}),
-      fibonacci,
+      fibonacci: { short: fibonacci.short, medium: fibonacci.medium, long: fibonacci.long },
+      fibonacci_structure: fibonacci.structure,
       data_quality: {
         daily_history: daily.length >= 252 ? "available" : daily.length ? "partial" : "unavailable",
         intraday_history: hourly.length ? "available" : "unavailable",

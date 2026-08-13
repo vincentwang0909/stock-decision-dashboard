@@ -1975,16 +1975,9 @@ tbody tr.selected-row td {
   background: var(--watch-bg);
 }
 
-.stock-mini-chip.reduce,
-.stock-mini-chip.trim,
-.stock-mini-chip.trim-reduce {
+.stock-mini-chip.trim {
   color: var(--trim);
   background: var(--trim-bg);
-}
-
-.stock-mini-chip.take-profit {
-  color: var(--profit);
-  background: var(--profit-bg);
 }
 
 .stock-mini-chip.sell,
@@ -2089,13 +2082,11 @@ tbody tr.selected-row td {
 
 .decision-core-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
 .decision-core-card,
-.detail-card,
-.decision-summary-card,
 .dimension-card,
 .detail-kpi-card,
 .detail-section-card {
@@ -2109,11 +2100,9 @@ tbody tr.selected-row td {
   padding: 16px;
 }
 
-.decision-core-card span,
-.decision-target-card span,
+.decision-core-card > span,
 .dimension-card span,
-.detail-kpi-card span,
-.detail-overview-label {
+.detail-kpi-card span {
   display: block;
   color: var(--muted);
   font-size: 0.74rem;
@@ -2131,102 +2120,43 @@ tbody tr.selected-row td {
   letter-spacing: -0.04em;
 }
 
-.decision-core-card small {
-  display: block;
-  margin-top: 10px;
-  color: #aebdd2;
-  font-size: 0.78rem;
-  line-height: 1.45;
-}
-
 .decision-core-card.buy strong,
 .decision-core-card.accumulate strong,
 .detail-kpi-card.buy strong,
 .detail-kpi-card.accumulate strong,
 .dimension-card.buy strong,
-.dimension-card.accumulate strong,
-.detail-overview-value.accumulate,
-.detail-overview-value.buy {
+.dimension-card.accumulate strong {
   color: var(--buy);
 }
 
 .decision-core-card.strong-buy strong,
 .detail-kpi-card.strong-buy strong,
-.dimension-card.strong-buy strong,
-.detail-overview-value.strong-buy {
+.dimension-card.strong-buy strong {
   color: var(--strong-buy);
 }
 
 .decision-core-card.hold strong,
 .detail-kpi-card.hold strong,
-.dimension-card.hold strong,
-.detail-overview-value.hold {
+.dimension-card.hold strong {
   color: var(--watch);
 }
 
-.decision-core-card.reduce strong,
 .decision-core-card.trim strong,
-.decision-core-card.trim-reduce strong,
-.detail-kpi-card.reduce strong,
-.detail-kpi-card.trim-reduce strong,
-.dimension-card.reduce strong,
-.dimension-card.trim-reduce strong,
-.detail-overview-value.trim-reduce,
-.detail-overview-value.reduce {
+.detail-kpi-card.trim strong,
+.dimension-card.trim strong {
   color: var(--trim);
-}
-
-.decision-core-card.take-profit strong,
-.detail-kpi-card.take-profit strong,
-.dimension-card.take-profit strong,
-.detail-overview-value.take-profit {
-  color: var(--profit);
 }
 
 .decision-core-card.sell strong,
 .detail-kpi-card.sell strong,
-.dimension-card.sell strong,
-.detail-overview-value.sell {
+.dimension-card.sell strong {
   color: var(--sell);
 }
 
 .decision-core-card.avoid strong,
 .detail-kpi-card.avoid strong,
-.dimension-card.avoid strong,
-.detail-overview-value.avoid {
+.dimension-card.avoid strong {
   color: var(--avoid);
-}
-
-.detail-overview-card {
-  padding: 18px;
-  margin-bottom: 18px;
-}
-
-.detail-overview-grid {
-  display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr;
-  gap: 16px;
-  align-items: start;
-}
-
-.detail-overview-value {
-  margin-top: 10px;
-  font-size: 1.35rem;
-  font-weight: 800;
-}
-
-.detail-overview-reason {
-  margin: 10px 0 0;
-  color: #cbd8ea;
-  font-size: 0.88rem;
-  line-height: 1.5;
-}
-
-.detail-overview-help {
-  margin: 8px 0 0;
-  color: var(--muted);
-  font-size: 0.78rem;
-  line-height: 1.45;
 }
 
 .detail-consensus-mini {
@@ -2275,33 +2205,13 @@ tbody tr.selected-row td {
   gap: 14px;
 }
 
-.decision-summary-card {
-  padding: 18px;
-}
-
-.decision-summary-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 16px;
-}
-
-.decision-summary-head h3,
 .detail-section-head h3 {
   margin: 0;
   font-size: 1rem;
   letter-spacing: -0.02em;
 }
 
-.decision-summary-head p {
-  margin: 8px 0 0;
-  color: #c9d6e9;
-  line-height: 1.55;
-}
-
 .decision-summary-grid,
-.decision-target-grid,
 .dimension-grid,
 .detail-kpi-grid {
   display: grid;
@@ -2320,8 +2230,7 @@ tbody tr.selected-row td {
   margin-bottom: 12px;
 }
 
-.decision-list-card,
-.decision-target-card {
+.decision-list-card {
   padding: 14px 15px;
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -2360,11 +2269,6 @@ tbody tr.selected-row td {
   color: var(--muted);
 }
 
-.decision-target-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.decision-target-card strong,
 .dimension-card strong,
 .detail-kpi-card strong {
   display: block;
@@ -2427,22 +2331,6 @@ tbody tr.selected-row td {
   margin: 0;
   color: #f2e5c6;
   font-size: 0.88rem;
-  line-height: 1.5;
-}
-
-.action-plan-card {
-  display: grid;
-  gap: 8px;
-}
-
-.action-plan-card strong {
-  color: #f6fbff;
-  font-size: 0.98rem;
-}
-
-.action-plan-card p {
-  margin: 0;
-  color: #d2deef;
   line-height: 1.5;
 }
 
@@ -2620,36 +2508,210 @@ tbody tr.selected-row td {
   line-height: 1.55;
 }
 
+/* Final Decision presentation: lightweight DOM/CSS only, no chart runtime. */
+.decision-profile-header { display: grid; gap: 10px; }
+
+.profile-tag-group > span,
+.profile-review-line,
+.market-regime-grid article > span,
+.execution-plan-action > span,
+.decision-execution-field > span,
+.detail-section-head > span {
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.profile-tag-group > div { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; }
+
+.profile-tag {
+  display: inline-flex;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #dce8f8;
+  font-size: 0.73rem;
+  font-weight: 700;
+}
+
+.profile-tag.candidate,
+.candidate-profile { border-color: rgba(246, 199, 108, 0.36); color: #f6c76c; }
+.profile-tag.muted { color: var(--muted); }
+
+.profile-review-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 2px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.profile-review-line b { color: #e7effb; }
+.decision-final-cards { padding: 16px; }
+
+.decision-core-card { display: grid; align-content: start; gap: 10px; min-height: 0; }
+.decision-core-card strong { margin-top: 2px; }
+
+.decision-confidence {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.decision-confidence span { color: #aebdd2; font-size: 0.75rem; font-weight: 700; }
+.decision-confidence b { color: #f2f7ff; font-size: 0.91rem; }
+
+.decision-confidence-help {
+  display: inline-grid;
+  width: 15px;
+  height: 15px;
+  margin-left: 3px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #64748b;
+  border-radius: 50%;
+  background: transparent;
+  color: #cbd8ea;
+  font: 800 0.65rem/1 var(--sans);
+  cursor: help;
+}
+
+.decision-card-execution,
+.execution-plan-fields { display: grid; gap: 8px; }
+.decision-execution-field { display: grid; gap: 3px; }
+.decision-execution-field > span { font-size: 0.66rem; }
+.decision-execution-field > strong { color: #dce8f8; font-size: 0.82rem; font-weight: 750; line-height: 1.35; }
+.decision-no-data { margin: 0; color: var(--muted); font-size: 0.84rem; line-height: 1.45; }
+
+.decision-horizon-selector { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+
+.decision-horizon-button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--muted);
+  font: 750 0.75rem/1 var(--sans);
+  cursor: pointer;
+}
+
+.decision-horizon-button.active { border-color: rgba(142, 197, 255, 0.38); background: rgba(57, 93, 143, 0.35); color: #eff6ff; }
+.decision-reason-grid { margin-bottom: 0; }
+.decision-price-map { overflow: hidden; }
+
+.price-map-track {
+  position: relative;
+  min-height: 86px;
+  margin: 20px 4px 2px;
+  border-top: 2px solid rgba(148, 163, 184, 0.36);
+}
+
+.price-map-range {
+  position: absolute;
+  top: -6px;
+  min-width: 10px;
+  height: 10px;
+  border-radius: 99px;
+  background: rgba(74, 222, 128, 0.8);
+}
+
+.price-map-range.target { top: 49px; background: rgba(96, 165, 250, 0.86); }
+
+.price-map-range i,
+.price-map-current i,
+.price-map-reference i {
+  position: absolute;
+  z-index: 1;
+  max-width: 122px;
+  color: #cbd8ea;
+  font-size: 0.66rem;
+  font-style: normal;
+  font-weight: 750;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.price-map-range i { top: -22px; left: 0; }
+.price-map-range.target i { top: 17px; }
+
+.price-map-current,
+.price-map-reference { position: absolute; display: grid; justify-items: center; transform: translateX(-50%); }
+.price-map-current { top: -1px; color: #f8fbff; }
+.price-map-current b { margin-top: -1px; font-size: 0.9rem; }
+.price-map-current i { top: -24px; }
+.price-map-reference { top: 13px; color: #f6c76c; }
+.price-map-reference b { font-size: 1.15rem; line-height: 1; }
+.price-map-reference i { top: 20px; }
+
+.price-map-key-row { display: flex; flex-wrap: wrap; gap: 8px 13px; color: var(--muted); font-size: 0.72rem; }
+.price-map-key-row span { display: inline-flex; align-items: center; gap: 5px; }
+.price-map-key { width: 13px; height: 6px; border-radius: 99px; background: rgba(74, 222, 128, 0.8); }
+.price-map-key.target { background: rgba(96, 165, 250, 0.86); }
+.price-map-key.invalidation, .price-map-key.reference, .price-map-key.support, .price-map-key.resistance { width: 2px; height: 12px; border-radius: 0; background: #f6c76c; }
+
+.execution-plan-grid { display: grid; grid-template-columns: minmax(190px, 0.7fr) minmax(0, 1.3fr); gap: 14px; }
+
+.execution-plan-action,
+.execution-plan-fields { padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, 0.025); }
+
+.execution-plan-action strong { display: block; margin-top: 7px; color: #f3f8ff; font-size: 1.18rem; }
+.execution-plan-action.buy strong, .execution-plan-action.accumulate strong { color: var(--buy); }
+.execution-plan-action.strong-buy strong { color: var(--strong-buy); }
+.execution-plan-action.hold strong { color: var(--watch); }
+.execution-plan-action.trim strong { color: var(--trim); }
+.execution-plan-action.sell strong, .execution-plan-action.avoid strong { color: var(--avoid); }
+.execution-plan-action p { margin: 10px 0 0; color: #c6d3e6; font-size: 0.85rem; line-height: 1.5; }
+
+.market-regime-grid,
+.company-model-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+
+.market-regime-grid article { display: grid; gap: 7px; min-height: 78px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, 0.025); }
+.market-regime-grid article strong { color: #e8f0fb; font-size: 0.82rem; line-height: 1.35; }
+.company-model-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.company-model-grid .profile-tag-group { padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, 0.025); }
+
+.modifier-list { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.modifier-list ul { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.modifier-list li { display: grid; grid-template-columns: minmax(120px, 0.28fr) 1fr; gap: 10px; color: #cbd8ea; font-size: 0.83rem; line-height: 1.45; }
+.modifier-list li b { color: #f0f6ff; }
+
 @media (max-width: 980px) {
   .decision-core-grid,
-  .decision-target-grid,
   .dimension-grid,
   .detail-kpi-grid,
   .sr-summary-grid,
-  .detail-overview-grid {
+  .market-regime-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .execution-plan-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {
   .stock-ai-row,
   .stock-item-meta-rebuilt,
   .stock-horizon-grid,
-  .decision-summary-head,
   .decision-summary-grid,
   .detail-line-row,
-  .detail-overview-grid,
   .decision-core-grid,
-  .decision-target-grid,
   .dimension-grid,
   .detail-kpi-grid,
   .sr-summary-grid,
-  .detail-profile-grid {
+  .detail-profile-grid,
+  .market-regime-grid,
+  .company-model-grid {
     grid-template-columns: 1fr;
   }
 
-  .stock-item-meta-rebuilt,
-  .decision-summary-head {
+  .stock-item-meta-rebuilt {
     align-items: flex-start;
   }
 
@@ -2707,18 +2769,17 @@ tbody tr.selected-row td {
     padding: 14px;
   }
 
-  .decision-core-card strong,
-  .detail-overview-value {
+  .decision-core-card strong {
     font-size: 1.2rem;
   }
 
-  .detail-card,
-  .decision-summary-card,
   .detail-kpi-card,
-  .detail-section-card,
-  .detail-overview-card {
+  .detail-section-card {
     padding: 14px;
   }
+
+  .modifier-list li { grid-template-columns: 1fr; gap: 2px; }
+  .price-map-track { min-height: 98px; }
 
 }
 

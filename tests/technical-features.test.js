@@ -122,6 +122,45 @@ assert.equal(features.horizons.long.momentum.macd.macd_1w.period, "12/26/9");
 assert.equal(features.horizons.short.momentum.kdj.kdj_9_4h.interval, "4h");
 assert.equal(features.horizons.medium.momentum.kdj.kdj_9_1d.interval, "1d");
 
+// Completeness contract: the Technical tab may choose how to group fields,
+// but the canonical object must keep every raw/interpreted technical input.
+// Values can be null when a provider has insufficient bars; field removal is
+// a regression because it silently makes the UI and future decision engine
+// less informative.
+const canonicalPrimary = [
+  ["short", "4h", 6],
+  ["medium", "1d", 14],
+  ["long", "1w", 21],
+];
+for (const [horizonKey, interval, rsiPeriod] of canonicalPrimary) {
+  const horizon = features.horizons[horizonKey];
+  const macd = horizon.momentum.macd[`macd_${interval}`];
+  const adx = horizon.trend.adx[`adx_14_${interval}`];
+  const atr = horizon.volatility.atr[`atr_14_${interval}`];
+  const bollinger = horizon.volatility.bollinger[`bollinger_${interval}`];
+  const obv = horizon.participation.obv[`obv_${interval}`];
+  const rs = horizon.relative_strength;
+
+  assert(Object.keys(horizon.trend.moving_averages).length > 0, `${horizonKey} MA/EMA/SMA family is missing`);
+  assert(Object.hasOwn(horizon.momentum.rsi, `rsi_${rsiPeriod}_${interval}`), `${horizonKey} RSI is missing`);
+  for (const key of ["macd_line", "signal_line", "histogram", "histogram_change_1", "histogram_change_3", "histogram_change_5", "above_or_below_zero", "improving_or_deteriorating", "crossover_state"]) assert(Object.hasOwn(macd, key), `${horizonKey} MACD field is missing: ${key}`);
+  for (const key of ["adx", "plus_di", "minus_di", "trend_strength", "directional_bias", "slope"]) assert(Object.hasOwn(adx, key), `${horizonKey} ADX/DI field is missing: ${key}`);
+  for (const key of ["value", "atr_pct", "atr_percentile_pct", "atr_percentile", "volatility_regime", "expansion_state"]) assert(Object.hasOwn(atr, key), `${horizonKey} ATR field is missing: ${key}`);
+  for (const key of ["upper_band", "middle_band", "lower_band", "percent_b", "bandwidth_pct", "bandwidth_percentile", "squeeze_state", "price_position"]) assert(Object.hasOwn(bollinger, key), `${horizonKey} Bollinger field is missing: ${key}`);
+  for (const key of ["raw_value", "trend", "divergence", "price_obv_confirmation", "slope"]) assert(Object.hasOwn(obv, key), `${horizonKey} OBV field is missing: ${key}`);
+  for (const key of ["returns", "vs_spy", "vs_qqq", "primary", "state", "consistency"]) assert(Object.hasOwn(rs, key), `${horizonKey} Relative Strength field is missing: ${key}`);
+}
+for (const [horizonKey, interval] of [["short", "4h"], ["medium", "1d"]]) {
+  const kdj = features.horizons[horizonKey].momentum.kdj[`kdj_9_${interval}`];
+  for (const key of ["k", "d", "j", "crossover_state", "direction", "k_slope", "d_slope", "j_slope"]) assert(Object.hasOwn(kdj, key), `${horizonKey} KDJ field is missing: ${key}`);
+}
+for (const fibKey of ["short_term", "mid_term", "long_term"]) {
+  const fib = features.fibonacci_structure[fibKey];
+  for (const key of ["status", "swing_high", "swing_low", "retracement_levels", "extension_levels", "current_position_label"]) assert(Object.hasOwn(fib, key), `${fibKey} Fibonacci field is missing: ${key}`);
+}
+for (const key of ["high_52w", "low_52w", "position_52w_pct", "all_time_high", "all_time_history_coverage"]) assert(Object.hasOwn(features.price_position, key), `price-structure field is missing: ${key}`);
+for (const key of ["current_volume", "moving_average_volume", "relative_volume", "obv", "trend", "accumulation_distribution"]) assert(Object.hasOwn(features.volume, key), `volume field is missing: ${key}`);
+
 // ATR% is the normalized primary volatility value, with raw ATR retained internally.
 const atr = features.horizons.medium.volatility.atr.atr_14_1d;
 assert(Math.abs(atr.atr_pct - (atr.value / price * 100)) < 1e-10);
@@ -232,6 +271,19 @@ assert.equal(features.fibonacci.short.anchor_low, 100);
 assert.equal(features.fibonacci.short.anchor_method, "confirmed daily pivots (2/2)");
 assert(features.fibonacci.short.nearest_fib_level);
 
+// The canonical layer also rebuilds the original display-only Fibonacci
+// structure when an API payload does not carry a precomputed structure.
+const generatedFibonacci = buildTechnicalFeatures({
+  history: daily,
+  currentPrice: price,
+  calculatedAt: "2026-08-09T00:00:00.000Z",
+});
+assert(["available", "stale_swing", "no_valid_swing"].includes(generatedFibonacci.fibonacci_structure.short_term.status));
+assert(["available", "stale_swing", "no_valid_swing"].includes(generatedFibonacci.fibonacci_structure.mid_term.status));
+assert(["available", "stale_swing", "no_valid_swing"].includes(generatedFibonacci.fibonacci_structure.long_term.status));
+assert.equal(generatedFibonacci.fibonacci_structure.short_term.current_price, price);
+assert.equal(Object.hasOwn(generatedFibonacci.fibonacci_structure.short_term, "selected_candidate_score"), false);
+
 // Missing bars never become numeric zero, and insufficient history remains explicit.
 const unavailable = buildTechnicalFeatures({ history: { closes: [1], highs: [1], lows: [1], volumes: [0], opens: [1], timestamps: ["2026-01-01"] }, currentPrice: 1 });
 assert.equal(unavailable.horizons.medium.momentum.rsi.rsi_14_1d.value, null);
@@ -257,6 +309,7 @@ for (const forbidden of ["action_recommendation_score", "score_breakdown", "fina
 }
 assert(mainSource.includes("CanonicalTechnicalFeatures.buildTechnicalFeatures"));
 assert(mainSource.includes("technicalFeatures"));
+assert(mainSource.includes("renderFibonacciStructure"));
 assert(mainSource.includes("VIX"));
 assert(mainSource.includes("Fear & Greed"));
 assert(mainSource.includes("US 10Y Yield"));
