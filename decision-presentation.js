@@ -5,6 +5,7 @@
   const finite = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
   const validRange = (range) => finite(range?.low) != null && finite(range?.high) != null;
   const actionIntent = Object.freeze({ strong_buy: "enter", buy: "enter", accumulate: "add", hold: "hold", trim: "reduce", sell: "exit", avoid: "avoid" });
+  const actionTone = Object.freeze({ strong_buy: "strong-buy", buy: "buy", accumulate: "accumulate", hold: "hold", trim: "trim", sell: "sell", avoid: "avoid" });
 
   const REASONS = Object.freeze({
     obv_participation_improving: { en: "OBV participation is improving.", zh: "OBV 参与度正在改善。" },
@@ -69,6 +70,60 @@
     return { intent, ...(labels[intent] || labels.hold) };
   }
 
+  function profileGroups(profile = {}, primaryClassification = "") {
+    const withoutPrimary = (values) => [...new Set((Array.isArray(values) ? values : []).filter(Boolean))]
+      .filter((tag) => String(tag).toLowerCase() !== String(primaryClassification || "").toLowerCase());
+    const staticTags = withoutPrimary(profile.staticTags || profile.tags);
+    const dynamicTags = [...new Set((profile.dynamicTags || []).filter(Boolean))];
+    const lifecycleTags = profile.lifecycleTag ? [profile.lifecycleTag] : [];
+    const candidateTags = [...new Set([...(profile.candidateTags || []), profile.candidateTag].filter(Boolean))];
+    return {
+      staticTags, dynamicTags, lifecycleTags, candidateTags,
+      visible: {
+        static: staticTags.length > 0,
+        dynamic: dynamicTags.length > 0,
+        lifecycle: lifecycleTags.length > 0,
+        candidate: candidateTags.length > 0,
+      },
+    };
+  }
+
+  function labelAnchor(point) {
+    if (Number.isFinite(point.start) && Number.isFinite(point.end)) return (point.start + point.end) / 2;
+    return point.position;
+  }
+
+  function layoutPriceMap(points = [], minimumGap = 9) {
+    const preferredSide = { range: "top", current: "top", target: "bottom", invalidation: "bottom", reference: "bottom", support: "bottom", resistance: "top" };
+    const lanes = { top: [], bottom: [] };
+    const labels = [...points].map((point) => ({ ...point, anchor: labelAnchor(point) })).filter((point) => Number.isFinite(point.anchor))
+      .sort((left, right) => left.anchor - right.anchor)
+      .map((point) => {
+        const preferred = preferredSide[point.id] || "top";
+        const sides = [preferred, preferred === "top" ? "bottom" : "top"];
+        let placement = null;
+        for (const side of sides) {
+          const lane = lanes[side].findIndex((last) => point.anchor - last >= minimumGap);
+          if (lane >= 0) { placement = { side, lane }; break; }
+          if (lanes[side].length < 2) { placement = { side, lane: lanes[side].length }; break; }
+        }
+        if (!placement) {
+          const side = lanes.top.length <= lanes.bottom.length ? "top" : "bottom";
+          placement = { side, lane: Math.min(1, lanes[side].length - 1) };
+        }
+        lanes[placement.side][placement.lane] = point.anchor;
+        return {
+          ...point,
+          labelSide: placement.side,
+          labelLane: placement.lane + 1,
+          labelPosition: Math.max(5, Math.min(95, point.anchor)),
+        };
+      });
+    const topLanes = Math.max(0, ...labels.filter((point) => point.labelSide === "top").map((point) => point.labelLane));
+    const bottomLanes = Math.max(0, ...labels.filter((point) => point.labelSide === "bottom").map((point) => point.labelLane));
+    return { labels, topLanes, bottomLanes, trackHeight: 96 + (topLanes + bottomLanes) * 22 };
+  }
+
   function priceMapModel({ currentPrice, decision = {} } = {}) {
     const current = finite(currentPrice);
     const execution = executionSemantics(decision);
@@ -91,13 +146,24 @@
     const padding = Math.max(Math.abs(current || max || 1) * 0.025, (max - min) * 0.12, 0.01);
     if (min === max) { min -= padding; max += padding; } else { min -= padding; max += padding; }
     const position = (value) => Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+    const laidOut = layoutPriceMap(points.map((point) => point.value != null
+      ? { ...point, position: position(point.value) }
+      : { ...point, start: position(Math.min(point.low, point.high)), end: position(Math.max(point.low, point.high)) }));
+    const legend = [];
+    const seenLegend = new Set();
+    laidOut.labels.forEach((point) => {
+      if (!seenLegend.has(point.labelKey)) { seenLegend.add(point.labelKey); legend.push({ id: point.id, labelKey: point.labelKey }); }
+    });
     return {
       execution,
       min,
       max,
-      points: points.map((point) => point.value != null
-        ? { ...point, position: position(point.value) }
-        : { ...point, start: position(Math.min(point.low, point.high)), end: position(Math.max(point.low, point.high)) }),
+      points: laidOut.labels,
+      labels: laidOut.labels,
+      legend,
+      topLanes: laidOut.topLanes,
+      bottomLanes: laidOut.bottomLanes,
+      trackHeight: laidOut.trackHeight,
       position,
     };
   }
@@ -115,7 +181,7 @@
     return messages[action]?.[language === "zh" ? "zh" : "en"] || messages.hold[language === "zh" ? "zh" : "en"];
   }
 
-  const api = Object.freeze({ actionIntent, executionSemantics, normalizeReason, translateReason, reasonList, priceMapModel, positionGuidance });
+  const api = Object.freeze({ actionIntent, actionTone, executionSemantics, normalizeReason, translateReason, reasonList, profileGroups, layoutPriceMap, priceMapModel, positionGuidance });
   root.DecisionPresentation = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 }(globalThis));

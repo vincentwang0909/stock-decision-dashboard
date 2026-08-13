@@ -37,11 +37,13 @@ const I18N = {
     shared: "Shared Watchlist: everyone viewing this Dashboard sees the same stock list.", syncFailed: "Shared list sync failed. Showing cached data.",
     all: "All", ticker: "Ticker", type: "Stock type", dayMove: "Day move", short: "Short", mid: "Mid", long: "Long",
     aiDecision: "AI Decision", technical: "Technical", market: "Market Data", price: "Price", updated: "Updated", unavailable: "—",
-    recommendation: "Action", confidence: "Confidence", entryRange: "Recommended range", targetRange: "Target range", invalidation: "Invalidation", holdZone: "Hold zone", structuralReference: "Structural reference", noExecutionPlan: "No execution plan", reductionRange: "Reduction range", exitRange: "Exit range",
+    recommendation: "Action", confidence: "Confidence", entryRange: "Recommended range", targetRange: "Target range", invalidation: "Invalidation", holdZone: "Hold zone", structuralReference: "Structural reference", reductionRange: "Reduction range", exitRange: "Exit range",
     recommendationConfidence: "Recommendation Confidence", confidenceHelp: "Recommendation Confidence measures the consistency and stability of support for this action. It is not a probability of future price appreciation.",
     recommendedEntryRange: "Recommended Entry Range", recommendedAddRange: "Recommended Add Range", recommendedReductionRange: "Recommended Reduction Range", recommendedExitRange: "Recommended Exit Range", nextStructuralZone: "Next Structural Zone", downsideStructuralTarget: "Downside / Structural Target", recoveryInvalidation: "Invalidation / Recovery Level", riskReference: "Risk Reference", avoidNoEntry: "Avoid / No Entry", currentPrice: "Current Price",
     finalDecision: "Final Decision", decisionPriceMap: "Decision Price Map", whyThisDecision: "Why This Decision", executionPlan: "Execution Plan", positionGuidance: "Position Guidance", marketRiskRegime: "Market Risk Regime", marketImpact: "Impact on this stock", companyModel: "Company Model", staticTags: "Static Tags", dynamicTags: "Dynamic Behavior Tags", lifecycle: "Lifecycle", modelProfile: "Model Profile", profileConfidence: "Profile Confidence", lastReview: "Last Review", candidateProfile: "Candidate", appliedModifiers: "Applied Modifiers", noDecision: "Insufficient data to generate a recommendation for this horizon.",
     shortHorizon: "1–30 Days", midHorizon: "1–6 Months", longHorizon: ">6 Months", support: "Supporting evidence", limiting: "Limiting evidence", target: "Target", riskStructuralReference: "Risk / Structural Reference", regime: "Regime", earningsProximity: "Earnings proximity", nextEarnings: "Next Earnings", daysAgo: "days ago", days: "days", supportive: "Supportive", neutral: "Neutral", restrictive: "Restrictive", shockSensitive: "Shock-sensitive",
+    technicalOverview: "Technical Overview", fibonacciStructure: "Fibonacci Structure", fibonacciDescription: "Confirmed swing anchors and retracement / extension levels. Technical display data only.", historicalVolume: "52-Week / Historical Position and Volume", advancedSwingMetadata: "Advanced Swing Metadata", retracement: "Retracement", extension: "Extension", level: "Level", distance: "Distance", swingHigh: "Swing High", swingLow: "Swing Low", swingRange: "Swing Range", currentPosition: "Current Position", nearestBelow: "Nearest Below", nearestAbove: "Nearest Above", primaryClassification: "Primary classification", technicalUnavailable: "Technical data is currently unavailable.",
+    trendSummary: "Trend", momentumSummary: "Momentum", volatilitySummary: "Volatility", relativeStrengthSummary: "Relative Strength", participationSummary: "Participation", marketStatus: "Market Status", current: "Current", change5d: "5D Change", change20d: "20D Change", expanded: "Expanded", collapsed: "Collapsed", primaryInterval: "Primary interval", supportingIntervals: "Supporting intervals shown where available.",
     supporting: "Supporting evidence", limiting: "Limiting evidence", marketState: "Market state", companyProfile: "Company profile",
     technicalData: "Canonical Technical Data", dataStatus: "Data status", trend: "Trend", momentum: "Momentum", volatility: "Volatility", participation: "Participation",
     close: "Close", remove: "Remove", risk: "Risk", opportunity: "Price opportunity", confirmation: "Confirmation", direction: "Direction",
@@ -52,9 +54,10 @@ const I18N = {
     shared: "共享自选列表：所有查看此仪表盘的用户看到相同的股票列表。", syncFailed: "共享列表同步失败，正在显示缓存数据。",
     all: "全部", ticker: "代码", type: "股票类型", dayMove: "当日涨跌", short: "短期", mid: "中期", long: "长期",
     aiDecision: "AI 决策", technical: "技术面", market: "市场数据", price: "价格", updated: "更新时间", unavailable: "—",
-    recommendation: "操作", confidence: "置信度", entryRange: "建议区间", targetRange: "目标区间", invalidation: "失效价", holdZone: "持有区间", structuralReference: "结构参考", noExecutionPlan: "暂无执行计划", reductionRange: "减仓区间", exitRange: "退出区间",
+    recommendation: "操作", confidence: "置信度", entryRange: "建议区间", targetRange: "目标区间", invalidation: "失效价", holdZone: "持有区间", structuralReference: "结构参考", reductionRange: "减仓区间", exitRange: "退出区间",
     recommendationConfidence: "推荐可信度", confidenceHelp: "推荐可信度表示当前数据对该操作建议的支持一致性和稳定程度，不代表未来上涨概率。", recommendedEntryRange: "建议介入区间", recommendedAddRange: "建议加仓区间", recommendedReductionRange: "建议减仓区间", recommendedExitRange: "建议退出区间", nextStructuralZone: "下一结构区域", downsideStructuralTarget: "下行／结构目标", recoveryInvalidation: "失效／反弹参考", riskReference: "风险参考", avoidNoEntry: "回避／不建立新仓", currentPrice: "当前价格",
     finalDecision: "最终决策", decisionPriceMap: "决策价格图", whyThisDecision: "为什么是这个决策", executionPlan: "执行计划", positionGuidance: "仓位指引", marketRiskRegime: "市场风险环境", marketImpact: "对该股票的影响", companyModel: "公司模型", staticTags: "静态标签", dynamicTags: "动态行为标签", lifecycle: "生命周期", modelProfile: "模型画像", profileConfidence: "画像可信度", lastReview: "最近复核", candidateProfile: "候选画像", appliedModifiers: "已应用修饰器", noDecision: "数据不足，暂无法生成该周期推荐。", shortHorizon: "1–30 天", midHorizon: "1–6 个月", longHorizon: ">6 个月", support: "支持当前推荐", limiting: "限制当前推荐", target: "目标", riskStructuralReference: "风险／结构参考", regime: "风险环境", earningsProximity: "财报临近", nextEarnings: "下一次财报", daysAgo: "天前", days: "天", supportive: "支持", neutral: "中性", restrictive: "限制", shockSensitive: "对冲击敏感",
+    technicalOverview: "技术概览", fibonacciStructure: "斐波那契结构", fibonacciDescription: "已确认的摆动锚点与回撤／扩展水平；仅作技术数据展示。", historicalVolume: "52 周／历史位置与成交量", advancedSwingMetadata: "高级摆动元数据", retracement: "回撤", extension: "扩展", level: "级别", distance: "距离", swingHigh: "摆动高点", swingLow: "摆动低点", swingRange: "摆动区间", currentPosition: "当前位置", nearestBelow: "最近下方水平", nearestAbove: "最近上方水平", primaryClassification: "主要分类", technicalUnavailable: "技术数据暂不可用。", trendSummary: "趋势", momentumSummary: "动量", volatilitySummary: "波动", relativeStrengthSummary: "相对强弱", participationSummary: "参与度", marketStatus: "市场状态", current: "当前", change5d: "5 日变化", change20d: "20 日变化", expanded: "展开", collapsed: "收起", primaryInterval: "主周期", supportingIntervals: "支持周期会在可用时显示。",
     supporting: "支持证据", limiting: "限制因素", marketState: "市场状态", companyProfile: "公司画像",
     technicalData: "标准化技术数据", dataStatus: "数据状态", trend: "趋势", momentum: "动量", volatility: "波动", participation: "参与度",
     close: "关闭", remove: "移除", risk: "风险", opportunity: "价格机会", confirmation: "确认度", direction: "方向",
@@ -71,6 +74,9 @@ const state = {
   modalOpen: false,
   activeTab: "summary",
   decisionHorizon: "short",
+  technicalHorizon: "short",
+  fibonacciHorizon: "short",
+  technicalSections: { fibonacci: false, foundation: false },
   sort: { key: "ticker", direction: "asc" },
   marketFilter: "all",
   selectedCandidate: null,
@@ -84,7 +90,7 @@ const finite = (value) => value == null || value === "" ? null : Number.isFinite
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
 const normalizeTicker = (value) => String(value || "").trim().toUpperCase().replace(/\s+/g, "");
 const uniqueTickers = (values) => [...new Set(values.map(normalizeTicker).filter(Boolean))];
-const actionTone = (action) => ({ strong_buy: "strong-buy", buy: "buy", accumulate: "accumulate", hold: "hold", trim: "trim", sell: "sell", avoid: "avoid" }[action] || "hold");
+const actionTone = (action) => window.DecisionPresentation?.actionTone?.[action] || "hold";
 
 function formatPrice(value, currency = "USD") {
   return Number.isFinite(value) ? new Intl.NumberFormat(state.language === "zh" ? "zh-CN" : "en-US", { style: "currency", currency, maximumFractionDigits: value < 10 ? 3 : 2 }).format(value) : t("unavailable");
@@ -191,7 +197,7 @@ function decisionFor(row, horizon) {
 function actionChip(row, horizon) {
   const decision = decisionFor(row, horizon);
   const label = row.ready && decision ? decision.actionLabel : t("unavailable");
-  return `<span class="stock-mini-chip ${actionTone(decision?.action)}">${t(horizon)}: ${escapeHtml(label)}</span>`;
+  return `<span class="stock-mini-chip ${actionTone(decision?.action)}"><b>${t(horizon)}</b><span>${escapeHtml(label)}</span></span>`;
 }
 
 function sortRows(rows) {
@@ -256,7 +262,7 @@ function executionFields(row, decision) {
   const reference = decision.debug?.recommendedRangeInputs?.avoidReference;
   const field = (label, value) => value ? `<div class="decision-execution-field"><span>${escapeHtml(t(label))}</span><strong>${value}</strong></div>` : "";
   if (intent === "avoid") {
-    return `${field("avoidNoEntry", t("noExecutionPlan"))}${Number.isFinite(reference?.center) ? field("structuralReference", formatPrice(reference.center, row.currency)) : ""}`;
+    return `<p class="decision-no-data execution-avoid-note">${t("avoidNoEntry")}</p>${Number.isFinite(reference?.center) ? field("structuralReference", formatPrice(reference.center, row.currency)) : ""}`;
   }
   if (intent === "hold") {
     const referenceText = [structural?.support, structural?.resistance].filter(Number.isFinite).map((value) => formatPrice(value, row.currency)).join(" / ");
@@ -289,10 +295,6 @@ function technicalLine(label, value, note = "") {
   return `<div class="detail-line-row"><div><div class="detail-line-label">${escapeHtml(label)}</div>${note ? `<div class="detail-line-note">${escapeHtml(note)}</div>` : ""}</div><div class="detail-line-side"><strong>${escapeHtml(value)}</strong></div></div>`;
 }
 
-function technicalSectionLabel(label) {
-  return `<div class="detail-line-section-label">${escapeHtml(label)}</div>`;
-}
-
 function technicalState(value) {
   if (!value || value === "unavailable") return t("unavailable");
   return String(value).replace(/_/g, " ");
@@ -314,7 +316,7 @@ function technicalAvailability(feature = {}) {
 
 function technicalCard(title, stateLabel, detail, rows = [], details = [], availability = null) {
   const availabilityNote = technicalAvailability(availability);
-  return `<article class="decision-list-card"><div class="decision-list-title">${escapeHtml(title)}</div><div class="detail-line-label">${escapeHtml(technicalState(stateLabel))}</div>${detail ? `<div class="detail-line-note">${escapeHtml(detail)}</div>` : ""}${availabilityNote ? `<div class="detail-line-note">${escapeHtml(availabilityNote)}</div>` : ""}<div class="detail-line-list">${rows.join("") || technicalLine(title, t("unavailable"))}</div>${details.length ? `<div class="detail-disclosure"><div class="detail-line-list">${details.join("")}</div></div>` : ""}</article>`;
+  return `<article class="decision-list-card technical-indicator-card"><div class="decision-list-title">${escapeHtml(title)}</div><div class="technical-indicator-state">${escapeHtml(technicalState(stateLabel))}</div>${detail ? `<div class="detail-line-note">${escapeHtml(detail)}</div>` : ""}${availabilityNote ? `<div class="detail-line-note">${escapeHtml(availabilityNote)}</div>` : ""}<div class="detail-line-list">${rows.join("") || technicalLine(title, t("unavailable"))}</div>${details.length ? `<div class="detail-disclosure"><div class="detail-line-list">${details.join("")}</div></div>` : ""}</article>`;
 }
 
 function compactNumber(value) {
@@ -375,12 +377,19 @@ function technicalBlock(row, horizon) {
     `${technicalNumber(item.macd_line, 3)} / ${technicalNumber(item.signal_line, 3)} / ${technicalNumber(item.histogram, 3)}`,
     `${technicalState(item.state)} · ${technicalState(item.crossover_state)}`,
   ));
-  const horizonLabel = featureSet.horizon_label || window.DecisionEngine.config.horizons[horizon].label;
+  const overview = [
+    [t("trendSummary"), technicalState(featureSet.trend?.ma_structure?.alignment)],
+    [t("momentumSummary"), technicalState(macd.state)],
+    [t("volatilitySummary"), technicalState(atr.volatility_regime)],
+    [t("relativeStrengthSummary"), technicalState(rs.state)],
+    [t("participationSummary"), technicalState(obv.trend)],
+  ];
   return `
-    <section class="detail-section-card">
-      <div class="detail-section-head"><h3>${t(horizon)} · ${escapeHtml(horizonLabel)}</h3></div>
-      <div class="detail-line-note">${t("dataStatus")}: ${escapeHtml(technicalState(featureSet.availability))} · ${interval.toUpperCase()} primary interval · supporting intervals are shown where available.</div>
-      <div class="decision-summary-grid">
+    <section class="detail-section-card technical-horizon-section">
+      <div class="detail-section-head"><h3>${t(horizon)} · ${horizonLabel(horizon)}</h3></div>
+      <div class="detail-line-note">${t("dataStatus")}: ${escapeHtml(technicalState(featureSet.availability))} · ${interval.toUpperCase()} ${t("primaryInterval")} · ${t("supportingIntervals")}</div>
+      <div class="technical-overview-strip">${overview.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div>
+      <div class="technical-family-grid">
         ${technicalCard("Moving averages", featureSet.trend?.ma_structure?.alignment, "Each value names its MA type, period and candle interval.", maRows, [technicalLine("Alignment", technicalState(featureSet.trend?.ma_structure?.alignment)), technicalLine("Compression / expansion", technicalState(featureSet.trend?.ma_structure?.compression_state))])}
         ${technicalCard("RSI", rsi.state, `${interval.toUpperCase()} · primary RSI ${rsi.period || rsiPeriod}`, rsiRows, [technicalLine("Primary slope", technicalState(rsi.slope?.state), technicalAvailability(rsi.slope)), technicalLine("Primary divergence", technicalState(rsi.divergence))], rsi)}
         ${technicalCard("MACD", macd.state, `${interval.toUpperCase()} · MACD ${macd.period || "12/26/9"}`, [technicalLine("MACD line", technicalNumber(macd.macd_line, 3)), technicalLine("Signal line", technicalNumber(macd.signal_line, 3)), technicalLine("Histogram", technicalNumber(macd.histogram, 3))], [technicalLine("Histogram 1-bar Δ", technicalNumber(macd.histogram_change_1, 3)), technicalLine("Histogram 3-bar Δ", technicalNumber(macd.histogram_change_3, 3)), technicalLine("Histogram 5-bar Δ", technicalNumber(macd.histogram_change_5, 3)), technicalLine("Zero line", technicalState(macd.above_or_below_zero)), technicalLine("Improving / deteriorating", technicalState(macd.improving_or_deteriorating)), technicalLine("Crossover", technicalState(macd.crossover_state)), technicalLine("Histogram slope", technicalState(macd.histogram_slope?.state), technicalAvailability(macd.histogram_slope)), ...secondaryMacdRows], macd)}
@@ -395,12 +404,17 @@ function technicalBlock(row, horizon) {
   `;
 }
 
-function fibonacciLevelRows(levels, row) {
-  return Object.values(levels || {}).filter((level) => level?.valid_for_display).map((level) => technicalLine(
-    `${level.label} · ${level.type === "extension" ? "Extension" : "Retracement"}`,
-    formatPrice(level.price, row.currency),
-    Math.abs(level.distance_from_current_pct ?? Infinity) <= 0.1 ? "Near current price" : `${formatPct(level.distance_from_current_pct)} from current`,
-  ));
+function technicalTabSelector(attribute, selected, className = "technical-horizon-tabs") {
+  return `<div class="${className}" role="tablist">${["short", "mid", "long"].map((horizon) => `<button type="button" class="${horizon === selected ? "active" : ""}" data-${attribute}="${horizon}">${t(horizon)} · ${horizonLabel(horizon)}</button>`).join("")}</div>`;
+}
+
+function technicalAccordion(id, title, description, content, expanded) {
+  return `<section class="technical-accordion${expanded ? " is-expanded" : ""}"><button type="button" class="technical-accordion-toggle" data-technical-toggle="${id}" aria-expanded="${expanded}"><span><b>${escapeHtml(title)}</b>${description ? `<small>${escapeHtml(description)}</small>` : ""}</span><span class="technical-accordion-state">${expanded ? t("collapsed") : t("expanded")}</span></button><div class="technical-accordion-body"${expanded ? "" : " hidden"}>${content}</div></section>`;
+}
+
+function fibonacciLevelTable(levels, row, type) {
+  const rows = Object.values(levels || {}).filter((level) => level?.valid_for_display).map((level) => `<tr><td>${escapeHtml(level.label || t("unavailable"))}</td><td>${formatPrice(level.price, row.currency)}</td><td>${Math.abs(level.distance_from_current_pct ?? Infinity) <= 0.1 ? t("currentPosition") : `${formatPct(level.distance_from_current_pct)} ${state.language === "zh" ? "相对当前" : "from current"}`}</td></tr>`).join("");
+  return `<div class="fibonacci-level-group"><h4>${escapeHtml(type)}</h4><div class="fibonacci-table-scroll"><table class="fibonacci-level-table"><thead><tr><th>${t("level")}</th><th>${t("price")}</th><th>${t("distance")}</th></tr></thead><tbody>${rows || `<tr><td colspan="3">${t("technicalUnavailable")}</td></tr>`}</tbody></table></div></div>`;
 }
 
 function fibonacciHorizonCard(row, title, fib) {
@@ -408,29 +422,22 @@ function fibonacciHorizonCard(row, title, fib) {
     return technicalCard(title, fib?.status === "no_valid_swing" ? "No valid swing identified" : "Insufficient Fibonacci data", fib?.explanation || "", []);
   }
   const direction = fib.swing_direction === "up_swing" ? "Up swing" : "Down swing";
-  return technicalCard(title, direction, `${fib.data_window || "—"} · ${fib.pivot_method || "—"}`, [
-    technicalLine("Swing high", `${fib.swing_high_date || "—"} · ${formatPrice(fib.swing_high, row.currency)}`),
-    technicalLine("Swing low", `${fib.swing_low_date || "—"} · ${formatPrice(fib.swing_low, row.currency)}`),
-    technicalLine("Swing range", `${formatPrice(fib.swing_range, row.currency)} · ${percentValue(fib.swing_range_pct)}`),
-    technicalLine("Current position", fib.current_position_label || t("unavailable")),
-    technicalLine("Nearest below", fib.nearest_level_below ? `${fib.nearest_level_below.label} · ${formatPrice(fib.nearest_level_below.price, row.currency)}` : t("unavailable")),
-    technicalLine("Nearest above", fib.nearest_level_above ? `${fib.nearest_level_above.label} · ${formatPrice(fib.nearest_level_above.price, row.currency)}` : t("unavailable")),
-  ], [
-    technicalLine("Anchor start", `${fib.swing_start_date || "—"} · ${formatPrice(fib.swing_direction === "up_swing" ? fib.swing_low : fib.swing_high, row.currency)}`),
-    technicalLine("Anchor end", `${fib.swing_end_date || "—"} · ${formatPrice(fib.swing_direction === "up_swing" ? fib.swing_high : fib.swing_low, row.currency)}`),
-    technicalLine("Pivot confirmation", fib.pivot_confirmation || fib.pivot_method || t("unavailable")),
-    technicalLine("Pivot count · high / low", `${fib.pivot_high_count ?? t("unavailable")} / ${fib.pivot_low_count ?? t("unavailable")}`),
-    technicalLine("Bars since swing end", Number.isFinite(fib.bars_since_swing_end) ? String(fib.bars_since_swing_end) : t("unavailable")),
-    technicalSectionLabel("Retracement levels"),
-    ...fibonacciLevelRows(fib.retracement_levels, row),
-    technicalSectionLabel("Extension levels"),
-    ...fibonacciLevelRows(fib.extension_levels, row),
-  ]);
+  return `<article class="technical-indicator-card fibonacci-card"><div class="decision-list-title">${escapeHtml(title)}</div><div class="technical-indicator-state">${escapeHtml(direction)}</div><div class="detail-line-note">${escapeHtml(`${fib.data_window || "—"} · ${fib.pivot_method || "—"}`)}</div><div class="fibonacci-summary-grid">${[
+    [t("swingHigh"), `${fib.swing_high_date || "—"} · ${formatPrice(fib.swing_high, row.currency)}`],
+    [t("swingLow"), `${fib.swing_low_date || "—"} · ${formatPrice(fib.swing_low, row.currency)}`],
+    [t("swingRange"), `${formatPrice(fib.swing_range, row.currency)} · ${percentValue(fib.swing_range_pct)}`],
+    [t("currentPosition"), fib.current_position_label || t("unavailable")],
+    [t("nearestBelow"), fib.nearest_level_below ? `${fib.nearest_level_below.label} · ${formatPrice(fib.nearest_level_below.price, row.currency)}` : t("unavailable")],
+    [t("nearestAbove"), fib.nearest_level_above ? `${fib.nearest_level_above.label} · ${formatPrice(fib.nearest_level_above.price, row.currency)}` : t("unavailable")],
+  ].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div>${fibonacciLevelTable(fib.retracement_levels, row, t("retracement"))}${fibonacciLevelTable(fib.extension_levels, row, t("extension"))}<details class="technical-advanced"><summary>${t("advancedSwingMetadata")}</summary><div class="detail-line-list">${technicalLine("Anchor start", `${fib.swing_start_date || "—"} · ${formatPrice(fib.swing_direction === "up_swing" ? fib.swing_low : fib.swing_high, row.currency)}`)}${technicalLine("Anchor end", `${fib.swing_end_date || "—"} · ${formatPrice(fib.swing_direction === "up_swing" ? fib.swing_high : fib.swing_low, row.currency)}`)}${technicalLine("Pivot confirmation", fib.pivot_confirmation || fib.pivot_method || t("unavailable"))}${technicalLine("Pivot count · high / low", `${fib.pivot_high_count ?? t("unavailable")} / ${fib.pivot_low_count ?? t("unavailable")}`)}${technicalLine("Bars since swing end", Number.isFinite(fib.bars_since_swing_end) ? String(fib.bars_since_swing_end) : t("unavailable"))}</div></details></article>`;
 }
 
 function renderFibonacciStructure(row) {
   const structure = row.technicalFeatures?.fibonacci_structure || {};
-  return `<section class="detail-section-card"><div class="detail-section-head"><h3>Fibonacci Structure</h3></div><div class="detail-line-note">Confirmed swing anchors and retracement / extension levels. This is technical display data only.</div><div class="decision-summary-grid">${fibonacciHorizonCard(row, "Short-Term Fibonacci", structure.short_term)}${fibonacciHorizonCard(row, "Mid-Term Fibonacci", structure.mid_term)}${fibonacciHorizonCard(row, "Long-Term Fibonacci", structure.long_term)}</div></section>`;
+  const key = state.fibonacciHorizon === "short" ? "short_term" : state.fibonacciHorizon === "mid" ? "mid_term" : "long_term";
+  const title = `${t(state.fibonacciHorizon)} ${t("fibonacciStructure")}`;
+  const content = `<div class="technical-accordion-content">${technicalTabSelector("fibonacci-horizon", state.fibonacciHorizon, "fibonacci-horizon-tabs")}${fibonacciHorizonCard(row, title, structure[key])}</div>`;
+  return technicalAccordion("fibonacci", t("fibonacciStructure"), t("fibonacciDescription"), content, state.technicalSections.fibonacci);
 }
 
 function renderTechnicalFoundation(row) {
@@ -443,12 +450,13 @@ function renderTechnicalFoundation(row) {
   const shortObv = row.technicalFeatures?.horizons?.short?.participation?.obv?.obv_4h || {};
   const midObv = row.technicalFeatures?.horizons?.medium?.participation?.obv?.obv_1d || {};
   const longObv = row.technicalFeatures?.horizons?.long?.participation?.obv?.obv_1w || {};
-  return `<section class="detail-section-card"><div class="detail-section-head"><h3>52-Week / Historical Position and Volume</h3></div><div class="decision-summary-grid">${technicalCard("52-Week and history", position.availability, "Daily OHLCV history", [technicalLine("52W high / distance", `${formatPrice(position.high_52w, row.currency)} / ${formatPct(position.distance_to_52w_high_pct)}`, position.high_52w_date || ""), technicalLine("52W low / distance", `${formatPrice(position.low_52w, row.currency)} / ${formatPct(position.distance_to_52w_low_pct)}`, position.low_52w_date || ""), technicalLine("52W position", percentValue(position.position_52w_pct)), technicalLine("All-time high / distance", `${formatPrice(position.all_time_high, row.currency)} / ${formatPct(position.distance_to_ath_pct)}`, position.all_time_high_date || "")], [technicalLine("History coverage", position.all_time_history_coverage || t("unavailable")), technicalLine("History bars / start", `${position.all_time_history_bar_count ?? t("unavailable")} / ${position.all_time_history_start || t("unavailable")}`)], position)}${technicalCard("Volume / RVOL / OBV", rvol.state || volume.availability, "1D current volume, moving averages, RVOL and OBV context", [technicalLine("Current volume", compactNumber(volume.current_volume)), technicalLine("Average volume", `5D ${compactNumber(averages.avg_5d)} · 20D ${compactNumber(averages.avg_20d)} · 60D ${compactNumber(averages.avg_60d)}`), technicalLine("Relative volume", `RVOL5 ${rvolValue(rvol.rvol_5d)} · RVOL20 ${rvolValue(rvol.rvol_20d)} · RVOL60 ${rvolValue(rvol.rvol_60d)}`), technicalLine("OBV raw / trend", `${compactNumber(obv.raw_value)} / ${technicalState(obv.trend)}`)], [technicalLine("Average volume · 120D / 250D", `${compactNumber(averages.avg_120d)} / ${compactNumber(averages.avg_250d)}`), technicalLine("Turnover · current / 5D / 20D / 60D", `${percentValue(turnover.turnover_current)} / ${percentValue(turnover.turnover_5d_avg)} / ${percentValue(turnover.turnover_20d_avg)} / ${percentValue(turnover.turnover_60d_avg)}`), technicalLine("OBV trend · 5D / 20D / 60D", `${technicalState(obv.trends?.d5?.trend)} / ${technicalState(obv.trends?.d20?.trend)} / ${technicalState(obv.trends?.d60?.trend)}`), technicalLine("OBV divergence", technicalState(obv.divergence || obv.trends?.d20?.divergence)), technicalLine("Price-volume confirmation", technicalState(obv.price_obv_confirmation || obv.trends?.d20?.price_obv_confirmation)), technicalLine("Volume structure", `${technicalState(volume.trend?.volume_trend)} · ${technicalState(volume.accumulation_distribution)}`), technicalLine("Horizon OBV · 4H / 1D / 1W", `${technicalState(shortObv.trend)} / ${technicalState(midObv.trend)} / ${technicalState(longObv.trend)}`)], volume)}</div></section>`;
+  const content = `<div class="technical-family-grid">${technicalCard("52-Week and history", position.availability, "Daily OHLCV history", [technicalLine("52W high / distance", `${formatPrice(position.high_52w, row.currency)} / ${formatPct(position.distance_to_52w_high_pct)}`, position.high_52w_date || ""), technicalLine("52W low / distance", `${formatPrice(position.low_52w, row.currency)} / ${formatPct(position.distance_to_52w_low_pct)}`, position.low_52w_date || ""), technicalLine("52W position", percentValue(position.position_52w_pct)), technicalLine("All-time high / distance", `${formatPrice(position.all_time_high, row.currency)} / ${formatPct(position.distance_to_ath_pct)}`, position.all_time_high_date || "")], [technicalLine("History coverage", position.all_time_history_coverage || t("unavailable")), technicalLine("History bars / start", `${position.all_time_history_bar_count ?? t("unavailable")} / ${position.all_time_history_start || t("unavailable")}`)], position)}${technicalCard("Volume / RVOL / OBV", rvol.state || volume.availability, "1D current volume, moving averages, RVOL and OBV context", [technicalLine("Current volume", compactNumber(volume.current_volume)), technicalLine("Average volume", `5D ${compactNumber(averages.avg_5d)} · 20D ${compactNumber(averages.avg_20d)} · 60D ${compactNumber(averages.avg_60d)}`), technicalLine("Relative volume", `RVOL5 ${rvolValue(rvol.rvol_5d)} · RVOL20 ${rvolValue(rvol.rvol_20d)} · RVOL60 ${rvolValue(rvol.rvol_60d)}`), technicalLine("OBV raw / trend", `${compactNumber(obv.raw_value)} / ${technicalState(obv.trend)}`)], [technicalLine("Average volume · 120D / 250D", `${compactNumber(averages.avg_120d)} / ${compactNumber(averages.avg_250d)}`), technicalLine("Turnover · current / 5D / 20D / 60D", `${percentValue(turnover.turnover_current)} / ${percentValue(turnover.turnover_5d_avg)} / ${percentValue(turnover.turnover_20d_avg)} / ${percentValue(turnover.turnover_60d_avg)}`), technicalLine("OBV trend · 5D / 20D / 60D", `${technicalState(obv.trends?.d5?.trend)} / ${technicalState(obv.trends?.d20?.trend)} / ${technicalState(obv.trends?.d60?.trend)}`), technicalLine("OBV divergence", technicalState(obv.divergence || obv.trends?.d20?.divergence)), technicalLine("Price-volume confirmation", technicalState(obv.price_obv_confirmation || obv.trends?.d20?.price_obv_confirmation)), technicalLine("Volume structure", `${technicalState(volume.trend?.volume_trend)} · ${technicalState(volume.accumulation_distribution)}`), technicalLine("Horizon OBV · 4H / 1D / 1W", `${technicalState(shortObv.trend)} / ${technicalState(midObv.trend)} / ${technicalState(longObv.trend)}`)], volume)}</div>`;
+  return technicalAccordion("foundation", t("historicalVolume"), "", content, state.technicalSections.foundation);
 }
 
 function renderTechnicalPanel(row) {
   if (!row.technicalFeatures) return `<section class="detail-tab-section"><p>${t("noData")}</p></section>`;
-  return `<section class="detail-tab-section">${renderFibonacciStructure(row)}${renderTechnicalFoundation(row)}${technicalBlock(row, "short")}${technicalBlock(row, "mid")}${technicalBlock(row, "long")}</section>`;
+  return `<section class="detail-tab-section technical-tab-panel">${renderFibonacciStructure(row)}${renderTechnicalFoundation(row)}<section class="technical-overview-section"><div class="detail-section-head"><h3>${t("technicalOverview")}</h3></div>${technicalTabSelector("technical-horizon", state.technicalHorizon)}${technicalBlock(row, state.technicalHorizon)}</section></section>`;
 }
 
 function marketLine(label, value, note = "") {
@@ -463,11 +471,13 @@ function renderMarketPanel(row) {
   const vixChange = (value) => Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${Number(value).toFixed(2)}` : t("unavailable");
   const indexHistory = (item) => `5D ${formatPct(item?.change_5d_pct)} · 20D ${formatPct(item?.change_20d_pct)} · 60D ${formatPct(item?.change_60d_pct)} · 120D ${formatPct(item?.change_120d_pct)}`;
   return `
-    <section class="detail-tab-section">
-      <section class="detail-section-card"><div class="detail-section-head"><h3>${t("marketState")}</h3></div><div class="detail-line-list">${marketLine("Regime", engine.regime || engine.summary || t("unavailable"))}${marketLine("Earnings", earnings.date ? `${formatDate(earnings.date)}${Number.isFinite(earnings.daysToEarnings) ? ` · ${earnings.daysToEarnings}d` : ""}` : t("unavailable"))}</div></section>
-      <section class="detail-section-card"><div class="detail-section-head"><h3>VIX</h3></div><div class="detail-line-list">${marketLine("Current VIX", Number.isFinite(finite(engine.vix?.value)) ? finite(engine.vix.value).toFixed(2) : t("unavailable"), engine.vix?.impact || "")}${marketLine("5D change", vixChange(engine.vix?.change_5d))}${marketLine("20D change", vixChange(engine.vix?.change_20d))}${marketLine("Trend", engine.vix?.trend || t("unavailable"))}</div></section>
-      <section class="detail-section-card"><div class="detail-section-head"><h3>SPY / QQQ</h3></div><div class="detail-line-list">${marketLine("SPY", priceTrend(engine.equity_trend?.spy), indexHistory(engine.equity_trend?.spy))}${marketLine("QQQ", priceTrend(engine.equity_trend?.qqq), indexHistory(engine.equity_trend?.qqq))}</div></section>
-      <section class="detail-section-card"><div class="detail-section-head"><h3>Fear & Greed / US 10Y Yield</h3></div><div class="detail-line-list">${marketLine("Fear & Greed", engine.fear_greed?.label || engine.fearGreed?.label || t("unavailable"), engine.fear_greed?.value == null ? "" : `${Math.round(engine.fear_greed.value)}/100`)}${marketLine("US 10Y Yield", engine.ten_year_yield?.value == null ? t("unavailable") : `${Number(engine.ten_year_yield.value).toFixed(2)}%`, `5D ${engine.ten_year_yield?.change_5d_bps ?? t("unavailable")} bps · 20D ${engine.ten_year_yield?.change_20d_bps ?? t("unavailable")} bps`)}</div></section>
+    <section class="detail-tab-section market-tab-panel">
+      <section class="detail-section-card market-status-card"><div class="detail-section-head"><h3>${t("marketStatus")}</h3></div><div class="market-status-primary"><div><span>${t("regime")}</span><strong>${escapeHtml(engine.regime || engine.summary || t("unavailable"))}</strong></div><div><span>${t("earningsProximity")}</span><strong>${escapeHtml(earnings.date ? `${formatDate(earnings.date)}${Number.isFinite(earnings.daysToEarnings) ? ` · ${earnings.daysToEarnings}d` : ""}` : t("unavailable"))}</strong></div></div></section>
+      <div class="market-compact-grid">
+        <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>VIX</h3></div><div class="detail-line-list">${marketLine(t("current"), Number.isFinite(finite(engine.vix?.value)) ? finite(engine.vix.value).toFixed(2) : t("unavailable"), engine.vix?.impact || "")}${marketLine(t("change5d"), vixChange(engine.vix?.change_5d))}${marketLine(t("change20d"), vixChange(engine.vix?.change_20d))}${marketLine(t("trend"), engine.vix?.trend || t("unavailable"))}</div></section>
+        <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>SPY / QQQ</h3></div><div class="detail-line-list">${marketLine("SPY", priceTrend(engine.equity_trend?.spy), indexHistory(engine.equity_trend?.spy))}${marketLine("QQQ", priceTrend(engine.equity_trend?.qqq), indexHistory(engine.equity_trend?.qqq))}</div></section>
+        <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>Fear &amp; Greed / US 10Y Yield</h3></div><div class="detail-line-list">${marketLine("Fear & Greed", engine.fear_greed?.label || engine.fearGreed?.label || t("unavailable"), engine.fear_greed?.value == null ? "" : `${Math.round(engine.fear_greed.value)}/100`)}${marketLine("US 10Y Yield", engine.ten_year_yield?.value == null ? t("unavailable") : `${Number(engine.ten_year_yield.value).toFixed(2)}%`, `5D ${engine.ten_year_yield?.change_5d_bps ?? t("unavailable")} bps · 20D ${engine.ten_year_yield?.change_20d_bps ?? t("unavailable")} bps`)}</div></section>
+      </div>
     </section>
   `;
 }
@@ -481,28 +491,38 @@ function profileFromRow(row) {
 }
 
 function tagPills(tags, className = "") {
-  const values = Array.isArray(tags) ? tags.filter(Boolean) : [];
-  return values.length ? values.map((tag) => `<span class="profile-tag ${className}">${escapeHtml(tag)}</span>`).join("") : `<span class="profile-tag muted">${t("unavailable")}</span>`;
+  const values = [...new Set((Array.isArray(tags) ? tags : []).filter(Boolean))];
+  return values.map((tag) => `<span class="profile-tag ${className}">${escapeHtml(tag)}</span>`).join("");
 }
 
 function renderProfileHeader(row) {
   const profile = profileFromRow(row);
-  const review = profile.lastProfileReview ? formatDate(profile.lastProfileReview) : t("unavailable");
-  const confidence = Number.isFinite(profile.profileConfidence) ? `${Math.round(profile.profileConfidence * 100)}%` : t("unavailable");
-  return `<section class="decision-hero"><div class="decision-hero-main"><div class="decision-code">${escapeHtml(row.ticker)}</div><div class="decision-company">${escapeHtml(row.companyName)}</div><div class="detail-consensus-mini"><span>${t("price")} ${formatPrice(row.price, row.currency)}</span><span class="${row.changePercent >= 0 ? "buy" : "sell"}">${t("dayMove")} ${formatPct(row.changePercent)}</span><span>${escapeHtml(row.classification.category)}</span></div></div><div class="decision-profile-header"><div class="profile-tag-group"><span>${t("staticTags")}</span><div>${tagPills(profile.staticTags)}</div></div><div class="profile-tag-group"><span>${t("dynamicTags")}</span><div>${tagPills(profile.dynamicTags)}</div></div><div class="profile-tag-group"><span>${t("lifecycle")}</span><div>${tagPills(profile.lifecycleTag ? [profile.lifecycleTag] : [])}</div></div><div class="profile-review-line"><span>${t("modelProfile")}: <b>${escapeHtml(profile.lifecycleTag || profile.category || t("unavailable"))}</b></span><span>${t("profileConfidence")}: <b>${confidence}</b></span><span>${t("lastReview")}: <b>${review}</b></span>${(profile.candidateTags || []).length ? `<span class="candidate-profile">${t("candidateProfile")}: ${escapeHtml(profile.candidateTags.join(", "))}</span>` : ""}</div></div></section>`;
+  const groups = window.DecisionPresentation?.profileGroups?.(profile, row.classification.category) || { staticTags: profile.staticTags || [], dynamicTags: profile.dynamicTags || [], lifecycleTags: profile.lifecycleTag ? [profile.lifecycleTag] : [], candidateTags: profile.candidateTags || [], visible: {} };
+  const confidence = Number.isFinite(profile.profileConfidence) ? `${Math.round(profile.profileConfidence * 100)}%` : "";
+  const profileMeta = [
+    profile.lifecycleTag ? `<span>${t("modelProfile")}: <b>${escapeHtml(profile.lifecycleTag)}</b></span>` : "",
+    confidence ? `<span>${t("profileConfidence")}: <b>${confidence}</b></span>` : "",
+    profile.lastProfileReview ? `<span>${t("lastReview")}: <b>${formatDate(profile.lastProfileReview)}</b></span>` : "",
+    groups.visible?.candidate ? `<span class="candidate-profile">${t("candidateProfile")}: ${tagPills(groups.candidateTags, "candidate")}</span>` : "",
+  ].filter(Boolean).join("");
+  const tagGroups = [
+    groups.visible?.static ? `<div class="profile-tag-group"><span>${t("staticTags")}</span><div>${tagPills(groups.staticTags)}</div></div>` : "",
+    groups.visible?.dynamic ? `<div class="profile-tag-group"><span>${t("dynamicTags")}</span><div>${tagPills(groups.dynamicTags)}</div></div>` : "",
+    groups.visible?.lifecycle ? `<div class="profile-tag-group"><span>${t("lifecycle")}</span><div>${tagPills(groups.lifecycleTags)}</div></div>` : "",
+  ].filter(Boolean).join("");
+  return `<section class="decision-hero"><div class="decision-hero-main"><div class="decision-code">${escapeHtml(row.ticker)}</div><div class="decision-company">${escapeHtml(row.companyName)}</div><div class="detail-consensus-mini"><span>${t("price")} ${formatPrice(row.price, row.currency)}</span><span class="daily-change ${row.changePercent >= 0 ? "positive" : "negative"}">${t("dayMove")} ${formatPct(row.changePercent)}</span></div>${row.classification.category ? `<div class="primary-classification"><span>${t("primaryClassification")}</span><b>${escapeHtml(row.classification.category)}</b></div>` : ""}</div>${tagGroups || profileMeta ? `<div class="decision-profile-header">${tagGroups}${profileMeta ? `<div class="profile-review-line">${profileMeta}</div>` : ""}</div>` : ""}</section>`;
 }
 
 function renderDecisionPriceMap(row, horizon) {
   const decision = decisionFor(row, horizon);
   const model = window.DecisionPresentation?.priceMapModel?.({ currentPrice: row.price, decision }) || { points: [] };
-  const pointMarkup = (point) => {
-    if (point.id === "range" || point.id === "target") return `<span class="price-map-range ${point.id}" style="left:${point.start}%;width:${Math.max(1.2, point.end - point.start)}%"><i>${escapeHtml(t(point.labelKey))}</i></span>`;
-    if (point.id === "current") return `<span class="price-map-current" style="left:${point.position}%"><i>${t("currentPrice")}</i><b>▲</b></span>`;
-    return `<span class="price-map-reference ${point.id}" style="left:${point.position}%"><i>${escapeHtml(t(point.labelKey))}</i><b>│</b></span>`;
-  };
+  const pointMarkup = (point) => (point.id === "range" || point.id === "target"
+    ? `<span class="price-map-range ${point.id}" style="left:${point.start}%;width:${Math.max(1.2, point.end - point.start)}%"></span>`
+    : `<span class="price-map-marker ${point.id}" style="left:${point.position}%"><b>${point.id === "current" ? "▲" : "│"}</b></span>`);
+  const labelMarkup = (point) => `<span class="price-map-label ${point.id} ${point.labelSide} lane-${point.labelLane}" style="left:${point.labelPosition}%"><i>${escapeHtml(t(point.labelKey))}</i></span>`;
   if (!decision || !model.points?.length) return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("decisionPriceMap")}</h3></div><p class="decision-no-data">${t("noDecision")}</p></section>`;
-  const key = model.points.filter((point) => point.id !== "current").map((point) => `<span><i class="price-map-key ${point.id}"></i>${escapeHtml(t(point.labelKey))}</span>`).join("");
-  return `<section class="detail-section-card decision-price-map"><div class="detail-section-head"><h3>${t("decisionPriceMap")}</h3><span>${t(horizon)} · ${horizonLabel(horizon)}</span></div><div class="price-map-track">${model.points.map(pointMarkup).join("")}</div><div class="price-map-key-row">${key || `<span>${t("currentPrice")}</span>`}</div></section>`;
+  const key = (model.legend || []).map((point) => `<span><i class="price-map-key ${point.id}"></i>${escapeHtml(t(point.labelKey))}</span>`).join("");
+  return `<section class="detail-section-card decision-price-map"><div class="detail-section-head"><h3>${t("decisionPriceMap")}</h3><span>${t(horizon)} · ${horizonLabel(horizon)}</span></div><div class="price-map-track" style="--price-map-height:${model.trackHeight || 140}px">${model.points.map(pointMarkup).join("")}<div class="price-map-axis"></div>${model.labels.map(labelMarkup).join("")}</div><div class="price-map-key-row">${key}</div></section>`;
 }
 
 function horizonSelector(horizon) {
@@ -556,8 +576,15 @@ function modifierDescription(tag) {
 
 function renderCompanyModel(row, horizon) {
   const profile = decisionFor(row, horizon)?.companyProfile || profileFromRow(row);
+  const groups = window.DecisionPresentation?.profileGroups?.(profile) || { staticTags: profile.staticTags || [], dynamicTags: profile.dynamicTags || [], lifecycleTags: profile.lifecycleTag ? [profile.lifecycleTag] : [], candidateTags: profile.candidateTags || [], visible: {} };
   const applied = (profile.appliedModifierTags || []).map((tag) => ({ tag, description: modifierDescription(tag) })).filter((item) => item.description).map((item) => `<li><b>${escapeHtml(item.tag)}</b><span>${escapeHtml(item.description)}</span></li>`);
-  return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("companyModel")}</h3></div><div class="company-model-grid"><div class="profile-tag-group"><span>${t("staticTags")}</span><div>${tagPills(profile.staticTags)}</div></div><div class="profile-tag-group"><span>${t("dynamicTags")}</span><div>${tagPills(profile.dynamicTags)}</div></div><div class="profile-tag-group"><span>${t("lifecycle")}</span><div>${tagPills(profile.lifecycleTag ? [profile.lifecycleTag] : [])}</div></div><div class="profile-tag-group"><span>${t("candidateProfile")}</span><div>${tagPills(profile.candidateTags, "candidate")}</div></div></div>${applied.length ? `<div class="modifier-list"><div class="decision-list-title">${t("appliedModifiers")}</div><ul>${applied.join("")}</ul></div>` : ""}</section>`;
+  const groupsMarkup = [
+    groups.visible?.static ? `<div class="profile-tag-group"><span>${t("staticTags")}</span><div>${tagPills(groups.staticTags)}</div></div>` : "",
+    groups.visible?.dynamic ? `<div class="profile-tag-group"><span>${t("dynamicTags")}</span><div>${tagPills(groups.dynamicTags)}</div></div>` : "",
+    groups.visible?.lifecycle ? `<div class="profile-tag-group"><span>${t("lifecycle")}</span><div>${tagPills(groups.lifecycleTags)}</div></div>` : "",
+    groups.visible?.candidate ? `<div class="profile-tag-group candidate-group"><span>${t("candidateProfile")}</span><div>${tagPills(groups.candidateTags, "candidate")}</div></div>` : "",
+  ].filter(Boolean).join("");
+  return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("companyModel")}</h3></div>${groupsMarkup ? `<div class="company-model-grid">${groupsMarkup}</div>` : ""}${applied.length ? `<div class="modifier-list"><div class="decision-list-title">${t("appliedModifiers")}</div><ul>${applied.join("")}</ul></div>` : ""}</section>`;
 }
 
 function renderDecisionPanel(row) {
@@ -719,7 +746,7 @@ function bindEvents() {
     const remove = event.target.closest("[data-remove-ticker]");
     if (remove) { event.stopPropagation(); removeTicker(remove.dataset.removeTicker); return; }
     const card = event.target.closest("[data-open-ticker]");
-    if (card) { state.selectedTicker = card.dataset.openTicker; state.modalOpen = true; state.activeTab = "summary"; state.decisionHorizon = "short"; render(); }
+    if (card) { state.selectedTicker = card.dataset.openTicker; state.modalOpen = true; state.activeTab = "summary"; state.decisionHorizon = "short"; state.technicalHorizon = "short"; state.fibonacciHorizon = "short"; state.technicalSections = { fibonacci: false, foundation: false }; render(); }
   });
   document.querySelectorAll(".sort-btn").forEach((button) => button.addEventListener("click", () => {
     const key = button.dataset.sortKey;
@@ -733,7 +760,13 @@ function bindEvents() {
     const tab = event.target.closest("[data-detail-tab]");
     if (tab) { state.activeTab = tab.dataset.detailTab; renderDetailModal(); }
     const horizon = event.target.closest("[data-decision-horizon]");
-    if (horizon) { state.decisionHorizon = horizon.dataset.decisionHorizon; renderDetailModal(); }
+    if (horizon) { state.decisionHorizon = horizon.dataset.decisionHorizon; renderDetailModal(); return; }
+    const technicalHorizon = event.target.closest("[data-technical-horizon]");
+    if (technicalHorizon) { state.technicalHorizon = technicalHorizon.dataset.technicalHorizon; renderDetailModal(); return; }
+    const fibonacciHorizon = event.target.closest("[data-fibonacci-horizon]");
+    if (fibonacciHorizon) { state.fibonacciHorizon = fibonacciHorizon.dataset.fibonacciHorizon; renderDetailModal(); return; }
+    const technicalToggle = event.target.closest("[data-technical-toggle]");
+    if (technicalToggle) { const section = technicalToggle.dataset.technicalToggle; state.technicalSections = { ...state.technicalSections, [section]: !state.technicalSections[section] }; renderDetailModal(); }
   });
   document.addEventListener("keydown", (event) => { if (event.key === "Escape" && state.modalOpen) { state.modalOpen = false; render(); } });
 }
