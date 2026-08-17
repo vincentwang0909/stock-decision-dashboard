@@ -2,11 +2,13 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 
 for (const file of [
-  "config.js", "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "company-profile.js",
+  "config.js", "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "etf-profile.js", "company-profile.js",
   "execution-engine.js", "confidence-engine.js", "stability-engine.js", "decision-engine.js",
 ]) require(path.join(__dirname, "..", "decision-engine", file));
 
 const engine = globalThis.DecisionEngine;
+const profiles = require("../profile-definitions.js");
+const watchlist = require("../watchlist.shared.json").watchlist;
 const unavailable = { availability: "unavailable" };
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -112,15 +114,16 @@ function action(decision, horizon = "short") { return decision.horizons[horizon]
 // 1. Strong bullish + confirmation + attractive price => Buy / Strong Buy candidate.
 engine.stability.clear();
 let result = decide(featureSet(), market({ regime: "risk_on" }), "BULL");
-assert(["strong_buy", "buy"].includes(action(result)), "strong bullish scenario should be actionable");
+assert(!["trim", "sell", "avoid"].includes(action(result)), "strong bullish input must not become defensive before its price state allows it");
 
-// 2. Extreme extension plus deterioration is not chased as a Buy.
+// 2. Extreme extension plus deterioration may only soften an opportunity-zone
+// action to Accumulate; it cannot cross the Price State family into Trim/Sell.
 engine.stability.clear();
 const tiringMacd = { ...macd("bull"), histogram: 0.12, histogram_change_1: -0.32, histogram_change_3: -0.42, histogram_change_5: -0.50, crossover_state: "bearish_cross", improving_or_deteriorating: "deteriorating", state: "decelerating_bullish" };
 const extendedFeatures = featureSet({ options: { short: { rsi: 88, kdj: 112, percentB: 1.42, adverse: true, participationTrend: "falling", divergence: "bearish_divergence", rvol: 3.6, macd: tiringMacd, earlyMacd: tiringMacd } } });
 extendedFeatures.volume.trend = { volume_trend: "expanding", price_volume_confirmation: "bearish_confirmation" };
 result = decide(extendedFeatures, market(), "EXT");
-assert(["hold", "trim", "avoid"].includes(action(result)), "bullish exhaustion must block a chase Buy");
+assert(!["strong_buy", "buy", "trim", "sell"].includes(action(result)), "bullish exhaustion cannot manufacture a chase Buy or contradictory defensive action");
 
 // 3. Bearish direction plus repaired downside exhaustion can Accumulate.
 engine.stability.clear();
@@ -128,22 +131,27 @@ const washoutFeatures = featureSet({ short: "bear", options: { short: { rsi: 14,
 washoutFeatures.price_position.low_52w = 99;
 washoutFeatures.fibonacci_structure.short_term.retracement_levels.r382.price = 99;
 washoutFeatures.fibonacci_structure.short_term.retracement_levels.r618.price = 98.9;
+washoutFeatures.fibonacci_structure.short_term.extension_levels.e127.price = 110;
 washoutFeatures.horizons.short.volatility.bollinger.bollinger_4h.lower_band = 99;
+washoutFeatures.horizons.short.volatility.bollinger.bollinger_4h.middle_band = 105;
+washoutFeatures.horizons.short.volatility.bollinger.bollinger_4h.upper_band = 110;
 result = decide(washoutFeatures, market({ fearGreed: 15 }), "WASHOUT");
-assert.equal(action(result), "accumulate", "bearish exhaustion with structural support should allow Accumulate");
+assert(!["trim", "sell", "avoid"].includes(result.horizons.short.debug.candidateAction), "bearish exhaustion cannot create a defensive action before its price state permits it");
+const validContrarianAccumulate = engine.execution.build({ price: 100, horizon: "short", action: "accumulate", technical: { atr: 1, directionScore: -40, executionContext: { support: { center: 100, members: [], confluence: 3 }, resistance: { center: 108, members: [], confluence: 3 }, levels: [] } } });
+assert.equal(validContrarianAccumulate.actionFamily, "opportunity", "bearish exhaustion Accumulate remains executable only inside the opportunity family");
 
-// 4. Clear bearish breakdown sells; 5. neutral with extreme risk avoids.
+// 4. Clear bearish breakdown sells; extreme ATR does not decide Action Family.
 engine.stability.clear();
 result = decide(featureSet({ short: "bear" }), market(), "BREAK");
 assert.equal(action(result), "sell");
 engine.stability.clear();
 result = decide(featureSet({ short: "neutral", options: { short: { atrPct: 12, atrPercentile: 97, percentB: 1.4, rvol: 4.2 } } }), market(), "RISK");
-assert.equal(action(result), "avoid");
+assert.notEqual(result.horizons.short.states.direction.label, "Bearish", "extreme ATR alone cannot create a defensive Action Family");
 
 // 6. A recovering structure can reach Buy with confirmation and confluence.
 engine.stability.clear();
 result = decide(featureSet({ short: "recover" }), market({ regime: "risk_on" }), "RECOVER");
-assert(["buy", "strong_buy"].includes(action(result)), "recovering structure with confirmation should be buyable");
+assert(!["trim", "sell", "avoid"].includes(action(result)), "recovering structure remains non-defensive until the price state reaches Reduce or Breakdown");
 
 // 7–8. Market cannot overwrite stock direction; Shock blocks Strong Buy.
 engine.stability.clear();
@@ -157,15 +165,15 @@ assert(!["strong_buy", "buy", "accumulate"].includes(action(result)), "Risk-On d
 engine.stability.clear();
 result = decide(featureSet({ short: "bear", mid: "bull", long: "bull" }), market(), "MIXED");
 assert.equal(action(result, "short"), "sell");
-assert(["buy", "strong_buy"].includes(action(result, "mid")));
-assert(["buy", "strong_buy"].includes(action(result, "long")));
+assert(!["trim", "sell", "avoid"].includes(action(result, "mid")));
+assert(!["trim", "sell", "avoid"].includes(action(result, "long")));
 
-// 10–11. Hysteresis holds through a small move but material shock may flip immediately.
+// 10–11. Hysteresis holds through a small in-family move but material shock may flip immediately.
 engine.stability.clear();
-let stable = engine.stability.evaluate({ ticker: "STABLE", horizon: "short", candidateAction: "buy", edge: 60, confidence: 72 });
-stable = engine.stability.evaluate({ ticker: "STABLE", horizon: "short", candidateAction: "hold", edge: 36, confidence: 70 });
+let stable = engine.stability.evaluate({ ticker: "STABLE", horizon: "short", candidateAction: "buy", allowedActions: ["buy", "accumulate"], actionFamily: "opportunity", edge: 60, confidence: 72 });
+stable = engine.stability.evaluate({ ticker: "STABLE", horizon: "short", candidateAction: "accumulate", allowedActions: ["buy", "accumulate"], actionFamily: "opportunity", edge: 36, confidence: 70 });
 assert.equal(stable.finalAction, "buy");
-stable = engine.stability.evaluate({ ticker: "STABLE", horizon: "short", candidateAction: "sell", edge: -72, confidence: 81, materialChangeReasons: ["market_shock"] });
+stable = engine.stability.evaluate({ ticker: "STABLE", horizon: "short", candidateAction: "sell", allowedActions: ["sell", "avoid"], actionFamily: "defensive", edge: -72, confidence: 81, materialChangeReasons: ["market_shock"] });
 assert.equal(stable.finalAction, "sell");
 
 // 12–14. Individual RSI, ATR, or Fear & Greed cannot decide direction/action alone.
@@ -181,9 +189,9 @@ engine.stability.clear();
 const normalFear = decide(featureSet({ short: "neutral" }), market({ fearGreed: 50 }), "FEAR_B");
 assert.equal(fear.horizons.short.states.direction.score, normalFear.horizons.short.states.direction.score, "Fear & Greed has no direction vote");
 
-// 15. A stale entry zone causes an execution/action consistency correction.
-const staleExecution = engine.execution.build({ price: 100, horizon: "short", action: "buy", technical: { atr: 1, directionScore: 70, executionContext: { support: { center: 60, members: [] }, resistance: null, levels: [] } } });
-assert.equal(staleExecution.actionCorrection, "accumulate");
+// 15. Missing structural clusters cannot manufacture a stale entry plan.
+const staleExecution = engine.execution.build({ price: 100, horizon: "short", action: "avoid", technical: { atr: 1, directionScore: 70, executionContext: { support: { center: 60, members: [] }, resistance: null, levels: [] } } });
+assert.equal(staleExecution.priceState, "INVALID_LANDSCAPE");
 
 // 16. Missing core inputs reduce genuine data quality and confidence.
 engine.stability.clear();
@@ -196,15 +204,19 @@ const missing = decide(missingFeatures, market(), "QUALITY_B");
 assert(missing.horizons.short.debug.dataQuality.score < complete.horizons.short.debug.dataQuality.score);
 assert(missing.horizons.short.confidence < complete.horizons.short.confidence);
 
-// 17. Tag aggregation stays within caps; review promotes only after persistence.
-const profile = engine.companyProfile.build({ tags: ["HighGrowth", "HighBeta", "HighVolatility", "CrowdedLeader", "CashCow", "MarketLeader"] }, "CAP");
+// 17. Trait aggregation stays bounded; profile review is annual and changes
+// the modifier pipeline only after the next eligible review.
+const profile = engine.profile.build({ primaryClassification: "Test", companyTraits: ["HighGrowth", "HighBeta", "HighVolatility", "CrowdedLeader", "CashCow", "MarketLeader"], lifecycle: "EstablishedLeader" }, "CAP");
 assert(profile.effectiveModifiers.riskSensitivity <= 1.15 && profile.effectiveModifiers.riskSensitivity >= 0.85);
 assert(profile.effectiveModifiers.marketSensitivity <= 1.2 && profile.effectiveModifiers.marketSensitivity >= 0.8);
-engine.companyProfile.clearReviews();
-const firstReview = engine.companyProfile.review({ ticker: "REVIEW", observedDynamicTags: ["HighMomentum"], now: new Date("2025-01-01T00:00:00Z") });
-const secondReview = engine.companyProfile.review({ ticker: "REVIEW", observedDynamicTags: ["HighMomentum"], now: new Date("2025-04-02T00:00:00Z") });
-assert(firstReview.candidateTags.includes("HighMomentum"));
-assert(secondReview.currentDynamicTags.includes("HighMomentum"));
+engine.profile.clearReviews();
+const firstReview = engine.profile.review({ ticker: "REVIEW", profile: { primaryClassification: "Enterprise Software", companyTraits: ["Cloud", "HighGrowth", "LargeCap"], lifecycle: "Scaling", profileConfidence: 0.8 }, now: new Date("2025-01-01T00:00:00Z") });
+const earlyReview = engine.profile.review({ ticker: "REVIEW", profile: { primaryClassification: "Enterprise Software", companyTraits: ["Cloud", "CashCow", "LargeCap"], lifecycle: "MatureLeader" }, now: new Date("2025-05-01T00:00:00Z") });
+const annualReview = engine.profile.review({ ticker: "REVIEW", profile: { primaryClassification: "Enterprise Software", companyTraits: ["Cloud", "CashCow", "LargeCap"], lifecycle: "MatureLeader", profileConfidence: 0.86 }, now: new Date("2026-01-02T00:00:00Z") });
+assert.deepEqual(earlyReview.companyTraits, firstReview.companyTraits, "profile cannot churn before annual review");
+assert(annualReview.companyTraits.includes("CashCow") && annualReview.lifecycle === "MatureLeader");
+const reviewedProfile = engine.profile.build({ primaryClassification: "Enterprise Software", companyTraits: ["Cloud", "HighGrowth", "LargeCap"], lifecycle: "Scaling" }, "REVIEW");
+assert(reviewedProfile.appliedModifiers.includes("CashCow"), "annual profile update changes modifier inputs");
 
 // 18. Short fast noise changes Short, while Long ignores it because its inputs are Daily/Weekly.
 engine.stability.clear();
@@ -237,42 +249,148 @@ assert.equal(weakFirst.score, 43);
 assert.equal(strongFirst.score, 74);
 assert(weakFirst.score < strongFirst.score && weakFirst.firstObservation && strongFirst.firstObservation);
 
-// 21–22. Hold is a neutral execution state, and Avoid is never rendered as a
-// synthetic reduction/short plan just to fill a schema field.
+// 21–25. Price Landscape uses executable zones only. Hold stays neutral;
+// Avoid never becomes a synthetic exit plan.
 const holdExecution = engine.execution.build({ price: 100, horizon: "short", action: "hold", technical: { atr: 2, executionContext: { support: { center: 98, members: [], confluence: 2 }, resistance: { center: 103, members: [], confluence: 2 }, levels: [] } } });
 assert.equal(holdExecution.executionIntent, "hold");
-assert.equal(holdExecution.targetRange, null);
-assert.equal(holdExecution.invalidation, null);
+assert(holdExecution.priceLandscape.opportunityRange.high < 100);
+assert(holdExecution.priceLandscape.reduceRange.low > 100);
+assert(Number.isFinite(holdExecution.priceLandscape.invalidation));
 const avoidExecution = engine.execution.build({ price: 100, horizon: "short", action: "avoid", technical: { atr: 2, executionContext: { support: null, resistance: null, levels: [] } } });
 assert.equal(avoidExecution.executionIntent, "avoid");
-assert.equal(avoidExecution.recommendedRange, null);
-assert.equal(avoidExecution.targetRange, null);
+assert.equal(avoidExecution.priceLandscape.reduceRange, null);
+assert.equal(avoidExecution.priceLandscape.invalidation, null);
 
-// 23–24. Range centre remains structural while width is ATR-based but bounded;
-// weak confluence cannot manufacture a giant, falsely precise entry range.
-const wideLong = engine.execution.build({ price: 100, horizon: "long", action: "accumulate", technical: { atr: 30, directionScore: 55, executionContext: { support: { center: 97, members: [], confluence: 8 }, resistance: null, levels: [] } } });
-assert((wideLong.recommendedRange.high - wideLong.recommendedRange.low) / 100 <= engine.config.execution.maxHalfWidthPct.long * 2 + 0.0001);
-const weakConfluence = engine.execution.build({ price: 100, horizon: "mid", action: "buy", technical: { atr: 12, directionScore: 65, executionContext: { support: null, resistance: null, levels: [] } } });
-assert.equal(weakConfluence.actionCorrection, "accumulate");
-assert((weakConfluence.recommendedRange.high - weakConfluence.recommendedRange.low) / 100 <= engine.config.execution.maxHalfWidthPct.mid * 2 + 0.0001);
+const trimExecution = engine.execution.build({ price: 108, horizon: "short", action: "trim", exhaustionScore: -20, technical: { atr: 2, executionContext: { support: { center: 96, members: [], confluence: 2 }, resistance: { center: 109, members: [], confluence: 3 }, levels: [] } } });
+assert.equal(trimExecution.actionFamily, "reduce", "Trim is valid only in the reduce family");
+const betweenSell = engine.execution.build({ price: 100, horizon: "short", action: "hold", technical: { atr: 2, directionScore: -30, executionContext: { support: { center: 92, members: [], confluence: 2 }, resistance: { center: 108, members: [], confluence: 2 }, levels: [] } } });
+assert.equal(betweenSell.actionFamily, "neutral", "neutral structure has a Hold execution plan rather than a deferred Sell");
+const breakdownSell = engine.execution.build({ price: 100, horizon: "short", action: "sell", technical: { atr: 2, directionScore: -70, confirmationScore: 70, executionContext: { support: { center: 92, members: [], confluence: 2 }, resistance: { center: 114, members: [], confluence: 2 }, levels: [] } } });
+assert(Math.abs((breakdownSell.priceLandscape.reduceRange.low + breakdownSell.priceLandscape.reduceRange.high) / 2 - 100) < 1, "breakdown exit is anchored to executable current structure");
 
-// 25–26. A normal small edge move remains hysteretic; a material shock bypasses
+// 26–27. Zone centres remain structural while widths are ATR-based but bounded;
+// weak confluence cannot manufacture a giant, falsely precise zone.
+const wideLong = engine.execution.build({ price: 100, horizon: "long", action: "accumulate", technical: { atr: 30, directionScore: 55, executionContext: { support: { center: 70, members: [], confluence: 8 }, resistance: { center: 140, members: [], confluence: 5 }, levels: [] } } });
+assert((wideLong.priceLandscape.opportunityRange.high - wideLong.priceLandscape.opportunityRange.low) / 100 <= engine.config.execution.maxHalfWidthPct.long * 2 + 0.0001);
+const weakConfluence = engine.execution.build({ price: 100, horizon: "mid", action: "buy", technical: { atr: 12, directionScore: 65, executionContext: { support: { center: 96, members: [], confluence: 0 }, resistance: null, levels: [] } } });
+assert.equal(weakConfluence.priceState, "INVALID_LANDSCAPE", "weak unsupported structure does not manufacture a fake precision zone");
+
+// 28–45. Price State defines the final Action Family. Technical evidence
+// selects only the strength within that family; it cannot cross the boundary.
+function jointLandscape({ price = 100, opportunity = { low: 97, high: 99 }, reduce = { low: 104, high: 106 }, atr = 1, horizon = "short", invalidation = 95, breakdown = false } = {}) {
+  const priceState = engine.execution.priceStateFor({ price, horizon, atr, opportunityRange: opportunity, reduceRange: reduce, invalidation, breakdown });
+  return { priceLandscape: { opportunityRange: opportunity, reduceRange: reduce, invalidation, currentPrice: price }, priceState, actionFamily: engine.execution.actionFamilyForState(priceState), landscapeQuality: { state: "high", score: 3, penalty: 0 }, debug: { guardrails: [] } };
+}
+function decisionAt(landscape, technical, options = {}) {
+  return engine.execution.decisionForPriceState({ landscape, technical, risk: options.risk ?? 14, exhaustionScore: options.exhaustionScore ?? 0, edge: options.edge ?? 70, marketModifiers: options.marketModifiers || {}, profile: options.profile || {} });
+}
+const bullishTechnical = { atr: 1, directionScore: 74, confirmationScore: 76, priceOpportunityScore: 44, dataQuality: { score: 92 }, materialSignals: [] };
+const moderateTechnical = { atr: 1, directionScore: 30, confirmationScore: 48, priceOpportunityScore: 18, dataQuality: { score: 92 }, materialSignals: [] };
+const bearishTechnical = { atr: 1, directionScore: -62, confirmationScore: 70, priceOpportunityScore: -20, dataQuality: { score: 92 }, materialSignals: [] };
+const inOpportunityLandscape = jointLandscape({ price: 98 });
+const neutralLandscape = jointLandscape({ price: 101 });
+const inReduceLandscape = jointLandscape({ price: 105 });
+const nearReduceLandscape = jointLandscape({ price: 103.4 });
+assert.equal(inOpportunityLandscape.actionFamily, "opportunity");
+assert(["strong_buy", "buy"].includes(decisionAt(inOpportunityLandscape, bullishTechnical).action), "bullish evidence inside Opportunity stays in the Buy family");
+assert.equal(decisionAt(inOpportunityLandscape, moderateTechnical, { edge: 24 }).action, "accumulate", "moderate evidence inside Opportunity becomes Accumulate");
+assert.equal(decisionAt(inOpportunityLandscape, bearishTechnical, { edge: 32, exhaustionScore: 70 }).action, "accumulate", "bearish exhaustion can be an Accumulate only at a valid opportunity zone");
+assert.equal(decisionAt(neutralLandscape, bullishTechnical).action, "hold", "strong Direction alone cannot create Buy in Neutral");
+assert.equal(decisionAt(neutralLandscape, bearishTechnical).action, "hold", "ordinary bearish bias cannot create Sell in Neutral");
+assert.equal(decisionAt(inReduceLandscape, bullishTechnical).action, "trim", "strong trend inside Reduce is Trim, never Hold");
+assert.equal(decisionAt(inReduceLandscape, bearishTechnical).action, "sell", "bearish deterioration inside Reduce is Sell");
+assert.equal(decisionAt(nearReduceLandscape, bullishTechnical).action, "trim", "Near Reduce is the Reduce family with a consistent label/action");
+assert.equal(jointLandscape({ price: 103, atr: 4 }).priceState, "NEAR_REDUCE_ZONE", "closest real zone wins when ATR proximity bands meet");
+assert.equal(decisionAt(jointLandscape({ price: 94 }), bearishTechnical).action, "sell", "a confirmed invalidation/breakdown permits Sell");
+
+engine.stability.clear();
+let stateful = engine.stability.evaluate({ ticker: "FAMILY_BOUNDARY", horizon: "short", candidateAction: "hold", allowedActions: ["hold"], actionFamily: "neutral", edge: 18, confidence: 64, technical: { signalPersistence: { score: 66 } } });
+stateful = engine.stability.evaluate({ ticker: "FAMILY_BOUNDARY", horizon: "short", candidateAction: "trim", allowedActions: ["trim", "sell"], actionFamily: "reduce", edge: 18, confidence: 64, technical: { signalPersistence: { score: 66 } } });
+assert.equal(stateful.finalAction, "trim", "previous Hold cannot survive entering Reduce");
+assert(stateful.familyBoundaryOverride, "Price State boundary is explicit in stability debug");
+stateful = engine.stability.evaluate({ ticker: "FAMILY_BOUNDARY", horizon: "short", candidateAction: "hold", allowedActions: ["hold"], actionFamily: "neutral", edge: 18, confidence: 64, technical: { signalPersistence: { score: 66 } } });
+assert.equal(stateful.finalAction, "hold", "previous Trim cannot survive a return to Neutral");
+const breakdownTechnical = { ...bearishTechnical, directionScore: -75, executionContext: { support: { center: 92, members: [], confluence: 2, quality: 2 }, resistance: { center: 114, members: [], confluence: 2, quality: 2 }, levels: [] } };
+const rebuiltBreakdown = engine.execution.buildLandscape({ price: 100, horizon: "short", technical: breakdownTechnical, context: { risk: 18, exhaustionScore: 0 } });
+const breakdownDecision = decisionAt(rebuiltBreakdown, breakdownTechnical);
+assert.equal(rebuiltBreakdown.priceState, "BREAKDOWN_ZONE", "confirmed breakdown becomes a defensive Price State");
+assert.equal(breakdownDecision.action, "sell", "a previous Neutral may flip to Sell for a confirmed breakdown");
+assert(Math.abs((rebuiltBreakdown.priceLandscape.reduceRange.low + rebuiltBreakdown.priceLandscape.reduceRange.high) / 2 - 100) < 1, "breakdown reduce range is re-anchored near the executable current area");
+
+const rawOverlapLandscape = engine.execution.buildLandscape({
+  price: 100, horizon: "short", technical: { atr: 1, directionScore: 20, executionContext: {
+    supportClusters: [{ center: 99, confluence: 3, quality: 3, members: [], independentStructures: 2 }],
+    resistanceClusters: [{ center: 100, confluence: 3, quality: 3, members: [], independentStructures: 2 }], levels: [],
+  } },
+});
+assert.notEqual(rawOverlapLandscape.priceState, "INVALID_LANDSCAPE", "a raw overlap is rebuilt when a feasible neutral buffer exists");
+assert(rawOverlapLandscape.priceLandscape.opportunityRange.high < rawOverlapLandscape.priceLandscape.reduceRange.low, "Opportunity and Reduce ranges never overlap");
+assert(rawOverlapLandscape.landscapeQuality.separation > rawOverlapLandscape.landscapeQuality.neutralBuffer, "a dynamic neutral buffer remains between ranges");
+const impossibleLandscape = engine.execution.buildLandscape({ price: 100, horizon: "short", technical: { atr: 2, executionContext: { support: { center: 99.9, confluence: 0.1, members: [] }, resistance: { center: 100.1, confluence: 0.1, members: [] }, levels: [] } } });
+assert.equal(impossibleLandscape.priceState, "INVALID_LANDSCAPE", "weak overlapping clusters are not emitted as fake zones");
+
+engine.stability.clear();
+const confidenceReconciled = decide(featureSet(), market({ regime: "risk_on" }), "FINAL_CONFIDENCE");
+const confidenceHorizon = confidenceReconciled.horizons.short;
+assert.equal(confidenceHorizon.debug.confidenceComponents.action, confidenceHorizon.action, "confidence is recomputed for the final action");
+const finalFamilyDecision = decisionAt(neutralLandscape, bullishTechnical);
+const familyConfidence = engine.confidence.calculate({
+  action: finalFamilyDecision.action, edge: 72,
+  technical: { ...bullishTechnical, signalAgreement: 82, signalPersistence: { score: 68 }, dataQuality: { score: 92 } },
+  marketModifiers: {}, exhaustion: {}, profile: { profileConfidence: 0.9 },
+  finalDecision: finalFamilyDecision, landscapeQuality: neutralLandscape.landscapeQuality,
+});
+assert.equal(familyConfidence.action, "hold", "confidence follows the final Price-State action");
+assert(familyConfidence.penalties.priceStateTension > 0, "Neutral-vs-strong-direction tension lowers confidence without changing family");
+
+// 28–29. A normal small edge move remains hysteretic; a material shock bypasses
 // it immediately instead of leaving a stale Buy locked in cache.
 engine.stability.clear();
-let perturbed = engine.stability.evaluate({ ticker: "PERTURB", horizon: "mid", candidateAction: "buy", edge: 60, confidence: 70, technical: { signalPersistence: { score: 66 } } });
-perturbed = engine.stability.evaluate({ ticker: "PERTURB", horizon: "mid", candidateAction: "hold", edge: 37, confidence: 68, technical: { signalPersistence: { score: 65 } } });
+let perturbed = engine.stability.evaluate({ ticker: "PERTURB", horizon: "mid", candidateAction: "buy", allowedActions: ["buy", "accumulate"], actionFamily: "opportunity", edge: 60, confidence: 70, technical: { signalPersistence: { score: 66 } } });
+perturbed = engine.stability.evaluate({ ticker: "PERTURB", horizon: "mid", candidateAction: "accumulate", allowedActions: ["buy", "accumulate"], actionFamily: "opportunity", edge: 37, confidence: 68, technical: { signalPersistence: { score: 65 } } });
 assert.equal(perturbed.finalAction, "buy");
-perturbed = engine.stability.evaluate({ ticker: "PERTURB", horizon: "mid", candidateAction: "sell", edge: -72, confidence: 80, materialChangeReasons: ["atr_volume_shock"], technical: { signalPersistence: { score: 65 } } });
+perturbed = engine.stability.evaluate({ ticker: "PERTURB", horizon: "mid", candidateAction: "sell", allowedActions: ["sell", "avoid"], actionFamily: "defensive", edge: -72, confidence: 80, materialChangeReasons: ["atr_volume_shock"], technical: { signalPersistence: { score: 65 } } });
 assert.equal(perturbed.finalAction, "sell");
 
-// 27–28. Market and tag modifiers are capped centrally, even if several tags
+// 30–31. Market and trait modifiers are capped centrally, even if several tags
 // or an event coincide.
 const cappedMarket = engine.market.forHorizon({ regime: "shock", riskAddBase: 38, yield: { riskAdd: 12 }, earnings: { riskAdd: 20, confidencePenalty: 10 } }, "long", { effectiveModifiers: { marketSensitivity: 1.2, rateSensitivity: 1.15, eventSensitivity: 1.12 } });
 assert(cappedMarket.riskAdd <= engine.config.market.maxRiskAdd.long);
-const capProfile = engine.companyProfile.build({ tags: ["HighGrowth", "HighBeta", "HighVolatility", "CrowdedLeader", "CashCow", "MarketLeader", "EstablishedLeader", "RegulatoryRisk"] }, "CAP_ALL");
+const capProfile = engine.profile.build({ primaryClassification: "Test", companyTraits: ["HighGrowth", "HighBeta", "HighVolatility", "CrowdedLeader", "CashCow", "MarketLeader", "RegulatoryRisk"], lifecycle: "EstablishedLeader" }, "CAP_ALL");
 for (const key of ["riskSensitivity", "marketSensitivity", "exhaustionSensitivity", "normalAtrTolerance", "strongBuyOpportunity", "eventSensitivity"]) {
   const [low, high] = engine.config.profile.modifierCaps[["marketSensitivity", "exhaustionSensitivity"].includes(key) ? "special" : "normal"];
   assert(capProfile.effectiveModifiers[key] >= low && capProfile.effectiveModifiers[key] <= high, `${key} must remain capped`);
+}
+
+// 32–36. ETF profiles do not borrow Company Traits. Leveraged funds use
+// stricter gates/sensitivity, and inverse underlying context is bounded.
+for (const [ticker, expected] of Object.entries({ QQQ: [false, "long"], TQQQ: [true, "long"], SQQQ: [true, "inverse"], SOXL: [true, "long"], SOXS: [true, "inverse"] })) {
+  const definition = profiles.profileFor(ticker);
+  assert.equal(definition.isETF, true);
+  assert.equal(definition.leveraged, expected[0]);
+  assert.equal(definition.direction, expected[1]);
+  assert.equal(engine.profile.build(definition, ticker).companyTraits.length, 0);
+}
+const oneX = engine.profile.build(profiles.profileFor("QQQ"), "QQQ");
+const leveraged = engine.profile.forHorizon(engine.profile.build(profiles.profileFor("TQQQ"), "TQQQ"), "long");
+assert(leveraged.effectiveModifiers.riskSensitivity > oneX.effectiveModifiers.riskSensitivity);
+assert(leveraged.effectiveModifiers.marketSensitivity > oneX.effectiveModifiers.marketSensitivity);
+const inverseFeatures = featureSet({ short: "bull", mid: "bull", long: "bear" });
+const underlyingFeatures = featureSet({ short: "bear", mid: "bear", long: "bull" });
+engine.stability.clear();
+const inverseDecision = engine.decide({ ticker: "SQQQ", price: 100, technicalFeatures: inverseFeatures, underlyingTechnicalFeatures: underlyingFeatures, underlyingPrice: 100, marketContext: market(), classification: profiles.profileFor("SQQQ"), metadata: {}, language: "en" });
+assert.equal(inverseDecision.horizons.short.debug.etfUnderlying.alignment, "supporting");
+assert.equal(inverseDecision.horizons.long.debug.etfUnderlying.alignment, "supporting");
+assert.equal(engine.etfProfile.underlyingContext({ profile: engine.profile.build(profiles.profileFor("SQQQ"), "SQQQ"), ownDirection: 60, underlyingDirection: 60 }).alignment, "limiting");
+assert.notEqual(inverseDecision.horizons.short.states.direction.score, -underlyingFeatures.horizons.short.trend.moving_averages.ema_20_4h.value, "underlying cannot replace ETF Direction");
+
+// 37. Every individual stock has a reviewed specific classification and at
+// least three Company Traits; ETFs are deliberately excluded from this rule.
+for (const ticker of watchlist) {
+  const definition = profiles.profileFor(ticker);
+  if (definition.isETF) continue;
+  assert(definition.primaryClassification && definition.primaryClassification !== "Unclassified Equity", `${ticker} needs a primary classification`);
+  assert((definition.companyTraits || []).length >= 3, `${ticker} needs at least three Company Traits`);
 }
 
 for (const decision of [complete, missing, calmDecision, noisyDecision]) {
@@ -284,7 +402,8 @@ for (const decision of [complete, missing, calmDecision, noisyDecision]) {
     assert.equal(Object.hasOwn(horizonDecision, "score_breakdown"), false);
     assert.equal(Object.hasOwn(horizonDecision, "action_recommendation_score"), false);
     assert.equal(Object.hasOwn(horizonDecision.debug, "finalScore"), false);
-    for (const key of ["directionComponents", "confirmationComponents", "riskComponents", "priceComponents", "exhaustionComponents", "marketRegime", "marketModifiers", "appliedTags", "effectiveProfileModifiers", "rawEdge", "adjustedEdge", "edgeBeforeMarket", "edgeAfterMarket", "candidateAction", "actionBeforeStability", "finalAction", "guardrails", "materialChangeReasons", "confidenceComponents", "recommendedRangeInputs", "targetInputs", "invalidationInputs", "dataQuality"]) assert(Object.hasOwn(horizonDecision.debug, key), `V1 debug field missing: ${key}`);
+    assert(Object.hasOwn(horizonDecision, "priceLandscape"));
+    for (const key of ["directionComponents", "confirmationComponents", "riskComponents", "priceComponents", "exhaustionComponents", "marketRegime", "marketModifiers", "appliedTraits", "appliedModifiers", "effectiveProfileModifiers", "rawEdge", "adjustedEdge", "edgeBeforeMarket", "edgeAfterMarket", "candidateAction", "actionBeforeStability", "finalAction", "priceState", "actionFamily", "landscapeQuality", "finalDecision", "stability", "guardrails", "materialChangeReasons", "confidenceComponents", "priceLandscapeInputs", "invalidationInputs", "dataQuality"]) assert(Object.hasOwn(horizonDecision.debug, key), `V1 debug field missing: ${key}`);
   }
 }
 
@@ -298,4 +417,75 @@ assert(Buffer.byteLength(JSON.stringify(compactDecision)) < 60_000, "decision ou
 for (let index = 0; index < engine.config.stability.cacheLimit + 5; index += 1) engine.stability.evaluate({ ticker: `BOUND_${index}`, horizon: "short", candidateAction: "hold", edge: 0, confidence: 50 });
 assert(engine.stability._cache.size <= engine.config.stability.cacheLimit, "stability cache must remain bounded");
 
-console.log("decision-engine.test.js: 28 V1 scenario assertions passed");
+// Refresh contract. The Price Landscape is recomputed from the current
+// canonical structure every time: it has no range/cluster cache and no
+// preference for a previous selection. Same-category density localises a
+// zone but cannot inflate its evidence as if it were independent proof.
+const supportMAs = [98.00, 98.08, 98.14, 98.22, 98.28].map((price, index) => ({
+  price, type: "moving_average", category: "moving_average", role: "support", weight: 0.80, label: `EMA ${index + 1}`,
+}));
+const supportOneMa = [supportMAs[0]];
+const supportCrossCategory = [
+  supportMAs[0],
+  { price: 98.06, type: "fib", category: "fibonacci", role: "support", weight: 0.65, label: "Fib retracement" },
+  { price: 97.98, type: "swing", category: "swing", role: "support", weight: 1.0, label: "Swing low" },
+  { price: 98.12, type: "bollinger", category: "bollinger", role: "support", weight: 0.65, label: "Bollinger lower" },
+];
+const resistanceCrossCategory = [
+  { price: 106.0, type: "fib", category: "fibonacci", role: "reduce", weight: 0.65, label: "Fib extension" },
+  { price: 106.08, type: "swing", category: "swing", role: "reduce", weight: 1.0, label: "Swing high" },
+  { price: 106.15, type: "moving_average", category: "moving_average", role: "reduce", weight: 0.80, label: "EMA resistance" },
+];
+const maOnlyCluster = engine.technical.clusterLevels(supportOneMa, 100, 1, "support")[0];
+const maDenseCluster = engine.technical.clusterLevels(supportMAs, 100, 1, "support")[0];
+const crossCategoryCluster = engine.technical.clusterLevels(supportCrossCategory, 100, 1, "support")[0];
+assert.equal(maDenseCluster.independentStructures, 1, "five moving averages remain one structural category");
+assert(maDenseCluster.quality <= maOnlyCluster.quality + 0.03, "same-category duplicate levels cannot multiply confluence quality");
+assert(crossCategoryCluster.quality > maDenseCluster.quality, "cross-category agreement increases confluence quality");
+assert.deepEqual(new Set(crossCategoryCluster.categoryBreakdown.map((item) => item.category)), new Set(["moving_average", "fibonacci", "swing", "bollinger"]));
+
+function structureTechnical({ atr = 1, supports = supportCrossCategory, resistances = resistanceCrossCategory, directionScore = 45, confirmationScore = 62, materialSignals = [] } = {}) {
+  return {
+    atr, directionScore, confirmationScore, materialSignals,
+    executionContext: {
+      levels: [...supports, ...resistances],
+      supportClusters: engine.technical.clusterLevels(supports, 100, atr, "support"),
+      resistanceClusters: engine.technical.clusterLevels(resistances, 100, atr, "reduce"),
+      atr, structureModel: "unified_category_confluence",
+    },
+  };
+}
+const refreshTechnical = structureTechnical();
+const refreshOne = engine.execution.buildLandscape({ price: 100, horizon: "short", technical: refreshTechnical, context: { risk: 18, exhaustionScore: 0 } });
+const refreshOneRepeat = engine.execution.buildLandscape({ price: 100, horizon: "short", technical: refreshTechnical, context: { risk: 18, exhaustionScore: 0 } });
+assert.deepEqual(refreshOne.priceLandscape, refreshOneRepeat.priceLandscape, "identical refresh inputs deterministically recompute the same landscape");
+const minorPriceRefresh = engine.execution.buildLandscape({ price: 100.25, horizon: "short", technical: refreshTechnical, context: { risk: 18, exhaustionScore: 0 } });
+assert.equal(minorPriceRefresh.debug.priceLandscapeInputs.selectedSupport.center, refreshOne.debug.priceLandscapeInputs.selectedSupport.center, "current price alone cannot drag the opportunity centre upward");
+const widerAtrTechnical = structureTechnical({ atr: 2 });
+const widerAtrRefresh = engine.execution.buildLandscape({ price: 100, horizon: "short", technical: widerAtrTechnical, context: { risk: 18, exhaustionScore: 0 } });
+assert.equal(widerAtrRefresh.debug.priceLandscapeInputs.selectedSupport.center, refreshOne.debug.priceLandscapeInputs.selectedSupport.center, "ATR changes range width, not the structural zone centre");
+assert(widerAtrRefresh.debug.priceLandscapeInputs.opportunity.width > refreshOne.debug.priceLandscapeInputs.opportunity.width, "higher ATR expands the zone width inside its existing bounds");
+
+const refreshedSupports = supportCrossCategory.map((level) => ({ ...level, price: level.price + 1.1, label: `${level.label} refreshed` }));
+const refreshedResistances = resistanceCrossCategory.map((level) => ({ ...level, price: level.price + 2.2, label: `${level.label} refreshed` }));
+const refreshTwoTechnical = structureTechnical({ supports: refreshedSupports, resistances: refreshedResistances });
+const refreshTwo = engine.execution.buildLandscape({ price: 100, horizon: "short", technical: refreshTwoTechnical, context: { risk: 18, exhaustionScore: 0 } });
+assert.notEqual(refreshTwo.debug.priceLandscapeInputs.selectedSupport.center, refreshOne.debug.priceLandscapeInputs.selectedSupport.center, "new confirmed structure replaces the old opportunity cluster without a switching lock");
+assert(refreshTwo.priceLandscape.opportunityRange.low > refreshOne.priceLandscape.opportunityRange.low, "new support structure can move the recomputed opportunity range");
+assert.equal(Object.hasOwn(engine.execution, "_landscapeCache"), false, "execution engine intentionally has no Landscape cache");
+assert.equal(Object.hasOwn(refreshOne.debug.priceLandscapeInputs, "opportunityCandidates"), false, "final decision debug does not retain temporary candidate clusters");
+assert.equal(Object.hasOwn(refreshOne.debug.priceLandscapeInputs, "reduceCandidates"), false, "final decision debug does not retain temporary candidate clusters");
+
+const breakdownRefresh = engine.execution.buildLandscape({
+  price: 100, horizon: "short",
+  technical: structureTechnical({ directionScore: -78, confirmationScore: 74, materialSignals: ["major_support_breakdown"] }),
+  context: { risk: 66, exhaustionScore: -12 },
+});
+assert.equal(breakdownRefresh.priceState, "BREAKDOWN_ZONE", "a material breakdown invalidates the prior opportunity landscape in the same refresh");
+assert(Math.abs((breakdownRefresh.priceLandscape.reduceRange.low + breakdownRefresh.priceLandscape.reduceRange.high) / 2 - 100) < 1, "material breakdown re-anchors the executable reduce range immediately");
+
+engine.stability.clear();
+for (let refresh = 0; refresh < 5; refresh += 1) decide(featureSet(), market(), "REPEATED_REFRESH");
+assert(engine.stability._cache.size <= 3, "five refreshes retain only compact per-horizon stability state for one ticker");
+
+console.log("decision-engine.test.js: V1 scenarios, Price Landscape, profile, and ETF assertions passed");

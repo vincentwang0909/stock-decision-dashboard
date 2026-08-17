@@ -7,27 +7,27 @@ const range = (low, high) => ({ low, high });
 const plan = (action, overrides = {}) => ({
   action,
   executionIntent: presentation.actionIntent[action],
-  recommendedRange: range(100, 105), targetRange: range(115, 120), invalidation: 96,
+  priceLandscape: { opportunityRange: range(100, 105), reduceRange: range(115, 120), invalidation: 96, currentPrice: 110 },
   ...overrides,
 });
 
-assert.equal(presentation.executionSemantics(plan("buy")).range, "recommendedEntryRange");
-assert.equal(presentation.executionSemantics(plan("accumulate")).range, "recommendedAddRange");
-assert.equal(presentation.executionSemantics(plan("hold")).range, "holdZone");
-assert.equal(presentation.executionSemantics(plan("trim")).range, "recommendedReductionRange");
-assert.equal(presentation.executionSemantics(plan("sell")).range, "recommendedExitRange");
-assert.equal(presentation.executionSemantics(plan("avoid")).range, "avoidNoEntry");
+assert.equal(presentation.executionSemantics(plan("buy")).opportunity, "recommendedBuyAddRange");
+assert.equal(presentation.executionSemantics(plan("accumulate")).opportunity, "recommendedBuyAddRange");
+assert.equal(presentation.executionSemantics(plan("hold")).opportunity, "potentialAddRange");
+assert.equal(presentation.executionSemantics(plan("trim")).reduce, "recommendedReduceRange");
+assert.equal(presentation.executionSemantics(plan("sell")).reduce, "recommendedExitRange");
+assert.equal(presentation.executionSemantics(plan("avoid")).reduce, null);
 assert.deepEqual(presentation.actionTone, {
   strong_buy: "strong-buy", buy: "buy", accumulate: "accumulate", hold: "hold", trim: "trim", sell: "sell", avoid: "avoid",
 });
 
 for (const [name, currentPrice, decision] of [
-  ["range below current", 110, plan("buy", { recommendedRange: range(100, 105) })],
-  ["range contains current", 103, plan("buy", { recommendedRange: range(100, 105) })],
-  ["range above current", 95, plan("buy", { recommendedRange: range(100, 105) })],
-  ["sell natural ordering", 100, plan("sell", { recommendedRange: range(102, 106), targetRange: range(88, 92), invalidation: 109 })],
-  ["hold null target and invalidation", 100, plan("hold", { targetRange: null, invalidation: null })],
-  ["avoid no plan", 100, plan("avoid", { recommendedRange: null, targetRange: null, invalidation: null })],
+  ["opportunity below current", 110, plan("buy")],
+  ["current inside opportunity", 103, plan("buy", { priceLandscape: { opportunityRange: range(100, 105), reduceRange: range(115, 120), invalidation: 96, currentPrice: 103 } })],
+  ["opportunity above current", 95, plan("buy", { priceLandscape: { opportunityRange: range(100, 105), reduceRange: range(115, 120), invalidation: 96, currentPrice: 95 } })],
+  ["bearish ordering", 100, plan("sell", { priceLandscape: { opportunityRange: range(82, 86), reduceRange: range(99, 102), invalidation: 106, currentPrice: 100 } })],
+  ["hold landscape", 110, plan("hold")],
+  ["avoid with no exit", 100, plan("avoid", { priceLandscape: { opportunityRange: range(85, 89), reduceRange: null, invalidation: null, currentPrice: 100 } })],
 ]) {
   const model = presentation.priceMapModel({ currentPrice, decision });
   assert.ok(model.points.some((point) => point.id === "current"), `${name}: current price is missing`);
@@ -39,49 +39,43 @@ for (const [name, currentPrice, decision] of [
 }
 
 const closeLabels = presentation.layoutPriceMap([
-  { id: "range", start: 48, end: 52 },
+  { id: "opportunity", start: 48, end: 52 },
   { id: "current", position: 53 },
-  { id: "reference", position: 54 },
-  { id: "invalidation", position: 55 },
+  { id: "reduce", start: 53.5, end: 55 },
+  { id: "invalidation", position: 55.5 },
 ], 9).labels;
 for (let index = 0; index < closeLabels.length; index += 1) {
   for (let compared = index + 1; compared < closeLabels.length; compared += 1) {
-    const left = closeLabels[index];
-    const right = closeLabels[compared];
-    if (Math.abs(left.anchor - right.anchor) < 9) assert.notEqual(`${left.labelSide}-${left.labelLane}`, `${right.labelSide}-${right.labelLane}`, "close Price Map labels require separate lanes");
+    const left = closeLabels[index]; const right = closeLabels[compared];
+    if (Math.abs(left.anchor - right.anchor) < 9) assert.notEqual(`${left.labelSide}-${left.labelLane}`, `${right.labelSide}-${right.labelLane}`, "close Price Landscape labels require separate lanes");
   }
 }
-assert.ok(presentation.layoutPriceMap(closeLabels).trackHeight >= 140, "dense Price Map gains vertical label room");
+assert.ok(presentation.layoutPriceMap(closeLabels).trackHeight >= 140, "dense Price Landscape gains vertical label room");
 
-const holdWithReferences = plan("hold", {
-  targetRange: null,
-  invalidation: null,
-  debug: { recommendedRangeInputs: { structuralReference: { support: 99.8, resistance: 100.2 } } },
-});
-const holdMap = presentation.priceMapModel({ currentPrice: 100, decision: holdWithReferences });
-assert.equal(holdMap.legend.filter((entry) => entry.labelKey === "structuralReference").length, 1, "Price Map legend deduplicates structural references");
+const distance = presentation.nearestRangeDistance(110, range(100, 105));
+assert.equal(distance.within, false);
+assert.equal(Math.round(distance.percent * 10) / 10, -4.5);
+assert.equal(presentation.nearestRangeDistance(103, range(100, 105)).percent, 0);
 
-const profile = presentation.profileGroups({
-  staticTags: ["MegaCap", "AIInfrastructure", "MegaCap"], dynamicTags: [], lifecycleTag: null, candidateTags: [],
-}, "AIInfrastructure");
-assert.deepEqual(profile.staticTags, ["MegaCap"]);
-assert.equal(profile.visible.dynamic, false);
+const profile = presentation.profileGroups({ primaryClassification: "AI Infrastructure", companyTraits: ["MegaCap", "AIInfrastructure", "MegaCap"], lifecycle: null });
+assert.deepEqual(profile.traits, ["MegaCap", "AIInfrastructure"]);
 assert.equal(profile.visible.lifecycle, false);
-assert.equal(profile.visible.candidate, false);
+assert.equal(presentation.profileGroups({ isETF: true }).type, "etf");
 
-const stablePresentationDecision = plan("buy", {
-  debug: { recommendedRangeInputs: { structuralReference: { support: 99, resistance: 107 } } },
-});
+const stablePresentationDecision = plan("buy");
 const beforePresentation = structuredClone(stablePresentationDecision);
 presentation.executionSemantics(stablePresentationDecision);
 presentation.priceMapModel({ currentPrice: 103, decision: stablePresentationDecision });
-presentation.profileGroups({ staticTags: ["MegaCap", "AIInfrastructure"] }, "AIInfrastructure");
+presentation.profileGroups({ primaryClassification: "AI Infrastructure", companyTraits: ["MegaCap", "AIInfrastructure"] });
 assert.deepEqual(stablePresentationDecision, beforePresentation, "presentation helpers must not mutate V1 decision values");
 
 assert.equal(presentation.translateReason("OBV and volume participation are confirming accumulation.", "zh"), "OBV 与成交量参与度正在确认资金吸筹。");
+assert.equal(presentation.translateReason("Current price is near the reduce range, so adding exposure is not favored.", "zh"), "当前价格接近减仓区，因此不宜新增风险暴露。");
+assert.equal(presentation.translateReason("Price position alone cannot create a Sell without bearish structural evidence.", "zh"), "仅凭价格位置、缺乏空头结构证据时，不能形成卖出建议。");
+assert.equal(presentation.translateReason("Price has entered the reduce range without enough trend confirmation to justify holding full exposure.", "zh"), "价格已进入减仓区，但趋势确认不足以支持维持完整暴露。");
 assert.equal(presentation.translateReason("Unmapped provider wording.", "zh"), "Unmapped provider wording.");
 assert.equal(presentation.reasonList(["a", "b", "c", "d", "e", "f"], "en", 5).length, 5);
 assert.match(presentation.positionGuidance("hold", "en"), /not enough evidence/i);
 assert.match(presentation.positionGuidance("avoid", "zh"), /不适合/);
 
-console.log("decision-ui.test.js: execution semantics, price-map, and bilingual fallback assertions passed");
+console.log("decision-ui.test.js: Price Landscape, execution semantics, profile presentation, and bilingual fallback assertions passed");

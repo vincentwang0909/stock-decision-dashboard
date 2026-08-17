@@ -2611,20 +2611,6 @@ tbody tr.selected-row td {
 .decision-execution-field > strong { color: #dce8f8; font-size: 0.82rem; font-weight: 750; line-height: 1.35; }
 .decision-no-data { margin: 0; color: var(--muted); font-size: 0.84rem; line-height: 1.45; }
 
-.decision-horizon-selector { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
-
-.decision-horizon-button {
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.025);
-  color: var(--muted);
-  font: 750 0.75rem/1 var(--sans);
-  cursor: pointer;
-}
-
-.decision-horizon-button.active { border-color: rgba(142, 197, 255, 0.38); background: rgba(57, 93, 143, 0.35); color: #eff6ff; }
 .decision-reason-grid { margin-bottom: 0; }
 .decision-price-map { overflow: hidden; }
 
@@ -2644,39 +2630,11 @@ tbody tr.selected-row td {
   background: rgba(74, 222, 128, 0.8);
 }
 
-.price-map-range.target { top: 49px; background: rgba(96, 165, 250, 0.86); }
-
-.price-map-range i,
-.price-map-current i,
-.price-map-reference i {
-  position: absolute;
-  z-index: 1;
-  max-width: 122px;
-  color: #cbd8ea;
-  font-size: 0.66rem;
-  font-style: normal;
-  font-weight: 750;
-  line-height: 1.25;
-  white-space: nowrap;
-}
-
-.price-map-range i { top: -22px; left: 0; }
-.price-map-range.target i { top: 17px; }
-
-.price-map-current,
-.price-map-reference { position: absolute; display: grid; justify-items: center; transform: translateX(-50%); }
-.price-map-current { top: -1px; color: #f8fbff; }
-.price-map-current b { margin-top: -1px; font-size: 0.9rem; }
-.price-map-current i { top: -24px; }
-.price-map-reference { top: 13px; color: #f6c76c; }
-.price-map-reference b { font-size: 1.15rem; line-height: 1; }
-.price-map-reference i { top: 20px; }
-
 .price-map-key-row { display: flex; flex-wrap: wrap; gap: 8px 13px; color: var(--muted); font-size: 0.72rem; }
 .price-map-key-row span { display: inline-flex; align-items: center; gap: 5px; }
 .price-map-key { width: 13px; height: 6px; border-radius: 99px; background: rgba(74, 222, 128, 0.8); }
-.price-map-key.target { background: rgba(96, 165, 250, 0.86); }
-.price-map-key.invalidation, .price-map-key.reference, .price-map-key.support, .price-map-key.resistance { width: 2px; height: 12px; border-radius: 0; background: #f6c76c; }
+.price-map-key.reduce { background: rgba(114, 158, 206, 0.8); }
+.price-map-key.invalidation { width: 2px; height: 12px; border-radius: 0; background: #f6c76c; }
 
 .execution-plan-grid { display: grid; grid-template-columns: minmax(190px, 0.7fr) minmax(0, 1.3fr); gap: 14px; }
 
@@ -2915,13 +2873,20 @@ tbody tr.selected-row td {
 .primary-classification b { font-size: 0.78rem; font-weight: 700; }
 .decision-profile-header { gap: var(--space-md); }
 .profile-tag-group > div { gap: 6px; }
+.profile-fact-row { align-items: center; }
+.profile-fact-row b { color: #e6eef9; font-size: 0.75rem; }
+.profile-fact-row span { color: var(--muted); font-size: 0.75rem; }
 .profile-tag { padding: 4px 8px; border-color: var(--border-subtle); background: rgba(255,255,255,0.022); color: #cbd8e8; font-size: 0.7rem; }
 .profile-review-line { margin-top: 0; font-size: 0.7rem; }
 .candidate-profile { display: inline-flex; align-items: center; gap: 5px; border: 0; }
 
 .decision-final-cards { padding: var(--space-lg); }
 .decision-core-grid { gap: var(--space-md); }
-.decision-core-card { padding: 15px; gap: 8px; border-color: var(--border-primary); border-radius: var(--radius-md); background: rgba(255,255,255,0.022); }
+.decision-card-hint { margin: 0 0 var(--space-md); color: var(--text-secondary); font-size: 0.8rem; line-height: 1.45; }
+.decision-core-card { padding: 15px; gap: 8px; border-color: var(--border-primary); border-radius: var(--radius-md); background: rgba(255,255,255,0.022); cursor: pointer; }
+.decision-core-card:hover { border-color: rgba(152, 184, 222, 0.42); background: rgba(255,255,255,0.032); }
+.decision-core-card.is-active { border-color: rgba(142, 197, 255, 0.58); background: rgba(56, 90, 135, 0.17); box-shadow: inset 0 0 0 1px rgba(142, 197, 255, 0.12); }
+.decision-core-card:focus-visible { outline: 2px solid rgba(142, 197, 255, 0.8); outline-offset: 2px; }
 .decision-core-card > span { font-size: 0.67rem; }
 .decision-core-card strong { font-size: 1.42rem; }
 .decision-confidence { padding-top: 8px; }
@@ -2936,22 +2901,25 @@ tbody tr.selected-row td {
 .price-map-track { position: relative; min-height: var(--price-map-height, 140px); height: var(--price-map-height, 140px); margin: 2px 6px 6px; border: 0; overflow: visible; }
 .price-map-axis { position: absolute; top: 50%; right: 0; left: 0; height: 2px; border-radius: 2px; background: rgba(148, 163, 184, 0.36); }
 .price-map-range { position: absolute; top: calc(50% - 5px); min-width: 10px; height: 10px; border-radius: 99px; background: rgba(116, 200, 138, 0.78); }
-.price-map-range.target { top: calc(50% + 8px); background: rgba(114, 158, 206, 0.8); }
+.price-map-range.reduce { top: calc(50% + 8px); background: rgba(114, 158, 206, 0.8); }
 .price-map-marker { position: absolute; z-index: 2; top: calc(50% - 10px); display: grid; width: 1px; justify-items: center; transform: translateX(-50%); color: #d1dfef; }
 .price-map-marker b { margin: 0; font-size: 0.95rem; line-height: 1; }
-.price-map-marker.invalidation, .price-map-marker.reference, .price-map-marker.support, .price-map-marker.resistance { top: calc(50% - 8px); color: #d6aa66; }
-.price-map-marker.invalidation b, .price-map-marker.reference b, .price-map-marker.support b, .price-map-marker.resistance b { font-size: 1.18rem; }
+.price-map-marker.invalidation { top: calc(50% - 8px); color: #d6aa66; }
+.price-map-marker.invalidation b { font-size: 1.18rem; }
 .price-map-label { position: absolute; z-index: 3; width: min(144px, 29vw); color: #c5d2e2; font-size: 0.67rem; font-style: normal; font-weight: 750; line-height: 1.22; pointer-events: none; text-align: center; transform: translateX(-50%); white-space: normal; }
-.price-map-label i { font-style: normal; }
+.price-map-label i, .price-map-label b, .price-map-label small { display: block; font-style: normal; }
+.price-map-label b { margin-top: 2px; color: #eef5ff; font-family: var(--mono); font-size: 0.66rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.price-map-label small { margin-top: 2px; color: var(--muted); font-size: 0.6rem; font-weight: 700; }
 .price-map-label.top.lane-1 { bottom: calc(50% + 20px); }
 .price-map-label.top.lane-2 { bottom: calc(50% + 42px); }
 .price-map-label.bottom.lane-1 { top: calc(50% + 22px); }
 .price-map-label.bottom.lane-2 { top: calc(50% + 44px); }
 .price-map-label.current { color: #edf5ff; }
-.price-map-label.invalidation, .price-map-label.reference, .price-map-label.support, .price-map-label.resistance { color: #d9b87f; }
+.price-map-label.reduce { color: #a8c7e7; }
+.price-map-label.invalidation { color: #d9b87f; }
 .price-map-key-row { gap: 7px 12px; color: var(--muted); font-size: 0.68rem; }
 .price-map-key { background: rgba(116, 200, 138, 0.78); }
-.price-map-key.target { background: rgba(114, 158, 206, 0.8); }
+.price-map-key.reduce { background: rgba(114, 158, 206, 0.8); }
 
 .technical-tab-panel { gap: var(--space-md); }
 .technical-accordion, .technical-overview-section { border: 1px solid var(--border-primary); border-radius: var(--radius-md); background: var(--surface-card); overflow: hidden; }

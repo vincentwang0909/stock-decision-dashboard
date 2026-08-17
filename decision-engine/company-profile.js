@@ -1,30 +1,21 @@
-(function createCompanyProfileEngine(root) {
+(function createProfileEngine(root) {
   "use strict";
 
   const engine = root.DecisionEngine || (root.DecisionEngine = {});
   const reviewCache = new Map();
   const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
   const unique = (values) => [...new Set((values || []).filter(Boolean))];
-  function safeDate(value) {
-    const date = value ? new Date(value) : null;
-    return date && !Number.isNaN(date.getTime()) ? date : null;
-  }
-
-  function withinReviewCadence(lastReview, reviewDays, now) {
-    const prior = safeDate(lastReview);
-    return Boolean(prior && (now.getTime() - prior.getTime()) < reviewDays * 86400000);
-  }
+  const dateFor = (value) => value ? new Date(value) : null;
+  const validDate = (date) => date && !Number.isNaN(date.getTime()) ? date : null;
 
   function blankModifiers() {
     return {
-      directionWeights: {}, confirmationWeights: {}, riskSensitivity: 1, exhaustionSensitivity: 1, marketSensitivity: 1,
-      normalAtrTolerance: 1, strongBuyOpportunity: 1, rateSensitivity: 1, eventSensitivity: 1, longStability: 1,
+      directionWeights: {}, confirmationWeights: {}, riskSensitivity: 1, exhaustionSensitivity: 1,
+      marketSensitivity: 1, normalAtrTolerance: 1, strongBuyOpportunity: 1, rateSensitivity: 1,
+      eventSensitivity: 1, longStability: 1, confidenceScale: 1,
+      actionGates: { buyDirection: 0, buyConfirmation: 0, strongBuyDirection: 0, strongBuyConfirmation: 0 },
       benchmarkWeights: { spy: 0.5, qqq: 0.5 },
     };
-  }
-
-  function addWeightDeltas(target, source = {}) {
-    Object.entries(source).forEach(([key, delta]) => { target[key] = (target[key] || 0) + Number(delta || 0); });
   }
 
   function capMultiplier(value, special = false) {
@@ -32,16 +23,15 @@
     return clamp(value, low, high);
   }
 
-  function effectiveModifiers(tags = []) {
-    const config = engine.config.profile.tagModifiers;
+  function effectiveModifiers(companyTraits = [], lifecycle = null) {
     const aggregate = blankModifiers();
-    const applied = [];
-    tags.forEach((tag) => {
-      const modifier = config[tag];
+    const appliedModifiers = [];
+    unique([...companyTraits, lifecycle]).forEach((trait) => {
+      const modifier = engine.config.profile.tagModifiers[trait];
       if (!modifier) return;
-      applied.push(tag);
-      addWeightDeltas(aggregate.directionWeights, modifier.directionWeights);
-      addWeightDeltas(aggregate.confirmationWeights, modifier.confirmationWeights);
+      appliedModifiers.push(trait);
+      Object.entries(modifier.directionWeights || {}).forEach(([key, delta]) => { aggregate.directionWeights[key] = (aggregate.directionWeights[key] || 0) + Number(delta || 0); });
+      Object.entries(modifier.confirmationWeights || {}).forEach(([key, delta]) => { aggregate.confirmationWeights[key] = (aggregate.confirmationWeights[key] || 0) + Number(delta || 0); });
       ["riskSensitivity", "exhaustionSensitivity", "marketSensitivity", "normalAtrTolerance", "strongBuyOpportunity", "rateSensitivity", "eventSensitivity", "longStability"].forEach((key) => {
         if (Number.isFinite(modifier[key])) aggregate[key] += modifier[key];
       });
@@ -51,87 +41,53 @@
     ["riskSensitivity", "exhaustionSensitivity", "marketSensitivity", "normalAtrTolerance", "strongBuyOpportunity", "rateSensitivity", "eventSensitivity", "longStability"].forEach((key) => {
       aggregate[key] = capMultiplier(aggregate[key], key === "marketSensitivity" || key === "exhaustionSensitivity");
     });
-    return { modifiers: aggregate, appliedModifierTags: applied };
+    return { modifiers: aggregate, appliedModifiers };
   }
 
-  function normalizeClassificationTags(classification = {}) {
-    return unique([
-      ...(classification.tags || classification.top_tags || []),
-      ...(classification.staticTags || classification.static_tags || []),
-    ]);
+  function cacheKey(ticker) { return String(ticker || "").toUpperCase(); }
+  function cachedState(ticker) { return reviewCache.get(cacheKey(ticker)) || null; }
+  function annualReviewDue(lastReview, now) {
+    const prior = validDate(dateFor(lastReview));
+    return !prior || now.getTime() - prior.getTime() >= engine.config.profile.review.annualReviewDays * 86400000;
   }
 
-  function cachedProfileState(ticker) {
-    return reviewCache.get(String(ticker || "").toUpperCase()) || { currentDynamicTags: [], candidateTags: [], lifecycleTag: null, profileConfidence: null, lastProfileReview: null };
-  }
-
-  // Deliberately review-driven: this function is only called by an explicit
-  // 3–6 month profile review workflow, never by quote refresh. A new tag is a
-  // candidate on its first qualifying review and becomes active only after the
-  // configured consecutive reviews have agreed.
-  function review({ ticker, observedDynamicTags = [], lifecycleTag = null, profileConfidence = null, now = new Date() } = {}) {
-    const key = String(ticker || "").toUpperCase();
-    if (!key) return cachedProfileState(key);
-    const prior = cachedProfileState(key);
-    const config = engine.config.profile.review;
-    if (withinReviewCadence(prior.lastProfileReview, config.dynamicReviewDays, now)) return prior;
-    const observed = unique(observedDynamicTags).filter((tag) => engine.config.profile.dynamicTagNames.includes(tag));
-    const candidateCounts = { ...(prior.candidateCounts || {}) };
-    Object.keys(candidateCounts).forEach((tag) => { candidateCounts[tag] = observed.includes(tag) ? candidateCounts[tag] + 1 : 0; });
-    observed.forEach((tag) => { candidateCounts[tag] = (candidateCounts[tag] || 0) + 1; });
-    const currentDynamicTags = unique([
-      ...(prior.currentDynamicTags || []).filter((tag) => observed.includes(tag)),
-      ...observed.filter((tag) => candidateCounts[tag] >= config.requiredConsecutiveReviews),
-    ]);
-    const candidateTags = observed.filter((tag) => !currentDynamicTags.includes(tag));
-    const lifecycleCanReview = !withinReviewCadence(prior.lastLifecycleReview, config.lifecycleReviewDays, now);
-    const validLifecycle = engine.config.profile.lifecycleTagNames.includes(lifecycleTag) ? lifecycleTag : prior.lifecycleTag || null;
+  // Profiles change only through an explicit annual review. Quote refreshes
+  // call build() and cannot churn traits or lifecycle from short-term prices.
+  function review({ ticker, profile = {}, now = new Date() } = {}) {
+    const key = cacheKey(ticker);
+    if (!key) return null;
+    const prior = cachedState(key);
+    if (prior && !annualReviewDue(prior.lastProfileReview, now)) return prior;
     const next = {
-      currentDynamicTags,
-      candidateTags,
-      candidateCounts,
-      lifecycleTag: lifecycleCanReview ? validLifecycle : prior.lifecycleTag || null,
-      profileConfidence: Number.isFinite(profileConfidence) ? clamp(profileConfidence, 0, 1) : prior.profileConfidence,
+      primaryClassification: profile.primaryClassification || prior?.primaryClassification || "Unclassified Equity",
+      companyTraits: unique(profile.companyTraits || prior?.companyTraits || []),
+      lifecycle: profile.lifecycle || prior?.lifecycle || null,
+      profileConfidence: Number.isFinite(profile.profileConfidence) ? clamp(profile.profileConfidence, 0, 1) : prior?.profileConfidence ?? 0.6,
       lastProfileReview: now.toISOString(),
-      lastLifecycleReview: lifecycleCanReview ? now.toISOString() : prior.lastLifecycleReview || null,
+      scoringProfile: profile.scoringProfile || prior?.scoringProfile || "generic",
     };
     reviewCache.set(key, next);
-    while (reviewCache.size > config.cacheLimit) reviewCache.delete(reviewCache.keys().next().value);
+    while (reviewCache.size > engine.config.profile.review.cacheLimit) reviewCache.delete(reviewCache.keys().next().value);
     return next;
   }
 
   function build(classification = {}, ticker = "") {
-    const sourceTags = normalizeClassificationTags(classification);
-    const sourceDynamic = unique(classification.dynamicTags || classification.dynamic_tags || sourceTags.filter((tag) => engine.config.profile.dynamicTagNames.includes(tag)));
-    const sourceLifecycle = classification.lifecycleTag || classification.lifecycle_tag || sourceTags.find((tag) => engine.config.profile.lifecycleTagNames.includes(tag)) || null;
-    const state = cachedProfileState(ticker);
-    const staticTags = sourceTags.filter((tag) => !engine.config.profile.dynamicTagNames.includes(tag) && !engine.config.profile.lifecycleTagNames.includes(tag));
-    const dynamicTags = unique([...(state.currentDynamicTags || []), ...sourceDynamic]);
-    const lifecycleTag = state.lifecycleTag || sourceLifecycle;
-    const allTags = unique([...staticTags, ...dynamicTags, lifecycleTag]);
-    const { modifiers, appliedModifierTags } = effectiveModifiers(allTags);
+    if (classification.isETF || classification.type === "etf") return engine.etfProfile.build(classification);
+    const stored = cachedState(ticker);
+    const primaryClassification = stored?.primaryClassification || classification.primaryClassification || classification.primary_classification || classification.category || "Unclassified Equity";
+    const companyTraits = unique(stored?.companyTraits || classification.companyTraits || classification.company_traits || classification.tags || []);
+    const lifecycle = stored?.lifecycle || classification.lifecycle || classification.lifecycleTag || classification.lifecycle_tag || null;
+    const modifierSet = effectiveModifiers(companyTraits, lifecycle);
     return {
-      category: classification.category || "Unclassified",
-      categoryKey: classification.category_key || classification.category || "other",
-      scoringProfile: classification.scoring_profile || "generic",
-      staticTags,
-      dynamicTags,
-      lifecycleTag,
-      candidateTags: state.candidateTags || [],
-      tags: allTags,
-      profileConfidence: Number.isFinite(classification.profileConfidence) ? clamp(classification.profileConfidence, 0, 1) : Number.isFinite(classification.profile_confidence) ? clamp(classification.profile_confidence, 0, 1) : Number.isFinite(state.profileConfidence) ? state.profileConfidence : allTags.length ? 0.76 : 0.48,
-      lastProfileReview: state.lastProfileReview || classification.lastProfileReview || classification.last_profile_review || null,
-      effectiveModifiers: modifiers,
-      appliedModifierTags,
+      type: "stock", isETF: false, primaryClassification, companyTraits, lifecycle,
+      scoringProfile: stored?.scoringProfile || classification.scoringProfile || classification.scoring_profile || "generic",
+      profileConfidence: Number.isFinite(stored?.profileConfidence) ? stored.profileConfidence : Number.isFinite(classification.profileConfidence) ? clamp(classification.profileConfidence, 0, 1) : 0.76,
+      lastProfileReview: stored?.lastProfileReview || classification.lastProfileReview || classification.last_profile_review || null,
+      effectiveModifiers: modifierSet.modifiers, appliedModifiers: modifierSet.appliedModifiers,
     };
   }
 
-  // Profile changes are supplied by a deliberate 3–6 / 6–12 month review
-  // workflow. Quote refreshes invoke only build(), so a single price move can
-  // neither create nor replace a Dynamic or Lifecycle tag.
-  function reviewProfile(input = {}) {
-    return review(input);
-  }
+  function forHorizon(profile, horizon) { return profile?.isETF ? engine.etfProfile.forHorizon(profile, horizon) : profile; }
 
-  engine.companyProfile = Object.freeze({ build, review: reviewProfile, clearReviews: () => reviewCache.clear(), _reviewCache: reviewCache });
+  engine.profile = Object.freeze({ build, review, forHorizon, clearReviews: () => reviewCache.clear(), _reviewCache: reviewCache, effectiveModifiers });
 }(globalThis));

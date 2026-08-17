@@ -254,6 +254,12 @@ assert(Number.isFinite(longIntradayHistory.horizons.short.trend.moving_averages.
 assert(Number.isFinite(longIntradayHistory.horizons.short.momentum.macd.macd_4h.macd_line));
 assert.equal(longIntradayHistory.horizons.short.volatility.atr.atr_14_4h.atr_percentile.available, true);
 assert.equal(longIntradayHistory.horizons.short.volatility.bollinger.bollinger_4h.bandwidth_percentile_availability.available, true);
+assert.equal(longIntradayHistory.fibonacci_structure.short_term.source_timeframe, "4h", "Short Fibonacci uses native 4H when available");
+assert.equal(longIntradayHistory.fibonacci_structure.short_term.fallback_used, false);
+assert.equal(longIntradayHistory.fibonacci_structure.mid_term.source_timeframe, "1d", "Mid Fibonacci uses Daily");
+assert.equal(longIntradayHistory.fibonacci_structure.long_term.source_timeframe, "1w", "Long Fibonacci uses completed Weekly bars");
+assert.notEqual(longIntradayHistory.fibonacci_structure.short_term, longIntradayHistory.fibonacci_structure.mid_term, "Short and Mid Fibonacci must never share an object");
+assert.notEqual(longIntradayHistory.fibonacci_structure.mid_term, longIntradayHistory.fibonacci_structure.long_term, "Mid and Long Fibonacci must never share an object");
 
 // 52-week and ATH calculations retain the correct historical windows.
 assert.equal(features.price_position.high_52w, Math.max(...daily.highs.slice(-252)));
@@ -266,10 +272,16 @@ assert(features.price_position.position_52w_pct >= 0 && features.price_position.
 assert.equal(Object.hasOwn(features, "gaps"), false);
 assert.equal(Object.hasOwn(features, "market_" + "breadth"), false);
 
-// Fibonacci keeps separately supplied confirmed anchors and normalized fields.
-assert.equal(features.fibonacci.short.anchor_low, 100);
-assert.equal(features.fibonacci.short.anchor_method, "confirmed daily pivots (2/2)");
-assert(features.fibonacci.short.nearest_fib_level);
+// Fibonacci is always independently derived from the intended horizon source.
+// A pre-V1 server display object cannot silently replace the Short 4H source.
+assert.equal(features.fibonacci.short.source_timeframe, "4h");
+assert.equal(features.fibonacci.short.fallback_used, false);
+assert.equal(features.fibonacci.medium.source_timeframe, "1d");
+assert.equal(features.fibonacci.long.source_timeframe, "1w");
+assert.notEqual(features.fibonacci_structure.short_term, features.fibonacci_structure.mid_term);
+assert.notEqual(features.fibonacci_structure.mid_term, features.fibonacci_structure.long_term);
+assert.notEqual(features.fibonacci_structure.short_term.derivation_id, features.fibonacci_structure.mid_term.derivation_id);
+assert(features.fibonacci.short.nearest_fib_level || features.fibonacci.short.status !== "available");
 
 // The canonical layer also rebuilds the original display-only Fibonacci
 // structure when an API payload does not carry a precomputed structure.
@@ -282,6 +294,9 @@ assert(["available", "stale_swing", "no_valid_swing"].includes(generatedFibonacc
 assert(["available", "stale_swing", "no_valid_swing"].includes(generatedFibonacci.fibonacci_structure.mid_term.status));
 assert(["available", "stale_swing", "no_valid_swing"].includes(generatedFibonacci.fibonacci_structure.long_term.status));
 assert.equal(generatedFibonacci.fibonacci_structure.short_term.current_price, price);
+assert.equal(generatedFibonacci.fibonacci_structure.short_term.source_timeframe, "1d");
+assert.equal(generatedFibonacci.fibonacci_structure.short_term.fallback_used, true);
+assert.equal(generatedFibonacci.fibonacci_structure.long_term.source_timeframe, "1w");
 assert.equal(Object.hasOwn(generatedFibonacci.fibonacci_structure.short_term, "selected_candidate_score"), false);
 
 // Missing bars never become numeric zero, and insufficient history remains explicit.

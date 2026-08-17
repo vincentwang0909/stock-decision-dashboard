@@ -7,7 +7,7 @@
 (function exposeCanonicalTechnicalFeatures(root) {
   "use strict";
 
-  const SCHEMA_VERSION = "technical-features-v2";
+  const SCHEMA_VERSION = "technical-features-v3";
   const AVAILABILITY_REASONS = Object.freeze([
     "available",
     "source_unavailable",
@@ -70,9 +70,14 @@
   // feature layer remains complete even when the API does not attach a legacy
   // presentation object to a quote.
   const FIBONACCI_HORIZON_CONFIG = Object.freeze({
-    short_term: { lookback: 40, min_lookback: 25, max_lookback: 65, pivot_bars: 2, min_pivot_separation: 5, min_swing_pct: 5, stale_after_bars: 20 },
-    mid_term: { lookback: 100, min_lookback: 60, max_lookback: 150, pivot_bars: 4, min_pivot_separation: 10, min_swing_pct: 10, stale_after_bars: 50 },
-    long_term: { lookback: 104, min_lookback: 26, max_lookback: 130, pivot_bars: 2, min_pivot_separation: 5, min_swing_pct: 15, stale_after_bars: 26 },
+    // The swing source follows the actual Decision horizon.  Short is native
+    // 4H first; Daily is a named secondary confirmation/fallback rather than
+    // a silently reused Short object.  Long uses completed Weekly bars.
+    short_term: { source_timeframe: "4h", lookback: 80, min_lookback: 45, max_lookback: 120, pivot_bars: 3, min_pivot_separation: 8, min_swing_pct: 4, stale_after_bars: 32 },
+    short_daily_confirmation: { source_timeframe: "1d", lookback: 65, min_lookback: 40, max_lookback: 90, pivot_bars: 2, min_pivot_separation: 6, min_swing_pct: 5, stale_after_bars: 28 },
+    mid_term: { source_timeframe: "1d", lookback: 100, min_lookback: 60, max_lookback: 150, pivot_bars: 4, min_pivot_separation: 10, min_swing_pct: 10, stale_after_bars: 50 },
+    long_term: { source_timeframe: "1w", lookback: 104, min_lookback: 26, max_lookback: 130, pivot_bars: 2, min_pivot_separation: 5, min_swing_pct: 15, stale_after_bars: 26 },
+    long_daily_fallback: { source_timeframe: "1d", lookback: 250, min_lookback: 120, max_lookback: 320, pivot_bars: 5, min_pivot_separation: 20, min_swing_pct: 15, stale_after_bars: 80 },
   });
 
   const finite = (value) => value == null || value === "" ? null : Number.isFinite(Number(value)) ? Number(value) : null;
@@ -693,15 +698,52 @@
     return pivots;
   }
 
-  function canonicalFibonacciHorizon(sourceBars, horizon, currentPrice) {
+  function fibonacciSourceHash(bars = []) {
+    const sample = bars.length ? [bars[0], bars[Math.floor(bars.length / 2)], bars[bars.length - 1]] : [];
+    let value = 2166136261;
+    sample.forEach((bar) => {
+      const text = `${bar?.timestamp || ""}|${bar?.high || ""}|${bar?.low || ""}|${bar?.close || ""}`;
+      for (let index = 0; index < text.length; index += 1) value = Math.imul(value ^ text.charCodeAt(index), 16777619);
+    });
+    return `${(value >>> 0).toString(16)}-${bars.length}`;
+  }
+
+  function fibSecondarySummary(item) {
+    return {
+      availability: item?.status === "available" || item?.status === "stale_swing" ? "available" : "unavailable",
+      source_timeframe: item?.source_timeframe || null,
+      fallback_used: Boolean(item?.fallback_used),
+      swing_low: item?.swing_low ?? null,
+      swing_high: item?.swing_high ?? null,
+      swing_low_date: item?.swing_low_date ?? null,
+      swing_high_date: item?.swing_high_date ?? null,
+      swing_direction: item?.swing_direction ?? null,
+      retracement_levels: { ...(item?.retracement_levels || {}) },
+      extension_levels: { ...(item?.extension_levels || {}) },
+      derivation_id: item?.derivation_id || null,
+    };
+  }
+
+  function canonicalFibonacciHorizon(sourceBars, horizon, currentPrice, options = {}) {
     const config = FIBONACCI_HORIZON_CONFIG[horizon];
     const bars = sourceBars.slice(-config.max_lookback).slice(-config.lookback);
-    const interval = horizon === "long_term" ? "weekly" : "daily";
+    const interval = config.source_timeframe;
+    const sourceTimeframe = options.sourceTimeframe || config.source_timeframe;
+    const fallbackUsed = Boolean(options.fallbackUsed);
+    const fallbackReason = options.fallbackReason || null;
+    const sourceHash = fibonacciSourceHash(bars);
     const base = {
       horizon,
       status: "insufficient_history",
+      source_timeframe: sourceTimeframe,
+      lookback_bars: config.lookback,
       data_window: `recent ${bars.length} ${interval} bars`,
       source_bar_count: bars.length,
+      source_object_id: `fib:${horizon}:${sourceTimeframe}:${sourceHash}`,
+      source_bar_hash: sourceHash,
+      derivation_id: `fib:${horizon}:${sourceTimeframe}:${config.lookback}:${sourceHash}`,
+      fallback_used: fallbackUsed,
+      fallback_reason: fallbackReason,
       data_quality: bars.length >= config.min_lookback ? "partial" : "insufficient",
       pivot_method: `confirmed ${interval} pivots (${config.pivot_bars}/${config.pivot_bars})`,
       pivot_confirmation: `left ${config.pivot_bars} / right ${config.pivot_bars} bars confirmed`,
@@ -727,7 +769,7 @@
       distance_to_level_below_pct: null,
       distance_to_level_above_pct: null,
       invalidation_reason: null,
-      explanation: `Insufficient ${interval} history to confirm a Fibonacci swing.`,
+      explanation: `Insufficient ${interval} history to confirm an independently derived Fibonacci swing.`,
     };
     if (bars.length < config.min_lookback || !Number.isFinite(currentPrice)) return base;
 
@@ -796,20 +838,57 @@
       distance_to_level_above_pct: above?.distance_from_current_pct ?? null,
       invalidation_reason: swing.direction === "up_swing" && currentPrice < swing.low ? "current_price_below_up_swing_low" : swing.direction === "down_swing" && currentPrice > swing.high ? "current_price_above_down_swing_high" : null,
       data_quality: bars.every((bar) => bar.timestamp) ? "high" : "medium",
-      explanation: `Confirmed ${swing.direction === "up_swing" ? "up" : "down"} swing from ${bars.length} ${interval} bars; display-only technical structure.`,
+      explanation: `Confirmed ${swing.direction === "up_swing" ? "up" : "down"} swing from ${bars.length} ${interval} bars; independently derived technical structure.`,
     };
   }
 
-  function canonicalFibonacciStructure(dailyBars, weeklyBars, currentPrice) {
-    return {
-      short_term: canonicalFibonacciHorizon(dailyBars, "short_term", currentPrice),
-      mid_term: canonicalFibonacciHorizon(dailyBars, "mid_term", currentPrice),
-      long_term: canonicalFibonacciHorizon(weeklyBars, "long_term", currentPrice),
+  function canonicalFibonacciStructure(fourHourBars, dailyBars, weeklyBars, currentPrice) {
+    const shortDailyConfirmation = canonicalFibonacciHorizon(dailyBars, "short_daily_confirmation", currentPrice);
+    let shortTerm = canonicalFibonacciHorizon(fourHourBars, "short_term", currentPrice);
+    if (!(["available", "stale_swing"].includes(shortTerm.status))) {
+      // A source-unavailable Short calculation may use Daily structure only as
+      // an explicit, inspectable fallback.  It is freshly calculated and never
+      // references the Mid object.
+      const fallback = canonicalFibonacciHorizon(dailyBars, "short_daily_confirmation", currentPrice, {
+        sourceTimeframe: "1d",
+        fallbackUsed: true,
+        fallbackReason: fourHourBars.length ? "4h_no_valid_confirmed_swing" : "4h_source_unavailable",
+      });
+      shortTerm = {
+        ...fallback,
+        horizon: "short_term",
+        source_object_id: `fib:short_term:1d-fallback:${fallback.source_bar_hash}`,
+        derivation_id: `fib:short_term:1d-fallback:${fallback.lookback_bars}:${fallback.source_bar_hash}`,
+      };
+    }
+    shortTerm = {
+      ...shortTerm,
+      secondary_confirmation: fibSecondarySummary(shortDailyConfirmation),
     };
+    const midTerm = canonicalFibonacciHorizon(dailyBars, "mid_term", currentPrice);
+    let longTerm = canonicalFibonacciHorizon(weeklyBars, "long_term", currentPrice);
+    if (!(["available", "stale_swing"].includes(longTerm.status))) {
+      const fallback = canonicalFibonacciHorizon(dailyBars, "long_daily_fallback", currentPrice, {
+        sourceTimeframe: "1d",
+        fallbackUsed: true,
+        fallbackReason: weeklyBars.length ? "weekly_no_valid_confirmed_swing" : "weekly_history_unavailable",
+      });
+      longTerm = {
+        ...fallback,
+        horizon: "long_term",
+        source_object_id: `fib:long_term:1d-fallback:${fallback.source_bar_hash}`,
+        derivation_id: `fib:long_term:1d-fallback:${fallback.lookback_bars}:${fallback.source_bar_hash}`,
+      };
+    }
+    return { short_term: shortTerm, mid_term: midTerm, long_term: longTerm };
   }
 
-  function fibonacciFeatures(fibonacciStructure = {}, dailyBars = [], weeklyBars = [], currentPrice = null) {
-    const generatedStructure = canonicalFibonacciStructure(dailyBars, weeklyBars, currentPrice);
+  function fibonacciFeatures(fibonacciStructure = {}, fourHourBars = [], dailyBars = [], weeklyBars = [], currentPrice = null) {
+    // Server-side Fibonacci objects predate independent 4H/1D/1W horizons.
+    // Keep the input parameter for API compatibility, but canonical features
+    // always derive fresh immutable structures from the raw interval sources.
+    void fibonacciStructure;
+    const generatedStructure = canonicalFibonacciStructure(fourHourBars, dailyBars, weeklyBars, currentPrice);
     const normalize = (item) => {
       if (!item) return { availability: "unavailable" };
       const levels = [...Object.values(item.retracement_levels || {}), ...Object.values(item.extension_levels || {})].filter((entry) => Number.isFinite(entry?.price));
@@ -824,7 +903,16 @@
         availability: item.status === "available" || item.status === "stale_swing" ? "available" : "unavailable",
         status: item.status || "unavailable",
         source: "confirmed_pivot_fibonacci",
-        interval: item.horizon === "long_term" ? "1w" : "1d",
+        interval: item.source_timeframe || "unavailable",
+        source_timeframe: item.source_timeframe || "unavailable",
+        lookback_bars: item.lookback_bars ?? null,
+        source_bar_count: item.source_bar_count ?? null,
+        source_object_id: item.source_object_id || null,
+        source_bar_hash: item.source_bar_hash || null,
+        derivation_id: item.derivation_id || null,
+        fallback_used: Boolean(item.fallback_used),
+        fallback_reason: item.fallback_reason || null,
+        secondary_confirmation: item.secondary_confirmation || null,
         anchor_method: item.pivot_method || "confirmed_pivots",
         anchor_confidence: item.data_quality || "unavailable",
         anchor_low: item.swing_low ?? null,
@@ -843,12 +931,11 @@
         above_or_below_61_8_retracement: Number.isFinite(level618) && Number.isFinite(currentPrice) ? currentPrice >= level618 ? "above" : "below" : "unavailable",
       };
     };
-    const source = (key) => fibonacciStructure[key]?.status === "available" || fibonacciStructure[key]?.status === "stale_swing" ? fibonacciStructure[key] : generatedStructure[key];
     return {
-      short: normalize(source("short_term")),
-      medium: normalize(source("mid_term")),
-      long: normalize(source("long_term")),
-      structure: { short_term: source("short_term"), mid_term: source("mid_term"), long_term: source("long_term") },
+      short: normalize(generatedStructure.short_term),
+      medium: normalize(generatedStructure.mid_term),
+      long: normalize(generatedStructure.long_term),
+      structure: { short_term: generatedStructure.short_term, mid_term: generatedStructure.mid_term, long_term: generatedStructure.long_term },
     };
   }
 
@@ -893,7 +980,7 @@
     const weekly = completedWeeklyBars(daily);
     const sources = { "1h": hourly, "4h": fourHour, "1d": daily, "1w": weekly };
     const normalizedPrice = Number.isFinite(currentPrice) ? currentPrice : last(daily)?.close ?? null;
-    const fibonacci = fibonacciFeatures(fibonacciStructure, daily, weekly, normalizedPrice);
+    const fibonacci = fibonacciFeatures(fibonacciStructure, fourHour, daily, weekly, normalizedPrice);
     const volume = canonicalVolumeFeature(daily, finite(shareBase), calculatedAt);
     const hourlySource = history.intervals?.["1h"] || history.by_interval?.["1h"] || history.intervals?.hourly || {};
     const fourHourSource = history.intervals?.["4h"] || history.by_interval?.["4h"] || {};
@@ -942,7 +1029,7 @@
     };
   }
 
-  const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, _test: { normalizeBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, pricePositionFeatures, canonicalVolumeFeature } };
+  const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, _test: { normalizeBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, pricePositionFeatures, canonicalVolumeFeature, canonicalFibonacciHorizon, canonicalFibonacciStructure } };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.CanonicalTechnicalFeatures = api;
 }(typeof globalThis !== "undefined" ? globalThis : window));

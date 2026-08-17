@@ -244,46 +244,121 @@
     };
   }
 
+  function fibRole(fibonacci, kind) {
+    const direction = fibonacci?.swing_direction;
+    if (direction === "up_swing") return kind === "retracement" ? "support" : "reduce";
+    if (direction === "down_swing") return kind === "retracement" ? "reduce" : "support";
+    return "both";
+  }
+
+  function movingAverageRole(item) {
+    const slope = state(item?.slope?.state);
+    if (slope.includes("rising") || slope.includes("bullish")) return "support";
+    if (slope.includes("falling") || slope.includes("bearish")) return "reduce";
+    return "both";
+  }
+
   function structuralLevels(parts) {
     const levels = [];
-    const add = (price, type, weight, label) => { if (Number.isFinite(price) && price > 0) levels.push({ price, type, weight, label }); };
-    Object.values(parts.fibonacci.retracement_levels || {}).forEach((item) => add(item?.price, "fib", engine.config.componentScales.opportunity.structuralLevelWeight.fib, `Fib retracement ${item?.label || ""}`));
-    Object.values(parts.fibonacci.extension_levels || {}).forEach((item) => add(item?.price, "fib", engine.config.componentScales.opportunity.structuralLevelWeight.fib, `Fib extension ${item?.label || ""}`));
-    [parts.fibonacci.swing_low, parts.fibonacci.swing_high].forEach((item, index) => add(item, "swing", engine.config.componentScales.opportunity.structuralLevelWeight.swing, index ? "Swing high" : "Swing low"));
-    add(parts.position.high_52w, "price_structure", engine.config.componentScales.opportunity.structuralLevelWeight.price_structure, "52-week high");
-    add(parts.position.low_52w, "price_structure", engine.config.componentScales.opportunity.structuralLevelWeight.price_structure, "52-week low");
-    add(parts.position.all_time_high, "price_structure", engine.config.componentScales.opportunity.structuralLevelWeight.price_structure, "All-time high");
-    [...parts.ma, ...parts.earlyMa].forEach((item) => add(item.value, "moving_average", engine.config.componentScales.opportunity.structuralLevelWeight.moving_average, `${String(item.indicator || "MA").toUpperCase()} ${item.period} (${item.interval || ""})`));
-    [parts.bands.lower_band, parts.bands.middle_band, parts.bands.upper_band].forEach((item, index) => add(item, "bollinger", engine.config.componentScales.opportunity.structuralLevelWeight.bollinger, ["Bollinger lower", "Bollinger middle", "Bollinger upper"][index]));
+    const categories = engine.config.componentScales.opportunity.unifiedConfluence.categoryForType;
+    const add = (price, type, weight, label, role = "both", sourceTimeframe = null) => {
+      if (Number.isFinite(price) && price > 0) levels.push({ price, type, category: categories[type] || type, weight, label, role, sourceTimeframe });
+    };
+    Object.values(parts.fibonacci.retracement_levels || {}).forEach((item) => add(item?.price, "fib", engine.config.componentScales.opportunity.structuralLevelWeight.fib, `Fib retracement ${item?.label || ""}`, fibRole(parts.fibonacci, "retracement"), parts.fibonacci.source_timeframe || null));
+    Object.values(parts.fibonacci.extension_levels || {}).forEach((item) => add(item?.price, "fib", engine.config.componentScales.opportunity.structuralLevelWeight.fib, `Fib extension ${item?.label || ""}`, fibRole(parts.fibonacci, "extension"), parts.fibonacci.source_timeframe || null));
+    // Short 4H Fibonacci may use independently-derived Daily anchors only as
+    // secondary confirmation.  They carry deliberately lower structural
+    // weight and never replace the horizon's primary Fibonacci source.
+    const dailyConfirmation = parts.fibonacci.secondary_confirmation || {};
+    Object.values(dailyConfirmation.retracement_levels || {}).forEach((item) => add(item?.price, "daily_fib_confirmation", engine.config.componentScales.opportunity.structuralLevelWeight.daily_fib_confirmation, `Daily Fib confirmation ${item?.label || ""}`, fibRole(dailyConfirmation, "retracement"), dailyConfirmation.source_timeframe || null));
+    Object.values(dailyConfirmation.extension_levels || {}).forEach((item) => add(item?.price, "daily_fib_confirmation", engine.config.componentScales.opportunity.structuralLevelWeight.daily_fib_confirmation, `Daily Fib confirmation extension ${item?.label || ""}`, fibRole(dailyConfirmation, "extension"), dailyConfirmation.source_timeframe || null));
+    add(parts.fibonacci.swing_low, "swing", engine.config.componentScales.opportunity.structuralLevelWeight.swing, "Swing low", "support", parts.fibonacci.source_timeframe || null);
+    add(parts.fibonacci.swing_high, "swing", engine.config.componentScales.opportunity.structuralLevelWeight.swing, "Swing high", "reduce", parts.fibonacci.source_timeframe || null);
+    add(parts.position.high_52w, "price_structure", engine.config.componentScales.opportunity.structuralLevelWeight.price_structure, "52-week high", "reduce", "1d");
+    add(parts.position.low_52w, "price_structure", engine.config.componentScales.opportunity.structuralLevelWeight.price_structure, "52-week low", "support", "1d");
+    add(parts.position.all_time_high, "price_structure", engine.config.componentScales.opportunity.structuralLevelWeight.price_structure, "All-time high", "reduce", "1d");
+    [...parts.ma, ...parts.earlyMa].forEach((item) => add(item.value, "moving_average", engine.config.componentScales.opportunity.structuralLevelWeight.moving_average, `${String(item.indicator || "MA").toUpperCase()} ${item.period} (${item.interval || ""})`, movingAverageRole(item), item.interval || null));
+    add(parts.bands.lower_band, "bollinger", engine.config.componentScales.opportunity.structuralLevelWeight.bollinger, "Bollinger lower", "support", parts.primary);
+    add(parts.bands.middle_band, "bollinger", engine.config.componentScales.opportunity.structuralLevelWeight.bollinger, "Bollinger middle", "both", parts.primary);
+    add(parts.bands.upper_band, "bollinger", engine.config.componentScales.opportunity.structuralLevelWeight.bollinger, "Bollinger upper", "reduce", parts.primary);
     return levels.filter((level, index, all) => !all.slice(0, index).some((prior) => prior.type === level.type && prior.label === level.label && Math.abs(prior.price - level.price) < 0.000001));
   }
 
-  function clusterLevel(levels, price, atr, side) {
+  function categoryEvidence(members, seedPrice) {
+    const config = engine.config.componentScales.opportunity.unifiedConfluence;
+    const buckets = new Map();
+    members.forEach((member) => {
+      const bucket = buckets.get(member.category) || [];
+      bucket.push(member);
+      buckets.set(member.category, bucket);
+    });
+    const categories = [...buckets.entries()].map(([category, entries]) => {
+      const representative = [...entries].sort((left, right) => Math.abs(left.price - seedPrice) - Math.abs(right.price - seedPrice) || right.weight - left.weight)[0];
+      const cap = config.categoryContributionCap[category] ?? representative.weight;
+      const contribution = Math.min(cap, Math.max(config.categoryQualityFloor, representative.weight));
+      return { category, entries, representative, contribution };
+    });
+    const contribution = categories.reduce((sum, item) => sum + item.contribution, 0);
+    const crossCategoryBonus = Math.max(0, categories.length - 1) * config.crossCategoryBonus;
+    const total = contribution + crossCategoryBonus;
+    const centreWeight = categories.reduce((sum, item) => sum + item.contribution, 0) || 1;
+    const center = categories.reduce((sum, item) => sum + item.representative.price * item.contribution, 0) / centreWeight;
+    return {
+      center, confluence: total, quality: total,
+      independentStructures: categories.length,
+      categoryBreakdown: categories.map((item) => ({
+        category: item.category, levelCount: item.entries.length, contribution: item.contribution,
+        representative: { price: item.representative.price, type: item.representative.type, label: item.representative.label },
+      })),
+    };
+  }
+
+  function clusterLevels(levels, price, atr, side) {
     if (!Number.isFinite(price) || !Number.isFinite(atr) || atr <= 0) return null;
     const config = engine.config.componentScales.opportunity;
-    const candidates = levels.filter((level) => side === "support" ? level.price <= price + atr * 0.15 : level.price >= price - atr * 0.15);
-    const ranked = candidates.map((center) => {
-      const members = candidates.filter((item) => Math.abs(item.price - center.price) <= atr * config.confluenceBandAtr);
-      const confluence = members.reduce((sum, item) => sum + item.weight * Math.max(0.15, 1 - Math.abs(item.price - price) / (atr * 2.6)), 0);
-      return { center: mean(members.map((item) => item.price)), members, confluence, distanceAtr: Math.abs(center.price - price) / atr };
-    }).sort((left, right) => right.confluence - left.confluence || left.distanceAtr - right.distanceAtr);
-    return ranked[0] || null;
+    // Relative location decides whether a level can be considered below or
+    // above current price. Its structural role is a bounded quality modifier,
+    // not a hard exclusion: this keeps confirmed structure usable across a
+    // breakout while preventing an opposite-role level from winning merely
+    // because current price crossed it.
+    const candidates = levels.filter((level) => side === "support"
+      ? level.price <= price + atr * config.supportEligibilityAtr
+      : level.price >= price + atr * config.reduceEligibilityAtr);
+    const ranked = candidates.map((seed) => {
+      const members = candidates.filter((item) => Math.abs(item.price - seed.price) <= atr * config.confluenceBandAtr);
+      const evidence = categoryEvidence(members, seed.price);
+      const roleWeight = members.reduce((sum, item) => sum + Math.max(0.01, item.weight), 0) || 1;
+      const roleAlignment = members.reduce((sum, item) => {
+        const alignment = item.role === side ? 1 : item.role === "both" ? 0.7 : 0.25;
+        return sum + alignment * Math.max(0.01, item.weight);
+      }, 0) / roleWeight;
+      const quality = evidence.quality * (1 - config.unifiedConfluence.roleAlignmentWeight + roleAlignment * config.unifiedConfluence.roleAlignmentWeight);
+      return { ...evidence, members, quality, roleAlignment, distanceAtr: Math.abs(evidence.center - price) / atr };
+    }).sort((left, right) => right.quality - left.quality || left.distanceAtr - right.distanceAtr);
+    const unique = [];
+    ranked.forEach((candidate) => {
+      if (!unique.some((prior) => Math.abs(prior.center - candidate.center) <= atr * config.clusterDedupAtr)) unique.push(candidate);
+    });
+    return unique.slice(0, config.clusterCandidateLimit);
   }
 
   function priceOpportunity(parts, price, atr) {
     const levels = structuralLevels(parts);
-    const support = clusterLevel(levels, price, atr, "support");
-    const resistance = clusterLevel(levels, price, atr, "resistance");
+    const supportClusters = clusterLevels(levels, price, atr, "support") || [];
+    const resistanceClusters = clusterLevels(levels, price, atr, "resistance") || [];
+    const support = supportClusters[0] || null;
+    const resistance = resistanceClusters[0] || null;
     const config = engine.config.componentScales.opportunity;
-    const supportScore = support ? clamp(support.confluence / 3.2 * config.maxConfluenceScore, 0, config.maxConfluenceScore) : 0;
-    const resistanceScore = resistance ? clamp(resistance.confluence / 3.2 * config.maxConfluenceScore, 0, config.maxConfluenceScore) : 0;
+    const qualityReference = config.unifiedConfluence.qualityReference;
+    const supportScore = support ? clamp(support.confluence / qualityReference * config.maxConfluenceScore, 0, config.maxConfluenceScore) : 0;
+    const resistanceScore = resistance ? clamp(resistance.confluence / qualityReference * config.maxConfluenceScore, 0, config.maxConfluenceScore) : 0;
     const percentB = finite(parts.bands.percent_b);
     const extension = !Number.isFinite(percentB) ? 0 : percentB > 1 ? -clamp((percentB - 1) * 100, 0, config.extensionWeight) : percentB < 0 ? clamp(-percentB * 100, 0, config.extensionWeight) : 0;
     const raw = clamp(supportScore - resistanceScore + extension, -100, 100);
     return {
       score: raw,
       components: { supportConfluence: Math.round(supportScore), resistanceConfluence: Math.round(resistanceScore), bollingerExtension: Math.round(extension), selectedSupport: support ? { price: support.center, members: support.members.length, labels: support.members.slice(0, 4).map((item) => item.label) } : null, selectedResistance: resistance ? { price: resistance.center, members: resistance.members.length, labels: resistance.members.slice(0, 4).map((item) => item.label) } : null },
-      executionContext: { levels, support, resistance, atr },
+      executionContext: { levels, support, resistance, supportClusters, resistanceClusters, atr, structureModel: "unified_category_confluence" },
     };
   }
 
@@ -428,5 +503,5 @@
     return out;
   }
 
-  engine.technical = Object.freeze({ evaluate });
+  engine.technical = Object.freeze({ evaluate, structuralLevels, clusterLevels });
 }(globalThis));

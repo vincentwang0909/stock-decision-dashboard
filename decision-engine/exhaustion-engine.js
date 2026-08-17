@@ -15,7 +15,7 @@
     return !Number.isFinite(value) ? 0 : clamp((start - value) / Math.max(1, start - extreme), 0, 1) * 100;
   }
 
-  function evaluate({ technical = {}, market = {}, companyProfile = {} } = {}) {
+  function evaluate({ technical = {}, market = {}, profile = {} } = {}) {
     const config = engine.config.exhaustion;
     const raw = technical.raw || {};
     const rsi = finite(raw.rsi?.value);
@@ -85,7 +85,7 @@
     const marketContrarian = !Number.isFinite(fearGreedValue) ? 0
       : fearGreedValue >= engine.config.market.fearGreed.extremeGreed ? -config.marketContrarianMax
         : fearGreedValue <= engine.config.market.fearGreed.extremeFear ? config.marketContrarianMax : 0;
-    const sensitivity = companyProfile.effectiveModifiers?.exhaustionSensitivity || 1;
+    const sensitivity = profile.effectiveModifiers?.exhaustionSensitivity || 1;
     const score = clamp((bearishExhaustion - bullishExhaustion + marketContrarian) * sensitivity, -100, 100);
     const supporting = [];
     const limiting = [];

@@ -8,19 +8,12 @@ const path = require("node:path");
 const { buildTechnicalFeatures } = require("../technical-features.js");
 
 for (const file of [
-  "config.js", "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "company-profile.js",
+  "config.js", "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "etf-profile.js", "company-profile.js",
   "execution-engine.js", "confidence-engine.js", "stability-engine.js", "decision-engine.js",
 ]) require(path.join(__dirname, "..", "decision-engine", file));
 
 const DEFAULT_TICKERS = ["META", "MSFT", "NVDA", "MU", "AMZN", "GOOGL"];
-const CLASSIFICATIONS = {
-  META: { tags: ["MegaCap", "SocialMedia", "DigitalAds", "AI", "CashCow", "RegulatoryRisk"], category: "SocialMediaAds", scoring_profile: "platform_ads" },
-  MSFT: { tags: ["MegaCap", "Software", "Cloud", "AI", "CashCow", "ProfitableGrowth"], category: "SoftwareCloud", scoring_profile: "software_cloud" },
-  NVDA: { tags: ["MegaCap", "Semiconductor", "GPU", "AIInfrastructure", "DataCenter", "HighMultiple"], category: "AIInfrastructure", scoring_profile: "ai_infrastructure" },
-  MU: { tags: ["LargeCap", "Semiconductor", "MemoryStorage", "DRAMNAND", "Cyclical", "AIInfrastructure"], category: "MemoryStorage", scoring_profile: "memory_cycle" },
-  AMZN: { tags: ["MegaCap", "Ecommerce", "Cloud", "ConsumerPlatform", "CashCow", "AI"], category: "EcommerceCloud", scoring_profile: "software_cloud" },
-  GOOGL: { tags: ["MegaCap", "DigitalAds", "Cloud", "AI", "CashCow", "RegulatoryRisk"], category: "DigitalAdsCloud", scoring_profile: "platform_ads" },
-};
+const profiles = require("../profile-definitions.js");
 
 const finite = (value) => value == null || value === "" ? null : Number.isFinite(Number(value)) ? Number(value) : null;
 const returnPct = (closes, lookback) => {
@@ -45,7 +38,9 @@ function summary(decision) {
     action: value.action, confidence: value.confidence,
     direction: value.states.direction.score, confirmation: value.states.confirmation.score,
     risk: value.states.risk.score, priceOpportunity: value.states.priceOpportunity.score, exhaustion: value.states.exhaustion.score,
-    marketRegime: value.market.regime, recommendedRange: value.recommendedRange, targetRange: value.targetRange, invalidation: value.invalidation,
+    marketRegime: value.market.regime, candidateAction: value.debug.candidateAction, finalAction: value.debug.finalAction,
+    priceState: value.debug.priceState, actionFamily: value.debug.actionFamily, landscapeQuality: value.debug.landscapeQuality,
+    finalDecision: value.debug.finalDecision, stability: value.debug.stability, priceLandscape: value.priceLandscape,
     supporting: value.reasons.supporting, limiting: value.reasons.limiting,
   }]));
 }
@@ -70,7 +65,7 @@ async function main() {
       history: quote.history || {}, currentPrice: price, relativeStrength: relativeStrength(quote, market),
       fibonacciStructure: quote.technical?.fibonacci_structure || {}, shareBase: quote.metadata?.sharesOutstanding || null,
     });
-    output[ticker] = { status: "available", price, ...summary(globalThis.DecisionEngine.decide({ ticker, price, technicalFeatures, marketContext: market, classification: CLASSIFICATIONS[ticker] || {}, metadata: quote.metadata || {}, language: "en" })) };
+    output[ticker] = { status: "available", price, ...summary(globalThis.DecisionEngine.decide({ ticker, price, technicalFeatures, marketContext: market, classification: profiles.profileFor(ticker, quote.metadata || {}), metadata: quote.metadata || {}, language: "en" })) };
   }
   console.log(JSON.stringify({ generatedAt: new Date().toISOString(), cacheOnly: true, tickers: output }, null, 2));
 }

@@ -6,7 +6,6 @@
   const validRange = (range) => finite(range?.low) != null && finite(range?.high) != null;
   const actionIntent = Object.freeze({ strong_buy: "enter", buy: "enter", accumulate: "add", hold: "hold", trim: "reduce", sell: "exit", avoid: "avoid" });
   const actionTone = Object.freeze({ strong_buy: "strong-buy", buy: "buy", accumulate: "accumulate", hold: "hold", trim: "trim", sell: "sell", avoid: "avoid" });
-
   const REASONS = Object.freeze({
     obv_participation_improving: { en: "OBV participation is improving.", zh: "OBV 参与度正在改善。" },
     obv_participation_weakening: { en: "OBV participation is weakening.", zh: "OBV 参与度正在走弱。" },
@@ -37,135 +36,100 @@
     market_volatility_or_broad_trend_calls_for_more_cautious_execution: { en: "Market volatility or broad trend calls for more cautious execution.", zh: "市场波动或整体趋势要求更谨慎执行。" },
     "10y_yield_backdrop_is_restrictive_for_rate_sensitive_risk": { en: "10Y yield backdrop is restrictive for rate-sensitive risk.", zh: "10 年期收益率环境限制利率敏感型风险。" },
     earnings_proximity_raises_event_uncertainty: { en: "Earnings proximity raises event uncertainty.", zh: "财报临近提高事件不确定性。" },
+    inverse_underlying_direction_supports_the_etf_technical_setup: { en: "Inverse underlying direction supports the ETF technical setup.", zh: "标的指数方向正在支持该反向 ETF 的技术结构。" },
+    underlying_direction_conflicts_with_the_inverse_etf_technical_setup: { en: "Underlying direction conflicts with the inverse ETF technical setup.", zh: "标的指数方向与该反向 ETF 的技术结构冲突。" },
+    price_landscape_quality_is_insufficient_for_a_precise_execution_recommendation: { en: "Price landscape quality is insufficient for a precise execution recommendation.", zh: "价格区间结构质量不足，无法形成精确的执行建议。" },
+    current_price_is_near_the_reduce_range_so_adding_exposure_is_not_favored: { en: "Current price is near the reduce range, so adding exposure is not favored.", zh: "当前价格接近减仓区，因此不宜新增风险暴露。" },
+    current_price_is_in_or_beyond_the_reduce_range_so_adding_exposure_is_not_favored: { en: "Current price is in or beyond the reduce range, so adding exposure is not favored.", zh: "当前价格已进入或超过减仓区，因此不宜新增风险暴露。" },
+    current_price_is_only_near_not_inside_the_opportunity_range: { en: "Current price is only near, not inside, the opportunity range.", zh: "当前价格仅接近、尚未进入优质机会区。" },
+    current_price_is_away_from_the_higher_quality_opportunity_range: { en: "Current price is away from the higher-quality opportunity range.", zh: "当前价格已远离质量更高的机会区。" },
+    trend_and_confirmation_remain_strong_despite_price_entering_the_reduce_range: { en: "Trend and confirmation remain strong despite price entering the reduce range.", zh: "价格已进入减仓区，但趋势与确认信号仍然强劲。" },
+    price_has_entered_the_reduce_range_so_additional_exposure_is_not_favored: { en: "Price has entered the reduce range, so additional exposure is not favored.", zh: "价格已进入减仓区，因此不宜进一步增加暴露。" },
+    price_has_entered_the_reduce_range_without_enough_trend_confirmation_to_justify_holding_full_exposure: { en: "Price has entered the reduce range without enough trend confirmation to justify holding full exposure.", zh: "价格已进入减仓区，但趋势确认不足以支持维持完整暴露。" },
+    price_position_alone_cannot_create_a_sell_without_bearish_structural_evidence: { en: "Price position alone cannot create a Sell without bearish structural evidence.", zh: "仅凭价格位置、缺乏空头结构证据时，不能形成卖出建议。" },
+    bearish_structure_has_broken_down_the_exit_range_is_anchored_near_the_executable_current_area: { en: "Bearish structure has broken down; the exit range is anchored near the executable current area.", zh: "空头结构已破位，退出区已锚定在当前可执行价格附近。" },
   });
 
   function normalizeReason(reason) {
     if (reason && typeof reason === "object") return { code: String(reason.code || ""), text: String(reason.text || reason.label || ""), params: reason.params || {} };
     const text = String(reason || "");
-    const code = text.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-    return { code, text, params: {} };
+    return { code: text.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""), text, params: {} };
   }
-
   function translateReason(reason, language = "en") {
-    const normalized = normalizeReason(reason);
-    const matched = REASONS[normalized.code];
-    if (matched) return matched[language === "zh" ? "zh" : "en"];
-    return normalized.text || normalized.code || "—";
+    const value = normalizeReason(reason);
+    return REASONS[value.code]?.[language === "zh" ? "zh" : "en"] || value.text || value.code || "—";
   }
-
-  function reasonList(items, language = "en", maximum = 5) {
-    return (Array.isArray(items) ? items : []).slice(0, maximum).map((item) => translateReason(item, language));
-  }
+  function reasonList(items, language = "en", maximum = 5) { return (Array.isArray(items) ? items : []).slice(0, maximum).map((item) => translateReason(item, language)); }
 
   function executionSemantics(decision = {}) {
     const intent = decision.executionIntent || actionIntent[decision.action] || "hold";
     const labels = {
-      enter: { range: "recommendedEntryRange", target: "targetRange", risk: "invalidation" },
-      add: { range: "recommendedAddRange", target: "targetRange", risk: "invalidation" },
-      hold: { range: "holdZone", target: "structuralReference", risk: null },
-      reduce: { range: "recommendedReductionRange", target: "nextStructuralZone", risk: "riskReference" },
-      exit: { range: "recommendedExitRange", target: "downsideStructuralTarget", risk: "recoveryInvalidation" },
-      avoid: { range: "avoidNoEntry", target: null, risk: "structuralReference" },
+      enter: { opportunity: "recommendedBuyAddRange", reduce: "potentialReduceRange", invalidation: "riskInvalidation" },
+      add: { opportunity: "recommendedBuyAddRange", reduce: "potentialReduceRange", invalidation: "riskInvalidation" },
+      hold: { opportunity: "potentialAddRange", reduce: "potentialReduceRange", invalidation: "riskInvalidation" },
+      reduce: { opportunity: "reevaluationRange", reduce: "recommendedReduceRange", invalidation: "riskInvalidation" },
+      exit: { opportunity: "reevaluationRange", reduce: "recommendedExitRange", invalidation: "riskInvalidation" },
+      avoid: { opportunity: "reevaluationRange", reduce: null, invalidation: null },
     };
     return { intent, ...(labels[intent] || labels.hold) };
   }
 
-  function profileGroups(profile = {}, primaryClassification = "") {
-    const withoutPrimary = (values) => [...new Set((Array.isArray(values) ? values : []).filter(Boolean))]
-      .filter((tag) => String(tag).toLowerCase() !== String(primaryClassification || "").toLowerCase());
-    const staticTags = withoutPrimary(profile.staticTags || profile.tags);
-    const dynamicTags = [...new Set((profile.dynamicTags || []).filter(Boolean))];
-    const lifecycleTags = profile.lifecycleTag ? [profile.lifecycleTag] : [];
-    const candidateTags = [...new Set([...(profile.candidateTags || []), profile.candidateTag].filter(Boolean))];
-    return {
-      staticTags, dynamicTags, lifecycleTags, candidateTags,
-      visible: {
-        static: staticTags.length > 0,
-        dynamic: dynamicTags.length > 0,
-        lifecycle: lifecycleTags.length > 0,
-        candidate: candidateTags.length > 0,
-      },
-    };
+  function profileGroups(profile = {}) {
+    if (profile.isETF) return { type: "etf", traits: [], lifecycle: null, visible: { traits: false, lifecycle: false } };
+    const primary = String(profile.primaryClassification || "").toLowerCase();
+    const traits = [...new Set((profile.companyTraits || []).filter(Boolean))].filter((trait) => String(trait).toLowerCase() !== primary);
+    return { type: "stock", traits, lifecycle: profile.lifecycle || null, visible: { traits: traits.length > 0, lifecycle: Boolean(profile.lifecycle) } };
   }
 
-  function labelAnchor(point) {
-    if (Number.isFinite(point.start) && Number.isFinite(point.end)) return (point.start + point.end) / 2;
-    return point.position;
-  }
-
+  const labelAnchor = (point) => Number.isFinite(point.start) && Number.isFinite(point.end) ? (point.start + point.end) / 2 : point.position;
   function layoutPriceMap(points = [], minimumGap = 9) {
-    const preferredSide = { range: "top", current: "top", target: "bottom", invalidation: "bottom", reference: "bottom", support: "bottom", resistance: "top" };
+    const preferredSide = { opportunity: "top", current: "top", reduce: "bottom", invalidation: "bottom" };
     const lanes = { top: [], bottom: [] };
-    const labels = [...points].map((point) => ({ ...point, anchor: labelAnchor(point) })).filter((point) => Number.isFinite(point.anchor))
-      .sort((left, right) => left.anchor - right.anchor)
-      .map((point) => {
-        const preferred = preferredSide[point.id] || "top";
-        const sides = [preferred, preferred === "top" ? "bottom" : "top"];
-        let placement = null;
-        for (const side of sides) {
-          const lane = lanes[side].findIndex((last) => point.anchor - last >= minimumGap);
-          if (lane >= 0) { placement = { side, lane }; break; }
-          if (lanes[side].length < 2) { placement = { side, lane: lanes[side].length }; break; }
-        }
-        if (!placement) {
-          const side = lanes.top.length <= lanes.bottom.length ? "top" : "bottom";
-          placement = { side, lane: Math.min(1, lanes[side].length - 1) };
-        }
-        lanes[placement.side][placement.lane] = point.anchor;
-        return {
-          ...point,
-          labelSide: placement.side,
-          labelLane: placement.lane + 1,
-          labelPosition: Math.max(5, Math.min(95, point.anchor)),
-        };
-      });
+    const labels = [...points].map((point) => ({ ...point, anchor: labelAnchor(point) })).filter((point) => Number.isFinite(point.anchor)).sort((a, b) => a.anchor - b.anchor).map((point) => {
+      const desired = preferredSide[point.id] || "top";
+      const sides = [desired, desired === "top" ? "bottom" : "top"];
+      let slot = null;
+      for (const side of sides) {
+        const lane = lanes[side].findIndex((last) => point.anchor - last >= minimumGap);
+        if (lane >= 0) { slot = { side, lane }; break; }
+        if (lanes[side].length < 2) { slot = { side, lane: lanes[side].length }; break; }
+      }
+      if (!slot) { const side = lanes.top.length <= lanes.bottom.length ? "top" : "bottom"; slot = { side, lane: Math.min(1, lanes[side].length - 1) }; }
+      lanes[slot.side][slot.lane] = point.anchor;
+      return { ...point, labelSide: slot.side, labelLane: slot.lane + 1, labelPosition: Math.max(5, Math.min(95, point.anchor)) };
+    });
     const topLanes = Math.max(0, ...labels.filter((point) => point.labelSide === "top").map((point) => point.labelLane));
     const bottomLanes = Math.max(0, ...labels.filter((point) => point.labelSide === "bottom").map((point) => point.labelLane));
     return { labels, topLanes, bottomLanes, trackHeight: 96 + (topLanes + bottomLanes) * 22 };
   }
 
+  function nearestRangeDistance(current, range) {
+    if (!Number.isFinite(current) || !validRange(range)) return null;
+    if (current >= range.low && current <= range.high) return { within: true, percent: 0 };
+    const edge = current < range.low ? range.low : range.high;
+    return { within: false, percent: (edge - current) / current * 100 };
+  }
+
   function priceMapModel({ currentPrice, decision = {} } = {}) {
-    const current = finite(currentPrice);
+    const landscape = decision.priceLandscape || {};
+    const current = finite(landscape.currentPrice) ?? finite(currentPrice);
     const execution = executionSemantics(decision);
     const points = [];
-    if (validRange(decision.recommendedRange)) points.push({ id: "range", low: finite(decision.recommendedRange.low), high: finite(decision.recommendedRange.high), labelKey: execution.range });
-    if (validRange(decision.targetRange)) points.push({ id: "target", low: finite(decision.targetRange.low), high: finite(decision.targetRange.high), labelKey: execution.target || "targetRange" });
-    const invalidation = finite(decision.invalidation);
-    if (invalidation != null) points.push({ id: "invalidation", value: invalidation, labelKey: execution.risk || "invalidation" });
-    const structural = decision.debug?.recommendedRangeInputs?.structuralReference || decision.debug?.recommendedRangeInputs?.avoidReference;
-    if (execution.intent === "avoid" && finite(structural?.center) != null) points.push({ id: "reference", value: finite(structural.center), labelKey: "structuralReference" });
-    if (execution.intent === "hold") {
-      if (finite(structural?.support) != null) points.push({ id: "support", value: finite(structural.support), labelKey: "structuralReference" });
-      if (finite(structural?.resistance) != null) points.push({ id: "resistance", value: finite(structural.resistance), labelKey: "structuralReference" });
-    }
-    if (current != null) points.push({ id: "current", value: current, labelKey: "currentPrice" });
+    if (validRange(landscape.opportunityRange)) points.push({ id: "opportunity", low: finite(landscape.opportunityRange.low), high: finite(landscape.opportunityRange.high), labelKey: execution.opportunity, distance: nearestRangeDistance(current, landscape.opportunityRange) });
+    if (validRange(landscape.reduceRange)) points.push({ id: "reduce", low: finite(landscape.reduceRange.low), high: finite(landscape.reduceRange.high), labelKey: execution.reduce, distance: nearestRangeDistance(current, landscape.reduceRange) });
+    const invalidation = finite(landscape.invalidation);
+    if (invalidation != null) points.push({ id: "invalidation", value: invalidation, labelKey: execution.invalidation || "riskInvalidation", distance: current == null ? null : { within: false, percent: (invalidation - current) / current * 100 } });
+    if (current != null) points.push({ id: "current", value: current, labelKey: "currentPrice", distance: null });
     const values = points.flatMap((point) => point.value != null ? [point.value] : [point.low, point.high]).filter(Number.isFinite);
-    if (!values.length) return { execution, points: [], min: null, max: null, position: () => null };
-    let min = Math.min(...values);
-    let max = Math.max(...values);
+    if (!values.length) return { execution, points: [], labels: [], legend: [], min: null, max: null, position: () => null };
+    let min = Math.min(...values); let max = Math.max(...values);
     const padding = Math.max(Math.abs(current || max || 1) * 0.025, (max - min) * 0.12, 0.01);
-    if (min === max) { min -= padding; max += padding; } else { min -= padding; max += padding; }
+    min -= padding; max += padding;
     const position = (value) => Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
-    const laidOut = layoutPriceMap(points.map((point) => point.value != null
-      ? { ...point, position: position(point.value) }
-      : { ...point, start: position(Math.min(point.low, point.high)), end: position(Math.max(point.low, point.high)) }));
-    const legend = [];
-    const seenLegend = new Set();
-    laidOut.labels.forEach((point) => {
-      if (!seenLegend.has(point.labelKey)) { seenLegend.add(point.labelKey); legend.push({ id: point.id, labelKey: point.labelKey }); }
-    });
-    return {
-      execution,
-      min,
-      max,
-      points: laidOut.labels,
-      labels: laidOut.labels,
-      legend,
-      topLanes: laidOut.topLanes,
-      bottomLanes: laidOut.bottomLanes,
-      trackHeight: laidOut.trackHeight,
-      position,
-    };
+    const laidOut = layoutPriceMap(points.map((point) => point.value != null ? { ...point, position: position(point.value) } : { ...point, start: position(Math.min(point.low, point.high)), end: position(Math.max(point.low, point.high)) }));
+    const seen = new Set();
+    const legend = laidOut.labels.filter((point) => { if (seen.has(point.id)) return false; seen.add(point.id); return true; }).map((point) => ({ id: point.id, labelKey: point.labelKey }));
+    return { execution, min, max, points: laidOut.labels, labels: laidOut.labels, legend, topLanes: laidOut.topLanes, bottomLanes: laidOut.bottomLanes, trackHeight: laidOut.trackHeight, position };
   }
 
   function positionGuidance(action, language = "en") {
@@ -181,7 +145,7 @@
     return messages[action]?.[language === "zh" ? "zh" : "en"] || messages.hold[language === "zh" ? "zh" : "en"];
   }
 
-  const api = Object.freeze({ actionIntent, actionTone, executionSemantics, normalizeReason, translateReason, reasonList, profileGroups, layoutPriceMap, priceMapModel, positionGuidance });
+  const api = Object.freeze({ actionIntent, actionTone, executionSemantics, normalizeReason, translateReason, reasonList, profileGroups, layoutPriceMap, nearestRangeDistance, priceMapModel, positionGuidance });
   root.DecisionPresentation = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 }(globalThis));

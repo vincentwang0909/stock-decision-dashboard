@@ -5,13 +5,12 @@
 // objects as the dashboard, asks the existing engine for decisions, prints a
 // compact JSON report, and exits.  It never refreshes the provider, mutates the
 // watchlist, or persists recommendation history.
-const fs = require("node:fs");
 const path = require("node:path");
-const vm = require("node:vm");
 const { buildTechnicalFeatures } = require("../technical-features.js");
+const profiles = require("../profile-definitions.js");
 
 for (const file of [
-  "config.js", "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "company-profile.js",
+  "config.js", "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "etf-profile.js", "company-profile.js",
   "execution-engine.js", "confidence-engine.js", "stability-engine.js", "decision-engine.js",
 ]) require(path.join(__dirname, "..", "decision-engine", file));
 
@@ -40,14 +39,6 @@ const distribution = (values) => {
   ]) : { count: 0, min: null, p10: null, p25: null, median: null, p75: null, p90: null, max: null, mean: null };
 };
 
-function classifications() {
-  const source = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
-  const match = source.match(/const CLASSIFICATION_PROFILES = Object\.freeze\((\{[\s\S]*?\})\);\n\nconst DEFAULT_WATCHLIST/);
-  if (!match) throw new Error("Unable to read CLASSIFICATION_PROFILES from main.js");
-  return vm.runInNewContext(`(${match[1]})`);
-}
-
-const CLASSIFICATIONS = classifications();
 const returnPct = (closes, lookback) => {
   const values = (closes || []).map(finite).filter((value) => value != null);
   const latest = values.at(-1);
@@ -65,15 +56,7 @@ function relativeStrength(quote, market) {
   }));
 }
 function profileFor(ticker, quote = {}) {
-  const known = CLASSIFICATIONS[ticker];
-  const upstream = quote.metadata?.classification || quote.classification || {};
-  return {
-    tags: [...new Set([...(known?.tags || []), ...(upstream.tags || upstream.top_tags || [])])],
-    category: upstream.category || known?.category || quote.metadata?.sector || "Unclassified",
-    category_key: upstream.category_key || known?.category || "other",
-    scoring_profile: upstream.scoring_profile || known?.scoring_profile || "generic",
-    profileConfidence: upstream.profileConfidence ?? upstream.profile_confidence,
-  };
+  return profiles.profileFor(ticker, quote.metadata || quote);
 }
 function featureFor(quote, market) {
   const price = finite(quote.price);
@@ -82,8 +65,8 @@ function featureFor(quote, market) {
     fibonacciStructure: quote.technical?.fibonacci_structure || {}, shareBase: quote.metadata?.sharesOutstanding || null,
   });
 }
-function decisionFor(ticker, quote, market, technicalFeatures = featureFor(quote, market), price = finite(quote.price)) {
-  return decisionEngine.decide({ ticker, price, technicalFeatures, marketContext: market, classification: profileFor(ticker, quote), metadata: quote.metadata || {}, language: "en" });
+function decisionFor(ticker, quote, market, technicalFeatures = featureFor(quote, market), price = finite(quote.price), underlying = null) {
+  return decisionEngine.decide({ ticker, price, technicalFeatures, marketContext: market, classification: profileFor(ticker, quote), metadata: quote.metadata || {}, language: "en", underlyingTechnicalFeatures: underlying?.features || null, underlyingPrice: underlying?.price ?? null });
 }
 
 function indicator(features, horizon, group, key) {
@@ -115,26 +98,77 @@ function nudge(features, horizon, kind) {
   return copy;
 }
 function rangeWidthPct(value, price) {
-  return Number.isFinite(value?.recommendedRange?.low) && Number.isFinite(value?.recommendedRange?.high) && Number.isFinite(price) && price > 0
-    ? (value.recommendedRange.high - value.recommendedRange.low) / price * 100 : null;
+  const range = value?.priceLandscape?.opportunityRange;
+  return Number.isFinite(range?.low) && Number.isFinite(range?.high) && Number.isFinite(price) && price > 0
+    ? (range.high - range.low) / price * 100 : null;
 }
-function concise(value, price) {
+function fibMeta(features, horizon) {
+  const key = decisionEngine.config.horizons[horizon]?.fibonacciKey;
+  const fib = features?.fibonacci_structure?.[key] || {};
   return {
-    action: value.action, confidence: value.confidence, direction: value.states.direction.score,
+    sourceTimeframe: fib.source_timeframe || null,
+    fallbackReason: fib.fallback_reason || null,
+    sourceBarCount: fib.source_bar_count ?? null,
+    lookback: fib.lookback_bars ?? null,
+    sourceObjectId: fib.source_object_id || fib.source_id || null,
+  };
+}
+function concise(value, price, features, horizon) {
+  const opportunity = value.priceLandscape?.opportunityRange;
+  const reduce = value.priceLandscape?.reduceRange;
+  return {
+    action: value.action, candidateAction: value.debug.candidateAction, finalAction: value.debug.finalAction,
+    priceState: value.debug.priceState, actionFamily: value.debug.actionFamily, landscapeQuality: value.debug.landscapeQuality,
+    finalDecision: value.debug.finalDecision, stability: value.debug.stability, confidence: value.confidence, direction: value.states.direction.score,
     confirmation: value.states.confirmation.score, risk: value.states.risk.score,
     priceOpportunity: value.states.priceOpportunity.score, exhaustion: value.states.exhaustion.score,
     marketRegime: value.market.regime, executionIntent: value.executionIntent || null,
-    recommendedRange: value.recommendedRange, targetRange: value.targetRange, invalidation: value.invalidation,
+    priceLandscape: value.priceLandscape,
     supporting: value.reasons.supporting, limiting: value.reasons.limiting,
     rangeWidthPct: round(rangeWidthPct(value, price)), rawEdge: value.debug.rawEdge,
     edgeBeforeMarket: value.debug.edgeBeforeMarket ?? null, edgeAfterMarket: value.debug.edgeAfterMarket ?? value.debug.adjustedEdge,
     marketRiskAdd: value.debug.marketModifiers?.riskAdd ?? null, riskComponents: value.debug.riskComponents,
     exhaustionComponents: value.debug.exhaustionComponents, confidenceComponents: value.debug.confidenceComponents,
-    appliedTags: value.debug.appliedTags,
+    appliedTraits: value.debug.appliedTraits,
     effectiveProfileModifiers: value.debug.effectiveProfileModifiers,
+    neutralBoundaries: { low: opportunity?.high ?? null, high: reduce?.low ?? null },
+    priceStructure: {
+      model: value.debug.priceLandscapeInputs?.structureModel || null,
+      selectedOpportunity: value.debug.priceLandscapeInputs?.selectedSupport || null,
+      selectedReduce: value.debug.priceLandscapeInputs?.selectedReduce || null,
+    },
+    fibonacci: fibMeta(features, horizon),
   };
 }
 function emptyActions() { return Object.fromEntries([...ACTIONS, "unavailable"].map((action) => [action, 0])); }
+function validRange(range) { return Number.isFinite(range?.low) && Number.isFinite(range?.high) && range.low <= range.high; }
+function landscapeViolations(value, price) {
+  const landscape = value.priceLandscape || {};
+  const opportunity = landscape.opportunityRange;
+  const reduce = landscape.reduceRange;
+  const state = value.debug.priceState;
+  const action = value.action;
+  const breakdown = Boolean(value.debug.finalDecision?.breakdown);
+  const bearishEvidence = Boolean(value.debug.finalDecision?.bearishEvidence);
+  const positive = ["strong_buy", "buy", "accumulate"].includes(action);
+  const negative = ["trim", "sell"].includes(action);
+  const opportunityState = ["IN_OPPORTUNITY_ZONE", "NEAR_OPPORTUNITY_ZONE"].includes(state);
+  const reduceState = ["NEAR_REDUCE_ZONE", "IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"].includes(state);
+  const midpoint = validRange(reduce) ? (reduce.low + reduce.high) / 2 : null;
+  return {
+    opportunityNegativeAction: opportunityState && !positive,
+    neutralNonHold: state === "NEUTRAL_ZONE" && action !== "hold",
+    reduceHold: reduceState && action === "hold",
+    reducePositiveAction: reduceState && positive,
+    sellOutsideReduceWithoutBreakdown: action === "sell" && !reduceState && state !== "BREAKDOWN_ZONE" && !breakdown,
+    breakdownSellWithoutExecutableReanchor: action === "sell" && (state === "BREAKDOWN_ZONE" || breakdown) && Number.isFinite(midpoint) && Number.isFinite(price) && Math.abs(midpoint - price) > Math.max(1, Math.abs(price) * 0.02),
+    overlap: validRange(opportunity) && validRange(reduce) && opportunity.high >= reduce.low,
+    invertedRange: [opportunity, reduce].some((range) => range && Number.isFinite(range.low) && Number.isFinite(range.high) && range.low > range.high),
+    invalidRange: [opportunity, reduce].some((range) => range && !validRange(range)),
+    hysteresisFamilyViolation: Boolean(value.debug.stability?.heldPrevious && !value.debug.stability?.allowedActions?.includes(value.action)),
+    priceStateActionMismatch: opportunityState ? !positive : state === "NEUTRAL_ZONE" ? action !== "hold" : reduceState ? !negative : state === "BREAKDOWN_ZONE" ? !["sell", "avoid"].includes(action) : action !== "avoid",
+  };
+}
 
 async function main() {
   const base = process.env.DECISION_AUDIT_API || "http://127.0.0.1:4174";
@@ -143,16 +177,26 @@ async function main() {
   const watchlistPayload = await watchlistResponse.json();
   const tickers = (watchlistPayload.items || watchlistPayload.watchlist || []).map((item) => typeof item === "string" ? item : item.ticker).filter(Boolean).map((ticker) => String(ticker).toUpperCase());
   const requestedSix = ["META", "MSFT", "NVDA", "MU", "AMZN", "GOOGL"];
-  const auditTickers = [...new Set([...tickers, ...requestedSix])];
+  const priceLandscapeTickers = ["ZETA", "BABA", "MSFT", "SOFI", "HIMS", "NVDA", "GOOGL", "META", "NOW", "AMD", "QQQ", "TQQQ", "SQQQ", "SOXL", "SOXS"];
+  const etfTickers = ["QQQ", "SPMO", "TQQQ", "SQQQ", "SOXL", "SOXS"];
+  const auditTickers = [...new Set([...tickers, ...requestedSix, ...priceLandscapeTickers, ...etfTickers])];
   const response = await fetch(`${base}/api/market-data?tickers=${encodeURIComponent(auditTickers.join(","))}&cache_only=1`);
   if (!response.ok) throw new Error(`Market-data API returned ${response.status}`);
   const payload = await response.json();
   const market = payload.marketContext || payload.market_context || {};
   const rows = Object.fromEntries((payload.items || []).map((item) => [item.ticker, item.analysis || item]));
+  const prepared = Object.fromEntries(auditTickers.map((ticker) => {
+    const quote = rows[ticker] || {};
+    const price = finite(quote.price);
+    return [ticker, { quote, price, features: Number.isFinite(price) && quote.history?.availability !== "unavailable" ? featureFor(quote, market) : null }];
+  }));
   const actionDistribution = Object.fromEntries(HORIZONS.map((horizon) => [horizon, emptyActions()]));
+  const priceStateDistribution = Object.fromEntries(HORIZONS.map((horizon) => [horizon, Object.fromEntries(decisionEngine.execution.PRICE_STATES.map((state) => [state, 0]))]));
   const stateValues = Object.fromEntries(HORIZONS.map((horizon) => [horizon, { direction: [], confirmation: [], risk: [], priceOpportunity: [], exhaustion: [], confidence: [], rangeWidthPct: [] }]));
   const highRisk = [];
   const highExhaustion = [];
+  const landscapeViolationRows = [];
+  const statelessRecomputationMismatches = [];
   const perTicker = {};
   const valid = [];
   for (const ticker of auditTickers) {
@@ -165,14 +209,31 @@ async function main() {
       continue;
     }
     decisionEngine.stability.clear();
-    const features = featureFor(quote, market);
-    const decision = decisionFor(ticker, quote, market, features, price);
+    const features = prepared[ticker]?.features || featureFor(quote, market);
+    const classification = profileFor(ticker, quote);
+    const underlying = classification.isETF && classification.underlyingTicker ? prepared[classification.underlyingTicker] : null;
+    const decision = decisionFor(ticker, quote, market, features, price, underlying);
+    // No prior landscape is supplied to either run.  Clearing compact action
+    // state makes this a direct refresh-contract check rather than a test of
+    // hysteresis: identical canonical input must rebuild the same landscape.
+    decisionEngine.stability.clear();
+    const repeatedDecision = decisionFor(ticker, quote, market, features, price, underlying);
+    HORIZONS.forEach((horizon) => {
+      const first = decision.horizons[horizon];
+      const repeated = repeatedDecision.horizons[horizon];
+      const left = JSON.stringify({ action: first.action, priceState: first.debug.priceState, landscape: first.priceLandscape });
+      const right = JSON.stringify({ action: repeated.action, priceState: repeated.debug.priceState, landscape: repeated.priceLandscape });
+      if (left !== right) statelessRecomputationMismatches.push({ ticker, horizon, first: { action: first.action, priceState: first.debug.priceState, landscape: first.priceLandscape }, repeated: { action: repeated.action, priceState: repeated.debug.priceState, landscape: repeated.priceLandscape } });
+    });
     const horizons = {};
     HORIZONS.forEach((horizon) => {
       const value = decision.horizons[horizon];
       if (onWatchlist) actionDistribution[horizon][value.action] += 1;
-      horizons[horizon] = concise(value, price);
+      horizons[horizon] = concise(value, price, features, horizon);
+      const violations = landscapeViolations(value, price);
+      Object.entries(violations).filter(([, violated]) => violated).forEach(([rule]) => landscapeViolationRows.push({ ticker, horizon, rule, action: value.action, priceState: value.debug.priceState, actionFamily: value.debug.actionFamily, price, landscape: value.priceLandscape, candidateAction: value.debug.candidateAction, breakdown: value.debug.finalDecision?.breakdown || false, bearishEvidence: value.debug.finalDecision?.bearishEvidence || false }));
       if (onWatchlist) {
+        if (Object.hasOwn(priceStateDistribution[horizon], value.debug.priceState)) priceStateDistribution[horizon][value.debug.priceState] += 1;
         ["direction", "confirmation", "risk", "priceOpportunity", "exhaustion"].forEach((state) => stateValues[horizon][state].push(value.states[state].score));
         stateValues[horizon].confidence.push(value.confidence);
         const width = rangeWidthPct(value, price);
@@ -211,13 +272,29 @@ async function main() {
   const requestedTickers = Object.fromEntries(requestedSix.filter((ticker) => perTicker[ticker]).map((ticker) => [ticker, perTicker[ticker]]));
   const tagAudit = Object.fromEntries(["META", "MSFT", "NVDA", "AMZN", "GOOGL"].filter((ticker) => perTicker[ticker]?.status === "available").map((ticker) => {
     const value = perTicker[ticker].horizons.short;
-    return [ticker, { appliedTags: value.appliedTags, effectiveProfileModifiers: value.effectiveProfileModifiers }];
+    return [ticker, { appliedTraits: value.appliedTraits, effectiveProfileModifiers: value.effectiveProfileModifiers }];
   }));
+  const companyCoverage = tickers.map((ticker) => {
+    const profile = profiles.profileFor(ticker);
+    return profile.isETF
+      ? { ticker, type: "ETF", primaryClassification: null, traitsCount: 0, lifecycle: null, leveraged: profile.leveraged, direction: profile.direction, underlying: profile.underlying }
+      : { ticker, type: "stock", primaryClassification: profile.primaryClassification, traitsCount: profile.companyTraits.length, lifecycle: profile.lifecycle };
+  });
+  const etfAudit = etfTickers.map((ticker) => {
+    const profile = profiles.profileFor(ticker);
+    const record = perTicker[ticker];
+    return { ticker, leveraged: profile.leveraged, direction: profile.direction, underlying: profile.underlying, status: record?.status || "unavailable", horizons: record?.horizons || null };
+  });
+  const priceLandscapeAudit = Object.fromEntries(priceLandscapeTickers.filter((ticker) => perTicker[ticker]).map((ticker) => [ticker, perTicker[ticker]]));
+  const violationRules = ["opportunityNegativeAction", "neutralNonHold", "reduceHold", "reducePositiveAction", "sellOutsideReduceWithoutBreakdown", "breakdownSellWithoutExecutableReanchor", "overlap", "invertedRange", "invalidRange", "hysteresisFamilyViolation", "priceStateActionMismatch"];
+  const landscapeViolationCounts = Object.fromEntries(violationRules.map((rule) => [rule, landscapeViolationRows.filter((entry) => entry.rule === rule).length]));
   console.log(JSON.stringify({
     generatedAt: new Date().toISOString(), cacheOnly: true, watchlistTickers: tickers, validTickerCount: valid.length,
-    unavailableTickerCount: tickers.length - valid.length, actionDistribution, distributions: summary,
+    unavailableTickerCount: tickers.length - valid.length, actionDistribution, priceStateDistribution, distributions: summary,
     riskAtLeast70: highRisk, exhaustionAbsoluteAtLeast50: highExhaustion,
-    perturbation, marketAudit, marketImpactDistribution, tagAudit, requestedTickers, perTicker,
+    perturbation, marketAudit, marketImpactDistribution, tagAudit, companyCoverage, etfAudit, priceLandscapeAudit,
+    refreshContractAudit: { statelessRecomputationMismatchCount: statelessRecomputationMismatches.length, mismatches: statelessRecomputationMismatches },
+    landscapeViolationAudit: { counts: landscapeViolationCounts, violations: landscapeViolationRows }, requestedTickers, perTicker,
   }, null, 2));
 }
 

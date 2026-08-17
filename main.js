@@ -9,27 +9,6 @@ const SNAPSHOT_CACHE_KEY = "stock-dashboard-market-cache-v11-decision-engine";
 const WATCHLIST_CACHE_KEY = "stock-dashboard-watchlist-v2";
 const REFRESH_MS = 60 * 60 * 1000;
 
-const CLASSIFICATION_PROFILES = Object.freeze({
-  MSFT: { tags: ["MegaCap", "Software", "Cloud", "AI", "CashCow", "ProfitableGrowth"], category: "SoftwareCloud", scoring_profile: "software_cloud" },
-  META: { tags: ["MegaCap", "SocialMedia", "DigitalAds", "AI", "CashCow", "RegulatoryRisk"], category: "SocialMediaAds", scoring_profile: "platform_ads" },
-  MU: { tags: ["LargeCap", "Semiconductor", "MemoryStorage", "DRAMNAND", "Cyclical", "AIInfrastructure"], category: "MemoryStorage", scoring_profile: "memory_cycle" },
-  SNDK: { tags: ["MidCap", "Semiconductor", "MemoryStorage", "NAND", "Cyclical", "HighVolatility"], category: "MemoryStorage", scoring_profile: "memory_cycle" },
-  NVDA: { tags: ["MegaCap", "Semiconductor", "GPU", "AIInfrastructure", "DataCenter", "HighMultiple"], category: "AIInfrastructure", scoring_profile: "ai_infrastructure" },
-  AMD: { tags: ["LargeCap", "Semiconductor", "GPU", "AIInfrastructure", "DataCenter", "HighVolatility"], category: "AIInfrastructure", scoring_profile: "ai_infrastructure" },
-  AMZN: { tags: ["MegaCap", "Ecommerce", "Cloud", "ConsumerPlatform", "CashCow", "AI"], category: "EcommerceCloud", scoring_profile: "software_cloud" },
-  GOOGL: { tags: ["MegaCap", "DigitalAds", "Cloud", "AI", "CashCow", "RegulatoryRisk"], category: "DigitalAdsCloud", scoring_profile: "platform_ads" },
-  BABA: { tags: ["LargeCap", "ChinaADR", "Ecommerce", "Cloud", "ChinaConsumer", "RegulatoryRisk"], category: "ChinaInternet", scoring_profile: "china_adr" },
-  MPT: { tags: ["SmallCap", "REIT", "HealthcareRealEstate", "Dividend", "HighDebtRisk", "InterestRateSensitive"], category: "REITDividend", scoring_profile: "reit_dividend" },
-  UNH: { tags: ["MegaCap", "HealthInsurance", "HealthcareServices", "CashCow", "RegulatoryRisk", "Defensive"], category: "HealthcareInsurance", scoring_profile: "healthcare_defensive" },
-  TSLA: { tags: ["MegaCap", "EV", "AutoManufacturer", "HighGrowth", "HighVolatility", "HighMultiple"], category: "EVAuto", scoring_profile: "high_growth_cyclical" },
-  QQQ: { tags: ["ETF", "MegaCap"], category: "ETF", scoring_profile: "etf_profile" },
-  SPMO: { tags: ["ETF", "Momentum"], category: "ETF", scoring_profile: "etf_profile" },
-  TQQQ: { tags: ["ETF", "HighVolatility", "Speculative"], category: "ETF", scoring_profile: "etf_profile" },
-  SQQQ: { tags: ["ETF", "HighVolatility", "Speculative"], category: "ETF", scoring_profile: "etf_profile" },
-  SOXL: { tags: ["ETF", "Semiconductor", "HighVolatility", "Speculative"], category: "ETF", scoring_profile: "etf_profile" },
-  SOXS: { tags: ["ETF", "Semiconductor", "HighVolatility", "Speculative"], category: "ETF", scoring_profile: "etf_profile" },
-});
-
 const DEFAULT_WATCHLIST = ["NVDA", "TSLA", "AMD", "BABA", "GOOGL", "AMZN", "AAPL", "META", "MSFT", "QQQ"];
 const I18N = {
   en: {
@@ -37,14 +16,14 @@ const I18N = {
     shared: "Shared Watchlist: everyone viewing this Dashboard sees the same stock list.", syncFailed: "Shared list sync failed. Showing cached data.",
     all: "All", ticker: "Ticker", type: "Stock type", dayMove: "Day move", short: "Short", mid: "Mid", long: "Long",
     aiDecision: "AI Decision", technical: "Technical", market: "Market Data", price: "Price", updated: "Updated", unavailable: "—",
-    recommendation: "Action", confidence: "Confidence", entryRange: "Recommended range", targetRange: "Target range", invalidation: "Invalidation", holdZone: "Hold zone", structuralReference: "Structural reference", reductionRange: "Reduction range", exitRange: "Exit range",
+    recommendation: "Action", confidence: "Confidence", invalidation: "Invalidation", currentPrice: "Current Price",
     recommendationConfidence: "Recommendation Confidence", confidenceHelp: "Recommendation Confidence measures the consistency and stability of support for this action. It is not a probability of future price appreciation.",
-    recommendedEntryRange: "Recommended Entry Range", recommendedAddRange: "Recommended Add Range", recommendedReductionRange: "Recommended Reduction Range", recommendedExitRange: "Recommended Exit Range", nextStructuralZone: "Next Structural Zone", downsideStructuralTarget: "Downside / Structural Target", recoveryInvalidation: "Invalidation / Recovery Level", riskReference: "Risk Reference", avoidNoEntry: "Avoid / No Entry", currentPrice: "Current Price",
-    finalDecision: "Final Decision", decisionPriceMap: "Decision Price Map", whyThisDecision: "Why This Decision", executionPlan: "Execution Plan", positionGuidance: "Position Guidance", marketRiskRegime: "Market Risk Regime", marketImpact: "Impact on this stock", companyModel: "Company Model", staticTags: "Static Tags", dynamicTags: "Dynamic Behavior Tags", lifecycle: "Lifecycle", modelProfile: "Model Profile", profileConfidence: "Profile Confidence", lastReview: "Last Review", candidateProfile: "Candidate", appliedModifiers: "Applied Modifiers", noDecision: "Insufficient data to generate a recommendation for this horizon.",
-    shortHorizon: "1–30 Days", midHorizon: "1–6 Months", longHorizon: ">6 Months", support: "Supporting evidence", limiting: "Limiting evidence", target: "Target", riskStructuralReference: "Risk / Structural Reference", regime: "Regime", earningsProximity: "Earnings proximity", nextEarnings: "Next Earnings", daysAgo: "days ago", days: "days", supportive: "Supportive", neutral: "Neutral", restrictive: "Restrictive", shockSensitive: "Shock-sensitive",
-    technicalOverview: "Technical Overview", fibonacciStructure: "Fibonacci Structure", fibonacciDescription: "Confirmed swing anchors and retracement / extension levels. Technical display data only.", historicalVolume: "52-Week / Historical Position and Volume", advancedSwingMetadata: "Advanced Swing Metadata", retracement: "Retracement", extension: "Extension", level: "Level", distance: "Distance", swingHigh: "Swing High", swingLow: "Swing Low", swingRange: "Swing Range", currentPosition: "Current Position", nearestBelow: "Nearest Below", nearestAbove: "Nearest Above", primaryClassification: "Primary classification", technicalUnavailable: "Technical data is currently unavailable.",
+    recommendedBuyAddRange: "Recommended Buy / Add Range", potentialAddRange: "Potential Add Range", reevaluationRange: "Re-evaluation Range", potentialReduceRange: "Potential Reduce Range", recommendedReduceRange: "Recommended Reduce Range", recommendedExitRange: "Recommended Exit Range", riskInvalidation: "Risk / Invalidation", avoidNoEntry: "Avoid / No Entry", currentPrice: "Current Price", withinRange: "Currently in this range", distanceToRange: "Distance",
+    finalDecision: "Final Decision", decisionCardHint: "Select a horizon card to view its price map, decision drivers, and execution plan.", decisionPriceMap: "Price Landscape", whyThisDecision: "Why This Decision", executionPlan: "Execution Plan", positionGuidance: "Position Guidance", marketRiskRegime: "Market Risk Regime", marketImpact: "Impact on this stock", companyModel: "Company Model", primaryClassification: "Primary Classification", companyTraits: "Company Traits", lifecycle: "Lifecycle", profileConfidence: "Profile Confidence", lastReview: "Last Profile Review", appliedModifiers: "Applied Modifiers", etfProfile: "ETF Profile", leveraged: "Leveraged", direction: "Direction", underlying: "Underlying", yes: "Yes", no: "No", longDirection: "Long", inverseDirection: "Inverse", noDecision: "Insufficient data to generate a recommendation for this horizon.",
+    shortHorizon: "1–30 Days", midHorizon: "1–6 Months", longHorizon: ">6 Months", support: "Supporting evidence", limiting: "Limiting evidence", regime: "Regime", earningsProximity: "Earnings proximity", nextEarnings: "Next Earnings", daysAgo: "days ago", days: "days", supportive: "Supportive", neutral: "Neutral", restrictive: "Restrictive", shockSensitive: "Shock-sensitive",
+    technicalOverview: "Technical Overview", fibonacciStructure: "Fibonacci Structure", fibonacciDescription: "Confirmed swing anchors and retracement / extension levels. Technical display data only.", historicalVolume: "52-Week / Historical Position and Volume", advancedSwingMetadata: "Advanced Swing Metadata", retracement: "Retracement", extension: "Extension", level: "Level", distance: "Distance", swingHigh: "Swing High", swingLow: "Swing Low", swingRange: "Swing Range", currentPosition: "Current Position", nearestBelow: "Nearest Below", nearestAbove: "Nearest Above", sourceTimeframe: "Source timeframe", lookbackBars: "Lookback bars", fallbackUsed: "Fallback used", fallbackReason: "Fallback reason", technicalUnavailable: "Technical data is currently unavailable.",
     trendSummary: "Trend", momentumSummary: "Momentum", volatilitySummary: "Volatility", relativeStrengthSummary: "Relative Strength", participationSummary: "Participation", marketStatus: "Market Status", current: "Current", change5d: "5D Change", change20d: "20D Change", expanded: "Expanded", collapsed: "Collapsed", primaryInterval: "Primary interval", supportingIntervals: "Supporting intervals shown where available.",
-    supporting: "Supporting evidence", limiting: "Limiting evidence", marketState: "Market state", companyProfile: "Company profile",
+    supporting: "Supporting evidence", limiting: "Limiting evidence", marketState: "Market state",
     technicalData: "Canonical Technical Data", dataStatus: "Data status", trend: "Trend", momentum: "Momentum", volatility: "Volatility", participation: "Participation",
     close: "Close", remove: "Remove", risk: "Risk", opportunity: "Price opportunity", confirmation: "Confirmation", direction: "Direction",
     noData: "Waiting for market data. No action is shown until the technical feature set is available.",
@@ -54,11 +33,11 @@ const I18N = {
     shared: "共享自选列表：所有查看此仪表盘的用户看到相同的股票列表。", syncFailed: "共享列表同步失败，正在显示缓存数据。",
     all: "全部", ticker: "代码", type: "股票类型", dayMove: "当日涨跌", short: "短期", mid: "中期", long: "长期",
     aiDecision: "AI 决策", technical: "技术面", market: "市场数据", price: "价格", updated: "更新时间", unavailable: "—",
-    recommendation: "操作", confidence: "置信度", entryRange: "建议区间", targetRange: "目标区间", invalidation: "失效价", holdZone: "持有区间", structuralReference: "结构参考", reductionRange: "减仓区间", exitRange: "退出区间",
-    recommendationConfidence: "推荐可信度", confidenceHelp: "推荐可信度表示当前数据对该操作建议的支持一致性和稳定程度，不代表未来上涨概率。", recommendedEntryRange: "建议介入区间", recommendedAddRange: "建议加仓区间", recommendedReductionRange: "建议减仓区间", recommendedExitRange: "建议退出区间", nextStructuralZone: "下一结构区域", downsideStructuralTarget: "下行／结构目标", recoveryInvalidation: "失效／反弹参考", riskReference: "风险参考", avoidNoEntry: "回避／不建立新仓", currentPrice: "当前价格",
-    finalDecision: "最终决策", decisionPriceMap: "决策价格图", whyThisDecision: "为什么是这个决策", executionPlan: "执行计划", positionGuidance: "仓位指引", marketRiskRegime: "市场风险环境", marketImpact: "对该股票的影响", companyModel: "公司模型", staticTags: "静态标签", dynamicTags: "动态行为标签", lifecycle: "生命周期", modelProfile: "模型画像", profileConfidence: "画像可信度", lastReview: "最近复核", candidateProfile: "候选画像", appliedModifiers: "已应用修饰器", noDecision: "数据不足，暂无法生成该周期推荐。", shortHorizon: "1–30 天", midHorizon: "1–6 个月", longHorizon: ">6 个月", support: "支持当前推荐", limiting: "限制当前推荐", target: "目标", riskStructuralReference: "风险／结构参考", regime: "风险环境", earningsProximity: "财报临近", nextEarnings: "下一次财报", daysAgo: "天前", days: "天", supportive: "支持", neutral: "中性", restrictive: "限制", shockSensitive: "对冲击敏感",
-    technicalOverview: "技术概览", fibonacciStructure: "斐波那契结构", fibonacciDescription: "已确认的摆动锚点与回撤／扩展水平；仅作技术数据展示。", historicalVolume: "52 周／历史位置与成交量", advancedSwingMetadata: "高级摆动元数据", retracement: "回撤", extension: "扩展", level: "级别", distance: "距离", swingHigh: "摆动高点", swingLow: "摆动低点", swingRange: "摆动区间", currentPosition: "当前位置", nearestBelow: "最近下方水平", nearestAbove: "最近上方水平", primaryClassification: "主要分类", technicalUnavailable: "技术数据暂不可用。", trendSummary: "趋势", momentumSummary: "动量", volatilitySummary: "波动", relativeStrengthSummary: "相对强弱", participationSummary: "参与度", marketStatus: "市场状态", current: "当前", change5d: "5 日变化", change20d: "20 日变化", expanded: "展开", collapsed: "收起", primaryInterval: "主周期", supportingIntervals: "支持周期会在可用时显示。",
-    supporting: "支持证据", limiting: "限制因素", marketState: "市场状态", companyProfile: "公司画像",
+    recommendation: "操作", confidence: "置信度", invalidation: "失效价", currentPrice: "当前价格",
+    recommendationConfidence: "推荐可信度", confidenceHelp: "推荐可信度表示当前数据对该操作建议的支持一致性和稳定程度，不代表未来上涨概率。", recommendedBuyAddRange: "推荐买入／加仓区", potentialAddRange: "潜在加仓区", reevaluationRange: "重新评估区", potentialReduceRange: "潜在减仓区", recommendedReduceRange: "推荐减仓区", recommendedExitRange: "推荐退出区", riskInvalidation: "风险／失效位", avoidNoEntry: "回避／不建立新仓", currentPrice: "当前价格", withinRange: "当前位于区间内", distanceToRange: "距离",
+    finalDecision: "最终决策", decisionCardHint: "点击周期卡片查看对应的价格图、决策原因和执行计划。", decisionPriceMap: "价格区间图", whyThisDecision: "为什么是这个决策", executionPlan: "执行计划", positionGuidance: "仓位指引", marketRiskRegime: "市场风险环境", marketImpact: "对该股票的影响", companyModel: "公司模型", primaryClassification: "主要分类", companyTraits: "公司特征标签", lifecycle: "生命周期", profileConfidence: "画像可信度", lastReview: "最近画像复核", appliedModifiers: "已应用修饰器", etfProfile: "ETF 画像", leveraged: "杠杆", direction: "方向", underlying: "标的", yes: "是", no: "否", longDirection: "做多", inverseDirection: "反向", noDecision: "数据不足，暂无法生成该周期推荐。", shortHorizon: "1–30 天", midHorizon: "1–6 个月", longHorizon: ">6 个月", support: "支持当前推荐", limiting: "限制当前推荐", regime: "风险环境", earningsProximity: "财报临近", nextEarnings: "下一次财报", daysAgo: "天前", days: "天", supportive: "支持", neutral: "中性", restrictive: "限制", shockSensitive: "对冲击敏感",
+    technicalOverview: "技术概览", fibonacciStructure: "斐波那契结构", fibonacciDescription: "已确认的摆动锚点与回撤／扩展水平；仅作技术数据展示。", historicalVolume: "52 周／历史位置与成交量", advancedSwingMetadata: "高级摆动元数据", retracement: "回撤", extension: "扩展", level: "级别", distance: "距离", swingHigh: "摆动高点", swingLow: "摆动低点", swingRange: "摆动区间", currentPosition: "当前位置", nearestBelow: "最近下方水平", nearestAbove: "最近上方水平", sourceTimeframe: "来源周期", lookbackBars: "回看 K 线数", fallbackUsed: "已使用回退", fallbackReason: "回退原因", primaryClassification: "主要分类", technicalUnavailable: "技术数据暂不可用。", trendSummary: "趋势", momentumSummary: "动量", volatilitySummary: "波动", relativeStrengthSummary: "相对强弱", participationSummary: "参与度", marketStatus: "市场状态", current: "当前", change5d: "5 日变化", change20d: "20 日变化", expanded: "展开", collapsed: "收起", primaryInterval: "主周期", supportingIntervals: "支持周期会在可用时显示。",
+    supporting: "支持证据", limiting: "限制因素", marketState: "市场状态",
     technicalData: "标准化技术数据", dataStatus: "数据状态", trend: "趋势", momentum: "动量", volatility: "波动", participation: "参与度",
     close: "关闭", remove: "移除", risk: "风险", opportunity: "价格机会", confirmation: "确认度", direction: "方向",
     noData: "正在等待市场数据；技术特征可用前不显示操作建议。",
@@ -111,13 +90,15 @@ function formatDate(value) {
 }
 
 function profileFor(ticker, quote = {}) {
-  const known = CLASSIFICATION_PROFILES[ticker];
+  const defined = window.ProfileDefinitions?.profileFor?.(ticker, quote.metadata || quote) || {};
   const upstream = quote.metadata?.classification || quote.classification || {};
+  if (defined.isETF || defined.type === "etf") return { ...defined };
   return {
-    tags: [...new Set([...(known?.tags || []), ...(upstream.tags || upstream.top_tags || [])])],
-    category: upstream.category || known?.category || quote.metadata?.sector || "Unclassified",
-    category_key: upstream.category_key || known?.category || "other",
-    scoring_profile: upstream.scoring_profile || known?.scoring_profile || "generic",
+    ...defined,
+    primaryClassification: upstream.primaryClassification || upstream.primary_classification || defined.primaryClassification || quote.metadata?.industry || quote.metadata?.sector || "Unclassified Equity",
+    companyTraits: [...new Set([...(defined.companyTraits || []), ...(upstream.companyTraits || upstream.company_traits || [])])],
+    lifecycle: upstream.lifecycle || defined.lifecycle || null,
+    scoringProfile: upstream.scoringProfile || upstream.scoring_profile || defined.scoringProfile || "generic",
   };
 }
 
@@ -164,14 +145,14 @@ function buildFeatures(quote, price, marketContext) {
   });
 }
 
-function buildRow(ticker, quote = {}, marketContext = {}) {
+function buildRow(ticker, quote = {}, marketContext = {}, decisionContext = {}) {
   const price = finite(quote.price);
   const historyCount = (quote.history?.closes || []).filter((value) => Number.isFinite(value)).length;
   const features = buildFeatures(quote, price, marketContext);
   const classification = profileFor(ticker, quote);
   const ready = Boolean(price != null && historyCount >= 2 && features?.availability !== "unavailable");
-  const decision = ready && window.DecisionEngine?.decide
-    ? window.DecisionEngine.decide({ ticker, price, technicalFeatures: features, marketContext, classification, metadata: quote.metadata || {}, language: state.language })
+  const decision = ready && !decisionContext.deferDecision && window.DecisionEngine?.decide
+    ? window.DecisionEngine.decide({ ticker, price, technicalFeatures: features, marketContext, classification, metadata: quote.metadata || {}, language: state.language, underlyingTechnicalFeatures: decisionContext.underlyingTechnicalFeatures || null, underlyingPrice: decisionContext.underlyingPrice ?? null })
     : null;
   return {
     ticker,
@@ -257,21 +238,12 @@ function horizonLabel(horizon) {
 function executionFields(row, decision) {
   if (!decision) return `<p class="decision-no-data">${t("noDecision")}</p>`;
   const presentation = window.DecisionPresentation?.executionSemantics?.(decision) || { intent: decision.executionIntent || "hold" };
-  const intent = presentation.intent;
-  const structural = decision.debug?.recommendedRangeInputs?.structuralReference;
-  const reference = decision.debug?.recommendedRangeInputs?.avoidReference;
+  const landscape = decision.priceLandscape || {};
   const field = (label, value) => value ? `<div class="decision-execution-field"><span>${escapeHtml(t(label))}</span><strong>${value}</strong></div>` : "";
-  if (intent === "avoid") {
-    return `<p class="decision-no-data execution-avoid-note">${t("avoidNoEntry")}</p>${Number.isFinite(reference?.center) ? field("structuralReference", formatPrice(reference.center, row.currency)) : ""}`;
-  }
-  if (intent === "hold") {
-    const referenceText = [structural?.support, structural?.resistance].filter(Number.isFinite).map((value) => formatPrice(value, row.currency)).join(" / ");
-    return `${field("holdZone", formatRange(decision.recommendedRange, row.currency))}${field("structuralReference", referenceText)}`;
-  }
-  const rangeLabel = presentation.range || (intent === "add" ? "recommendedAddRange" : intent === "reduce" ? "recommendedReductionRange" : intent === "exit" ? "recommendedExitRange" : "recommendedEntryRange");
-  const targetLabel = presentation.target || "targetRange";
-  const riskLabel = presentation.risk || "invalidation";
-  return `${field(rangeLabel, validPriceRange(decision.recommendedRange) ? formatRange(decision.recommendedRange, row.currency) : "")}${field(targetLabel, validPriceRange(decision.targetRange) ? formatRange(decision.targetRange, row.currency) : "")}${field(riskLabel, Number.isFinite(decision.invalidation) ? formatPrice(decision.invalidation, row.currency) : "")}`;
+  const current = Number.isFinite(landscape.currentPrice) ? landscape.currentPrice : row.price;
+  const common = `${field("currentPrice", Number.isFinite(current) ? formatPrice(current, row.currency) : "")}`;
+  if (presentation.intent === "avoid") return `<p class="decision-no-data execution-avoid-note">${t("avoidNoEntry")}</p>${field(presentation.opportunity, validPriceRange(landscape.opportunityRange) ? formatRange(landscape.opportunityRange, row.currency) : "")}${common}`;
+  return `${field(presentation.opportunity, validPriceRange(landscape.opportunityRange) ? formatRange(landscape.opportunityRange, row.currency) : "")}${common}${field(presentation.reduce, validPriceRange(landscape.reduceRange) ? formatRange(landscape.reduceRange, row.currency) : "")}${field(presentation.invalidation, Number.isFinite(landscape.invalidation) ? formatPrice(landscape.invalidation, row.currency) : "")}`;
 }
 
 function validPriceRange(range) {
@@ -280,9 +252,10 @@ function validPriceRange(range) {
 
 function horizonCoreCard(row, horizon) {
   const decision = decisionFor(row, horizon);
-  if (!decision) return `<article class="decision-core-card"><span>${t(horizon)} · ${horizonLabel(horizon)}</span><strong>${t("unavailable")}</strong><p class="decision-no-data">${t("noDecision")}</p></article>`;
+  const active = horizon === state.decisionHorizon ? " is-active" : "";
+  if (!decision) return `<article class="decision-core-card${active}" data-decision-horizon="${horizon}" role="button" tabindex="0" aria-pressed="${horizon === state.decisionHorizon}"><span>${t(horizon)} · ${horizonLabel(horizon)}</span><strong>${t("unavailable")}</strong><p class="decision-no-data">${t("noDecision")}</p></article>`;
   return `
-    <article class="decision-core-card ${actionTone(decision.action)}">
+    <article class="decision-core-card ${actionTone(decision.action)}${active}" data-decision-horizon="${horizon}" role="button" tabindex="0" aria-pressed="${horizon === state.decisionHorizon}">
       <span>${t(horizon)} · ${horizonLabel(horizon)}</span>
       <strong>${escapeHtml(decision.actionLabel)}</strong>
       <div class="decision-confidence"><span>${t("recommendationConfidence")} <button type="button" class="decision-confidence-help" title="${escapeHtml(t("confidenceHelp"))}" aria-label="${escapeHtml(t("confidenceHelp"))}">i</button></span><b>${escapeHtml(decision.confidence)} / 100</b></div>
@@ -422,14 +395,16 @@ function fibonacciHorizonCard(row, title, fib) {
     return technicalCard(title, fib?.status === "no_valid_swing" ? "No valid swing identified" : "Insufficient Fibonacci data", fib?.explanation || "", []);
   }
   const direction = fib.swing_direction === "up_swing" ? "Up swing" : "Down swing";
-  return `<article class="technical-indicator-card fibonacci-card"><div class="decision-list-title">${escapeHtml(title)}</div><div class="technical-indicator-state">${escapeHtml(direction)}</div><div class="detail-line-note">${escapeHtml(`${fib.data_window || "—"} · ${fib.pivot_method || "—"}`)}</div><div class="fibonacci-summary-grid">${[
+  const source = String(fib.source_timeframe || "—").toUpperCase();
+  const fallback = fib.fallback_used ? `${t("yes")}${fib.fallback_reason ? ` · ${fib.fallback_reason}` : ""}` : t("no");
+  return `<article class="technical-indicator-card fibonacci-card"><div class="decision-list-title">${escapeHtml(title)}</div><div class="technical-indicator-state">${escapeHtml(direction)}</div><div class="detail-line-note">${escapeHtml(`${source} · ${fib.data_window || "—"} · ${fib.pivot_method || "—"}`)}</div><div class="fibonacci-summary-grid">${[
     [t("swingHigh"), `${fib.swing_high_date || "—"} · ${formatPrice(fib.swing_high, row.currency)}`],
     [t("swingLow"), `${fib.swing_low_date || "—"} · ${formatPrice(fib.swing_low, row.currency)}`],
     [t("swingRange"), `${formatPrice(fib.swing_range, row.currency)} · ${percentValue(fib.swing_range_pct)}`],
     [t("currentPosition"), fib.current_position_label || t("unavailable")],
     [t("nearestBelow"), fib.nearest_level_below ? `${fib.nearest_level_below.label} · ${formatPrice(fib.nearest_level_below.price, row.currency)}` : t("unavailable")],
     [t("nearestAbove"), fib.nearest_level_above ? `${fib.nearest_level_above.label} · ${formatPrice(fib.nearest_level_above.price, row.currency)}` : t("unavailable")],
-  ].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div>${fibonacciLevelTable(fib.retracement_levels, row, t("retracement"))}${fibonacciLevelTable(fib.extension_levels, row, t("extension"))}<details class="technical-advanced"><summary>${t("advancedSwingMetadata")}</summary><div class="detail-line-list">${technicalLine("Anchor start", `${fib.swing_start_date || "—"} · ${formatPrice(fib.swing_direction === "up_swing" ? fib.swing_low : fib.swing_high, row.currency)}`)}${technicalLine("Anchor end", `${fib.swing_end_date || "—"} · ${formatPrice(fib.swing_direction === "up_swing" ? fib.swing_high : fib.swing_low, row.currency)}`)}${technicalLine("Pivot confirmation", fib.pivot_confirmation || fib.pivot_method || t("unavailable"))}${technicalLine("Pivot count · high / low", `${fib.pivot_high_count ?? t("unavailable")} / ${fib.pivot_low_count ?? t("unavailable")}`)}${technicalLine("Bars since swing end", Number.isFinite(fib.bars_since_swing_end) ? String(fib.bars_since_swing_end) : t("unavailable"))}</div></details></article>`;
+  ].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div>${fibonacciLevelTable(fib.retracement_levels, row, t("retracement"))}${fibonacciLevelTable(fib.extension_levels, row, t("extension"))}<details class="technical-advanced"><summary>${t("advancedSwingMetadata")}</summary><div class="detail-line-list">${technicalLine(t("sourceTimeframe"), source)}${technicalLine(t("lookbackBars"), `${fib.lookback_bars ?? t("unavailable")} / ${fib.source_bar_count ?? t("unavailable")}`)}${technicalLine(t("fallbackUsed"), fallback)}${fib.fallback_used && fib.fallback_reason ? technicalLine(t("fallbackReason"), fib.fallback_reason) : ""}${technicalLine("Anchor start", `${fib.swing_start_date || "—"} · ${formatPrice(fib.swing_direction === "up_swing" ? fib.swing_low : fib.swing_high, row.currency)}`)}${technicalLine("Anchor end", `${fib.swing_end_date || "—"} · ${formatPrice(fib.swing_direction === "up_swing" ? fib.swing_high : fib.swing_low, row.currency)}`)}${technicalLine("Pivot confirmation", fib.pivot_confirmation || fib.pivot_method || t("unavailable"))}${technicalLine("Pivot count · high / low", `${fib.pivot_high_count ?? t("unavailable")} / ${fib.pivot_low_count ?? t("unavailable")}`)}${technicalLine("Bars since swing end", Number.isFinite(fib.bars_since_swing_end) ? String(fib.bars_since_swing_end) : t("unavailable"))}</div></details></article>`;
 }
 
 function renderFibonacciStructure(row) {
@@ -483,10 +458,12 @@ function renderMarketPanel(row) {
 }
 
 function profileFromRow(row) {
-  return decisionFor(row, state.decisionHorizon)?.companyProfile || decisionFor(row, "short")?.companyProfile || {
-    category: row.classification.category,
-    scoringProfile: row.classification.scoring_profile,
-    staticTags: row.classification.tags || [], dynamicTags: [], lifecycleTag: null, candidateTags: [], profileConfidence: null, lastProfileReview: null, appliedModifierTags: [], effectiveModifiers: {},
+  return decisionFor(row, "short")?.profile || {
+    type: row.classification?.isETF ? "etf" : "stock", isETF: Boolean(row.classification?.isETF),
+    primaryClassification: row.classification?.primaryClassification || null,
+    companyTraits: row.classification?.companyTraits || [], lifecycle: row.classification?.lifecycle || null,
+    profileConfidence: row.classification?.profileConfidence ?? null, lastProfileReview: row.classification?.lastProfileReview || null,
+    appliedModifiers: [], effectiveModifiers: {},
   };
 }
 
@@ -497,41 +474,35 @@ function tagPills(tags, className = "") {
 
 function renderProfileHeader(row) {
   const profile = profileFromRow(row);
-  const groups = window.DecisionPresentation?.profileGroups?.(profile, row.classification.category) || { staticTags: profile.staticTags || [], dynamicTags: profile.dynamicTags || [], lifecycleTags: profile.lifecycleTag ? [profile.lifecycleTag] : [], candidateTags: profile.candidateTags || [], visible: {} };
+  const groups = window.DecisionPresentation?.profileGroups?.(profile) || { traits: profile.companyTraits || [], lifecycle: profile.lifecycle || null, visible: {} };
   const confidence = Number.isFinite(profile.profileConfidence) ? `${Math.round(profile.profileConfidence * 100)}%` : "";
-  const profileMeta = [
-    profile.lifecycleTag ? `<span>${t("modelProfile")}: <b>${escapeHtml(profile.lifecycleTag)}</b></span>` : "",
+  const profileMeta = profile.isETF ? [] : [
+    profile.lifecycle ? `<span>${t("lifecycle")}: <b>${escapeHtml(profile.lifecycle)}</b></span>` : "",
     confidence ? `<span>${t("profileConfidence")}: <b>${confidence}</b></span>` : "",
     profile.lastProfileReview ? `<span>${t("lastReview")}: <b>${formatDate(profile.lastProfileReview)}</b></span>` : "",
-    groups.visible?.candidate ? `<span class="candidate-profile">${t("candidateProfile")}: ${tagPills(groups.candidateTags, "candidate")}</span>` : "",
   ].filter(Boolean).join("");
-  const tagGroups = [
-    groups.visible?.static ? `<div class="profile-tag-group"><span>${t("staticTags")}</span><div>${tagPills(groups.staticTags)}</div></div>` : "",
-    groups.visible?.dynamic ? `<div class="profile-tag-group"><span>${t("dynamicTags")}</span><div>${tagPills(groups.dynamicTags)}</div></div>` : "",
-    groups.visible?.lifecycle ? `<div class="profile-tag-group"><span>${t("lifecycle")}</span><div>${tagPills(groups.lifecycleTags)}</div></div>` : "",
-  ].filter(Boolean).join("");
-  return `<section class="decision-hero"><div class="decision-hero-main"><div class="decision-code">${escapeHtml(row.ticker)}</div><div class="decision-company">${escapeHtml(row.companyName)}</div><div class="detail-consensus-mini"><span>${t("price")} ${formatPrice(row.price, row.currency)}</span><span class="daily-change ${row.changePercent >= 0 ? "positive" : "negative"}">${t("dayMove")} ${formatPct(row.changePercent)}</span></div>${row.classification.category ? `<div class="primary-classification"><span>${t("primaryClassification")}</span><b>${escapeHtml(row.classification.category)}</b></div>` : ""}</div>${tagGroups || profileMeta ? `<div class="decision-profile-header">${tagGroups}${profileMeta ? `<div class="profile-review-line">${profileMeta}</div>` : ""}</div>` : ""}</section>`;
+  const stockGroups = groups.visible?.traits ? `<div class="profile-tag-group"><span>${t("companyTraits")}</span><div>${tagPills(groups.traits)}</div></div>` : "";
+  const etfMeta = profile.isETF ? `<div class="profile-tag-group"><span>${t("etfProfile")}</span><div class="profile-fact-row"><b>${t("leveraged")}</b><span>${profile.leveraged ? t("yes") : t("no")}</span><b>${t("direction")}</b><span>${profile.direction === "inverse" ? t("inverseDirection") : t("longDirection")}</span>${profile.underlying ? `<b>${t("underlying")}</b><span>${escapeHtml(profile.underlying)}</span>` : ""}</div></div>` : "";
+  return `<section class="decision-hero"><div class="decision-hero-main"><div class="decision-code">${escapeHtml(row.ticker)}</div><div class="decision-company">${escapeHtml(row.companyName)}</div><div class="detail-consensus-mini"><span>${t("price")} ${formatPrice(row.price, row.currency)}</span><span class="daily-change ${row.changePercent >= 0 ? "positive" : "negative"}">${t("dayMove")} ${formatPct(row.changePercent)}</span></div>${profile.primaryClassification ? `<div class="primary-classification"><span>${t("primaryClassification")}</span><b>${escapeHtml(profile.primaryClassification)}</b></div>` : ""}</div>${stockGroups || etfMeta || profileMeta ? `<div class="decision-profile-header">${stockGroups}${etfMeta}${profileMeta ? `<div class="profile-review-line">${profileMeta}</div>` : ""}</div>` : ""}</section>`;
 }
 
 function renderDecisionPriceMap(row, horizon) {
   const decision = decisionFor(row, horizon);
   const model = window.DecisionPresentation?.priceMapModel?.({ currentPrice: row.price, decision }) || { points: [] };
-  const pointMarkup = (point) => (point.id === "range" || point.id === "target"
+  const pointMarkup = (point) => (point.id === "opportunity" || point.id === "reduce"
     ? `<span class="price-map-range ${point.id}" style="left:${point.start}%;width:${Math.max(1.2, point.end - point.start)}%"></span>`
     : `<span class="price-map-marker ${point.id}" style="left:${point.position}%"><b>${point.id === "current" ? "▲" : "│"}</b></span>`);
-  const labelMarkup = (point) => `<span class="price-map-label ${point.id} ${point.labelSide} lane-${point.labelLane}" style="left:${point.labelPosition}%"><i>${escapeHtml(t(point.labelKey))}</i></span>`;
+  const labelValue = (point) => point.id === "opportunity" || point.id === "reduce" ? formatRange({ low: point.low, high: point.high }, row.currency) : formatPrice(point.value, row.currency);
+  const distance = (point) => point.distance ? point.distance.within ? t("withinRange") : `${t("distanceToRange")} ${formatPct(point.distance.percent)}` : "";
+  const labelMarkup = (point) => `<span class="price-map-label ${point.id} ${point.labelSide} lane-${point.labelLane}" style="left:${point.labelPosition}%"><i>${escapeHtml(t(point.labelKey))}</i><b>${escapeHtml(labelValue(point))}</b>${distance(point) ? `<small>${escapeHtml(distance(point))}</small>` : ""}</span>`;
   if (!decision || !model.points?.length) return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("decisionPriceMap")}</h3></div><p class="decision-no-data">${t("noDecision")}</p></section>`;
   const key = (model.legend || []).map((point) => `<span><i class="price-map-key ${point.id}"></i>${escapeHtml(t(point.labelKey))}</span>`).join("");
   return `<section class="detail-section-card decision-price-map"><div class="detail-section-head"><h3>${t("decisionPriceMap")}</h3><span>${t(horizon)} · ${horizonLabel(horizon)}</span></div><div class="price-map-track" style="--price-map-height:${model.trackHeight || 140}px">${model.points.map(pointMarkup).join("")}<div class="price-map-axis"></div>${model.labels.map(labelMarkup).join("")}</div><div class="price-map-key-row">${key}</div></section>`;
 }
 
-function horizonSelector(horizon) {
-  return `<div class="decision-horizon-selector" role="tablist">${["short", "mid", "long"].map((item) => `<button type="button" class="decision-horizon-button${item === horizon ? " active" : ""}" data-decision-horizon="${item}">${t(item)} · ${horizonLabel(item)}</button>`).join("")}</div>`;
-}
-
 function renderWhyThisDecision(row, horizon) {
   const decision = decisionFor(row, horizon);
-  return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("whyThisDecision")}</h3></div>${horizonSelector(horizon)}${decision ? `<div class="decision-summary-grid decision-reason-grid"><div class="decision-list-card"><div class="decision-list-title">${t("support")}</div><div class="decision-bullets">${decisionBullets(decision.reasons?.supporting, "positive")}</div></div><div class="decision-list-card"><div class="decision-list-title">${t("limiting")}</div><div class="decision-bullets">${decisionBullets(decision.reasons?.limiting, "warning")}</div></div></div>` : `<p class="decision-no-data">${t("noDecision")}</p>`}</section>`;
+  return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("whyThisDecision")}</h3><span>${t(horizon)} · ${horizonLabel(horizon)}</span></div>${decision ? `<div class="decision-summary-grid decision-reason-grid"><div class="decision-list-card"><div class="decision-list-title">${t("support")}</div><div class="decision-bullets">${decisionBullets(decision.reasons?.supporting, "positive")}</div></div><div class="decision-list-card"><div class="decision-list-title">${t("limiting")}</div><div class="decision-bullets">${decisionBullets(decision.reasons?.limiting, "warning")}</div></div></div>` : `<p class="decision-no-data">${t("noDecision")}</p>`}</section>`;
 }
 
 function renderExecutionPlan(row, horizon) {
@@ -557,8 +528,8 @@ function earningsText(earnings = {}) {
   return earnings.date ? formatDate(earnings.date) : t("unavailable");
 }
 
-function renderMarketRiskRegime(row, horizon) {
-  const decision = decisionFor(row, horizon);
+function renderMarketRiskRegime(row) {
+  const decision = decisionFor(row, "short");
   const market = decision?.market || {};
   const vix = market.vix || {};
   const indexMetric = (index) => index?.trend || t("unavailable");
@@ -571,25 +542,27 @@ function modifierDescription(tag) {
   const descriptions = {
     MegaCap: { en: "Lower fast-noise sensitivity; market sensitivity reduced.", zh: "降低短周期噪声敏感度，并降低市场敏感度。" }, HighGrowth: { en: "Momentum and Relative Strength sensitivity increased.", zh: "提高动量与相对强弱的敏感度。" }, HighBeta: { en: "Normal volatility tolerance and market-shock sensitivity increased.", zh: "提高正常波动容忍度与市场冲击敏感度。" }, HighVolatility: { en: "Normal volatility tolerance and market-shock sensitivity increased.", zh: "提高正常波动容忍度与市场冲击敏感度。" }, MarketLeader: { en: "Trend persistence matters more; Strong Buy needs better price opportunity.", zh: "趋势延续性更重要，强力买入需要更好的价格机会。" }, EstablishedLeader: { en: "Trend persistence matters more; Strong Buy needs better price opportunity.", zh: "趋势延续性更重要，强力买入需要更好的价格机会。" }, CrowdedLeader: { en: "Bullish-exhaustion sensitivity increased.", zh: "提高多头衰竭敏感度。" }, Cyclical: { en: "Participation, Relative Strength inflection, and contrarian exhaustion matter more.", zh: "更重视参与度、相对强弱拐点与反向衰竭。" }, MemoryStorage: { en: "Participation, Relative Strength inflection, and contrarian exhaustion matter more.", zh: "更重视参与度、相对强弱拐点与反向衰竭。" }, InterestRateSensitive: { en: "US 10Y sensitivity increased.", zh: "提高对美国 10 年期利率的敏感度。" }, REIT: { en: "US 10Y sensitivity increased.", zh: "提高对美国 10 年期利率的敏感度。" }, CashCow: { en: "Ordinary pullback tolerance and long-horizon stability increased.", zh: "提高普通回撤容忍度与长期决策稳定性。" }, RegulatoryRisk: { en: "Event and market-shock sensitivity increased.", zh: "提高事件与市场冲击敏感度。" },
   };
-  return descriptions[tag]?.[state.language] || "";
+  const etfDescriptions = {
+    LeveragedETF: { en: "Raises volatility, exhaustion, and market-shock sensitivity; formal action gates are stricter.", zh: "提高波动、衰竭和市场冲击敏感度，并收紧正式操作门槛。" },
+    InverseETF: { en: "Uses the underlying index as bounded inverted confirmation while retaining the ETF's own technical direction.", zh: "将标的指数作为有限的反向确认，同时保留 ETF 自身技术方向。" },
+  };
+  return descriptions[tag]?.[state.language] || etfDescriptions[tag]?.[state.language] || "";
 }
 
-function renderCompanyModel(row, horizon) {
-  const profile = decisionFor(row, horizon)?.companyProfile || profileFromRow(row);
-  const groups = window.DecisionPresentation?.profileGroups?.(profile) || { staticTags: profile.staticTags || [], dynamicTags: profile.dynamicTags || [], lifecycleTags: profile.lifecycleTag ? [profile.lifecycleTag] : [], candidateTags: profile.candidateTags || [], visible: {} };
-  const applied = (profile.appliedModifierTags || []).map((tag) => ({ tag, description: modifierDescription(tag) })).filter((item) => item.description).map((item) => `<li><b>${escapeHtml(item.tag)}</b><span>${escapeHtml(item.description)}</span></li>`);
-  const groupsMarkup = [
-    groups.visible?.static ? `<div class="profile-tag-group"><span>${t("staticTags")}</span><div>${tagPills(groups.staticTags)}</div></div>` : "",
-    groups.visible?.dynamic ? `<div class="profile-tag-group"><span>${t("dynamicTags")}</span><div>${tagPills(groups.dynamicTags)}</div></div>` : "",
-    groups.visible?.lifecycle ? `<div class="profile-tag-group"><span>${t("lifecycle")}</span><div>${tagPills(groups.lifecycleTags)}</div></div>` : "",
-    groups.visible?.candidate ? `<div class="profile-tag-group candidate-group"><span>${t("candidateProfile")}</span><div>${tagPills(groups.candidateTags, "candidate")}</div></div>` : "",
-  ].filter(Boolean).join("");
-  return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("companyModel")}</h3></div>${groupsMarkup ? `<div class="company-model-grid">${groupsMarkup}</div>` : ""}${applied.length ? `<div class="modifier-list"><div class="decision-list-title">${t("appliedModifiers")}</div><ul>${applied.join("")}</ul></div>` : ""}</section>`;
+function renderCompanyModel(row) {
+  const profile = decisionFor(row, "short")?.profile || profileFromRow(row);
+  const groups = window.DecisionPresentation?.profileGroups?.(profile) || { traits: profile.companyTraits || [], lifecycle: profile.lifecycle || null, visible: {} };
+  const applied = (profile.appliedModifiers || []).map((tag) => ({ tag, description: modifierDescription(tag) })).filter((item) => item.description).map((item) => `<li><b>${escapeHtml(item.tag)}</b><span>${escapeHtml(item.description)}</span></li>`);
+  const confidence = Number.isFinite(profile.profileConfidence) ? `${Math.round(profile.profileConfidence * 100)}%` : "";
+  const contents = profile.isETF
+    ? `<div class="company-model-grid"><div class="profile-tag-group"><span>${t("etfProfile")}</span><div class="profile-fact-row"><b>${t("leveraged")}</b><span>${profile.leveraged ? t("yes") : t("no")}</span><b>${t("direction")}</b><span>${profile.direction === "inverse" ? t("inverseDirection") : t("longDirection")}</span>${profile.underlying ? `<b>${t("underlying")}</b><span>${escapeHtml(profile.underlying)}</span>` : ""}</div></div></div>`
+    : `<div class="company-model-grid">${profile.primaryClassification ? `<div class="profile-tag-group"><span>${t("primaryClassification")}</span><div><b>${escapeHtml(profile.primaryClassification)}</b></div></div>` : ""}${groups.visible?.traits ? `<div class="profile-tag-group"><span>${t("companyTraits")}</span><div>${tagPills(groups.traits)}</div></div>` : ""}${groups.visible?.lifecycle ? `<div class="profile-tag-group"><span>${t("lifecycle")}</span><div>${tagPills([groups.lifecycle])}</div></div>` : ""}${profile.lastProfileReview || confidence ? `<div class="profile-tag-group"><span>${t("lastReview")}</span><div class="profile-fact-row">${profile.lastProfileReview ? `<span>${formatDate(profile.lastProfileReview)}</span>` : ""}${confidence ? `<b>${t("profileConfidence")}</b><span>${confidence}</span>` : ""}</div></div>` : ""}</div>`;
+  return `<section class="detail-section-card"><div class="detail-section-head"><h3>${profile.isETF ? t("etfProfile") : t("companyModel")}</h3></div>${contents}${applied.length ? `<div class="modifier-list"><div class="decision-list-title">${t("appliedModifiers")}</div><ul>${applied.join("")}</ul></div>` : ""}</section>`;
 }
 
 function renderDecisionPanel(row) {
   const horizon = decisionFor(row, state.decisionHorizon) ? state.decisionHorizon : "short";
-  return `<section class="detail-tab-section"><section class="detail-section-card decision-final-cards"><div class="detail-section-head"><h3>${t("finalDecision")}</h3></div><div class="decision-core-grid">${horizonCoreCard(row, "short")}${horizonCoreCard(row, "mid")}${horizonCoreCard(row, "long")}</div></section>${renderDecisionPriceMap(row, horizon)}${renderWhyThisDecision(row, horizon)}${renderExecutionPlan(row, horizon)}${renderMarketRiskRegime(row, horizon)}${renderCompanyModel(row, horizon)}</section>`;
+  return `<section class="detail-tab-section"><section class="detail-section-card decision-final-cards"><div class="detail-section-head"><h3>${t("finalDecision")}</h3></div><p class="decision-card-hint">${t("decisionCardHint")}</p><div class="decision-core-grid">${horizonCoreCard(row, "short")}${horizonCoreCard(row, "mid")}${horizonCoreCard(row, "long")}</div></section>${renderDecisionPriceMap(row, horizon)}${renderWhyThisDecision(row, horizon)}${renderExecutionPlan(row, horizon)}${renderMarketRiskRegime(row)}${renderCompanyModel(row)}</section>`;
 }
 
 function renderDetailModal() {
@@ -652,7 +625,21 @@ function applySnapshot(snapshot, { persist = true } = {}) {
   state.snapshot = snapshot;
   const market = snapshot?.marketContext || snapshot?.market_context || {};
   const quotes = snapshot?.quotes || {};
-  state.rows = state.watchlist.map((ticker) => buildRow(ticker, quotes[ticker] || {}, market));
+  // A dashboard refresh intentionally rebuilds canonical technical features
+  // and all three stateless Price Landscapes from this snapshot.  No prior
+  // decision, range, or selected cluster is passed into DecisionEngine.
+  const baseRows = state.watchlist.map((ticker) => buildRow(ticker, quotes[ticker] || {}, market, { deferDecision: true }));
+  const rowsByTicker = Object.fromEntries(baseRows.map((row) => [row.ticker, row]));
+  state.rows = baseRows.map((row) => {
+    const underlying = row.classification?.isETF ? rowsByTicker[row.classification.underlyingTicker] : null;
+    const decision = row.ready && window.DecisionEngine?.decide
+      ? window.DecisionEngine.decide({
+        ticker: row.ticker, price: row.price, technicalFeatures: row.technicalFeatures, marketContext: market,
+        classification: row.classification, metadata: row.quote.metadata || {}, language: state.language,
+        underlyingTechnicalFeatures: underlying?.technicalFeatures || null, underlyingPrice: underlying?.price ?? null,
+      }) : null;
+    return { ...row, decision };
+  });
   if (!state.selectedTicker || !state.rows.some((row) => row.ticker === state.selectedTicker)) state.selectedTicker = state.rows[0]?.ticker || null;
   if (persist) persistSnapshot(snapshot);
   render();
@@ -768,7 +755,12 @@ function bindEvents() {
     const technicalToggle = event.target.closest("[data-technical-toggle]");
     if (technicalToggle) { const section = technicalToggle.dataset.technicalToggle; state.technicalSections = { ...state.technicalSections, [section]: !state.technicalSections[section] }; renderDetailModal(); }
   });
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && state.modalOpen) { state.modalOpen = false; render(); } });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state.modalOpen) { state.modalOpen = false; render(); return; }
+    if ((event.key === "Enter" || event.key === " ") && event.target?.matches?.("[data-decision-horizon]")) {
+      event.preventDefault(); state.decisionHorizon = event.target.dataset.decisionHorizon; renderDetailModal();
+    }
+  });
 }
 
 async function start() {
@@ -793,7 +785,7 @@ window.__decisionDebug = (ticker) => {
     return [horizon, {
       action: decision?.action, confidence: decision?.confidence, executionIntent: decision?.executionIntent,
       states: decision?.states, market: decision?.market?.horizonModifiers,
-      ranges: { recommended: decision?.recommendedRange, target: decision?.targetRange, invalidation: decision?.invalidation },
+      priceLandscape: decision?.priceLandscape,
       reasons: decision?.reasons, guardrails: decision?.debug?.guardrails,
     }];
   }));
