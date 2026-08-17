@@ -7,12 +7,22 @@ const SYMBOL_SEARCH_API_URL = `${API_BASE}/api/symbol-search`;
 const LANGUAGE_CACHE_KEY = "stock-dashboard-language-v2";
 const SNAPSHOT_CACHE_KEY = "stock-dashboard-market-cache-v11-decision-engine";
 const WATCHLIST_CACHE_KEY = "stock-dashboard-watchlist-v2";
+const LAST_REFRESH_CACHE_KEY = "stock-dashboard-last-refresh-v1";
 const REFRESH_MS = 60 * 60 * 1000;
+const EASTERN_REFRESH_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
 
 const DEFAULT_WATCHLIST = ["NVDA", "TSLA", "AMD", "BABA", "GOOGL", "AMZN", "AAPL", "META", "MSFT", "QQQ"];
 const I18N = {
   en: {
-    appTitle: "Stock Decision Dashboard", stocks: "Stocks", search: "Search symbol or name", add: "Add selected", refresh: "Refresh now",
+    appTitle: "Stock Decision Dashboard", stocks: "Stocks", search: "Search symbol or name", add: "Add selected", refresh: "Refresh now", refreshing: "Refreshing…", lastRefresh: "Last refresh",
     shared: "Shared Watchlist: everyone viewing this Dashboard sees the same stock list.", syncFailed: "Shared list sync failed. Showing cached data.",
     all: "All", ticker: "Ticker", type: "Stock type", dayMove: "Day move", short: "Short", mid: "Mid", long: "Long",
     aiDecision: "AI Decision", technical: "Technical", market: "Market Data", price: "Price", updated: "Updated", unavailable: "—",
@@ -29,7 +39,7 @@ const I18N = {
     noData: "Waiting for market data. No action is shown until the technical feature set is available.",
   },
   zh: {
-    appTitle: "股票决策仪表盘", stocks: "股票", search: "搜索代码或名称", add: "添加所选", refresh: "立即刷新",
+    appTitle: "股票决策仪表盘", stocks: "股票", search: "搜索代码或名称", add: "添加所选", refresh: "立即刷新", refreshing: "刷新中…", lastRefresh: "上次刷新",
     shared: "共享自选列表：所有查看此仪表盘的用户看到相同的股票列表。", syncFailed: "共享列表同步失败，正在显示缓存数据。",
     all: "全部", ticker: "代码", type: "股票类型", dayMove: "当日涨跌", short: "短期", mid: "中期", long: "长期",
     aiDecision: "AI 决策", technical: "技术面", market: "市场数据", price: "价格", updated: "更新时间", unavailable: "—",
@@ -60,6 +70,11 @@ const state = {
   marketFilter: "all",
   selectedCandidate: null,
   refreshing: false,
+  refreshPhase: "idle",
+  refreshPromise: null,
+  refreshGeneration: 0,
+  lastRefreshAt: localStorage.getItem(LAST_REFRESH_CACHE_KEY) || null,
+  lastAppliedAt: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -87,6 +102,47 @@ function formatDate(value) {
   if (!value) return t("unavailable");
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? t("unavailable") : date.toLocaleString(state.language === "zh" ? "zh-CN" : "en-US", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function formatRefreshTime(value) {
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime())) return t("unavailable");
+  const parts = Object.fromEntries(
+    EASTERN_REFRESH_FORMATTER.formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+  // The IANA time zone keeps this display correct for both EST and EDT. "ET"
+  // deliberately avoids claiming a fixed UTC offset during daylight saving.
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} ET`;
+}
+
+function snapshotRefreshTime(snapshot) {
+  const status = snapshot?.refresh_status || {};
+  // Prefer the server's dashboard-wide data freshness. It remains truthful
+  // when a successful force refresh applies an allowed cache fallback.
+  return status.last_dashboard_refresh
+    || status.last_successful_cache_update_at
+    || status.last_any_successful_ticker_refresh_at
+    || snapshot?.updatedAt
+    || snapshot?.fetchedAt
+    || null;
+}
+
+function persistLastRefresh(value) {
+  if (!value) return;
+  try { localStorage.setItem(LAST_REFRESH_CACHE_KEY, value); } catch { /* storage is optional */ }
+}
+
+function hasUsableSnapshot(snapshot) {
+  if (snapshot?.success === true) return true;
+  return Object.values(snapshot?.quotes || {}).some((quote) => Number.isFinite(Number(quote?.price)));
+}
+
+function afterBrowserPaint() {
+  // Two frames ensure the render triggered by applySnapshot has been committed
+  // before the loading state is cleared. This is not a time-based delay.
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 }
 
 function profileFor(ticker, quote = {}) {
@@ -593,7 +649,11 @@ function applyLanguage() {
   $("#tickerInputLabel").textContent = t("search");
   $("#tickerInput").placeholder = t("search");
   $("#addStockButton").textContent = t("add");
-  $("#manualRefreshButton").textContent = state.refreshing ? "…" : t("refresh");
+  const manualRefresh = $("#manualRefreshButton");
+  manualRefresh.textContent = state.refreshing ? t("refreshing") : t("refresh");
+  manualRefresh.disabled = state.refreshing;
+  manualRefresh.setAttribute("aria-busy", String(state.refreshing));
+  $("#lastRefreshLabel").textContent = `${t("lastRefresh")}: ${formatRefreshTime(state.lastRefreshAt)}`;
   $("#sortTickerLabel").textContent = t("ticker");
   $("#sortTypeLabel").textContent = t("type");
   $("#sortChangeLabel").textContent = t("dayMove");
@@ -621,7 +681,7 @@ function persistWatchlist() {
   try { localStorage.setItem(WATCHLIST_CACHE_KEY, JSON.stringify(state.watchlist)); } catch { /* storage is optional */ }
 }
 
-function applySnapshot(snapshot, { persist = true } = {}) {
+function applySnapshot(snapshot, { persist = true, renderSnapshot = true } = {}) {
   state.snapshot = snapshot;
   const market = snapshot?.marketContext || snapshot?.market_context || {};
   const quotes = snapshot?.quotes || {};
@@ -642,7 +702,7 @@ function applySnapshot(snapshot, { persist = true } = {}) {
   });
   if (!state.selectedTicker || !state.rows.some((row) => row.ticker === state.selectedTicker)) state.selectedTicker = state.rows[0]?.ticker || null;
   if (persist) persistSnapshot(snapshot);
-  render();
+  if (renderSnapshot) render();
 }
 
 async function loadWatchlist() {
@@ -661,23 +721,79 @@ async function loadWatchlist() {
   }
 }
 
-async function refreshMarket({ force = false } = {}) {
-  if (!state.watchlist.length || state.refreshing) return;
+function refreshUsesLiveData(source) {
+  return source === "manual" || source === "auto";
+}
+
+async function runFullRefresh({ source = "initial" } = {}) {
+  if (!state.watchlist.length) return null;
+  // Manual and scheduled refreshes intentionally share this exact transaction
+  // and in-flight promise. This prevents a slower earlier HTTP response from
+  // overwriting a newer applied snapshot or starting duplicate live refreshes.
+  if (state.refreshPromise) return state.refreshPromise;
+  const refreshId = ++state.refreshGeneration;
   state.refreshing = true;
+  state.refreshPhase = "refreshing_data";
   render();
-  try {
-    const params = new URLSearchParams({ tickers: state.watchlist.join(",") });
-    if (force) params.set("force", "true");
-    const response = await fetch(`${API_URL}?${params.toString()}`);
-    if (!response.ok) throw new Error(`market request failed (${response.status})`);
-    applySnapshot(await response.json());
-  } catch (error) {
-    console.error("Market refresh failed", error);
-    if (!state.snapshot) applySnapshot({ quotes: {}, marketContext: {} }, { persist: false });
-  } finally {
-    state.refreshing = false;
-    render();
-  }
+  const refreshWork = (async () => {
+    let applied = false;
+    try {
+      const params = new URLSearchParams({ tickers: state.watchlist.join(",") });
+      // Both user-triggered and hourly automatic refreshes request the same
+      // force-live server path. Initial cache hydration and watchlist edits can
+      // still use this full pipeline without forcing a provider refresh.
+      if (refreshUsesLiveData(source)) params.set("force", "true");
+      const response = await fetch(`${API_URL}?${params.toString()}`);
+      if (!response.ok) throw new Error(`market request failed (${response.status})`);
+      const snapshot = await response.json();
+      if (!hasUsableSnapshot(snapshot)) throw new Error("market request returned no usable dashboard snapshot");
+      if (refreshId !== state.refreshGeneration) return null;
+
+      state.refreshPhase = "recalculating";
+      // This synchronous step rebuilds canonical Technical features and every
+      // Short/Mid/Long final Decision from the newly returned snapshot.
+      applySnapshot(snapshot, { renderSnapshot: false });
+      if (refreshId !== state.refreshGeneration) return null;
+
+      state.refreshPhase = "rendering";
+      render();
+      await afterBrowserPaint();
+      if (refreshId !== state.refreshGeneration) return null;
+
+      // Last Refresh is updated only after this exact snapshot's decision and
+      // DOM have been applied. It remains the provider/cache freshness rather
+      // than the button-click or merely HTTP-completion time.
+      const refreshTime = snapshotRefreshTime(snapshot);
+      if (refreshTime) {
+        state.lastRefreshAt = refreshTime;
+        persistLastRefresh(refreshTime);
+      }
+      state.lastAppliedAt = new Date().toISOString();
+      applied = true;
+      return snapshot;
+    } catch (error) {
+      console.error("Market refresh failed", error);
+      if (!state.snapshot) {
+        state.refreshPhase = "recalculating";
+        applySnapshot({ quotes: {}, marketContext: {} }, { persist: false, renderSnapshot: false });
+        state.refreshPhase = "rendering";
+        render();
+        await afterBrowserPaint();
+      }
+      return null;
+    } finally {
+      if (refreshId === state.refreshGeneration) {
+        state.refreshing = false;
+        state.refreshPhase = applied ? "complete" : "idle";
+        render();
+        await afterBrowserPaint();
+        state.refreshPhase = "idle";
+        state.refreshPromise = null;
+      }
+    }
+  })();
+  state.refreshPromise = refreshWork;
+  return refreshWork;
 }
 
 async function addTicker(ticker) {
@@ -693,7 +809,7 @@ async function addTicker(ticker) {
     $("#watchlistSyncWarning").hidden = false;
   }
   persistWatchlist();
-  await refreshMarket({ force: false });
+  await runFullRefresh({ source: "watchlist" });
 }
 
 async function removeTicker(ticker) {
@@ -728,7 +844,7 @@ function bindEvents() {
     $("#symbolSearchMenu").hidden = true;
     $("#addStockButton").disabled = false;
   });
-  $("#manualRefreshButton").addEventListener("click", () => refreshMarket({ force: true }));
+  $("#manualRefreshButton").addEventListener("click", () => runFullRefresh({ source: "manual" }));
   $("#stockList").addEventListener("click", (event) => {
     const remove = event.target.closest("[data-remove-ticker]");
     if (remove) { event.stopPropagation(); removeTicker(remove.dataset.removeTicker); return; }
@@ -768,11 +884,19 @@ async function start() {
   await loadWatchlist();
   try {
     const cached = JSON.parse(localStorage.getItem(SNAPSHOT_CACHE_KEY) || "null");
-    if (cached?.quotes) applySnapshot(cached, { persist: false });
+    if (cached?.quotes) {
+      applySnapshot(cached, { persist: false });
+      const cachedRefreshTime = snapshotRefreshTime(cached);
+      if (cachedRefreshTime) {
+        state.lastRefreshAt = cachedRefreshTime;
+        persistLastRefresh(cachedRefreshTime);
+      }
+      state.lastAppliedAt = new Date().toISOString();
+    }
   } catch { /* cache is optional */ }
   render();
-  refreshMarket();
-  setInterval(() => refreshMarket(), REFRESH_MS);
+  runFullRefresh({ source: "initial" });
+  setInterval(() => runFullRefresh({ source: "auto" }), REFRESH_MS);
 }
 
 // Deliberately computes a compact view on demand; no debug payload is retained

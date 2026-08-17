@@ -275,8 +275,9 @@ assert((wideLong.priceLandscape.opportunityRange.high - wideLong.priceLandscape.
 const weakConfluence = engine.execution.build({ price: 100, horizon: "mid", action: "buy", technical: { atr: 12, directionScore: 65, executionContext: { support: { center: 96, members: [], confluence: 0 }, resistance: null, levels: [] } } });
 assert.equal(weakConfluence.priceState, "INVALID_LANDSCAPE", "weak unsupported structure does not manufacture a fake precision zone");
 
-// 28–45. Price State defines the final Action Family. Technical evidence
-// selects only the strength within that family; it cannot cross the boundary.
+// 28–45. Exact range membership defines the final Action Family. Near-zone
+// proximity is diagnostic only: it is deliberately Hold until price enters an
+// actionable range. Technical evidence selects only strength within a family.
 function jointLandscape({ price = 100, opportunity = { low: 97, high: 99 }, reduce = { low: 104, high: 106 }, atr = 1, horizon = "short", invalidation = 95, breakdown = false } = {}) {
   const priceState = engine.execution.priceStateFor({ price, horizon, atr, opportunityRange: opportunity, reduceRange: reduce, invalidation, breakdown });
   return { priceLandscape: { opportunityRange: opportunity, reduceRange: reduce, invalidation, currentPrice: price }, priceState, actionFamily: engine.execution.actionFamilyForState(priceState), landscapeQuality: { state: "high", score: 3, penalty: 0 }, debug: { guardrails: [] } };
@@ -290,16 +291,27 @@ const bearishTechnical = { atr: 1, directionScore: -62, confirmationScore: 70, p
 const inOpportunityLandscape = jointLandscape({ price: 98 });
 const neutralLandscape = jointLandscape({ price: 101 });
 const inReduceLandscape = jointLandscape({ price: 105 });
+const nearOpportunityLandscape = jointLandscape({ price: 99.4 });
 const nearReduceLandscape = jointLandscape({ price: 103.4 });
 assert.equal(inOpportunityLandscape.actionFamily, "opportunity");
 assert(["strong_buy", "buy"].includes(decisionAt(inOpportunityLandscape, bullishTechnical).action), "bullish evidence inside Opportunity stays in the Buy family");
 assert.equal(decisionAt(inOpportunityLandscape, moderateTechnical, { edge: 24 }).action, "accumulate", "moderate evidence inside Opportunity becomes Accumulate");
 assert.equal(decisionAt(inOpportunityLandscape, bearishTechnical, { edge: 32, exhaustionScore: 70 }).action, "accumulate", "bearish exhaustion can be an Accumulate only at a valid opportunity zone");
+assert.equal(nearOpportunityLandscape.priceState, "NEAR_OPPORTUNITY_ZONE", "a price just above Opportunity is Near, not inside");
+assert.equal(nearOpportunityLandscape.actionFamily, "neutral", "Near Opportunity uses the Hold family");
+assert.equal(decisionAt(nearOpportunityLandscape, bullishTechnical).action, "hold", "strong Direction cannot enter early while only Near Opportunity");
+assert.equal(jointLandscape({ price: 99.01 }).priceState, "NEAR_OPPORTUNITY_ZONE", "$0.01 above Opportunity.high is not inside the opportunity range");
+assert.equal(decisionAt(jointLandscape({ price: 99.01 }), bullishTechnical).action, "hold", "$0.01 above Opportunity.high cannot remain positive");
 assert.equal(decisionAt(neutralLandscape, bullishTechnical).action, "hold", "strong Direction alone cannot create Buy in Neutral");
 assert.equal(decisionAt(neutralLandscape, bearishTechnical).action, "hold", "ordinary bearish bias cannot create Sell in Neutral");
 assert.equal(decisionAt(inReduceLandscape, bullishTechnical).action, "trim", "strong trend inside Reduce is Trim, never Hold");
 assert.equal(decisionAt(inReduceLandscape, bearishTechnical).action, "sell", "bearish deterioration inside Reduce is Sell");
-assert.equal(decisionAt(nearReduceLandscape, bullishTechnical).action, "trim", "Near Reduce is the Reduce family with a consistent label/action");
+assert.equal(nearReduceLandscape.priceState, "NEAR_REDUCE_ZONE", "a price just below Reduce remains Near, not inside");
+assert.equal(nearReduceLandscape.actionFamily, "neutral", "Near Reduce uses the Hold family");
+assert.equal(decisionAt(nearReduceLandscape, bullishTechnical).action, "hold", "strong Direction cannot reduce early while only Near Reduce");
+assert.equal(decisionAt(nearReduceLandscape, bearishTechnical).action, "hold", "bearish Direction still waits for Reduce entry absent breakdown");
+assert.equal(jointLandscape({ price: 103.99 }).priceState, "NEAR_REDUCE_ZONE", "$0.01 below Reduce.low is not inside the reduce range");
+assert.equal(decisionAt(jointLandscape({ price: 103.99 }), bearishTechnical).action, "hold", "$0.01 below Reduce.low cannot sell early");
 assert.equal(jointLandscape({ price: 103, atr: 4 }).priceState, "NEAR_REDUCE_ZONE", "closest real zone wins when ATR proximity bands meet");
 assert.equal(decisionAt(jointLandscape({ price: 94 }), bearishTechnical).action, "sell", "a confirmed invalidation/breakdown permits Sell");
 
@@ -310,6 +322,14 @@ assert.equal(stateful.finalAction, "trim", "previous Hold cannot survive enterin
 assert(stateful.familyBoundaryOverride, "Price State boundary is explicit in stability debug");
 stateful = engine.stability.evaluate({ ticker: "FAMILY_BOUNDARY", horizon: "short", candidateAction: "hold", allowedActions: ["hold"], actionFamily: "neutral", edge: 18, confidence: 64, technical: { signalPersistence: { score: 66 } } });
 assert.equal(stateful.finalAction, "hold", "previous Trim cannot survive a return to Neutral");
+engine.stability.clear();
+stateful = engine.stability.evaluate({ ticker: "NEAR_BOUNDARY", horizon: "short", candidateAction: "buy", allowedActions: ["strong_buy", "buy", "accumulate"], actionFamily: "opportunity", edge: 62, confidence: 72, technical: { signalPersistence: { score: 66 } } });
+stateful = engine.stability.evaluate({ ticker: "NEAR_BOUNDARY", horizon: "short", candidateAction: "hold", allowedActions: ["hold"], actionFamily: "neutral", edge: 62, confidence: 66, technical: { signalPersistence: { score: 66 } } });
+assert.equal(stateful.finalAction, "hold", "previous Buy cannot survive moving only Near Opportunity");
+engine.stability.clear();
+stateful = engine.stability.evaluate({ ticker: "NEAR_REDUCE_BOUNDARY", horizon: "short", candidateAction: "trim", allowedActions: ["trim", "sell"], actionFamily: "reduce", edge: -44, confidence: 72, technical: { signalPersistence: { score: 66 } } });
+stateful = engine.stability.evaluate({ ticker: "NEAR_REDUCE_BOUNDARY", horizon: "short", candidateAction: "hold", allowedActions: ["hold"], actionFamily: "neutral", edge: -44, confidence: 66, technical: { signalPersistence: { score: 66 } } });
+assert.equal(stateful.finalAction, "hold", "previous Trim cannot survive moving only Near Reduce");
 const breakdownTechnical = { ...bearishTechnical, directionScore: -75, executionContext: { support: { center: 92, members: [], confluence: 2, quality: 2 }, resistance: { center: 114, members: [], confluence: 2, quality: 2 }, levels: [] } };
 const rebuiltBreakdown = engine.execution.buildLandscape({ price: 100, horizon: "short", technical: breakdownTechnical, context: { risk: 18, exhaustionScore: 0 } });
 const breakdownDecision = decisionAt(rebuiltBreakdown, breakdownTechnical);

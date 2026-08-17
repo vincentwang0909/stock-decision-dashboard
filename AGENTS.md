@@ -48,13 +48,13 @@ The technical roles are Direction, Confirmation, Risk, Price Opportunity, and Ex
 - `reduceRange`
 - `invalidation`
 
-Technical structure still supplies zone calculations, but never expose a remote support/resistance level as a predictive decision output. Buy should be in or near the opportunity range. Hold normally sits between the opportunity and reduce ranges. Trim is in/near the reduce range unless explicit exhaustion/risk evidence supports it. A structural Sell uses an executable current-area exit after breakdown; it never waits for a distant rebound. Avoid is not Sell and must not produce a fake exit plan.
+Technical structure still supplies zone calculations, but never expose a remote support/resistance level as a predictive decision output. A positive action is permitted only inside the opportunity range; proximity alone is Hold. Hold occupies the Neutral space and both Near zones. Trim/Sell is permitted only inside or beyond the Reduce range unless a confirmed breakdown/invalidation path applies. A structural Sell uses an executable current-area exit after breakdown; it never waits for a distant rebound. Avoid is not Sell and must not produce a fake exit plan.
 
 `Price State` is the mandatory Action-Family input: `IN_OPPORTUNITY_ZONE`, `NEAR_OPPORTUNITY_ZONE`, `NEUTRAL_ZONE`, `NEAR_REDUCE_ZONE`, `IN_REDUCE_ZONE`, `BEYOND_REDUCE_ZONE`, `BREAKDOWN_ZONE`, or `INVALID_LANDSCAPE`.
 
-- Opportunity / Near Opportunity permits only Strong Buy, Buy, or Accumulate. Direction, Confirmation, Risk, Exhaustion, Market and Profile modifiers choose intensity inside that family. Opportunity itself never automatically creates Buy.
-- Neutral is the deliberate space from Opportunity upper bound to Reduce lower bound and produces Hold. Strong Direction alone cannot turn Neutral into Buy or Sell.
-- Reduce / Near Reduce / Beyond Reduce permits only Trim or Sell. Hold and every positive Action are prohibited; if the model needs Hold, rebuild the final landscape rather than add an exception.
+- `IN_OPPORTUNITY_ZONE` permits only Strong Buy, Buy, or Accumulate. Direction, Confirmation, Risk, Exhaustion, Market and Profile modifiers choose intensity inside that family. Opportunity itself never automatically creates Buy.
+- `NEAR_OPPORTUNITY_ZONE`, `NEUTRAL_ZONE`, and `NEAR_REDUCE_ZONE` all produce Hold. Near zones are informational analysis states only; they can affect reasons and confidence but cannot trigger an early entry or reduction.
+- `IN_REDUCE_ZONE` and `BEYOND_REDUCE_ZONE` permit only Trim or Sell. Hold and every positive Action are prohibited; if the model needs Hold, rebuild the final landscape rather than add an exception.
 - Breakdown / invalidation permits Sell or Avoid. Sell requires bearish confirmation or a structural/material breakdown; price being high alone cannot create Sell.
 - Near-zone tolerance is ATR-normalized but capped by the Neutral buffer, so it cannot consume the entire Neutral state.
 - When a breakdown occurs, the exit range must re-anchor near the executable current area.
@@ -102,6 +102,38 @@ Material conditions are checked on every refresh: earnings/event proximity,
 post-event gap, abnormal RVOL, ATR shock, major support breakdown/breakout,
 and market shock. They may invalidate the current landscape and bypass
 family-internal action hysteresis immediately.
+
+## Refresh completion contract
+
+A refresh is not complete when its HTTP request resolves. It proceeds through:
+
+```
+latest snapshot obtained
+→ canonical Technical normalization
+→ all Short/Mid/Long Decision, Landscape, Action, and Confidence calculations
+→ Dashboard DOM render
+→ browser paint
+→ Refreshing state ends and Last Refresh is updated
+```
+
+Manual and hourly automatic refreshes must call the same full refresh
+transaction. Both send the existing `force=true` live-data request; Auto
+Refresh must never be cache-only while Manual Refresh is live/forced. Manual
+and automatic refreshes share one in-flight promise, and a monotonic refresh
+generation prevents a stale response from applying over a newer snapshot.
+This also prevents an automatic timer from overlapping a manual refresh (and
+vice versa). A failed automatic refresh leaves the prior successful Dashboard
+and Last Refresh unchanged, releases the loading state, and does not stop the
+next hourly attempt.
+
+The UI's Last Refresh uses the applied snapshot's server freshness
+(`last_dashboard_refresh` first), but is committed only after the whole
+transaction has applied the snapshot, recalculated all horizons, rendered the
+Dashboard, and completed a browser paint. Display it explicitly in
+`America/New_York`, with the `ET` label so daylight saving is correct; never
+use browser-local time, server-local time, or a fixed UTC-5 offset. The client
+may persist this single current timestamp to retain the displayed freshness
+across a reload; it must not become refresh history.
 
 ## Fibonacci horizon provenance
 
@@ -160,6 +192,9 @@ every decision must be correct after a restart even without either cache.
 - counting a stack of same-category moving averages as independent confluence
 - allowing current price alone to manufacture a new Opportunity-zone centre
 - calculating a complete Action before Price State and patching it with reconciliation exceptions
+- treating a Near Opportunity or Near Reduce state as an actionable zone
+- allowing Buy/Accumulate outside the exact Opportunity range
+- allowing Trim/Sell outside the exact Reduce range without Breakdown/Invalidation
 - Buy while current price is in a Reduce zone
 - Hold while current price is in a Reduce zone
 - overlapping Opportunity and Reduce zones, or a $0.01 fake neutral buffer

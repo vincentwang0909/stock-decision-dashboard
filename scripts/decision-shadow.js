@@ -41,8 +41,21 @@ function summary(decision) {
     marketRegime: value.market.regime, candidateAction: value.debug.candidateAction, finalAction: value.debug.finalAction,
     priceState: value.debug.priceState, actionFamily: value.debug.actionFamily, landscapeQuality: value.debug.landscapeQuality,
     finalDecision: value.debug.finalDecision, stability: value.debug.stability, priceLandscape: value.priceLandscape,
+    priceStateContract: strictPriceStateContract(value),
     supporting: value.reasons.supporting, limiting: value.reasons.limiting,
   }]));
+}
+
+function strictPriceStateContract(value) {
+  const state = value.debug?.priceState;
+  const action = value.action;
+  const positive = ["strong_buy", "buy", "accumulate"].includes(action);
+  const defensive = ["trim", "sell"].includes(action);
+  if (state === "IN_OPPORTUNITY_ZONE") return { expected: "positive", valid: positive };
+  if (["NEAR_OPPORTUNITY_ZONE", "NEUTRAL_ZONE", "NEAR_REDUCE_ZONE"].includes(state)) return { expected: "hold", valid: action === "hold" };
+  if (["IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"].includes(state)) return { expected: "reduce", valid: defensive };
+  if (state === "BREAKDOWN_ZONE") return { expected: "defensive", valid: ["sell", "avoid"].includes(action) };
+  return { expected: "avoid", valid: action === "avoid" };
 }
 
 async function main() {

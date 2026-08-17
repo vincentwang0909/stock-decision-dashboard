@@ -25,9 +25,12 @@
   });
 
   function actionFamilyForState(state) {
-    if (["IN_OPPORTUNITY_ZONE", "NEAR_OPPORTUNITY_ZONE"].includes(state)) return "opportunity";
-    if (state === "NEUTRAL_ZONE") return "neutral";
-    if (["NEAR_REDUCE_ZONE", "IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"].includes(state)) return "reduce";
+    // A Near state is analysis context only. It may affect confidence and
+    // reasons, but it never permits an early entry or reduction action.
+    // Exact range membership remains the sole normal Action-Family boundary.
+    if (state === "IN_OPPORTUNITY_ZONE") return "opportunity";
+    if (["NEAR_OPPORTUNITY_ZONE", "NEUTRAL_ZONE", "NEAR_REDUCE_ZONE"].includes(state)) return "neutral";
+    if (["IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"].includes(state)) return "reduce";
     if (state === "BREAKDOWN_ZONE") return "defensive";
     return "unavailable";
   }
@@ -284,7 +287,9 @@
       if (action === "accumulate" && direction <= -25 && exhaustionScore >= gates.bearishContrarianAccumulate.exhaustion) reasons.supporting.push("Downside exhaustion is developing at a valid opportunity zone.");
     } else if (actionFamily === "neutral") {
       action = "hold";
-      if (direction >= 25) reasons.supporting.push("Trend remains constructive, but current price is between the opportunity and reduce zones.");
+      if (priceState === "NEAR_OPPORTUNITY_ZONE") reasons.limiting.push("Price is near the opportunity range but has not entered the recommended buy/add zone.");
+      else if (priceState === "NEAR_REDUCE_ZONE") reasons.limiting.push("Price is approaching the reduce range but has not entered the recommended reduce/exit zone.");
+      else if (direction >= 25) reasons.supporting.push("Trend remains constructive, but current price is between the opportunity and reduce zones.");
       else if (direction <= -25) reasons.limiting.push("Trend is weak, but price has not entered a reduce zone or confirmed a breakdown.");
       else reasons.limiting.push("Current price is in the neutral space between actionable price zones.");
     } else if (actionFamily === "reduce") {

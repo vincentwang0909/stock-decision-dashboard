@@ -18,6 +18,55 @@ assert.match(main, /function actionChip\(/);
 assert.match(main, /A dashboard refresh intentionally rebuilds canonical technical features/);
 assert.match(main, /window\.DecisionEngine\?\.decide/);
 assert.doesNotMatch(main, /previousLandscape|previousCluster|clusterSwitching/);
+assert.match(main, /state\.refreshPhase = "refreshing_data"/);
+assert.match(main, /state\.refreshPromise/);
+assert.match(main, /refreshGeneration/);
+assert.match(main, /afterBrowserPaint\(\)/);
+assert.match(main, /async function runFullRefresh\(\{ source = "initial" \} = \{\}\)/);
+assert.match(main, /function refreshUsesLiveData\(source\)/);
+assert.match(main, /source === "manual" \|\| source === "auto"/);
+assert.match(main, /if \(refreshUsesLiveData\(source\)\) params\.set\("force", "true"\)/);
+assert.match(main, /runFullRefresh\(\{ source: "manual" \}\)/);
+assert.match(main, /setInterval\(\(\) => runFullRefresh\(\{ source: "auto" \}\), REFRESH_MS\)/);
+assert.doesNotMatch(main, /async function refreshMarket/);
+assert.match(main, /if \(state\.refreshPromise\) return state\.refreshPromise/);
+assert.match(main, /const refreshTime = snapshotRefreshTime\(snapshot\)/);
+assert.match(main, /LAST_REFRESH_CACHE_KEY/);
+assert.match(main, /persistLastRefresh\(refreshTime\)/);
+assert.match(main, /t\("refreshing"\)/);
+assert.match(main, /lastRefreshLabel/);
+assert.match(html, /id="lastRefreshLabel"/);
+assert.match(main, /timeZone: "America\/New_York"/);
+assert.match(main, /hourCycle: "h23"/);
+assert.match(main, /\$\{parts\.year\}-\$\{parts\.month\}-\$\{parts\.day\} \$\{parts\.hour\}:\$\{parts\.minute\} ET/);
+assert.doesNotMatch(main, /refreshHistory|snapshotHistory|refreshRuns\.push/);
+
+function easternRefreshTimeForTest(value) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(value)).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} ET`;
+}
+
+assert.equal(easternRefreshTimeForTest("2026-08-17T21:15:00Z"), "2026-08-17 17:15 ET", "EDT uses America/New_York rather than a fixed EST offset");
+assert.equal(easternRefreshTimeForTest("2026-01-17T22:15:00Z"), "2026-01-17 17:15 ET", "EST uses America/New_York rather than browser-local time");
+
+const refreshStart = main.indexOf("async function runFullRefresh");
+const snapshotApply = main.indexOf("applySnapshot(snapshot, { renderSnapshot: false })", refreshStart);
+const paintWait = main.indexOf("await afterBrowserPaint();", snapshotApply);
+const lastRefreshCommit = main.indexOf("state.lastRefreshAt = refreshTime", paintWait);
+const refreshFailure = main.indexOf("} catch (error)", lastRefreshCommit);
+assert.ok(snapshotApply > refreshStart && paintWait > snapshotApply && lastRefreshCommit > paintWait, "Last Refresh commits only after snapshot application and browser paint");
+assert.ok(refreshFailure > lastRefreshCommit, "A failed refresh cannot commit a new Last Refresh timestamp");
+assert.match(executionEngine, /NEAR_OPPORTUNITY_ZONE", "NEUTRAL_ZONE", "NEAR_REDUCE_ZONE"/);
+assert.match(executionEngine, /state === "IN_OPPORTUNITY_ZONE"/);
+assert.match(executionEngine, /\["IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"\]/);
 for (const action of ["strong_buy", "buy", "accumulate", "hold", "trim", "sell", "avoid"]) assert.ok(presentation.actionTone[action], `Homepage action tone missing: ${action}`);
 assert.match(main, /decision\.actionLabel/);
 assert.match(main, /row\.ready && decision \? decision\.actionLabel : t\("unavailable"\)/);

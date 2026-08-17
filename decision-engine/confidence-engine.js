@@ -35,10 +35,10 @@
     // neutral price location, which is genuine execution tension—not a UI
     // reconciliation exception.
     const priceState = finalDecision?.priceState || null;
-    if (priceState === "NEUTRAL_ZONE" && Math.abs(direction) >= 42) {
+    if (["NEAR_OPPORTUNITY_ZONE", "NEUTRAL_ZONE", "NEAR_REDUCE_ZONE"].includes(priceState) && Math.abs(direction) >= 42) {
       penalties.priceStateTension = config.penalties.priceConflict * clamp((Math.abs(direction) - 38) / 62, 0.2, 1);
     }
-    if (["NEAR_REDUCE_ZONE", "IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"].includes(priceState) && direction >= 42 && action === "trim") {
+    if (["IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"].includes(priceState) && direction >= 42 && action === "trim") {
       penalties.priceStateTension = Math.max(penalties.priceStateTension || 0, config.penalties.priceConflict * 0.45);
     }
     if (landscapeQuality?.state === "invalid") penalties.invalidLandscape = config.penalties.invalidLandscape;

@@ -197,6 +197,13 @@ body.modal-open {
   color: #cfe2ff;
 }
 
+.last-refresh-label {
+  color: var(--muted-2);
+  font: 600 0.75rem/1.2 var(--sans);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .manual-refresh-btn {
   height: 42px;
   padding: 0 14px;

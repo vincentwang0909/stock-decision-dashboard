@@ -152,21 +152,26 @@ function landscapeViolations(value, price) {
   const bearishEvidence = Boolean(value.debug.finalDecision?.bearishEvidence);
   const positive = ["strong_buy", "buy", "accumulate"].includes(action);
   const negative = ["trim", "sell"].includes(action);
-  const opportunityState = ["IN_OPPORTUNITY_ZONE", "NEAR_OPPORTUNITY_ZONE"].includes(state);
-  const reduceState = ["NEAR_REDUCE_ZONE", "IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"].includes(state);
+  const opportunityState = state === "IN_OPPORTUNITY_ZONE";
+  const nearOpportunity = state === "NEAR_OPPORTUNITY_ZONE";
+  const neutralState = state === "NEUTRAL_ZONE";
+  const nearReduce = state === "NEAR_REDUCE_ZONE";
+  const reduceState = ["IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"].includes(state);
   const midpoint = validRange(reduce) ? (reduce.low + reduce.high) / 2 : null;
   return {
+    positiveActionOutsideOpportunity: positive && !opportunityState,
+    trimSellOutsideReduceWithoutBreakdown: negative && !reduceState && state !== "BREAKDOWN_ZONE" && !breakdown,
+    nearOpportunityNonHold: nearOpportunity && action !== "hold",
+    nearReduceNonHold: nearReduce && action !== "hold",
     opportunityNegativeAction: opportunityState && !positive,
-    neutralNonHold: state === "NEUTRAL_ZONE" && action !== "hold",
-    reduceHold: reduceState && action === "hold",
-    reducePositiveAction: reduceState && positive,
-    sellOutsideReduceWithoutBreakdown: action === "sell" && !reduceState && state !== "BREAKDOWN_ZONE" && !breakdown,
+    neutralNonHold: neutralState && action !== "hold",
+    reduceHoldOrPositiveAction: reduceState && (!negative || action === "hold"),
     breakdownSellWithoutExecutableReanchor: action === "sell" && (state === "BREAKDOWN_ZONE" || breakdown) && Number.isFinite(midpoint) && Number.isFinite(price) && Math.abs(midpoint - price) > Math.max(1, Math.abs(price) * 0.02),
     overlap: validRange(opportunity) && validRange(reduce) && opportunity.high >= reduce.low,
     invertedRange: [opportunity, reduce].some((range) => range && Number.isFinite(range.low) && Number.isFinite(range.high) && range.low > range.high),
     invalidRange: [opportunity, reduce].some((range) => range && !validRange(range)),
     hysteresisFamilyViolation: Boolean(value.debug.stability?.heldPrevious && !value.debug.stability?.allowedActions?.includes(value.action)),
-    priceStateActionMismatch: opportunityState ? !positive : state === "NEUTRAL_ZONE" ? action !== "hold" : reduceState ? !negative : state === "BREAKDOWN_ZONE" ? !["sell", "avoid"].includes(action) : action !== "avoid",
+    priceStateActionMismatch: opportunityState ? !positive : (nearOpportunity || neutralState || nearReduce) ? action !== "hold" : reduceState ? !negative : state === "BREAKDOWN_ZONE" ? !["sell", "avoid"].includes(action) : action !== "avoid",
   };
 }
 
@@ -286,7 +291,7 @@ async function main() {
     return { ticker, leveraged: profile.leveraged, direction: profile.direction, underlying: profile.underlying, status: record?.status || "unavailable", horizons: record?.horizons || null };
   });
   const priceLandscapeAudit = Object.fromEntries(priceLandscapeTickers.filter((ticker) => perTicker[ticker]).map((ticker) => [ticker, perTicker[ticker]]));
-  const violationRules = ["opportunityNegativeAction", "neutralNonHold", "reduceHold", "reducePositiveAction", "sellOutsideReduceWithoutBreakdown", "breakdownSellWithoutExecutableReanchor", "overlap", "invertedRange", "invalidRange", "hysteresisFamilyViolation", "priceStateActionMismatch"];
+  const violationRules = ["positiveActionOutsideOpportunity", "trimSellOutsideReduceWithoutBreakdown", "nearOpportunityNonHold", "nearReduceNonHold", "neutralNonHold", "opportunityNegativeAction", "reduceHoldOrPositiveAction", "breakdownSellWithoutExecutableReanchor", "overlap", "invertedRange", "invalidRange", "hysteresisFamilyViolation", "priceStateActionMismatch"];
   const landscapeViolationCounts = Object.fromEntries(violationRules.map((rule) => [rule, landscapeViolationRows.filter((entry) => entry.rule === rule).length]));
   console.log(JSON.stringify({
     generatedAt: new Date().toISOString(), cacheOnly: true, watchlistTickers: tickers, validTickerCount: valid.length,

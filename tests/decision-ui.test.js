@@ -70,7 +70,8 @@ presentation.profileGroups({ primaryClassification: "AI Infrastructure", company
 assert.deepEqual(stablePresentationDecision, beforePresentation, "presentation helpers must not mutate V1 decision values");
 
 assert.equal(presentation.translateReason("OBV and volume participation are confirming accumulation.", "zh"), "OBV 与成交量参与度正在确认资金吸筹。");
-assert.equal(presentation.translateReason("Current price is near the reduce range, so adding exposure is not favored.", "zh"), "当前价格接近减仓区，因此不宜新增风险暴露。");
+assert.equal(presentation.translateReason("Price is near the opportunity range but has not entered the recommended buy/add zone.", "zh"), "当前价格接近机会区，但尚未进入推荐买入/加仓区。");
+assert.equal(presentation.translateReason("Price is approaching the reduce range but has not entered the recommended reduce/exit zone.", "zh"), "当前价格接近减仓区，但尚未进入推荐减仓/退出区域。");
 assert.equal(presentation.translateReason("Price position alone cannot create a Sell without bearish structural evidence.", "zh"), "仅凭价格位置、缺乏空头结构证据时，不能形成卖出建议。");
 assert.equal(presentation.translateReason("Price has entered the reduce range without enough trend confirmation to justify holding full exposure.", "zh"), "价格已进入减仓区，但趋势确认不足以支持维持完整暴露。");
 assert.equal(presentation.translateReason("Unmapped provider wording.", "zh"), "Unmapped provider wording.");
