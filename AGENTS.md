@@ -135,6 +135,61 @@ use browser-local time, server-local time, or a fixed UTC-5 offset. The client
 may persist this single current timestamp to retain the displayed freshness
 across a reload; it must not become refresh history.
 
+## EOD Decision History contract
+
+Daily Decision History is an **offline-only** recorder for later validation;
+it is not a Dashboard UI/data source and must never become an input to a live
+Recommendation. The Render Web Service—not a browser timer, local Mac task,
+or client cron—runs it at **4:30 PM `America/New_York`**. The timezone must be
+named (DST-safe), never a fixed UTC offset.
+
+For each run, the server performs the production full live refresh first,
+then uses the same JavaScript `technical-features.js` and `decision-engine/`
+modules to calculate all Short/Mid/Long decisions, and only then atomically
+writes compact rows to SQLite:
+
+```
+full live refresh
+→ latest valid current-day market snapshot
+→ canonical Technical features / production Decision Engine
+→ Short, Mid, Long Decision snapshots
+→ one SQLite transaction / commit
+```
+
+The database is persistent-disk only: `DECISION_HISTORY_DB_PATH` has priority;
+otherwise use Render's writable `/var/data/历史记录.sqlite`, with
+`历史记录/历史记录.sqlite` as local-only fallback. SQLite files and exports must
+remain ignored by Git. No normal Dashboard request may open or preload this
+database. The recorder uses short connections/transactions, has no history
+cache, and discards temporary provider payloads and JS process state after a
+run. The one-shot Node serializer is heap-capped by
+`EOD_HISTORY_NODE_MAX_OLD_SPACE_MB` (Render Blueprint: `192`) and exits after
+each write.
+
+`decision_history` has exactly one official row per
+`market_date + ticker + horizon`; repeat same-day runs UPSERT rather than
+duplicate. Store compact final Decision state, Price Landscape, core model
+states, market context, compact canonical technical features/reason codes, and
+stock/ETF profile context. Never store raw OHLCV arrays or complete indicator
+series. `eod_runs` is a small operational table recording started/completed
+status, counts, error summary, and SQLite size. Unavailable tickers receive
+explicit unavailable rows after a valid market-day run.
+
+Before writing, validate that latest valid Daily data has the current ET
+trading date. Weekends and exchange holidays/no valid session are skipped;
+never copy yesterday's cache as today's EOD data. A ticker whose own latest
+Daily bar is stale is persisted as an explicit unavailable row, not an old
+Decision. The EOD run shares the full
+refresh lock with hourly provider refresh, so it cannot mix cache generations;
+the scheduler may safely catch up only for the current date after 4:30 PM and
+still must pass this session validation. Scheduler/API failure leaves no
+partial success: all rows and the success state are committed together or
+rolled back.
+
+`历史记录/README-历史记录.md` documents operation, export, storage and the
+complete removal procedure. `历史记录/导出历史记录.py` is an offline-only CSV /
+JSON / JSONL exporter.
+
 ## Fibonacci horizon provenance
 
 - Short Fibonacci: native 4H confirmed pivots first, with Daily only as a named secondary confirmation or explicit fallback.
@@ -224,6 +279,10 @@ Run from the repository root:
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/decision-shadow.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/fibonacci-audit.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/refresh-memory-audit.js
+/private/tmp/stock-dashboard-test-venv/bin/python3 -m unittest discover -s tests -p 'eod_history_test.py'
+/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/eod-history-node.test.js
 ```
 
 `decision-engine.test.js` includes joint price/action consistency, stateless-refresh, category-aware confluence, annual-review, ETF, and coverage checks. `technical-features.test.js` protects canonical data completeness and independent Fibonacci provenance. `dashboard-regression.test.js` protects data/UI regressions. `decision-audit.js`, `decision-shadow.js`, `fibonacci-audit.js`, and `refresh-memory-audit.js` are bounded cache-only audits.
+`eod_history_test.py` and `eod-history-node.test.js` protect the independent
+SQLite scheduler/write path and compact production-engine snapshot serializer.

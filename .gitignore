@@ -4,6 +4,9 @@ __pycache__/
 .env
 data/
 *.db
+历史记录/*.sqlite
+历史记录/*.sqlite-*
+历史记录/导出/
 node_modules/
 .venv/
 watchlist.shared.json
