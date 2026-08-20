@@ -126,6 +126,14 @@ vice versa). A failed automatic refresh leaves the prior successful Dashboard
 and Last Refresh unchanged, releases the loading state, and does not stop the
 next hourly attempt.
 
+A browser-triggered live refresh is a **full requested-watchlist** server
+transaction, not one provider-limited request. The server may use small
+provider-safe batches, but it must force-refresh every requested ticker before
+returning the final cache snapshot. A later batch/newly added ticker must never
+be marked deferred merely because it was not in the first batch. Fetch shared
+market context once per batch transaction, then reuse it for the final snapshot
+instead of multiplying macro requests.
+
 The UI's Last Refresh uses the applied snapshot's server freshness
 (`last_dashboard_refresh` first), but is committed only after the whole
 transaction has applied the snapshot, recalculated all horizons, rendered the

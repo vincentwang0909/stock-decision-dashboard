@@ -4340,7 +4340,7 @@ def quote_to_market_item(ticker, quote):
     }
 
 
-def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_only=True):
+def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_only=True, refresh_market_context=True):
     normalized_tickers = []
     seen = set()
     for raw_ticker in tickers:
@@ -4404,7 +4404,11 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
             if failure:
                 failed.append(failure)
             continue
-        if auto_refresh and cached and is_market_cache_fresh(cached):
+        # A forced refresh must always attempt the provider. The old branch
+        # treated hourly force refreshes as cache-only whenever an entry was
+        # fresh, which meant newly added or changed watchlist data could stay
+        # stale until that cache expired.
+        if auto_refresh and not force and cached and is_market_cache_fresh(cached):
             quote = normalize_cached_market_quote(ticker, cached, stale=False)
             quote["companyNews"] = quote.get("companyNews") or unavailable_company_news()
             quotes[ticker] = quote
@@ -4511,7 +4515,10 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
     # convert this payload into a market-environment or macro score.
     market_context, market_context_meta = get_market_context_cached_snapshot(
         force=False,
-        allow_live=bool(force or auto_refresh),
+        # A complete watchlist refresh runs in small quote batches. Fetch the
+        # shared market context once for that transaction, rather than once per
+        # batch; later batches and the final cache snapshot reuse it.
+        allow_live=bool((force or auto_refresh) and refresh_market_context),
     )
     fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     request_completed_at = fetched_at
@@ -4676,10 +4683,14 @@ def chunk_tickers_for_live_refresh(tickers):
     return [tickers[index:index + batch_size] for index in range(0, len(tickers), batch_size)]
 
 
-def _refresh_market_cache_for_watchlist(reason="scheduled_hourly"):
-    tickers = load_shared_watchlist()
-    if not tickers:
-        tickers = watchlist_items_to_tickers(normalize_watchlist_items(DEFAULT_SHARED_WATCHLIST))
+def _refresh_market_cache_for_tickers(tickers, reason="scheduled_hourly"):
+    """Force-refresh every requested ticker in provider-safe batches.
+
+    This is deliberately the one server-side live-refresh primitive used by
+    hourly work, EOD capture, and browser-triggered full refreshes. A batch is
+    only a provider/resource boundary; it is never a reason to omit later
+    watchlist tickers from the completed dashboard snapshot.
+    """
     tickers = normalize_watchlist(tickers)[:MARKET_DATA_MAX_TICKERS]
     batches = chunk_tickers_for_live_refresh(tickers)
     started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -4704,6 +4715,7 @@ def _refresh_market_cache_for_watchlist(reason="scheduled_hourly"):
                 force=True,
                 auto_refresh=True,
                 cache_only=False,
+                refresh_market_context=(batch_index == 1),
             )
             status = payload.get("refresh_status") or {}
             success_count = int(status.get("success_count") or 0)
@@ -4732,7 +4744,17 @@ def _refresh_market_cache_for_watchlist(reason="scheduled_hourly"):
                 "last_error": str(exc),
                 "last_batches": batch_summaries,
             })
-        return False
+        return {
+            "completed": False,
+            "reason": reason,
+            "requested_tickers": tickers,
+            "batch_count": len(batches),
+            "success_count": total_success,
+            "failed_count": total_failed,
+            "cache_fallback_count": total_cache_fallback,
+            "batches": batch_summaries,
+            "error": str(exc),
+        }
 
     completed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with BACKGROUND_REFRESH_LOCK:
@@ -4746,7 +4768,24 @@ def _refresh_market_cache_for_watchlist(reason="scheduled_hourly"):
             "last_batches": batch_summaries,
             "last_reason": reason,
         })
-    return True
+    return {
+        "completed": True,
+        "reason": reason,
+        "requested_tickers": tickers,
+        "batch_count": len(batches),
+        "success_count": total_success,
+        "failed_count": total_failed,
+        "cache_fallback_count": total_cache_fallback,
+        "batches": batch_summaries,
+        "completed_at": completed_at,
+    }
+
+
+def _refresh_market_cache_for_watchlist(reason="scheduled_hourly"):
+    tickers = load_shared_watchlist()
+    if not tickers:
+        tickers = watchlist_items_to_tickers(normalize_watchlist_items(DEFAULT_SHARED_WATCHLIST))
+    return _refresh_market_cache_for_tickers(tickers, reason=reason)
 
 
 def refresh_market_cache_for_watchlist(reason="scheduled_hourly"):
@@ -4756,7 +4795,8 @@ def refresh_market_cache_for_watchlist(reason="scheduled_hourly"):
     snapshot cannot accidentally mix cache generations from two provider runs.
     """
     with FULL_REFRESH_RUN_LOCK:
-        return _refresh_market_cache_for_watchlist(reason=reason)
+        summary = _refresh_market_cache_for_watchlist(reason=reason)
+        return bool(summary.get("completed"))
 
 
 def watchlist_market_cache_needs_refresh():
@@ -4894,7 +4934,8 @@ def build_eod_decision_snapshot(input_path, output_path):
 def _eod_refresh_and_cache_snapshot(tickers):
     """Keep live refresh and the cache read in one server-side transaction lock."""
     with FULL_REFRESH_RUN_LOCK:
-        if not _refresh_market_cache_for_watchlist(reason="eod_history"):
+        summary = _refresh_market_cache_for_watchlist(reason="eod_history")
+        if not summary.get("completed"):
             return None
         # The preceding chunked force refresh updated every watchlist ticker.
         # Reading the cache-only payload here prevents a second provider fetch.
@@ -5342,18 +5383,48 @@ def api_market_data():
         ]
         force = str(request.args.get("force", "")).strip().lower() in {"1", "true", "yes", "y"}
         auto_refresh = str(request.args.get("auto_refresh", "")).strip().lower() in {"1", "true", "yes", "y"}
+        full_refresh = str(request.args.get("full_refresh", "")).strip().lower() in {"1", "true", "yes", "y"}
         cache_only_param = str(request.args.get("cache_only", "")).strip().lower()
         cache_only = cache_only_param not in {"0", "false", "no", "n"}
+        if full_refresh:
+            force = True
         if force:
             cache_only = False
         if auto_refresh:
             cache_only = False
-        payload = build_market_data_payload(
-            tickers,
-            force=force,
-            auto_refresh=auto_refresh,
-            cache_only=cache_only,
-        )
+        if full_refresh:
+            # Do not return after the first provider-safe pair. Complete all
+            # requested batches under the shared refresh lock, then read the
+            # exact resulting cache snapshot without triggering a second live
+            # request. This makes a newly added ticker participate in the same
+            # full refresh as every existing card.
+            with FULL_REFRESH_RUN_LOCK:
+                full_summary = _refresh_market_cache_for_tickers(tickers, reason="api_full_refresh")
+                payload = build_market_data_payload(
+                    tickers,
+                    force=False,
+                    auto_refresh=False,
+                    cache_only=True,
+                    refresh_market_context=False,
+                )
+            status = payload.setdefault("refresh_status", {})
+            status.update({
+                "is_full_watchlist_refresh": True,
+                "full_refresh_completed": bool(full_summary.get("completed")),
+                "full_refresh_batch_count": int(full_summary.get("batch_count") or 0),
+                "full_refresh_requested_tickers": full_summary.get("requested_tickers") or [],
+                "full_refresh_success_count": int(full_summary.get("success_count") or 0),
+                "full_refresh_failed_count": int(full_summary.get("failed_count") or 0),
+                "full_refresh_cache_fallback_count": int(full_summary.get("cache_fallback_count") or 0),
+                "full_refresh_error": full_summary.get("error"),
+            })
+        else:
+            payload = build_market_data_payload(
+                tickers,
+                force=force,
+                auto_refresh=auto_refresh,
+                cache_only=cache_only,
+            )
         status_code = 200 if payload.get("success") or payload.get("items") else 503
         return jsonify(payload), status_code
     except Exception as exc:

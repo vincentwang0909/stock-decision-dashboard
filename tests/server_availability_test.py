@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -6,6 +7,80 @@ import server
 
 
 class ServerAvailabilityTests(unittest.TestCase):
+    def test_full_requested_refresh_batches_every_ticker_including_new_symbols(self):
+        tickers = ["AAPL", "AMD", "TSM", "NVDA", "QQQ"]
+        calls = []
+
+        def fake_payload(batch, **kwargs):
+            calls.append((list(batch), kwargs))
+            return {
+                "refresh_status": {
+                    "success_count": len(batch),
+                    "failed_count": 0,
+                    "cache_fallback_count": 0,
+                    "last_dashboard_refresh": "2026-08-19T21:40:00Z",
+                },
+            }
+
+        with patch.object(server, "MARKET_DATA_MAX_LIVE_TICKERS", 2), patch.object(server, "build_market_data_payload", side_effect=fake_payload):
+            summary = server._refresh_market_cache_for_tickers(tickers, reason="test_full_requested_refresh")
+
+        self.assertTrue(summary["completed"])
+        self.assertEqual([batch for batch, _ in calls], [["AAPL", "AMD"], ["TSM", "NVDA"], ["QQQ"]])
+        self.assertEqual(summary["requested_tickers"], tickers)
+        self.assertEqual(summary["success_count"], len(tickers))
+        self.assertTrue(all(kwargs["force"] is True and kwargs["auto_refresh"] is True for _, kwargs in calls))
+        self.assertEqual([kwargs["refresh_market_context"] for _, kwargs in calls], [True, False, False])
+
+    def test_full_refresh_route_returns_cache_snapshot_after_all_live_batches(self):
+        full_summary = {
+            "completed": True,
+            "batch_count": 2,
+            "requested_tickers": ["AAPL", "TSM", "NVDA"],
+            "success_count": 3,
+            "failed_count": 0,
+            "cache_fallback_count": 0,
+        }
+        final_payload = {
+            "success": True,
+            "items": [{"ticker": "AAPL", "price": 1}, {"ticker": "TSM", "price": 2}, {"ticker": "NVDA", "price": 3}],
+            "refresh_status": {},
+        }
+        with patch.object(server, "_refresh_market_cache_for_tickers", return_value=full_summary) as refresh, patch.object(server, "build_market_data_payload", return_value=final_payload) as payload_builder:
+            response = server.app.test_client().get("/api/market-data?tickers=AAPL,TSM,NVDA&force=true&full_refresh=true")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        refresh.assert_called_once_with(["AAPL", "TSM", "NVDA"], reason="api_full_refresh")
+        payload_builder.assert_called_once_with(
+            ["AAPL", "TSM", "NVDA"],
+            force=False,
+            auto_refresh=False,
+            cache_only=True,
+            refresh_market_context=False,
+        )
+        self.assertTrue(body["refresh_status"]["is_full_watchlist_refresh"])
+        self.assertTrue(body["refresh_status"]["full_refresh_completed"])
+        self.assertEqual(body["refresh_status"]["full_refresh_requested_tickers"], ["AAPL", "TSM", "NVDA"])
+
+    def test_force_auto_refresh_bypasses_a_fresh_quote_cache(self):
+        cached = {"cache_age_seconds": 1, "quote": {"price": 100.0, "history": {}}}
+        live_quote = {
+            "ticker": "TSM",
+            "price": 200.0,
+            "updatedAt": "2026-08-19T21:40:00Z",
+            "cache_updated_at": "2026-08-19T21:40:00Z",
+            "quote_status": "available",
+            "quote_source": "yfinance",
+            "history": {},
+        }
+        market_context = {"macro": {}, "market_context": {"vix": {"value": 19.5}, "equity_trend": {"spy": {}, "qqq": {}}}}
+        with patch.object(server, "read_market_cache", return_value=cached), patch.object(server, "is_market_cache_fresh", return_value=True), patch.object(server, "fetch_market_quote_for_ticker", return_value=(live_quote, None, False, [{"source": "yfinance", "success": True}])) as fetch_quote, patch.object(server, "get_market_context_cached_snapshot", return_value=(market_context, {"status": "available", "cache_used": False, "cache_updated_at": "2026-08-19T21:40:00Z"})):
+            payload = server.build_market_data_payload(["TSM"], force=True, auto_refresh=True, cache_only=False)
+
+        fetch_quote.assert_called_once_with("TSM", True)
+        self.assertEqual(payload["quotes"]["TSM"]["price"], 200.0)
+
     def test_dashboard_payload_returns_market_data_without_a_score_placeholder(self):
         original = server.get_market_context_cached_snapshot
         try:

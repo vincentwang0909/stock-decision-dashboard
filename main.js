@@ -742,7 +742,14 @@ async function runFullRefresh({ source = "initial" } = {}) {
       // Both user-triggered and hourly automatic refreshes request the same
       // force-live server path. Initial cache hydration and watchlist edits can
       // still use this full pipeline without forcing a provider refresh.
-      if (refreshUsesLiveData(source)) params.set("force", "true");
+      if (refreshUsesLiveData(source)) {
+        params.set("force", "true");
+        // A live Dashboard refresh is a server-side watchlist transaction.
+        // It must not be limited to the first small provider-safe batch: the
+        // endpoint refreshes every requested ticker, then returns one coherent
+        // cache snapshot for the existing client-side decision calculation.
+        params.set("full_refresh", "true");
+      }
       const response = await fetch(`${API_URL}?${params.toString()}`);
       if (!response.ok) throw new Error(`market request failed (${response.status})`);
       const snapshot = await response.json();
