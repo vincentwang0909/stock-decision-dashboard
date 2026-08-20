@@ -81,25 +81,54 @@
   }
 
   const labelAnchor = (point) => Number.isFinite(point.start) && Number.isFinite(point.end) ? (point.start + point.end) / 2 : point.position;
-  function layoutPriceMap(points = [], minimumGap = 9) {
+  function layoutPriceMap(points = [], minimumGap = 16) {
     const preferredSide = { opportunity: "top", current: "top", reduce: "bottom", invalidation: "bottom" };
     const lanes = { top: [], bottom: [] };
     const labels = [...points].map((point) => ({ ...point, anchor: labelAnchor(point) })).filter((point) => Number.isFinite(point.anchor)).sort((a, b) => a.anchor - b.anchor).map((point) => {
       const desired = preferredSide[point.id] || "top";
-      const sides = [desired, desired === "top" ? "bottom" : "top"];
+      const alternate = desired === "top" ? "bottom" : "top";
       let slot = null;
-      for (const side of sides) {
-        const lane = lanes[side].findIndex((last) => point.anchor - last >= minimumGap);
-        if (lane >= 0) { slot = { side, lane }; break; }
-        if (lanes[side].length < 2) { slot = { side, lane: lanes[side].length }; break; }
+      // Reuse a compatible lane before adding a new one. The gap represents
+      // the real label footprint rather than just the marker width, so labels
+      // on the same visual row cannot collide when price levels are close.
+      const desiredLane = lanes[desired].findIndex((last) => point.anchor - last >= minimumGap);
+      if (desiredLane >= 0) slot = { side: desired, lane: desiredLane };
+      // Preserve the normal visual hierarchy: a label with an unused preferred
+      // side (for example, Opportunity on top) claims that side before it
+      // considers reusing an opposite-side lane.
+      if (!slot && lanes[desired].length === 0) slot = { side: desired, lane: 0 };
+      const alternateLane = lanes[alternate].findIndex((last) => point.anchor - last >= minimumGap);
+      if (!slot && alternateLane >= 0) slot = { side: alternate, lane: alternateLane };
+      if (!slot) {
+        // If the preferred side is already occupied by a nearby label, first
+        // use the opposite side. This is the common current-price / range
+        // collision and keeps the normal map compact instead of stacking both
+        // labels on a too-tight top lane.
+        const desiredBlocked = lanes[desired].length > 0;
+        if (desiredBlocked && lanes[alternate].length < 2) {
+          slot = { side: alternate, lane: lanes[alternate].length };
+        } else if (lanes[desired].length < 2) {
+          slot = { side: desired, lane: lanes[desired].length };
+        } else if (lanes[alternate].length < 2) {
+          slot = { side: alternate, lane: lanes[alternate].length };
+        }
       }
-      if (!slot) { const side = lanes.top.length <= lanes.bottom.length ? "top" : "bottom"; slot = { side, lane: Math.min(1, lanes[side].length - 1) }; }
+      // There are at most four labels and four two-sided lanes. This fallback
+      // only protects malformed callers that pass more points; it preserves a
+      // deterministic, readable location instead of throwing during render.
+      if (!slot) {
+        const side = lanes.top.length <= lanes.bottom.length ? "top" : "bottom";
+        slot = { side, lane: Math.max(0, lanes[side].length - 1) };
+      }
       lanes[slot.side][slot.lane] = point.anchor;
       return { ...point, labelSide: slot.side, labelLane: slot.lane + 1, labelPosition: Math.max(5, Math.min(95, point.anchor)) };
     });
     const topLanes = Math.max(0, ...labels.filter((point) => point.labelSide === "top").map((point) => point.labelLane));
     const bottomLanes = Math.max(0, ...labels.filter((point) => point.labelSide === "bottom").map((point) => point.labelLane));
-    return { labels, topLanes, bottomLanes, trackHeight: 96 + (topLanes + bottomLanes) * 22 };
+    // Lane two uses a full label-height offset, not the old 22px increment.
+    // Only dense maps grow taller; ordinary four-point maps remain compact.
+    const hasSecondLane = topLanes > 1 || bottomLanes > 1;
+    return { labels, topLanes, bottomLanes, trackHeight: hasSecondLane ? 220 : 140 };
   }
 
   function nearestRangeDistance(current, range) {

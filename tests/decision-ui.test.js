@@ -52,6 +52,17 @@ for (let index = 0; index < closeLabels.length; index += 1) {
 }
 assert.ok(presentation.layoutPriceMap(closeLabels).trackHeight >= 140, "dense Price Landscape gains vertical label room");
 
+const nearbyCurrent = presentation.layoutPriceMap([
+  { id: "invalidation", position: 10 },
+  { id: "opportunity", start: 32, end: 38 },
+  { id: "current", position: 39 },
+  { id: "reduce", start: 78, end: 84 },
+]).labels;
+const nearbyOpportunity = nearbyCurrent.find((point) => point.id === "opportunity");
+const nearbyPrice = nearbyCurrent.find((point) => point.id === "current");
+assert.notEqual(nearbyOpportunity.labelSide, nearbyPrice.labelSide, "a current price beside an opportunity range moves to the opposite label side");
+assert.equal(presentation.layoutPriceMap(nearbyCurrent).trackHeight, 140, "ordinary near-price maps stay compact after side staggering");
+
 const distance = presentation.nearestRangeDistance(110, range(100, 105));
 assert.equal(distance.within, false);
 assert.equal(Math.round(distance.percent * 10) / 10, -4.5);

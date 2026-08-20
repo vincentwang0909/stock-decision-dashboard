@@ -2917,10 +2917,10 @@ tbody tr.selected-row td {
 .price-map-label i, .price-map-label b, .price-map-label small { display: block; font-style: normal; }
 .price-map-label b { margin-top: 2px; color: #eef5ff; font-family: var(--mono); font-size: 0.66rem; font-weight: 800; font-variant-numeric: tabular-nums; }
 .price-map-label small { margin-top: 2px; color: var(--muted); font-size: 0.6rem; font-weight: 700; }
-.price-map-label.top.lane-1 { bottom: calc(50% + 20px); }
-.price-map-label.top.lane-2 { bottom: calc(50% + 42px); }
+.price-map-label.top.lane-1 { bottom: calc(50% + 22px); }
+.price-map-label.top.lane-2 { bottom: calc(50% + 68px); }
 .price-map-label.bottom.lane-1 { top: calc(50% + 22px); }
-.price-map-label.bottom.lane-2 { top: calc(50% + 44px); }
+.price-map-label.bottom.lane-2 { top: calc(50% + 68px); }
 .price-map-label.current { color: #edf5ff; }
 .price-map-label.reduce { color: #a8c7e7; }
 .price-map-label.invalidation { color: #d9b87f; }
