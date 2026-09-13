@@ -589,13 +589,16 @@ function renderProfileHeader(row) {
     confidence ? `<span>${t("profileConfidence")}: <b>${confidence}</b></span>` : "",
     profile.lastProfileReview ? `<span>${t("lastReview")}: <b>${formatDate(profile.lastProfileReview)}</b></span>` : "",
   ].filter(Boolean).join("");
+  // Keep the four canonical company-profile slots visually stable. A missing
+  // slot is presentation-only and must not collapse the grid or imply that
+  // the profile has a different schema for this stock.
   const stockProfileSlots = [
-    [t("primaryClassification"), profile.primaryClassification],
-    [t("businessTrait"), groups.businessTrait],
-    [t("riskTrait"), groups.riskTrait],
-    [t("lifecycle"), groups.lifecycle],
-  ].filter(([, value]) => value);
-  const stockSummary = !profile.isETF && stockProfileSlots.length
+    [t("primaryClassification"), profile.primaryClassification || "-"],
+    [t("businessTrait"), groups.businessTrait || "-"],
+    [t("riskTrait"), groups.riskTrait || "-"],
+    [t("lifecycle"), groups.lifecycle || "-"],
+  ];
+  const stockSummary = !profile.isETF
     ? `<div class="profile-summary-strip">${stockProfileSlots.map(([label, value]) => `<div class="profile-summary-item"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join("")}</div>`
     : "";
   const etfSummary = profile.isETF

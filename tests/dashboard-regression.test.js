@@ -145,6 +145,11 @@ assert.match(main, /updatedAt: quote\.last_quote_time \|\| quote\.updatedAt \|\|
 assert.match(main, /row\.price != null && row\.quote\?\.quote_status !== "unavailable"/);
 assert.doesNotMatch(main, /row\.updatedAt \|\| state\.snapshot\?\.updatedAt/);
 assert.match(main, /profile-summary-strip/);
+assert.match(main, /profile\.primaryClassification \|\| "-"/);
+assert.match(main, /groups\.businessTrait \|\| "-"/);
+assert.match(main, /groups\.riskTrait \|\| "-"/);
+assert.match(main, /groups\.lifecycle \|\| "-"/);
+assert.doesNotMatch(main, /stockProfileSlots = \[[\s\S]*?\]\.filter\(\(\[, value\]\) => value\)/, "company profile slots must not collapse when a value is missing");
 assert.match(main, /marketRegimeHelp/);
 assert.match(main, /source === "auto"\) params\.set\("auto_refresh", "true"\)/);
 assert.match(main, /window\.__decisionDebug/);
