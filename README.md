@@ -79,7 +79,11 @@ GET /api/market-data?tickers=NVDA,MSFT&force=true
 GET /api/debug/quote/NVDA
 ```
 
-`/api/market-data` is cache-first. The `_refresh` query string is only used to bypass browser cache; it does not force a live quote refresh. Use `force=true` only for a manual refresh.
+`/api/market-data` is cache-first for initial/cache hydration. Manual and hourly
+automatic Dashboard refreshes use the shared full-refresh transaction with
+`force=true&full_refresh=true`, which refreshes the complete requested watchlist
+before the response is applied. The `_refresh` query string only bypasses browser
+cache; it does not force a provider refresh.
 
 ## Shared Watchlist API
 

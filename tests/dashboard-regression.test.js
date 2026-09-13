@@ -113,7 +113,7 @@ assert.match(main, /technical-accordion/);
 assert.match(main, /data-technical-horizon/);
 assert.match(main, /data-fibonacci-horizon/);
 assert.match(main, /data-technical-toggle/);
-for (const presentationClass of ["stock-item-body", "decision-hero", "decision-core-grid", "detail-section-card", "decision-price-map", "company-model-grid"]) {
+for (const presentationClass of ["stock-item-body", "decision-hero", "decision-core-grid", "detail-section-card", "decision-price-map", "profile-summary-strip"]) {
   assert.match(main, new RegExp(presentationClass), `restored presentation structure is missing: ${presentationClass}`);
 }
 assert.match(marketEngine, /source\.market_context/);
@@ -134,7 +134,19 @@ assert.match(main, /recommendationConfidence/);
 assert.match(main, /decisionHorizon/);
 assert.match(main, /data-decision-horizon/);
 assert.match(main, /renderDecisionPriceMap/);
-assert.match(main, /renderCompanyModel/);
+assert.doesNotMatch(main, /renderExecutionPlan/);
+assert.doesNotMatch(main, /renderCompanyModel/);
+assert.match(main, /dataTime/);
+assert.match(main, /dataTime: "数据时间"/);
+assert.match(main, /formatDataTime/);
+const dataTimeFormatter = main.slice(main.indexOf("function formatDataTime"), main.indexOf("function formatRefreshTime"));
+assert.match(dataTimeFormatter, /timeZone: "America\/New_York"/, "per-stock data time must use Eastern Time");
+assert.match(main, /updatedAt: quote\.last_quote_time \|\| quote\.updatedAt \|\| quote\.last_successful_update/);
+assert.match(main, /row\.price != null && row\.quote\?\.quote_status !== "unavailable"/);
+assert.doesNotMatch(main, /row\.updatedAt \|\| state\.snapshot\?\.updatedAt/);
+assert.match(main, /profile-summary-strip/);
+assert.match(main, /marketRegimeHelp/);
+assert.match(main, /source === "auto"\) params\.set\("auto_refresh", "true"\)/);
 assert.match(main, /window\.__decisionDebug/);
 assert.match(main, /decisionCardHint/);
 assert.doesNotMatch(main, /Action Score|baseline score|final score|Top 3/);

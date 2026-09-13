@@ -873,7 +873,14 @@ def dt_from_epoch(value):
         return None
 
 
-def iso_from_local_close(value, hour, minute, offset_hours):
+def iso_from_local_close(value, hour, minute, offset_hours=None):
+    """Convert a provider bar date at the US close into a UTC ISO timestamp.
+
+    Historical callers passed a fixed offset (usually ``-4``), but that made
+    winter closes appear an hour early.  The dashboard's data timestamps are
+    Eastern Time, so use the named IANA zone and let ZoneInfo apply EST/EDT.
+    ``offset_hours`` remains accepted for compatibility with existing callers.
+    """
     if value is None:
         return None
     try:
@@ -883,7 +890,7 @@ def iso_from_local_close(value, hour, minute, offset_hours):
             dt_value = value
         else:
             dt_value = datetime.combine(value, datetime.min.time())
-        local_tz = timezone(timedelta(hours=offset_hours))
+        local_tz = ZoneInfo("America/New_York")
         dt_local = dt_value.replace(hour=hour, minute=minute, second=0, microsecond=0, tzinfo=local_tz)
         return dt_local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     except Exception:

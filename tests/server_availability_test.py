@@ -12,6 +12,13 @@ import server
 
 
 class ServerAvailabilityTests(unittest.TestCase):
+    def test_historical_close_timestamp_is_dst_aware_eastern_time(self):
+        # A 4:00 PM close is 20:00Z during EDT and 21:00Z during EST.  The
+        # provider fallback must use America/New_York rather than a fixed -4
+        # offset so the per-stock Data time remains truthful year-round.
+        self.assertEqual(server.iso_from_local_close(pd.Timestamp("2026-08-19"), 16, 0, -4), "2026-08-19T20:00:00Z")
+        self.assertEqual(server.iso_from_local_close(pd.Timestamp("2026-01-19"), 16, 0, -4), "2026-01-19T21:00:00Z")
+
     def test_same_origin_dashboard_static_routes_are_available(self):
         client = server.app.test_client()
         root = client.get("/")
