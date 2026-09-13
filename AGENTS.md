@@ -210,6 +210,24 @@ Every horizon Fibonacci object has independent derivation/source identifiers. Eq
 
 ## Profiles
 
+### Active-universe and persistence contract
+
+The canonical **current active universe** is exactly the symbols in the
+shared/current `watchlist` table. It is the only source for Dashboard cards,
+current market-data requests, hourly refresh, profile migration, annual
+profile review, and Company Profile audits. A `company_profiles` row, quote
+cache file, browser snapshot/localStorage entry, legacy watchlist artifact, or
+EOD history row is evidence about a symbol only; none may create or resurrect
+an active symbol. A successful shared-watchlist response is authoritative even
+when it is empty, and the client must prune inactive keys from its persisted
+snapshot. Offline browser cache is fallback-only.
+
+Removed symbols may be retained only as dormant cache/profile data when an
+environment deliberately keeps it, but production paths must ignore it. EOD
+`decision_history` is immutable history and is never pruned or rewritten when
+a ticker is removed. Never use a schema migration to insert a default/migration
+ticker into an existing watchlist.
+
 Ordinary stocks expose exactly four optional canonical slots, in this order:
 
 1. `primaryClassification` — exactly one of: Semiconductors, Semiconductor Equipment, Enterprise Software, Cloud Infrastructure, Consumer Technology, Internet Platforms, Media & Entertainment, E-Commerce, Digital Advertising, Telecommunications Infrastructure, Capital Markets, Banking, Digital Financial Services, Payments, Insurance, Managed Care & Health Services, Pharmaceuticals, Biotechnology, Medical Devices, Consumer Discretionary, Consumer Staples, Retail, Industrials, Aerospace & Defense, Transportation & Logistics, Energy, Utilities, Real Estate, or Materials.
@@ -223,11 +241,37 @@ Ordinary stocks expose exactly four optional canonical slots, in this order:
 
 The server creates stock profiles automatically from compact existing provider metadata (industry, sector, business summary, market cap, growth, margin, and beta where present). The production classifier must not inspect ticker symbols or use a manual ordinary-stock ticker map. Business and Lifecycle selection use centralized metadata-evidence scoring with sufficiency thresholds and deterministic tie breaking, not a first-match MegaCap priority. Lifecycle requires staged structural evidence: growth alone cannot make a huge mature issuer `Scaling`; `Recovery` and `Declining` require issuer-specific summary evidence rather than a generic mention of an advisory service. Risk remains conservative: absent direct metadata evidence stays `null`, and `CrowdedLeader` is never auto-guessed from price/performance.
 
+Every structural numeric field uses one safe finite-or-null normalization
+contract: `null`, `undefined`, blank strings, `NaN`, and infinities stay
+unavailable; they must never be coerced to zero. A valid `0` remains a valid
+number. In particular, missing beta can never create `LowVolatility`, and
+missing market cap/growth/margin cannot provide false classifier evidence.
+
+Business classification is correctness-driven, never distribution-balanced.
+`Cyclical` may receive a bounded baseline from a structurally cyclical Primary
+(currently semiconductor/equipment, energy, materials, industrial,
+transport/logistics, or capital-markets families), but Primary alone never
+forces the trait. It requires corroborating issuer cycle exposure or explicit
+cycle language under the centralized evidence threshold; strong secular-growth
+evidence may still select `HighGrowth`. Use the documented deterministic tie
+order and candidate scores—never ticker-specific overrides or category quotas.
+
 It stores compact current profiles in the persistent `company_profiles` table inside `watchlist.db`; Dashboard restart must not change their source of truth. The V2.1 migration runs once per stock when compact fresh/cached metadata is available, replaces legacy slot values with the current classifier result, removes legacy visible `MegaCap`, and stores `profile_schema_version = 2.1`. It is idempotent. Complete V2.1 profiles do not change on normal hourly refreshes. Incomplete profiles may fill a null slot, but never overwrite a populated slot outside the annual review.
 
 The only annual review date is **March 31, `America/New_York`**. A review does not force a change and sparse review metadata must never erase an established value. A valid review persists the date/provenance; it must also update the modifiers actually used by the engine. `profileConfidence` and its existing Final Confidence contribution are intentionally unchanged in V2.
 
 The four visible slots use conservative, centralized, aggregate-then-cap modifiers for Direction/Confirmation weights, risk and exhaustion tolerance, market/rate/event sensitivity, execution gates, benchmark emphasis, and stability. Internal size context is narrower: it may affect only small bounded risk/market/stability sensitivity and never votes Direction, changes confirmation, or alters an action gate. No profile context may add action points, override Price State → Action Family, or create a second recommendation engine. General caps remain 0.85–1.15; justified special sensitivity caps remain 0.80–1.20.
+
+For `longStability`, correlated maturity evidence from Business Trait,
+Lifecycle, and internal Size Class is combined as one group: retain its
+strongest contribution instead of stacking CashCow/EstablishedLeader/MegaCap
+as three copies of the same fact. Independent Primary and Risk stability
+evidence remains additive and all final values still use the existing caps.
+
+Provider symbols are normalized centrally. The canonical watchlist keeps the
+user-facing ticker and provider requests use that normalized symbol. Unsupported
+symbols follow the normal provider-error/unavailable path; never create a
+duplicate active symbol from a provider-form ticker.
 
 ETFs remain isolated. They never receive stock profile slots, Company Traits, or a Lifecycle. ETF profile fields are `isETF`, `leveraged`, `direction` (`long` or `inverse`), `underlying`, and optional `underlyingTicker`. Ordinary long ETFs reuse the V1 technical/market model. Leveraged ETFs use stricter gates and higher risk, exhaustion, and market sensitivity. Inverse ETFs use inverted underlying direction only as bounded confirmation; their own Technical states remain the Direction source.
 

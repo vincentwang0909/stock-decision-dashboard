@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 "use strict";
 
-// Bounded, read-only Company Profile V2.1 audit. It consumes only cached
-// metadata and persisted compact profiles; it never invokes a provider, opens
-// a write connection, or changes profile persistence.
+// Bounded, read-only Company Profile V2.1.1 cache audit. Its universe comes
+// only from the canonical current watchlist table. Cache/profile rows are
+// evidence ABOUT those active symbols; they never create audit candidates.
 const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -42,6 +42,21 @@ function persistedProfiles() {
     return {};
   }
 }
+function activeWatchlist() {
+  if (!fs.existsSync(DB_PATH)) return [];
+  const script = [
+    "import json, sqlite3, sys",
+    "conn=sqlite3.connect(sys.argv[1])",
+    "rows=[r[0] for r in conn.execute('SELECT ticker FROM watchlist ORDER BY datetime(created_at) ASC, id ASC')]",
+    "print(json.dumps(rows, ensure_ascii=False)); conn.close()",
+  ].join("\n");
+  try {
+    const output = childProcess.execFileSync(process.env.PYTHON || "python3", ["-c", script, DB_PATH], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return [...new Set(JSON.parse(output).map((ticker) => String(ticker || "").toUpperCase()).filter(Boolean))];
+  } catch {
+    return [];
+  }
+}
 function v2ClassifierFromHead() {
   try {
     const source = childProcess.execFileSync("git", ["show", "HEAD:decision-engine/company-profile-classifier.js"], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
@@ -56,6 +71,7 @@ function v2ClassifierFromHead() {
 
 const previousClassifier = v2ClassifierFromHead();
 const persisted = persistedProfiles();
+const active = activeWatchlist();
 const cached = new Map();
 if (fs.existsSync(CACHE_DIRECTORY)) {
   for (const file of fs.readdirSync(CACHE_DIRECTORY).filter((entry) => entry.endsWith(".json")).sort()) {
@@ -63,8 +79,8 @@ if (fs.existsSync(CACHE_DIRECTORY)) {
     cached.set(ticker, quoteFromCache(path.join(CACHE_DIRECTORY, file)));
   }
 }
-const tickers = [...new Set([...cached.keys(), ...Object.keys(persisted)])]
-  .filter((ticker) => !requested.size || requested.has(ticker)).sort();
+const tickers = active
+  .filter((ticker) => !requested.size || requested.has(ticker));
 const rows = [];
 for (const ticker of tickers) {
   const quote = cached.get(ticker) || {};
@@ -82,7 +98,8 @@ for (const ticker of tickers) {
   rows.push({ ticker, type: "stock", persisted: persistedRow, metadata, current, previous, effective, explanation });
 }
 
-console.log("Company Profile V2.1 audit (cache/persistence only; zero provider requests)");
+console.log("Company Profile V2.1.1 audit (active-watchlist cache/persistence only; zero provider requests)");
+console.log(`Canonical active watchlist (${active.length}): ${active.join(", ") || "—"}`);
 console.log("Ticker | Type | V2 primary/business/risk/lifecycle | V2.1 primary/business/risk/lifecycle | Size | Status | Sufficiency | Applied visible modifiers");
 console.log("-".repeat(220));
 for (const row of rows) {
@@ -115,9 +132,6 @@ const primarySummary = slotSummary("primaryClassification");
 const businessSummary = slotSummary("businessTrait");
 const riskSummary = slotSummary("riskTrait");
 const lifecycleSummary = slotSummary("lifecycle");
-const concentrationWarnings = Object.entries(businessSummary.distribution)
-  .filter(([, count]) => stocks.length > 0 && count / stocks.length >= 0.7)
-  .map(([trait, count]) => `business concentration: ${trait} is ${count}/${stocks.length} (${Math.round((count / stocks.length) * 100)}%)`);
 const semanticWarnings = [];
 for (const row of stocks) {
   const { current, metadata } = row;
@@ -157,6 +171,6 @@ for (const [label, value] of [["Primary", primarySummary], ["Business", business
 }
 console.log(`Profile status: ${JSON.stringify(summary)}`);
 console.log(`Size class: ${JSON.stringify(sizeSummary)}`);
-console.log(`Concentration warnings: ${concentrationWarnings.length ? concentrationWarnings.join(" | ") : "none"}`);
+console.log("Distribution note: descriptive only; this audit never evaluates category correctness by count.");
 console.log(`Semantic warnings: ${semanticWarnings.length ? semanticWarnings.join(" | ") : "none"}`);
 console.log("Notes: V2 comparison is available only while the current Git HEAD still contains the V2 classifier. This audit never writes profiles, cache files, or decisions.");

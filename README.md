@@ -4,16 +4,32 @@ This dashboard uses `server.py` as the single backend. The shared watchlist is s
 
 ## Local Development
 
+The dashboard is a same-origin web application. Start `server.py` and open the
+HTTP address it serves; do **not** double-click `index.html` or open it with
+`file://`.
+
 ```bash
 cd "/Users/vincentwang/Documents/Stock Dashboard Project"
+python3 -m venv .venv           # first time only
+source .venv/bin/activate       # each new terminal session
+pip install -r requirements.txt # first time only
 python3 server.py
 ```
+
+The Company Profile classifier and the offline EOD recorder run the same
+canonical JavaScript modules as the Dashboard Decision Engine. Ensure
+`node --version` works in this terminal. If Node is installed outside `PATH`,
+set `EOD_DECISION_NODE_PATH` to its executable before starting the server.
 
 Open:
 
 ```text
-http://localhost:4173
+http://127.0.0.1:4173/
 ```
+
+`server.py` serves the dashboard HTML, JavaScript, CSS, and API on that one
+origin. This is also how the Render deployment works, so local development
+does not need CORS configuration or a separate frontend server.
 
 Local watchlist database and market-data cache:
 

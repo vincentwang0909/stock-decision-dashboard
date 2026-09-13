@@ -12,6 +12,39 @@ import server
 
 
 class ServerAvailabilityTests(unittest.TestCase):
+    def test_same_origin_dashboard_static_routes_are_available(self):
+        client = server.app.test_client()
+        root = client.get("/")
+        main = client.get("/main.js")
+        css = client.get("/styles.css")
+
+        try:
+            self.assertEqual(root.status_code, 200)
+            self.assertIn(b"Stock Decision Dashboard", root.data)
+            self.assertEqual(main.status_code, 200)
+            self.assertIn(b"runFullRefresh", main.data)
+            self.assertEqual(css.status_code, 200)
+        finally:
+            root.close()
+            main.close()
+            css.close()
+
+    def test_same_origin_watchlist_and_market_routes_return_json(self):
+        snapshot = {"success": True, "items": [], "quotes": {}, "marketContext": {}, "refresh_status": {}}
+        with patch.object(server, "build_market_data_payload", return_value=snapshot):
+            market = server.app.test_client().get("/api/market-data?tickers=NVDA")
+        watchlist = server.app.test_client().get("/api/watchlist")
+
+        try:
+            self.assertEqual(market.status_code, 200)
+            self.assertTrue(market.is_json)
+            self.assertEqual(market.get_json()["success"], True)
+            self.assertEqual(watchlist.status_code, 200)
+            self.assertTrue(watchlist.is_json)
+        finally:
+            market.close()
+            watchlist.close()
+
     def test_full_requested_refresh_batches_every_ticker_including_new_symbols(self):
         tickers = ["AAPL", "AMD", "TSM", "NVDA", "QQQ"]
         calls = []
@@ -51,7 +84,7 @@ class ServerAvailabilityTests(unittest.TestCase):
             "items": [{"ticker": "AAPL", "price": 1}, {"ticker": "TSM", "price": 2}, {"ticker": "NVDA", "price": 3}],
             "refresh_status": {},
         }
-        with patch.object(server, "_refresh_market_cache_for_tickers", return_value=full_summary) as refresh, patch.object(server, "build_market_data_payload", return_value=final_payload) as payload_builder:
+        with patch.object(server, "load_shared_watchlist", return_value=["AAPL", "TSM", "NVDA"]), patch.object(server, "_refresh_market_cache_for_tickers", return_value=full_summary) as refresh, patch.object(server, "build_market_data_payload", return_value=final_payload) as payload_builder:
             response = server.app.test_client().get("/api/market-data?tickers=AAPL,TSM,NVDA&force=true&full_refresh=true")
 
         self.assertEqual(response.status_code, 200)
@@ -475,7 +508,43 @@ class CompanyProfilePersistenceTests(unittest.TestCase):
         with patch.object(server, "_refresh_market_cache_for_watchlist", return_value=summary), patch.object(server, "load_shared_watchlist", return_value=["NEW"]), patch.object(server, "build_market_data_payload", return_value=payload), patch.object(server, "ensure_company_profiles_for_quotes") as ensure:
             outcome = server.run_company_profile_annual_review_once(datetime(2027, 3, 31, 12, tzinfo=ZoneInfo("America/New_York")), reason="test")
         self.assertEqual(outcome["status"], "success")
-        ensure.assert_called_once_with(payload["quotes"], force_review=True, now=datetime(2027, 3, 31, 12, tzinfo=ZoneInfo("America/New_York")))
+        ensure.assert_called_once_with(payload["quotes"], force_review=True, now=datetime(2027, 3, 31, 12, tzinfo=ZoneInfo("America/New_York")), active_only=True)
+
+    def test_active_watchlist_is_the_only_runtime_universe_and_symbol_normalization_is_generic(self):
+        server.init_watchlist_db()
+        with server.get_watchlist_connection() as conn:
+            conn.execute("DELETE FROM watchlist")
+            conn.execute("INSERT INTO watchlist (ticker, market_type) VALUES (?, ?)", ("AAPL", "US"))
+            conn.execute(
+                """INSERT INTO company_profiles (
+                    ticker, primary_classification, business_trait, risk_trait, lifecycle,
+                    profile_status, profile_source, profile_evidence_json, profile_confidence, profile_schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ("OLD_SYMBOL", "Semiconductors", "HighGrowth", "HighVolatility", "Scaling", "complete", "automatic", "{}", 0.82, "2.0"),
+            )
+            conn.commit()
+        self.assertEqual(server.active_watchlist_tickers(), ["AAPL"])
+        self.assertEqual(server.active_watchlist_requested_tickers(["OLD_SYMBOL", "AAPL"]), ["AAPL"])
+        self.assertEqual(server.resolve_market_symbol("AAPL"), "AAPL")
+
+        complete = self.complete_profile()
+        quotes = {
+            "AAPL": self.stock_quote({"industry": "Semiconductors", "marketCap": 1}),
+            "OLD_SYMBOL": self.stock_quote({"industry": "Semiconductors", "marketCap": 1}),
+        }
+        # Runtime callers supply canonical active quotes, so a dormant profile
+        # cannot be reclassified or resurrected through market/cache state.
+        with patch.object(server, "_classify_company_profiles", return_value={"AAPL": complete}) as classify:
+            server.ensure_company_profiles_for_quotes(quotes, active_only=True)
+        classify.assert_called_once_with({"AAPL": quotes["AAPL"]["metadata"]})
+        self.assertNotIn("OLD_SYMBOL", server.load_company_profiles(["AAPL"]))
+
+    def test_api_market_data_rejects_dormant_cache_profile_symbols_from_current_snapshot(self):
+        payload = {"success": True, "items": [{"ticker": "AAPL", "price": 1}], "quotes": {"AAPL": {}}, "marketContext": {}, "refresh_status": {}}
+        with patch.object(server, "load_shared_watchlist", return_value=["AAPL"]), patch.object(server, "build_market_data_payload", return_value=payload) as build:
+            response = server.app.test_client().get("/api/market-data?tickers=AAPL,OLD_SYMBOL")
+        self.assertEqual(response.status_code, 200)
+        build.assert_called_once_with(["AAPL"], force=False, auto_refresh=False, cache_only=True)
 
 
 if __name__ == "__main__":

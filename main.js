@@ -1,6 +1,11 @@
 "use strict";
 
-const API_BASE = window.location.protocol === "file:" ? "http://127.0.0.1:4173" : window.location.origin;
+// The dashboard is an application served by server.py, not a standalone HTML
+// document. A file:// page has no same-origin API, so do not quietly point it
+// at localhost and then disguise a missing backend as a shared-list failure.
+const IS_FILE_RUNTIME = window.location.protocol === "file:";
+const API_BASE = IS_FILE_RUNTIME ? "" : window.location.origin;
+const LOCAL_DASHBOARD_URL = "http://127.0.0.1:4173/";
 const API_URL = `${API_BASE}/api/market-data`;
 const WATCHLIST_API_URL = `${API_BASE}/api/watchlist`;
 const SYMBOL_SEARCH_API_URL = `${API_BASE}/api/symbol-search`;
@@ -23,7 +28,7 @@ const DEFAULT_WATCHLIST = ["NVDA", "TSLA", "AMD", "BABA", "GOOGL", "AMZN", "AAPL
 const I18N = {
   en: {
     appTitle: "Stock Decision Dashboard", stocks: "Stocks", search: "Search symbol or name", add: "Add selected", refresh: "Refresh now", refreshing: "Refreshing…", lastRefresh: "Last refresh",
-    shared: "Shared Watchlist: everyone viewing this Dashboard sees the same stock list.", syncFailed: "Shared list sync failed. Showing cached data.",
+    shared: "Shared Watchlist: everyone viewing this Dashboard sees the same stock list.", syncFailed: "Shared list sync failed. Showing cached data.", localServerRequired: "This dashboard must be opened through the local server. Run python3 server.py, then open",
     all: "All", ticker: "Ticker", type: "Stock type", dayMove: "Day move", short: "Short", mid: "Mid", long: "Long",
     aiDecision: "AI Decision", technical: "Technical", market: "Market Data", price: "Price", updated: "Updated", unavailable: "—",
     recommendation: "Action", confidence: "Confidence", invalidation: "Invalidation", currentPrice: "Current Price",
@@ -40,7 +45,7 @@ const I18N = {
   },
   zh: {
     appTitle: "股票决策仪表盘", stocks: "股票", search: "搜索代码或名称", add: "添加所选", refresh: "立即刷新", refreshing: "刷新中…", lastRefresh: "上次刷新",
-    shared: "共享自选列表：所有查看此仪表盘的用户看到相同的股票列表。", syncFailed: "共享列表同步失败，正在显示缓存数据。",
+    shared: "共享自选列表：所有查看此仪表盘的用户看到相同的股票列表。", syncFailed: "共享列表同步失败，正在显示缓存数据。", localServerRequired: "此仪表盘必须通过本地服务打开。请运行 python3 server.py，然后访问",
     all: "全部", ticker: "代码", type: "股票类型", dayMove: "当日涨跌", short: "短期", mid: "中期", long: "长期",
     aiDecision: "AI 决策", technical: "技术面", market: "市场数据", price: "价格", updated: "更新时间", unavailable: "—",
     recommendation: "操作", confidence: "置信度", invalidation: "失效价", currentPrice: "当前价格",
@@ -132,6 +137,23 @@ function snapshotRefreshTime(snapshot) {
 function persistLastRefresh(value) {
   if (!value) return;
   try { localStorage.setItem(LAST_REFRESH_CACHE_KEY, value); } catch { /* storage is optional */ }
+}
+
+function showFileRuntimeInstruction() {
+  const warning = $("#localRuntimeWarning");
+  if (warning) {
+    warning.hidden = false;
+    warning.replaceChildren(document.createTextNode(`${t("localServerRequired")} `));
+    const link = document.createElement("a");
+    link.href = LOCAL_DASHBOARD_URL;
+    link.textContent = LOCAL_DASHBOARD_URL;
+    warning.append(link);
+  }
+  // Do not display browser-local snapshot/watchlist data in a mode that cannot
+  // reach the shared backend. It can look like a successful live dashboard.
+  $("#watchlistSyncWarning").hidden = true;
+  $("#stockList").replaceChildren();
+  $("#manualRefreshButton").disabled = true;
 }
 
 function hasUsableSnapshot(snapshot) {
@@ -750,6 +772,22 @@ function persistWatchlist() {
   try { localStorage.setItem(WATCHLIST_CACHE_KEY, JSON.stringify(state.watchlist)); } catch { /* storage is optional */ }
 }
 
+function pruneCachedSnapshotToActiveWatchlist() {
+  // Browser persistence is an offline fallback only. Once the shared
+  // watchlist succeeds, remove inactive quote/items keys so a deleted ticker
+  // cannot be revived by an old local snapshot on a later reload.
+  const active = new Set(state.watchlist);
+  try {
+    const snapshot = JSON.parse(localStorage.getItem(SNAPSHOT_CACHE_KEY) || "null");
+    if (!snapshot || typeof snapshot !== "object") return;
+    const keepTicker = (ticker) => active.has(String(ticker || "").toUpperCase());
+    const quotes = Object.fromEntries(Object.entries(snapshot.quotes || {}).filter(([ticker]) => keepTicker(ticker)));
+    const data = Object.fromEntries(Object.entries(snapshot.data || {}).filter(([ticker]) => keepTicker(ticker)));
+    const items = (snapshot.items || []).filter((item) => keepTicker(typeof item === "string" ? item : item?.ticker));
+    localStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify({ ...snapshot, quotes, data, items }));
+  } catch { /* storage is optional and malformed cache is ignored */ }
+}
+
 function applySnapshot(snapshot, { persist = true, renderSnapshot = true } = {}) {
   state.snapshot = snapshot;
   const market = snapshot?.marketContext || snapshot?.market_context || {};
@@ -783,8 +821,12 @@ async function loadWatchlist() {
     if (!response.ok) throw new Error(`watchlist request failed (${response.status})`);
     const payload = await response.json();
     const remote = (payload.items || payload.watchlist || []).map((item) => typeof item === "string" ? item : item.ticker);
-    if (remote.length) state.watchlist = uniqueTickers(remote);
+    // A successful shared response is authoritative even when empty. Never
+    // merge its result with localStorage/default symbols, which would let a
+    // deleted ticker return after a browser reload.
+    state.watchlist = uniqueTickers(remote);
     persistWatchlist();
+    pruneCachedSnapshotToActiveWatchlist();
   } catch {
     $("#watchlistSyncWarning").hidden = false;
   }
@@ -956,6 +998,11 @@ function bindEvents() {
 }
 
 async function start() {
+  if (IS_FILE_RUNTIME) {
+    applyLanguage();
+    showFileRuntimeInstruction();
+    return;
+  }
   bindEvents();
   await loadWatchlist();
   try {

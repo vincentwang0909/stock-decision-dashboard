@@ -168,7 +168,11 @@
       classifier: freeze({
         sizeClass: freeze({ megaCapMarketCap: 200_000_000_000 }),
         business: freeze({
-          tieBreakOrder: freeze(["MarketLeader", "HighGrowth", "MatureGrowth", "CashCow", "Defensive", "Cyclical", "Turnaround", "EmergingGrowth"]),
+          // A structurally cyclical issuer needs corroborating cycle evidence
+          // before it can qualify.  When that complete evidence ties a
+          // current-growth score, preserve the more specific cycle context
+          // instead of treating one YoY growth reading as dispositive.
+          tieBreakOrder: freeze(["MarketLeader", "Cyclical", "HighGrowth", "MatureGrowth", "CashCow", "Defensive", "Turnaround", "EmergingGrowth"]),
           minimumEvidence: freeze({ MarketLeader: 3, HighGrowth: 3, MatureGrowth: 3, CashCow: 4, Defensive: 3, Cyclical: 3, Turnaround: 3, EmergingGrowth: 4 }),
           // Evidence weights are intentionally separate from the V1 Decision
           // Engine. They describe only slow-moving issuer metadata.
@@ -178,7 +182,7 @@
             matureGrowthScale: 1, matureGrowthGrowth: 2, matureGrowthMargin: 1,
             cashCowScale: 1, cashCowMargin: 3, cashCowLowGrowth: 1,
             defensivePrimary: 2, defensiveMargin: 1,
-            cyclicalLanguage: 3, turnaroundLanguage: 3,
+            cyclicalStructuralPrimary: 1, cyclicalExposure: 2, cyclicalReboundGrowth: 1, cyclicalLanguage: 3, turnaroundLanguage: 3,
             emergingGrowthScale: 2, emergingGrowthGrowth: 2, emergingGrowthCondition: 1,
           }),
           thresholds: freeze({
@@ -188,7 +192,12 @@
             cashCowMarketCap: 10_000_000_000, cashCowMargin: 0.20, cashCowGrowthCeiling: 0.18,
             defensiveMargin: 0.08,
             emergingGrowthMarketCap: 10_000_000_000, emergingGrowth: 0.25, emergingMarginCeiling: 0.05,
+            cyclicalReboundGrowth: 0.25,
           }),
+          // This is a bounded structural prior, never an automatic final
+          // business trait.  Candidate selection still requires additional
+          // issuer evidence and its normal sufficiency threshold.
+          structuralCyclicalPrimaries: freeze(["Semiconductors", "Semiconductor Equipment", "Energy", "Materials", "Industrials", "Transportation & Logistics", "Capital Markets"]),
         }),
         lifecycle: freeze({
           tieBreakOrder: freeze(["Declining", "Recovery", "Emerging", "Scaling", "EstablishedLeader", "MatureLeader"]),
@@ -211,6 +220,15 @@
       }),
       review: freeze({ annualReviewMonth: 3, annualReviewDay: 31, timeZone: "America/New_York", cacheLimit: 300 }),
       modifierCaps: freeze({ normal: freeze([0.85, 1.15]), special: freeze([0.80, 1.20]) }),
+      // These sources all encode the same broad issuer-maturity/stability
+      // fact.  For longStability, retain the strongest one rather than adding
+      // all of them and immediately flattening distinct profiles at the cap.
+      // Unlisted primary/risk contributions remain independent evidence.
+      correlatedLongStability: freeze({
+        businessTrait: freeze(["MarketLeader", "MatureGrowth", "CashCow", "Defensive"]),
+        lifecycle: freeze(["EstablishedLeader", "MatureLeader"]),
+        sizeClass: freeze(["MegaCap"]),
+      }),
       primaryClassificationModifiers: freeze({
         Semiconductors: freeze({ confirmationWeights: freeze({ relativeStrength: 0.06, participation: 0.05 }), normalAtrTolerance: 0.04, marketSensitivity: 0.05, benchmarkWeights: freeze({ qqq: 0.06 }) }),
         "Semiconductor Equipment": freeze({ confirmationWeights: freeze({ participation: 0.07 }), marketSensitivity: 0.06, benchmarkWeights: freeze({ qqq: 0.05 }) }),

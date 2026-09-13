@@ -18,7 +18,14 @@
   const SETS = Object.freeze({ primary: new Set(PRIMARY_CLASSIFICATIONS), business: new Set(BUSINESS_TRAITS), risk: new Set(RISK_TRAITS), lifecycle: new Set(LIFECYCLES), size: new Set(SIZE_CLASSES) });
 
   const text = (value) => String(value || "").toLowerCase();
-  const number = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
+  // Metadata providers use both null and empty strings for absent numerics.
+  // Number(null) is 0, so coercing first would turn missing beta/growth/margin
+  // evidence into a valid classifier signal.  Zero itself remains valid.
+  const finiteOrNull = (value) => {
+    if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
   const includes = (source, expression) => expression.test(source);
   const fact = (name, value) => Number.isFinite(value) ? `${name}:${Math.round(value * 10000) / 10000}` : null;
   const cleanEvidence = (items) => [...new Set(items.flat(Infinity).filter(Boolean))].slice(0, 6);
@@ -45,14 +52,22 @@
     const summary = text(metadata.businessSummary || metadata.longBusinessSummary || metadata.shortBusinessSummary);
     return {
       industry, sector, summary, all: `${industry} ${sector} ${summary}`,
-      marketCap: number(metadata.marketCap), revenueGrowth: number(metadata.revenueGrowth),
-      profitMargins: number(metadata.profitMargins), beta: number(metadata.beta),
+      marketCap: finiteOrNull(metadata.marketCap), revenueGrowth: finiteOrNull(metadata.revenueGrowth),
+      profitMargins: finiteOrNull(metadata.profitMargins), beta: finiteOrNull(metadata.beta),
     };
   }
 
   function primaryClassification(input) {
     const { industry, sector, summary } = input;
     const match = (value, pattern, label, evidence) => includes(value, pattern) ? { value: label, evidence: [evidence] } : null;
+    // Some providers expose vertical health-IT companies as "Health
+    // Information Services", which is not itself a controlled taxonomy slot.
+    // Map it to the existing Enterprise Software category only when the
+    // issuer summary independently describes a software/data platform.  This
+    // keeps an unqualified health-services label conservative instead of
+    // letting a later pharmaceutical keyword decide the primary business.
+    const healthInformationSoftware = /health\s+information\s+(?:services|technology)|healthcare\s+information\s+services/.test(industry)
+      && /\b(?:platform|software|analytics|informatics|data\s+(?:repository|platform)|clinical application)\b/.test(summary);
     // Provider industry is the controlled first-order description. Summary is
     // only a fallback because it routinely describes adjacent activities.
     const byIndustry = (
@@ -60,6 +75,7 @@
       || match(industry, /medical device|medical instrument|diagnostic equipment/, "Medical Devices", "industry:medical_devices")
       || match(industry, /biotechnology|biotech/, "Biotechnology", "industry:biotechnology")
       || match(industry, /drug manufacturer|pharmaceutical|pharma/, "Pharmaceuticals", "industry:pharmaceuticals")
+      || (healthInformationSoftware ? { value: "Enterprise Software", evidence: ["industry:health_information_services", "summary:health_information_software"] } : null)
       || match(industry, /semiconductor equipment|semiconductor material|wafer fabrication equipment/, "Semiconductor Equipment", "industry:semiconductor_equipment")
       || match(industry, /semiconductor|computer hardware/, "Semiconductors", "industry:semiconductors")
       || match(industry, /entertainment|broadcasting|movie|television programming|streaming/, "Media & Entertainment", "industry:media_entertainment")
@@ -137,6 +153,12 @@
     const leaderLanguage = /(market leader|leading provider|leading platform|global leader|industry leader)/.test(summary);
     const scalableLanguage = /(software as a service|\bsaas\b|cloud.native platform|usage.based platform|subscription.based software|scalable platform)/.test(summary);
     const cyclicalLanguage = /(cyclical demand|economic cycle|commodity cycle|seasonal cycle|capital spending cycle|memory cycle)/.test(summary);
+    const structurallyCyclical = (cfg.structuralCyclicalPrimaries || []).includes(primary);
+    // These are concrete operating exposures—not generic growth language. A
+    // structural primary merely provides a bounded prior; it cannot qualify
+    // as Cyclical without this or explicit cycle wording.
+    const cyclicalExposure = /(memory (?:products?|chips?|market)|commodity exposure|capital spending|industrial demand|economic sensitivity|supply.?demand cycle)/.test(summary);
+    const cyclicalReboundGrowth = structurallyCyclical && revenueGrowth != null && revenueGrowth >= threshold.cyclicalReboundGrowth;
     const issuerTurnaround = /(the company|company).{0,80}(turnaround|restructur|reorganiz|transformation)/.test(summary)
       || /(executing|implementing|undergoing).{0,60}(a )?(turnaround|restructur|reorganiz)/.test(summary);
     const earlyCommercial = /(early.stage|development.stage|emerging company|commercialization stage)/.test(summary);
@@ -156,7 +178,17 @@
       scored("Defensive",
         (["Consumer Staples", "Utilities", "Managed Care & Health Services"].includes(primary) ? points.defensivePrimary : 0) + (profitMargins != null && profitMargins >= threshold.defensiveMargin ? points.defensiveMargin : 0),
         [["Consumer Staples", "Utilities", "Managed Care & Health Services"].includes(primary) ? `primary:${primary}` : null, profitMargins != null && profitMargins >= threshold.defensiveMargin ? fact("profit_margin", profitMargins) : null], minimum.Defensive),
-      scored("Cyclical", cyclicalLanguage ? points.cyclicalLanguage : 0, [cyclicalLanguage ? "summary:cyclical_business" : null], minimum.Cyclical),
+      scored("Cyclical",
+        (structurallyCyclical ? points.cyclicalStructuralPrimary : 0)
+        + (cyclicalExposure ? points.cyclicalExposure : 0)
+        + (cyclicalReboundGrowth ? points.cyclicalReboundGrowth : 0)
+        + (cyclicalLanguage ? points.cyclicalLanguage : 0),
+        [
+          structurallyCyclical ? `primary:structurally_cyclical:${primary}` : null,
+          cyclicalExposure ? "summary:cyclical_exposure" : null,
+          cyclicalReboundGrowth ? fact("revenue_growth", revenueGrowth) : null,
+          cyclicalLanguage ? "summary:cyclical_business" : null,
+        ], minimum.Cyclical),
       scored("Turnaround", issuerTurnaround ? points.turnaroundLanguage : 0, [issuerTurnaround ? "summary:issuer_turnaround" : null], minimum.Turnaround),
       scored("EmergingGrowth",
         (marketCap != null && marketCap < threshold.emergingGrowthMarketCap ? points.emergingGrowthScale : 0) + (revenueGrowth != null && revenueGrowth >= threshold.emergingGrowth ? points.emergingGrowthGrowth : 0) + ((profitMargins != null && profitMargins <= threshold.emergingMarginCeiling) || earlyCommercial ? points.emergingGrowthCondition : 0),
@@ -279,7 +311,7 @@
       && (profile.sizeClass == null || SETS.size.has(profile.sizeClass));
   }
 
-  const api = Object.freeze({ PRIMARY_CLASSIFICATIONS, BUSINESS_TRAITS, RISK_TRAITS, LIFECYCLES, SIZE_CLASSES, classify, explain, validProfile });
+  const api = Object.freeze({ PRIMARY_CLASSIFICATIONS, BUSINESS_TRAITS, RISK_TRAITS, LIFECYCLES, SIZE_CLASSES, finiteOrNull, classify, explain, validProfile });
   root.CompanyProfileClassifier = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 }(globalThis));

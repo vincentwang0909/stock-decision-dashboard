@@ -159,8 +159,10 @@ COMPANY_PROFILE_REVIEW_STATE = {
     "last_started_at": None, "last_completed_at": None, "last_status": None,
     "last_error": None, "next_run_at": None,
 }
-WATCHLIST_SCHEMA_VERSION = 3
-WATCHLIST_MIGRATION_TICKERS = ["QQQ"]
+# The watchlist table is the only current-universe authority. Schema upgrades
+# must never reinsert a deleted user symbol as a side effect.
+WATCHLIST_SCHEMA_VERSION = 4
+WATCHLIST_MIGRATION_TICKERS = []
 DEFAULT_SHARED_WATCHLIST = [
     "NVDA", "TSLA", "AMD", "BABA", "GOOGL", "AMZN", "AAPL", "CRCL", "FFAI", "HIMS",
     "MPT", "META", "MSFT", "NFLX", "PLTR", "NOW", "SOFI", "TEM", "XE", "ZETA",
@@ -594,7 +596,7 @@ def _profile_requires_write(previous, merged, annual_review=False, migration=Fal
     return any(previous.get(field) != merged.get(field) for field in compact_fields)
 
 
-def ensure_company_profiles_for_quotes(quotes, force_review=False, now=None):
+def ensure_company_profiles_for_quotes(quotes, force_review=False, now=None, active_only=False):
     """Decorate a payload with compact persistent automatic stock profiles.
 
     Complete V2.1 profiles are never reclassified during normal hourly refreshes.
@@ -602,7 +604,11 @@ def ensure_company_profiles_for_quotes(quotes, force_review=False, now=None):
     available; existing validated slots remain immutable until the March 31 ET
     annual review.
     """
-    tickers = [ticker for ticker, quote in (quotes or {}).items() if isinstance(quote, dict) and not _profile_is_etf(quote)]
+    active = set(active_watchlist_tickers()) if active_only else None
+    tickers = [
+        ticker for ticker, quote in (quotes or {}).items()
+        if isinstance(quote, dict) and not _profile_is_etf(quote) and (active is None or ticker in active)
+    ]
     existing = load_company_profiles(tickers)
     now_et = (now or datetime.now(COMPANY_PROFILE_TIMEZONE)).astimezone(COMPANY_PROFILE_TIMEZONE)
     candidates = {}
@@ -613,7 +619,14 @@ def ensure_company_profiles_for_quotes(quotes, force_review=False, now=None):
         needs_v21_migration = bool(profile) and profile.get("profileSchemaVersion") != COMPANY_PROFILE_SCHEMA_VERSION
         due = force_review and _profile_review_due(profile.get("lastProfileReview") if profile else None, now_et)
         metadata = quote.get("metadata") if isinstance(quote.get("metadata"), dict) else {}
-        if (needs_initial_or_missing or needs_v21_migration or due) and any(metadata.get(key) for key in ("sector", "industry", "businessSummary", "marketCap", "beta", "revenueGrowth", "profitMargins")):
+        # A valid zero is evidence, while null/empty provider fields are not.
+        # Do not use truthiness: the JS classifier has the same safe numeric
+        # missing-versus-zero contract.
+        metadata_present = any(
+            metadata.get(key) is not None and (not isinstance(metadata.get(key), str) or metadata.get(key).strip())
+            for key in ("sector", "industry", "businessSummary", "marketCap", "beta", "revenueGrowth", "profitMargins")
+        )
+        if (needs_initial_or_missing or needs_v21_migration or due) and metadata_present:
             candidates[ticker] = metadata
     if candidates:
         try:
@@ -644,7 +657,7 @@ def ensure_company_profiles_for_quotes(quotes, force_review=False, now=None):
             _upsert_company_profiles(updates)
             existing.update(updates)
     for ticker, quote in (quotes or {}).items():
-        if not isinstance(quote, dict) or _profile_is_etf(quote):
+        if not isinstance(quote, dict) or _profile_is_etf(quote) or (active is not None and ticker not in active):
             continue
         profile = existing.get(ticker)
         if profile:
@@ -667,6 +680,17 @@ def watchlist_rows_to_items(rows):
 
 def load_shared_watchlist():
     return watchlist_items_to_tickers(load_shared_watchlist_items())
+
+
+def active_watchlist_tickers():
+    """Return the one canonical current universe, never cache/profile/history."""
+    return normalize_watchlist(load_shared_watchlist())
+
+
+def active_watchlist_requested_tickers(tickers):
+    """Preserve canonical ordering while excluding dormant/cache-only symbols."""
+    active = set(active_watchlist_tickers())
+    return [ticker for ticker in normalize_watchlist(tickers) if ticker in active]
 
 
 def load_shared_watchlist_items():
@@ -3944,6 +3968,9 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
     earnings_dt = dt_from_epoch(earnings_timestamp)
     earnings_date = iso_from_epoch(earnings_timestamp)
     days_to_earnings = (earnings_dt.date() - datetime.now(timezone.utc).date()).days if earnings_dt is not None else None
+    market_cap = _safe_int(info.get("marketCap"))
+    if market_cap is None:
+        market_cap = _safe_int(fast_info.get("marketCap"))
 
     return {
         "price": price,
@@ -3970,7 +3997,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
             # Compact slow-moving metadata is provided only for deterministic
             # Company Profile classification—not for live Recommendation
             # scoring. It avoids a second provider request for profiles.
-            "marketCap": _safe_int(info.get("marketCap")) or _safe_int(fast_info.get("marketCap")),
+            "marketCap": market_cap,
             "revenueGrowth": _safe_float(info.get("revenueGrowth")),
             "profitMargins": _safe_float(info.get("profitMargins")),
             "beta": _safe_float(info.get("beta")),
@@ -4924,7 +4951,7 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
     # Profiles are current, persistent metadata attached to the snapshot. This
     # is intentionally separate from the Decision/EOD history and does not
     # require or retain the full quote payload after the request completes.
-    ensure_company_profiles_for_quotes(quotes)
+    ensure_company_profiles_for_quotes(quotes, active_only=True)
     items = [quote_to_market_item(ticker, quotes[ticker]) for ticker in normalized_tickers]
     success_count = sum(
         1 for quote in quotes.values()
@@ -5123,9 +5150,7 @@ def _refresh_market_cache_for_tickers(tickers, reason="scheduled_hourly"):
 
 
 def _refresh_market_cache_for_watchlist(reason="scheduled_hourly"):
-    tickers = load_shared_watchlist()
-    if not tickers:
-        tickers = watchlist_items_to_tickers(normalize_watchlist_items(DEFAULT_SHARED_WATCHLIST))
+    tickers = active_watchlist_tickers()
     return _refresh_market_cache_for_tickers(tickers, reason=reason)
 
 
@@ -5141,9 +5166,7 @@ def refresh_market_cache_for_watchlist(reason="scheduled_hourly"):
 
 
 def watchlist_market_cache_needs_refresh():
-    tickers = load_shared_watchlist()
-    if not tickers:
-        tickers = watchlist_items_to_tickers(normalize_watchlist_items(DEFAULT_SHARED_WATCHLIST))
+    tickers = active_watchlist_tickers()
     tickers = normalize_watchlist(tickers)[:MARKET_DATA_MAX_TICKERS]
     if not tickers:
         return False
@@ -5199,9 +5222,7 @@ def eod_history_timestamp(now):
 
 
 def eod_history_watchlist_tickers():
-    tickers = load_shared_watchlist()
-    if not tickers:
-        tickers = watchlist_items_to_tickers(normalize_watchlist_items(DEFAULT_SHARED_WATCHLIST))
+    tickers = active_watchlist_tickers()
     return normalize_watchlist(tickers)[:MARKET_DATA_MAX_TICKERS]
 
 
@@ -5430,9 +5451,12 @@ def run_company_profile_annual_review_once(now=None, reason="scheduled_profile_r
                 summary = _refresh_market_cache_for_watchlist(reason=reason)
                 if not summary.get("completed"):
                     raise RuntimeError(summary.get("error") or "annual profile full refresh failed")
-                tickers = load_shared_watchlist()
+                # The annual review is current-state work. Dormant profiles,
+                # cache entries and historical rows must never expand this
+                # source list.
+                tickers = active_watchlist_tickers()
                 payload = build_market_data_payload(tickers, force=False, auto_refresh=False, cache_only=True, refresh_market_context=False)
-                ensure_company_profiles_for_quotes(payload.get("quotes") or {}, force_review=True, now=current)
+                ensure_company_profiles_for_quotes(payload.get("quotes") or {}, force_review=True, now=current, active_only=True)
             completed = datetime.now(COMPANY_PROFILE_TIMEZONE).isoformat(timespec="seconds")
             with BACKGROUND_REFRESH_LOCK:
                 COMPANY_PROFILE_REVIEW_STATE.update({"running": False, "last_completed_at": completed, "last_status": "success", "last_error": None})
@@ -5783,11 +5807,17 @@ def add_no_store_headers(response):
 @app.route("/api/market-data")
 def api_market_data():
     try:
-        tickers = [
+        requested_tickers = [
             normalize_ticker_input(ticker)
             for ticker in request.args.get("tickers", "").split(",")
             if normalize_ticker_input(ticker)
         ]
+        # Current APIs operate only on the shared/current watchlist. A profile
+        # row, cache file, browser snapshot, or EOD history row is never an
+        # alternate source of active tickers. With no explicit list, return the
+        # full active universe.
+        active_tickers = active_watchlist_tickers()
+        tickers = active_watchlist_requested_tickers(requested_tickers) if requested_tickers else active_tickers
         force = str(request.args.get("force", "")).strip().lower() in {"1", "true", "yes", "y"}
         auto_refresh = str(request.args.get("auto_refresh", "")).strip().lower() in {"1", "true", "yes", "y"}
         full_refresh = str(request.args.get("full_refresh", "")).strip().lower() in {"1", "true", "yes", "y"}

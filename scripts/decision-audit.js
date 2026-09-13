@@ -184,7 +184,10 @@ async function main() {
   const requestedSix = ["META", "MSFT", "NVDA", "MU", "AMZN", "GOOGL"];
   const priceLandscapeTickers = ["ZETA", "BABA", "MSFT", "SOFI", "HIMS", "NVDA", "GOOGL", "META", "NOW", "AMD", "QQQ", "TQQQ", "SQQQ", "SOXL", "SOXS"];
   const etfTickers = ["QQQ", "SPMO", "TQQQ", "SQQQ", "SOXL", "SOXS"];
-  const auditTickers = [...new Set([...tickers, ...requestedSix, ...priceLandscapeTickers, ...etfTickers])];
+  // The canonical watchlist is the entire audit universe. Focus lists below
+  // only select rows already in that universe; they must never make a removed
+  // cache/profile/history symbol look current again.
+  const auditTickers = tickers;
   const response = await fetch(`${base}/api/market-data?tickers=${encodeURIComponent(auditTickers.join(","))}&cache_only=1`);
   if (!response.ok) throw new Error(`Market-data API returned ${response.status}`);
   const payload = await response.json();
@@ -288,7 +291,7 @@ async function main() {
       ? { ticker, type: "ETF", primaryClassification: null, traitsCount: 0, lifecycle: null, leveraged: profile.leveraged, direction: profile.direction, underlying: profile.underlying }
       : { ticker, type: "stock", primaryClassification: profile.primaryClassification, traitsCount: profile.companyTraits.length, lifecycle: profile.lifecycle };
   });
-  const etfAudit = etfTickers.map((ticker) => {
+  const etfAudit = etfTickers.filter((ticker) => tickers.includes(ticker)).map((ticker) => {
     const profile = profiles.profileFor(ticker);
     const record = perTicker[ticker];
     return { ticker, leveraged: profile.leveraged, direction: profile.direction, underlying: profile.underlying, status: record?.status || "unavailable", horizons: record?.horizons || null };

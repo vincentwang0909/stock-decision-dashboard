@@ -14,6 +14,13 @@ const technicalEngine = fs.readFileSync(path.join(root, "decision-engine", "tech
 const presentation = require(path.join(root, "decision-presentation.js"));
 
 assert.match(main, /function buildRelativeStrength\(/);
+assert.match(main, /const IS_FILE_RUNTIME = window\.location\.protocol === "file:"/);
+assert.match(main, /const API_BASE = IS_FILE_RUNTIME \? "" : window\.location\.origin/);
+assert.doesNotMatch(main, /window\.location\.protocol === "file:" \? "http:\/\/127\.0\.0\.1:4173"/);
+assert.match(main, /function showFileRuntimeInstruction\(/);
+assert.match(main, /if \(IS_FILE_RUNTIME\) \{[\s\S]*?showFileRuntimeInstruction\(\);[\s\S]*?return;/);
+assert.match(main, /localServerRequired/);
+assert.match(html, /id="localRuntimeWarning"/);
 assert.match(main, /function actionChip\(/);
 assert.match(main, /A dashboard refresh intentionally rebuilds canonical technical features/);
 assert.match(main, /window\.DecisionEngine\?\.decide/);
@@ -24,6 +31,10 @@ assert.match(main, /refreshGeneration/);
 assert.match(main, /afterBrowserPaint\(\)/);
 assert.match(main, /async function runFullRefresh\(\{ source = "initial" \} = \{\}\)/);
 assert.match(main, /function refreshUsesLiveData\(source\)/);
+assert.match(main, /function pruneCachedSnapshotToActiveWatchlist\(\)/);
+assert.match(main, /state\.watchlist = uniqueTickers\(remote\);/, "a successful canonical shared watchlist response is authoritative even when empty");
+assert.match(main, /pruneCachedSnapshotToActiveWatchlist\(\);/);
+assert.doesNotMatch(main, /if \(remote\.length\) state\.watchlist = uniqueTickers\(remote\);/, "browser cache cannot merge stale tickers after shared sync");
 assert.match(main, /source === "manual" \|\| source === "auto"/);
 assert.match(main, /if \(refreshUsesLiveData\(source\)\) \{[\s\S]*?params\.set\("force", "true"\);[\s\S]*?params\.set\("full_refresh", "true"\);/);
 assert.match(main, /full_refresh/, "Manual and Auto must request the server-side all-ticker refresh transaction");

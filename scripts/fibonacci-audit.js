@@ -76,8 +76,9 @@ async function main() {
   if (!watchlistResponse.ok) throw new Error(`Watchlist API returned ${watchlistResponse.status}`);
   const watchlistPayload = await watchlistResponse.json();
   const watchlist = (watchlistPayload.items || watchlistPayload.watchlist || []).map((item) => typeof item === "string" ? item : item.ticker).filter(Boolean).map((ticker) => String(ticker).toUpperCase());
-  const focus = ["ZETA", "BABA", "MSFT", "SOFI", "HIMS", "NVDA", "GOOGL", "META", "NOW", "AMD", "QQQ", "TQQQ", "SQQQ", "SOXL", "SOXS"];
-  const tickers = [...new Set([...watchlist, ...focus])];
+  // Fibonacci provenance is audited only for the canonical current universe.
+  // A historical focus list must not resurrect a removed cache/profile symbol.
+  const tickers = watchlist;
   const response = await fetch(`${base}/api/market-data?tickers=${encodeURIComponent(tickers.join(","))}&cache_only=1`);
   if (!response.ok) throw new Error(`Market-data API returned ${response.status}`);
   const payload = await response.json();

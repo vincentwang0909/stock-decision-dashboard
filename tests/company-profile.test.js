@@ -47,6 +47,14 @@ assert.equal(classifier.classify({
   quoteType: "EQUITY", sector: "Consumer Cyclical", industry: "Internet Retail",
   businessSummary: "Operates e-commerce marketplaces, cloud infrastructure, and a healthcare service.",
 }).primaryClassification, "E-Commerce");
+assert.equal(classifier.classify({
+  quoteType: "EQUITY", sector: "Healthcare", industry: "Health Information Services",
+  businessSummary: "Provides a clinical analytics platform, healthcare software, and a multimodal data repository.",
+}).primaryClassification, "Enterprise Software", "health information services maps only with explicit software/data-platform evidence");
+assert.equal(classifier.classify({
+  quoteType: "EQUITY", sector: "Healthcare", industry: "Health Information Services",
+  businessSummary: "Provides healthcare support services.",
+}).primaryClassification, null, "unqualified health information services remains conservatively unmapped");
 
 // Identical metadata must be ticker-independent and short-term fields cannot
 // affect profile classification because they are not accepted source inputs.
@@ -93,6 +101,45 @@ assert.equal(lowVol.riskTrait, "LowVolatility");
 assert.equal(highVol.riskTrait, "HighVolatility");
 assert.equal(classifier.classify({ quoteType: "EQUITY", industry: "Semiconductors" }).riskTrait, null, "sparse risk evidence stays conservative null");
 
+// Missing provider numerics must remain missing. Number(null) is 0 in
+// JavaScript, so each edge case is explicitly protected without losing valid
+// zero values at the beta thresholds.
+for (const value of [null, undefined, "", " ", "abc", NaN, Infinity, -Infinity]) {
+  assert.equal(classifier.finiteOrNull(value), null, `invalid numeric ${String(value)} stays null`);
+  assert.equal(classifier.classify({ quoteType: "EQUITY", industry: "Consumer Electronics", beta: value }).riskTrait, null, `missing beta ${String(value)} cannot fabricate LowVolatility`);
+}
+assert.equal(classifier.finiteOrNull(0), 0);
+assert.equal(classifier.finiteOrNull("0"), 0);
+assert.equal(classifier.finiteOrNull("1.23"), 1.23);
+assert.equal(classifier.classify({ quoteType: "EQUITY", industry: "Consumer Electronics", beta: 0 }).riskTrait, "LowVolatility");
+assert.equal(classifier.classify({ quoteType: "EQUITY", industry: "Consumer Electronics", beta: 0.74 }).riskTrait, "LowVolatility");
+assert.equal(classifier.classify({ quoteType: "EQUITY", industry: "Consumer Electronics", beta: 0.75 }).riskTrait, "LowVolatility");
+assert.equal(classifier.classify({ quoteType: "EQUITY", industry: "Consumer Electronics", beta: 0.76 }).riskTrait, null);
+assert.equal(classifier.classify({ quoteType: "EQUITY", industry: "Consumer Electronics", beta: 1.44 }).riskTrait, null);
+assert.equal(classifier.classify({ quoteType: "EQUITY", industry: "Consumer Electronics", beta: 1.45 }).riskTrait, "HighVolatility");
+assert.equal(classifier.classify({ quoteType: "EQUITY", industry: "Consumer Electronics", beta: 1.46 }).riskTrait, "HighVolatility");
+for (const field of ["marketCap", "revenueGrowth", "profitMargins"]) {
+  assert.equal(classifier.finiteOrNull(null), null, `${field} null remains unavailable`);
+  assert.equal(classifier.finiteOrNull(""), null, `${field} empty remains unavailable`);
+}
+assert.equal(classifier.classify({ quoteType: "EQUITY", industry: "Software - Application", marketCap: null, revenueGrowth: null, profitMargins: null }).businessTrait, null, "missing growth/margin/cap does not become false zero-evidence");
+
+// A cyclical primary is only a bounded prior. It needs an operating-cycle
+// exposure plus strong growth evidence before it can compete with HighGrowth;
+// a semiconductor primary alone never forces the final business trait.
+const structuralOnlyCyclical = classifier.explain({
+  quoteType: "EQUITY", industry: "Semiconductors", marketCap: 30_000_000_000,
+  revenueGrowth: 0.12, profitMargins: 0.05, businessSummary: "Designs semiconductor products for computing.",
+});
+assert.equal(structuralOnlyCyclical.result.businessTrait, null);
+assert(structuralOnlyCyclical.businessCandidates.find((candidate) => candidate.value === "Cyclical").score < 3);
+const cyclicalRebound = classifier.explain({
+  quoteType: "EQUITY", industry: "Semiconductors", marketCap: 30_000_000_000,
+  revenueGrowth: 0.5, profitMargins: 0.12, businessSummary: "Develops memory products for a supply-demand cycle.",
+});
+assert.equal(cyclicalRebound.result.businessTrait, "Cyclical", "corroborated structural cyclicality can beat an equal generic growth score");
+assert(cyclicalRebound.result.profileEvidence.businessTrait.includes("primary:structurally_cyclical:Semiconductors"));
+
 const profile = engine.profile.build(semiconductor, "CAP");
 assert.equal(profile.sizeClass, "MegaCap");
 assert.equal(profile.companyTraits.includes("MegaCap"), false, "internal size cannot become a trait");
@@ -113,6 +160,12 @@ for (const key of ["riskSensitivity", "marketSensitivity", "exhaustionSensitivit
   const [low, high] = engine.config.profile.modifierCaps[special ? "special" : "normal"];
   assert(capped.effectiveModifiers[key] >= low && capped.effectiveModifiers[key] <= high, `${key} remains cap-bounded`);
 }
+
+const maturityStack = engine.profile.build({ businessTrait: "CashCow", lifecycle: "EstablishedLeader", sizeClass: "MegaCap" }, "MATURITY_STACK");
+assert.equal(maturityStack.effectiveModifiers.longStability, 1.08, "correlated maturity/size stability keeps the strongest contribution rather than summing all three");
+const maturityProvenance = maturityStack.modifierDimensionProvenance.longStability;
+assert.equal(maturityProvenance.filter((item) => item.combination === "correlated_group_selected").length, 1);
+assert.equal(maturityProvenance.filter((item) => item.combination === "correlated_group_suppressed").length, 2);
 
 assert.equal(engine.profile.annualReviewDue("2026-09-10T16:00:00-04:00", new Date("2027-03-30T16:00:00Z")), false);
 assert.equal(engine.profile.annualReviewDue("2026-09-10T16:00:00-04:00", new Date("2027-03-31T16:00:00Z")), true);

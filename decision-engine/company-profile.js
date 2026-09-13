@@ -69,6 +69,8 @@
     const aggregate = blankModifiers();
     const appliedModifiers = [];
     const modifierProvenance = [];
+    const dimensionProvenance = {};
+    const correlatedLongStability = [];
     const modifierSources = [
       [profile.primaryClassification, engine.config.profile.primaryClassificationModifiers, "primaryClassification", true],
       [profile.businessTrait, engine.config.profile.businessTraitModifiers, "businessTrait", true],
@@ -87,10 +89,32 @@
       Object.entries(modifier.confirmationWeights || {}).forEach(([key, delta]) => { aggregate.confirmationWeights[key] = (aggregate.confirmationWeights[key] || 0) + Number(delta || 0); });
       Object.entries(modifier.benchmarkWeights || {}).forEach(([key, delta]) => { aggregate.benchmarkWeights[key] = (aggregate.benchmarkWeights[key] || 0) + Number(delta || 0); });
       ["riskSensitivity", "exhaustionSensitivity", "marketSensitivity", "normalAtrTolerance", "strongBuyOpportunity", "rateSensitivity", "eventSensitivity", "longStability"].forEach((key) => {
-        if (Number.isFinite(modifier[key])) aggregate[key] += modifier[key];
+        if (!Number.isFinite(modifier[key])) return;
+        const contribution = Number(modifier[key]);
+        (dimensionProvenance[key] ||= []).push({ slot, value, contribution });
+        if (key === "longStability" && engine.config.profile.correlatedLongStability?.[slot]?.includes(value)) {
+          correlatedLongStability.push({ slot, value, contribution });
+          return;
+        }
+        aggregate[key] += contribution;
       });
       Object.entries(modifier.actionGates || {}).forEach(([key, delta]) => { aggregate.actionGates[key] = (aggregate.actionGates[key] || 0) + Number(delta || 0); });
     });
+    if (correlatedLongStability.length) {
+      // Mature-size, business-maturity and lifecycle-maturity are deliberately
+      // one semantic group. Keep the largest signal (including a future
+      // negative one by magnitude) rather than counting the same property
+      // three times. This remains stateless and applies to every stock.
+      const selected = correlatedLongStability.reduce((best, item) => Math.abs(item.contribution) > Math.abs(best.contribution) ? item : best);
+      aggregate.longStability += selected.contribution;
+      dimensionProvenance.longStability ||= [];
+      dimensionProvenance.longStability.forEach((item) => {
+        if (correlatedLongStability.some((candidate) => candidate.slot === item.slot && candidate.value === item.value && candidate.contribution === item.contribution)) {
+          item.combination = item.slot === selected.slot && item.value === selected.value && item.contribution === selected.contribution
+            ? "correlated_group_selected" : "correlated_group_suppressed";
+        }
+      });
+    }
     Object.keys(aggregate.directionWeights).forEach((key) => { aggregate.directionWeights[key] = capMultiplier(1 + aggregate.directionWeights[key]) - 1; });
     Object.keys(aggregate.confirmationWeights).forEach((key) => { aggregate.confirmationWeights[key] = capMultiplier(1 + aggregate.confirmationWeights[key]) - 1; });
     ["riskSensitivity", "exhaustionSensitivity", "marketSensitivity", "normalAtrTolerance", "strongBuyOpportunity", "rateSensitivity", "eventSensitivity", "longStability"].forEach((key) => {
@@ -101,7 +125,7 @@
     aggregate.benchmarkWeights = benchmarkTotal > 0
       ? { spy: aggregate.benchmarkWeights.spy / benchmarkTotal, qqq: aggregate.benchmarkWeights.qqq / benchmarkTotal }
       : { spy: 0.5, qqq: 0.5 };
-    return { modifiers: aggregate, appliedModifiers, modifierProvenance };
+    return { modifiers: aggregate, appliedModifiers, modifierProvenance, modifierDimensionProvenance: dimensionProvenance };
   }
 
   function easternParts(value) {
@@ -144,6 +168,7 @@
       effectiveModifiers: modifierSet.modifiers,
       appliedModifiers: modifierSet.appliedModifiers,
       modifierProvenance: modifierSet.modifierProvenance,
+      modifierDimensionProvenance: modifierSet.modifierDimensionProvenance,
     };
   }
 
