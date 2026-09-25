@@ -12,6 +12,134 @@ import server
 
 
 class ServerAvailabilityTests(unittest.TestCase):
+    def test_quote_prefers_regular_market_price_after_close_and_keeps_real_daily_change(self):
+        # After the regular session Yahoo can return a lagging daily history
+        # row while quoteSummary already contains the official close.  It can
+        # also report regularMarketPreviousClose equal to the current close;
+        # the dashboard must not turn that into a false 0.00% move.
+        session_stamp = datetime(2026, 9, 24, 16, 0, tzinfo=ZoneInfo("America/New_York"))
+        history = pd.DataFrame(
+            {
+                "Open": [750.0, 760.0],
+                "High": [765.0, 780.0],
+                "Low": [745.0, 755.0],
+                "Close": [750.0, 760.0],
+                "Volume": [1000, 1200],
+            },
+            index=pd.DatetimeIndex([
+                "2026-09-23 16:00:00-04:00",
+                "2026-09-24 16:00:00-04:00",
+            ]),
+        )
+
+        class FakeInstrument:
+            info = {
+                "shortName": "Meta Platforms",
+                "longName": "Meta Platforms, Inc.",
+                "sector": "Technology",
+                "industry": "Internet Content & Information",
+                "longBusinessSummary": "Social and advertising platform.",
+                "quoteType": "EQUITY",
+                "earningsTimestamp": 1,
+                "earningsTimestampStart": 1,
+                "earningsTimestampEnd": 1,
+                "regularMarketPrice": 777.59,
+                # Simulate the after-hours provider response that caused the
+                # previous 0.00% display.
+                "regularMarketPreviousClose": 777.59,
+                "regularMarketTime": int(session_stamp.timestamp()),
+            }
+            fast_info = {}
+            history_metadata = {}
+
+        with patch.object(server.yf, "Ticker", return_value=FakeInstrument()), \
+                patch.object(server, "load_yfinance_history_frame", return_value=history), \
+                patch.object(server, "load_technical_intraday_history_frames", return_value=(None, (pd.DataFrame(), {}, "source_unavailable"))):
+            quote = server.fetch_us_quote_with_yfinance("META")
+
+        self.assertEqual(quote["price"], 777.59)
+        self.assertEqual(quote["previousClose"], 750.0)
+        self.assertEqual(quote["updatedAt"], "2026-09-24T20:00:00Z")
+        self.assertAlmostEqual(quote["changePercent"], (27.59 / 750.0) * 100, places=8)
+        self.assertNotEqual(quote["changePercent"], 0.0)
+
+    def test_quote_uses_provider_previous_close_when_daily_history_lags_session(self):
+        session_stamp = datetime(2026, 9, 24, 16, 0, tzinfo=ZoneInfo("America/New_York"))
+        history = pd.DataFrame(
+            {
+                "Open": [740.0, 750.0],
+                "High": [745.0, 755.0],
+                "Low": [735.0, 745.0],
+                "Close": [740.0, 750.0],
+                "Volume": [1000, 1200],
+            },
+            index=pd.DatetimeIndex([
+                "2026-09-22 16:00:00-04:00",
+                "2026-09-23 16:00:00-04:00",
+            ]),
+        )
+
+        class FakeInstrument:
+            info = {
+                "shortName": "Meta Platforms",
+                "longName": "Meta Platforms, Inc.",
+                "sector": "Technology",
+                "industry": "Internet Content & Information",
+                "longBusinessSummary": "Social and advertising platform.",
+                "quoteType": "EQUITY",
+                "earningsTimestamp": 1,
+                "earningsTimestampStart": 1,
+                "earningsTimestampEnd": 1,
+                "regularMarketPrice": 777.59,
+                "regularMarketPreviousClose": 760.0,
+                "regularMarketTime": int(session_stamp.timestamp()),
+            }
+            fast_info = {}
+            history_metadata = {}
+
+        with patch.object(server.yf, "Ticker", return_value=FakeInstrument()), \
+                patch.object(server, "load_yfinance_history_frame", return_value=history), \
+                patch.object(server, "load_technical_intraday_history_frames", return_value=(None, (pd.DataFrame(), {}, "source_unavailable"))):
+            quote = server.fetch_us_quote_with_yfinance("META")
+
+        self.assertEqual(quote["price"], 777.59)
+        self.assertEqual(quote["previousClose"], 760.0)
+        self.assertAlmostEqual(quote["changePercent"], (17.59 / 760.0) * 100, places=8)
+
+    def test_quote_does_not_use_a_truncated_one_row_history_as_previous_close(self):
+        session_stamp = datetime(2026, 9, 24, 16, 0, tzinfo=ZoneInfo("America/New_York"))
+        history = pd.DataFrame(
+            {"Open": [760.0], "High": [780.0], "Low": [755.0], "Close": [777.59], "Volume": [1200]},
+            index=pd.DatetimeIndex(["2026-09-24 16:00:00-04:00"]),
+        )
+
+        class FakeInstrument:
+            info = {
+                "shortName": "Meta Platforms",
+                "longName": "Meta Platforms, Inc.",
+                "sector": "Technology",
+                "industry": "Internet Content & Information",
+                "longBusinessSummary": "Social and advertising platform.",
+                "quoteType": "EQUITY",
+                "earningsTimestamp": 1,
+                "earningsTimestampStart": 1,
+                "earningsTimestampEnd": 1,
+                "regularMarketPrice": 777.59,
+                "regularMarketPreviousClose": 760.0,
+                "regularMarketTime": int(session_stamp.timestamp()),
+            }
+            fast_info = {}
+            history_metadata = {}
+
+        with patch.object(server.yf, "Ticker", return_value=FakeInstrument()), \
+                patch.object(server, "load_yfinance_history_frame", return_value=history), \
+                patch.object(server, "load_technical_intraday_history_frames", return_value=(None, (pd.DataFrame(), {}, "source_unavailable"))):
+            quote = server.fetch_us_quote_with_yfinance("META")
+
+        self.assertEqual(quote["price"], 777.59)
+        self.assertEqual(quote["previousClose"], 760.0)
+        self.assertAlmostEqual(quote["changePercent"], (17.59 / 760.0) * 100, places=8)
+
     def test_historical_close_timestamp_is_dst_aware_eastern_time(self):
         # A 4:00 PM close is 20:00Z during EDT and 21:00Z during EST.  The
         # provider fallback must use America/New_York rather than a fixed -4

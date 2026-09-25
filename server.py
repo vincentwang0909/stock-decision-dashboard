@@ -899,6 +899,36 @@ def iso_from_local_close(value, hour, minute, offset_hours=None):
         return None
 
 
+def _first_finite_quote_value(mappings, keys, *, positive=False):
+    """Return the first usable provider quote field without treating 0 as missing."""
+    for mapping in mappings:
+        if not isinstance(mapping, dict):
+            continue
+        for key in keys:
+            value = _safe_float(mapping.get(key))
+            if value is None or (positive and value <= 0):
+                continue
+            return value
+    return None
+
+
+def _history_session_date(history, row_index, tz_name="America/New_York"):
+    """Return a history row's local session date, if the index is usable."""
+    try:
+        stamp = history.index[row_index]
+        if isinstance(stamp, pd.Timestamp):
+            if stamp.tzinfo is not None:
+                stamp = stamp.tz_convert(tz_name)
+            return stamp.date()
+        if isinstance(stamp, datetime):
+            if stamp.tzinfo is not None:
+                stamp = stamp.astimezone(ZoneInfo(tz_name))
+            return stamp.date()
+        return pd.Timestamp(stamp).date()
+    except Exception:
+        return None
+
+
 def normalize_numeric(value):
     """Return a finite number while preserving a real numeric zero.
 
@@ -3967,12 +3997,60 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
 
     latest_row = history.iloc[-1]
     previous_row = history.iloc[-2] if len(history) > 1 else latest_row
-    price = _safe_float(latest_row["Close"])
-    previous_close = _safe_float(info.get("regularMarketPreviousClose")) or _safe_float(info.get("previousClose")) or _safe_float(fast_info.get("previous_close")) or _safe_float(previous_row["Close"])
+    history_price = _safe_float(latest_row["Close"])
+    # A one-row provider response has no prior session baseline.  Treating the
+    # same row as both current and previous is what produces a misleading
+    # 0.00% change when the after-hours history endpoint is truncated.
+    history_previous_close = _safe_float(previous_row["Close"]) if len(history) > 1 else None
+
+    # Yahoo's daily history is the canonical OHLCV input for Technical, but it
+    # is not always the freshest quote after the regular session closes.  In
+    # particular, the last daily bar can lag while quoteSummary already has
+    # the just-completed regular-session close.  Prefer the explicit regular
+    # quote field for the displayed/model current price and keep daily history
+    # as the deterministic fallback.  This also prevents the provider's
+    # after-hours ``regularMarketPreviousClose`` from being compared with an
+    # old daily bar and producing a false 0.00% move.
+    regular_market_price = _first_finite_quote_value(
+        [info, fast_info],
+        ("regularMarketPrice", "currentPrice", "lastPrice"),
+        positive=True,
+    )
+    price = regular_market_price if regular_market_price is not None else history_price
+
+    provider_previous_close = _first_finite_quote_value(
+        [info, fast_info],
+        ("regularMarketPreviousClose", "previousClose", "previous_close"),
+        positive=True,
+    )
+    regular_market_time = dt_from_epoch(info.get("regularMarketTime"))
+    market_date = regular_market_time.astimezone(ZoneInfo("America/New_York")).date() if regular_market_time else None
+    history_date = _history_session_date(history, -1)
+
+    # When today's daily bar is present, its prior row is the most reliable
+    # session-to-session baseline.  If the history is lagging, keep the
+    # provider's explicit previous close.  Also reject a provider baseline
+    # identical to the current price when an older history row is available;
+    # that combination is the exact after-hours 0.00% failure mode.
+    if history_previous_close is not None and (
+        history_date == market_date
+        or provider_previous_close is None
+        or (price is not None and abs(provider_previous_close - price) < 1e-9)
+    ):
+        previous_close = history_previous_close
+    else:
+        previous_close = provider_previous_close or history_previous_close
     change = price - previous_close if price is not None and previous_close is not None else None
     change_percent = (change / previous_close) * 100 if change is not None and previous_close else None
-    regular_market_time = dt_from_epoch(info.get("regularMarketTime"))
-    updated_at = regular_market_time.strftime("%Y-%m-%dT%H:%M:%SZ") if regular_market_time else iso_from_local_close(history.index[-1], 16, 0, -4)
+    # Keep the per-ticker timestamp tied to the value source actually used:
+    # quoteSummary's regular-session timestamp for an explicit live quote,
+    # otherwise the latest historical session close (not a stale quote time
+    # left over from an older provider response).
+    updated_at = (
+        regular_market_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        if regular_market_price is not None and regular_market_time
+        else iso_from_local_close(history.index[-1], 16, 0, -4)
+    )
     earnings_timestamp = info.get("earningsTimestamp") or info.get("earningsTimestampStart") or info.get("earningsTimestampEnd")
     earnings_dt = dt_from_epoch(earnings_timestamp)
     earnings_date = iso_from_epoch(earnings_timestamp)
