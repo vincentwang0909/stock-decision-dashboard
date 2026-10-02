@@ -53,7 +53,7 @@ pip install -r requirements.txt
 6. Start Command:
 
 ```bash
-gunicorn --timeout 120 --workers 1 server:app
+gunicorn -c gunicorn.conf.py server:app
 ```
 
 7. Environment Variables:
@@ -61,9 +61,28 @@ gunicorn --timeout 120 --workers 1 server:app
 ```text
 WATCHLIST_DB_PATH=/var/data/watchlist.db
 MARKET_CACHE_DIR=/var/data/cache
+PYTHON_VERSION=3.12.14
+NODE_VERSION=24.19.0
 ```
 
-8. To persist the shared watchlist and market-data cache across redeploys/restarts, add a Render Disk:
+For an existing Render service, check **Settings → Start Command** and
+**Environment** explicitly: editing `render.yaml` alone does not update a
+service created manually. The checked-in Gunicorn configuration also loads
+with the older `gunicorn server:app` command. It uses one worker, two web
+threads, a 120-second worker timeout, and no application preloading. Do not
+increase workers on the 512 MB instance. Build with the pinned Python version
+and `requirements.txt`; an Environment override takes priority over
+`.python-version`.
+
+Startup logs now include the actual Python/dependency versions and effective
+worker settings. A native `SIGSEGV` emits a fatal stack trace for diagnosis;
+it is not proof of an OOM. `/api/health` must respond during refreshes. Its
+`service_version` identifies the deployed service fix. If a worker still
+crashes, retain the first fatal stack trace and the preceding startup lines.
+
+8. Health Check Path: `/api/health`.
+
+9. To persist the shared watchlist and market-data cache across redeploys/restarts, add a Render Disk:
 
 ```text
 Mount Path: /var/data
@@ -84,6 +103,23 @@ automatic Dashboard refreshes use the shared full-refresh transaction with
 `force=true&full_refresh=true`, which refreshes the complete requested watchlist
 before the response is applied. The `_refresh` query string only bypasses browser
 cache; it does not force a provider refresh.
+
+The browser uses `format=compact`. This serializes one complete quote at a
+time into an anonymous temporary file, with 64 KiB writes and optional gzip
+when accepted by the client. Serialization finishes before HTTP headers are
+sent, and the refresh lock is released before network delivery. Files close
+on completion or disconnect. A concurrent refresh/EOD returns a complete
+`503` JSON with `error_code=refresh_in_progress` and `Retry-After: 3`; the
+Dashboard retries the same request within a bounded deadline. Failure keeps
+the last good Dashboard/Last Refresh and displays a retry message. This
+changes transport and availability, not indicators, rules or history rows.
+
+Focused checks for this path:
+
+```bash
+python3 -m unittest discover -s tests -p 'market_snapshot_test.py'
+node tests/dashboard-network.test.js
+```
 
 ## Shared Watchlist API
 

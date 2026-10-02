@@ -4,6 +4,7 @@ import math
 import os
 import re
 import gc
+import gzip
 import shutil
 import sqlite3
 import subprocess
@@ -22,7 +23,7 @@ from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
 
-from flask import Flask, jsonify, request, send_from_directory, Response, stream_with_context
+from flask import Flask, jsonify, request, send_from_directory, Response
 try:
     from flask_cors import CORS
 except Exception:
@@ -150,6 +151,7 @@ REFRESH_GENERATION_LOCK = threading.RLock()
 REFRESH_GENERATION = 0
 LAST_FULL_REFRESH_SUMMARY = None
 RESOURCE_METRICS_ENABLED = os.environ.get("RESOURCE_METRICS_ENABLED", "false").lower() == "true"
+SNAPSHOT_CHUNK_BYTES = 64 * 1024
 EOD_HISTORY_RUN_LOCK = threading.Lock()
 COMPANY_PROFILE_REVIEW_RUN_LOCK = threading.Lock()
 BACKGROUND_REFRESH_THREAD_STARTED = False
@@ -5896,32 +5898,86 @@ def apply_full_refresh_status(payload, summary, tickers, auto_refresh=False):
         status["full_refresh_completed"] = False
 
 
-def stream_market_snapshot(tickers, live=False, auto_refresh=False):
-    """One atomic full refresh, then one serialized quote at a time."""
-    with FULL_REFRESH_RUN_LOCK:
-        full_summary = _refresh_market_cache_for_tickers(tickers, reason="api_full_refresh") if live else None
-        payload = build_market_data_payload(tickers, cache_only=True, refresh_market_context=False, summary_only=True)
-        payload.pop("data", None)
-        payload.pop("quotes", None)
-        payload["items"] = [{key: value for key, value in item.items() if key != "analysis"} for item in payload.get("items", [])]
-        if full_summary:
-            apply_full_refresh_status(payload, full_summary, tickers, auto_refresh)
-        encoder = json.JSONEncoder(ensure_ascii=False, allow_nan=False, separators=(",", ":"))
-        yield '{"quotes":{'
-        for index, ticker in enumerate(tickers):
-            if index:
-                yield ','
-            cached = read_market_cache(ticker)
-            quote = normalize_cached_market_quote(ticker, cached, stale=not is_market_cache_fresh(cached)) if cached else build_unavailable_quote(ticker, "No cached quote available")
-            yield encoder.encode(ticker) + ':'
-            yield from encoder.iterencode(quote)
-            del quote, cached
-        yield '},'
-        encoded = encoder.iterencode(payload)
-        # Drop only the opening brace; retain the final closing brace.
-        first = next(encoded)
-        yield first[1:]
-        yield from encoded
+class RefreshInProgress(RuntimeError):
+    pass
+
+
+def iter_market_snapshot_json(tickers, live=False, auto_refresh=False):
+    """Caller holds the refresh lock; retain at most one full quote."""
+    full_summary = _refresh_market_cache_for_tickers(tickers, reason="api_full_refresh") if live else None
+    payload = build_market_data_payload(tickers, cache_only=True, refresh_market_context=False, summary_only=True)
+    payload.pop("data", None)
+    payload.pop("quotes", None)
+    payload["items"] = [{key: value for key, value in item.items() if key != "analysis"} for item in payload.get("items", [])]
+    if full_summary:
+        apply_full_refresh_status(payload, full_summary, tickers, auto_refresh)
+    encoder = json.JSONEncoder(ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+    yield '{"quotes":{'
+    for index, ticker in enumerate(tickers):
+        if index:
+            yield ','
+        cached = read_market_cache(ticker)
+        quote = normalize_cached_market_quote(ticker, cached, stale=not is_market_cache_fresh(cached)) if cached else build_unavailable_quote(ticker, "No cached quote available")
+        yield encoder.encode(ticker) + ':'
+        yield from encoder.iterencode(quote)
+        del quote, cached
+    yield '},'
+    encoded = encoder.iterencode(payload)
+    # Drop only the opening brace; retain the final closing brace.
+    first = next(encoded)
+    yield first[1:]
+    yield from encoded
+
+
+def buffered_snapshot_bytes(parts):
+    """Coalesce scalar JSON fragments before any file/network writes."""
+    pending = bytearray()
+    for part in parts:
+        pending.extend(part.encode("utf-8"))
+        while len(pending) >= SNAPSHOT_CHUNK_BYTES:
+            yield bytes(pending[:SNAPSHOT_CHUNK_BYTES])
+            del pending[:SNAPSHOT_CHUNK_BYTES]
+    if pending:
+        yield bytes(pending)
+
+
+def prepare_market_snapshot(tickers, live=False, auto_refresh=False, compressed=False):
+    """Finish strict JSON before HTTP headers, with bounded RAM and no slow-client lock.
+
+    A busy request must not occupy the other web thread waiting on EOD or a
+    provider transaction. Clients retry the explicit 503 within their deadline.
+    The temporary file owns the frozen generation; it closes on disconnect.
+    """
+    if not FULL_REFRESH_RUN_LOCK.acquire(blocking=False):
+        raise RefreshInProgress("A full refresh or EOD transaction is in progress")
+    spool = None
+    try:
+        spool = tempfile.TemporaryFile(mode="w+b")
+        target = gzip.GzipFile(fileobj=spool, mode="wb", compresslevel=1, mtime=0) if compressed else spool
+        try:
+            for chunk in buffered_snapshot_bytes(iter_market_snapshot_json(tickers, live, auto_refresh)):
+                target.write(chunk)
+        finally:
+            if compressed:
+                target.close()
+        size = spool.tell()
+        spool.seek(0)
+        log_resources("snapshot_serialized", response_bytes=size, gzip=compressed, ticker_count=len(tickers))
+        return spool, size
+    except BaseException:
+        if spool is not None:
+            spool.close()
+        raise
+    finally:
+        FULL_REFRESH_RUN_LOCK.release()
+
+
+def stream_snapshot_file(spool):
+    try:
+        while chunk := spool.read(SNAPSHOT_CHUNK_BYTES):
+            yield chunk
+    finally:
+        spool.close()
 
 
 @app.route("/api/market-data")
@@ -5950,14 +6006,22 @@ def api_market_data():
         if auto_refresh:
             cache_only = False
         if str(request.args.get("format", "")).lower() == "compact":
-            return Response(stream_with_context(stream_market_snapshot(tickers, live=force or auto_refresh or full_refresh, auto_refresh=auto_refresh)), mimetype="application/json")
-        if full_refresh or force or auto_refresh:
-            # Do not return after the first provider-safe pair. Complete all
-            # requested batches under the shared refresh lock, then read the
-            # exact resulting cache snapshot without triggering a second live
-            # request. This makes a newly added ticker participate in the same
-            # full refresh as every existing card.
-            with FULL_REFRESH_RUN_LOCK:
+            compressed = request.accept_encodings.quality("gzip") > 0
+            spool, size = prepare_market_snapshot(tickers, live=force or auto_refresh or full_refresh, auto_refresh=auto_refresh, compressed=compressed)
+            response = Response(stream_snapshot_file(spool), mimetype="application/json")
+            response.content_length = size
+            response.headers["Vary"] = "Accept-Encoding"
+            if compressed:
+                response.headers["Content-Encoding"] = "gzip"
+            response.call_on_close(spool.close)
+            return response
+        if not FULL_REFRESH_RUN_LOCK.acquire(blocking=False):
+            raise RefreshInProgress("A full refresh or EOD transaction is in progress")
+        try:
+            if full_refresh or force or auto_refresh:
+                # Every batch completes before reading this generation. A
+                # second web request returns busy rather than blocking the
+                # thread needed by health checks and first-time page visits.
                 full_summary = _refresh_market_cache_for_tickers(tickers, reason="api_full_refresh")
                 payload = build_market_data_payload(
                     tickers,
@@ -5966,16 +6030,23 @@ def api_market_data():
                     cache_only=True,
                     refresh_market_context=False,
                 )
-            apply_full_refresh_status(payload, full_summary, tickers, auto_refresh)
-        else:
-            payload = build_market_data_payload(
-                tickers,
-                force=force,
-                auto_refresh=auto_refresh,
-                cache_only=cache_only,
-            )
+                apply_full_refresh_status(payload, full_summary, tickers, auto_refresh)
+            else:
+                payload = build_market_data_payload(
+                    tickers,
+                    force=force,
+                    auto_refresh=auto_refresh,
+                    cache_only=cache_only,
+                )
+        finally:
+            FULL_REFRESH_RUN_LOCK.release()
         status_code = 200 if payload.get("success") or payload.get("items") else 503
         return jsonify(payload), status_code
+    except RefreshInProgress as exc:
+        response = jsonify({"success": False, "error_code": "refresh_in_progress", "error": str(exc)})
+        response.status_code = 503
+        response.headers["Retry-After"] = "3"
+        return response
     except Exception as exc:
         traceback.print_exc()
         return jsonify({
@@ -6305,6 +6376,7 @@ def api_health():
         "python_version": sys.version,
         "feature_version": "technical-features-v4-validated",
         "model_version": "decision-engine-v2.1-validated",
+        "service_version": "2026-10-02-service-recovery",
         "resource_metrics_enabled": RESOURCE_METRICS_ENABLED,
         **({"resources": resource_snapshot()} if RESOURCE_METRICS_ENABLED else {}),
         "render_service": bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID") or os.environ.get("RENDER_EXTERNAL_URL")),

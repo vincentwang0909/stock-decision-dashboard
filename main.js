@@ -13,6 +13,10 @@ const LANGUAGE_CACHE_KEY = "stock-dashboard-language-v2";
 const SNAPSHOT_CACHE_KEY = "stock-dashboard-market-cache-v11-decision-engine";
 const WATCHLIST_CACHE_KEY = "stock-dashboard-watchlist-v2";
 const LAST_REFRESH_CACHE_KEY = "stock-dashboard-last-refresh-v1";
+const WATCHLIST_REQUEST_TIMEOUT_MS = 15 * 1000;
+const SNAPSHOT_REQUEST_TIMEOUT_MS = 90 * 1000;
+// 60 tickers / 2 per batch, including bounded provider timeouts and output.
+const LIVE_REFRESH_TIMEOUT_MS = 10 * 60 * 1000;
 const REFRESH_MS = 60 * 60 * 1000;
 const EASTERN_REFRESH_FORMATTER = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York",
@@ -42,6 +46,10 @@ const I18N = {
     technicalData: "Canonical Technical Data", dataStatus: "Data status", trend: "Trend", momentum: "Momentum", volatility: "Volatility", participation: "Participation",
     close: "Close", remove: "Remove", risk: "Risk", opportunity: "Price opportunity", confirmation: "Confirmation", direction: "Direction",
     noData: "Waiting for market data. No action is shown until the technical feature set is available.",
+    refreshTimeout: "The service did not respond in time. Please retry shortly.",
+    refreshInterrupted: "The market response was interrupted. Please retry.",
+    refreshFailed: "Market data could not be loaded. Please retry shortly.",
+    serviceUpdating: "The service is updating data. Waiting for the complete snapshot…",
   },
   zh: {
     appTitle: "股票决策仪表盘", stocks: "股票", search: "搜索代码或名称", add: "添加所选", refresh: "立即刷新", refreshing: "刷新中…", lastRefresh: "上次刷新",
@@ -56,6 +64,10 @@ const I18N = {
     technicalData: "标准化技术数据", dataStatus: "数据状态", trend: "趋势", momentum: "动量", volatility: "波动", participation: "参与度",
     close: "关闭", remove: "移除", risk: "风险", opportunity: "价格机会", confirmation: "确认度", direction: "方向",
     noData: "正在等待市场数据；技术特征可用前不显示操作建议。",
+    refreshTimeout: "服务响应超时，请稍后重试。",
+    refreshInterrupted: "行情响应中断，请重试。",
+    refreshFailed: "暂时无法加载行情，请稍后重试。",
+    serviceUpdating: "服务正在更新数据，等待完整行情…",
   },
 };
 
@@ -78,6 +90,8 @@ const state = {
   refreshPhase: "idle",
   refreshPromise: null,
   refreshGeneration: 0,
+  refreshError: null,
+  serviceUpdating: false,
   lastRefreshAt: localStorage.getItem(LAST_REFRESH_CACHE_KEY) || null,
   lastAppliedAt: null,
 };
@@ -683,6 +697,9 @@ function applyLanguage() {
   manualRefresh.disabled = state.refreshing;
   manualRefresh.setAttribute("aria-busy", String(state.refreshing));
   $("#lastRefreshLabel").textContent = `${t("lastRefresh")}: ${formatRefreshTime(state.lastRefreshAt)}`;
+  const refreshNotice = $("#marketRefreshWarning");
+  refreshNotice.hidden = !state.refreshError && !state.serviceUpdating;
+  refreshNotice.textContent = state.refreshError ? t(state.refreshError) : state.serviceUpdating ? t("serviceUpdating") : "";
   $("#sortTickerLabel").textContent = t("ticker");
   $("#sortTypeLabel").textContent = t("type");
   $("#sortChangeLabel").textContent = t("dayMove");
@@ -750,14 +767,42 @@ function applySnapshot(snapshot, { persist = true, renderSnapshot = true } = {})
   if (renderSnapshot) render();
 }
 
+async function fetchDashboardJson(url, { timeoutMs = WATCHLIST_REQUEST_TIMEOUT_MS, retryBusy = false } = {}) {
+  const controller = new AbortController();
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error("dashboard request deadline exceeded");
+      error.name = "TimeoutError";
+      reject(error);
+      controller.abort();
+    }, timeoutMs);
+  });
+  try {
+    while (true) {
+      const response = await Promise.race([fetch(url, { signal: controller.signal }), deadline]);
+      const payload = await Promise.race([response.json(), deadline]);
+      if (retryBusy && response.status === 503 && payload?.error_code === "refresh_in_progress") {
+        state.serviceUpdating = true;
+        applyLanguage();
+        // Retry the same full-watchlist request; never apply a partial batch.
+        await Promise.race([new Promise((resolve) => setTimeout(resolve, 3000)), deadline]);
+        continue;
+      }
+      if (!response.ok) throw new Error(`dashboard request failed (${response.status})`);
+      return payload;
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function loadWatchlist() {
   let cached = [];
   try { cached = JSON.parse(localStorage.getItem(WATCHLIST_CACHE_KEY) || "[]"); } catch { cached = []; }
   state.watchlist = uniqueTickers(cached.length ? cached : DEFAULT_WATCHLIST);
   try {
-    const response = await fetch(WATCHLIST_API_URL);
-    if (!response.ok) throw new Error(`watchlist request failed (${response.status})`);
-    const payload = await response.json();
+    const payload = await fetchDashboardJson(WATCHLIST_API_URL);
     const remote = (payload.items || payload.watchlist || []).map((item) => typeof item === "string" ? item : item.ticker);
     // A successful shared response is authoritative even when empty. Never
     // merge its result with localStorage/default symbols, which would let a
@@ -782,6 +827,8 @@ async function runFullRefresh({ source = "initial" } = {}) {
   if (state.refreshPromise) return state.refreshPromise;
   const refreshId = ++state.refreshGeneration;
   state.refreshing = true;
+  state.refreshError = null;
+  state.serviceUpdating = false;
   state.refreshPhase = "refreshing_data";
   render();
   const refreshWork = (async () => {
@@ -800,9 +847,10 @@ async function runFullRefresh({ source = "initial" } = {}) {
         params.set("full_refresh", "true");
         if (source === "auto") params.set("auto_refresh", "true");
       }
-      const response = await fetch(`${API_URL}?${params.toString()}`);
-      if (!response.ok) throw new Error(`market request failed (${response.status})`);
-      const snapshot = await response.json();
+      const snapshot = await fetchDashboardJson(`${API_URL}?${params.toString()}`, {
+        timeoutMs: refreshUsesLiveData(source) ? LIVE_REFRESH_TIMEOUT_MS : SNAPSHOT_REQUEST_TIMEOUT_MS,
+        retryBusy: true,
+      });
       if (!hasUsableSnapshot(snapshot)) throw new Error("market request returned no usable dashboard snapshot");
       if (refreshId !== state.refreshGeneration) return null;
 
@@ -830,6 +878,8 @@ async function runFullRefresh({ source = "initial" } = {}) {
       return snapshot;
     } catch (error) {
       console.error("Market refresh failed", error);
+      state.refreshError = error.name === "TimeoutError" || error.name === "AbortError" ? "refreshTimeout"
+        : error instanceof SyntaxError ? "refreshInterrupted" : "refreshFailed";
       if (!state.snapshot) {
         state.refreshPhase = "recalculating";
         applySnapshot({ quotes: {}, marketContext: {} }, { persist: false, renderSnapshot: false });
@@ -841,6 +891,7 @@ async function runFullRefresh({ source = "initial" } = {}) {
     } finally {
       if (refreshId === state.refreshGeneration) {
         state.refreshing = false;
+        state.serviceUpdating = false;
         state.refreshPhase = applied ? "complete" : "idle";
         render();
         await afterBrowserPaint();

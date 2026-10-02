@@ -169,7 +169,11 @@ def main():
                    BACKGROUND_MARKET_REFRESH_ENABLED='false', EOD_HISTORY_ENABLED='false', COMPANY_PROFILE_REVIEW_ENABLED='false',
                    AUDIT_LIVE_PROVIDER='1' if args.live_provider else '0', RESOURCE_METRICS_ENABLED='true')
         log = (directory / 'service.log').open('w')
-        process = subprocess.Popen([sys.executable, '-m', 'gunicorn', '--workers', '1', '--threads', '2', '--timeout', '120', '--bind', f'127.0.0.1:{port}', 'audit_service:app'], cwd=directory, env=env, stdout=log, stderr=log)
+        # The audit changes cwd to isolate its files. Explicitly load the
+        # repository's config so worker lifecycle/diagnostics match deployment.
+        config_path = args.repo.resolve() / 'gunicorn.conf.py'
+        config_args = ['--config', str(config_path)] if config_path.exists() else []
+        process = subprocess.Popen([sys.executable, '-m', 'gunicorn', *config_args, '--workers', '1', '--threads', '2', '--timeout', '120', '--bind', f'127.0.0.1:{port}', 'audit_service:app'], cwd=directory, env=env, stdout=log, stderr=log)
         phase = 'startup'
         samples = []
         stop = threading.Event()
@@ -240,7 +244,7 @@ def main():
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.with_suffix('.log').write_text((directory / 'service.log').read_text())
         result = {'repo': str(args.repo), 'count': args.count, 'platform': sys.platform,
-                  'gunicorn': {'workers': 1, 'threads': 2, 'timeout': 120}, 'simulated_provider': not args.live_provider, 'live_provider': args.live_provider,
+                  'gunicorn': {'workers': 1, 'threads': 2, 'timeout': 120, 'config': str(config_path) if config_args else None}, 'simulated_provider': not args.live_provider, 'live_provider': args.live_provider,
                   'live_render_verified': False, 'container_limit_verified': False,
                   'scope': 'simultaneous service process-tree RSS; file-cache charge only where cgroup is available',
                   'outputs': outputs, 'peak_rss_bytes': max(s['rss_bytes'] for s in samples),
