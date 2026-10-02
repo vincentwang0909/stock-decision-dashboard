@@ -3,7 +3,7 @@
 
   const engine = root.DecisionEngine || (root.DecisionEngine = {});
   const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
-  const finite = (value) => value == null || value === "" ? null : Number.isFinite(Number(value)) ? Number(value) : null;
+  const finite = (value) => value == null || typeof value === "boolean" || String(value).trim() === "" ? null : Number.isFinite(Number(value)) ? Number(value) : null;
   const lower = (value) => String(value || "").toLowerCase();
 
   function resolveContext(source = {}) {
@@ -19,7 +19,8 @@
       : null;
     const trend = lower(index.trend);
     const interpreted = trend === "rising" ? 30 : trend === "falling" ? -30 : 0;
-    return { score: Number.isFinite(numeric) ? clamp(numeric * 0.78 + interpreted * 0.22, -100, 100) : interpreted, available: available.length > 0 || Boolean(trend), changes, trend: index.trend || "unavailable" };
+    const observed = available.length > 0 || (finite(index.value) != null && ["rising", "falling", "neutral"].includes(trend));
+    return { score: Number.isFinite(numeric) ? clamp(numeric * 0.78 + interpreted * 0.22, -100, 100) : interpreted, available: observed, changes, trend: observed ? index.trend || "neutral" : "unavailable" };
   }
 
   function yieldStance(yieldData = {}) {
@@ -37,7 +38,9 @@
   function earnings(metadata = {}) {
     const configured = finite(metadata.daysToEarnings ?? metadata.days_to_earnings);
     const date = metadata.earningsDate || metadata.earnings_date || metadata.next_earnings_date || null;
-    const inferred = date ? Math.ceil((new Date(date).getTime() - Date.now()) / 86400000) : null;
+    const asOf = metadata.asOf || metadata.as_of || null;
+    const referenceTime = asOf ? new Date(asOf).getTime() : Date.now();
+    const inferred = date ? Math.ceil((new Date(date).getTime() - referenceTime) / 86400000) : null;
     const daysToEarnings = Number.isFinite(configured) ? configured : inferred;
     const config = engine.config.market.earnings;
     const immediate = Number.isFinite(daysToEarnings) && daysToEarnings >= 0 && daysToEarnings <= config.immediateDays;
@@ -64,16 +67,18 @@
     else if (synchronizedBreakdown || vixRiskOff) regime = "risk_off";
     else if (vixCautious || (spy.score < -10 && qqq.score < -10)) regime = "cautious";
     else if (synchronizedStrength && Number.isFinite(vix) && vix < vixConfig.cautious) regime = "risk_on";
-    const yieldData = yieldStance(context.ten_year_yield || context.tenYearYield || {});
+    if (!Number.isFinite(vix) && !spy.available && !qqq.available) regime = "unavailable";
+    const yieldData = yieldStance(context.ten_year_yield || context.tenYearYield || context.us_10y || {});
     const fearGreed = context.fear_greed || context.fearGreed || {};
     const fearGreedValue = finite(fearGreed.value ?? fearGreed.score);
     const earningsRisk = earnings(metadata);
-    const regimeConfig = engine.config.market.regimes[regime];
+    const regimeConfig = engine.config.market.regimes[regime] || engine.config.market.regimes.normal;
     const reasons = [];
     if (regime === "shock") reasons.push("Systemic volatility or synchronized index breakdown creates a market shock.");
     else if (regime === "risk_off") reasons.push("SPY/QQQ trend or volatility backdrop is risk-off.");
     else if (regime === "cautious") reasons.push("Market volatility or broad trend calls for more cautious execution.");
     if (yieldData.label === "restrictive" || yieldData.label === "severe") reasons.push("10Y yield backdrop is restrictive for rate-sensitive risk.");
+    if (regime === "unavailable") reasons.push("Market context is unavailable; its risk regime cannot be verified.");
     if (earningsRisk.near) reasons.push("Earnings proximity raises event uncertainty.");
     return {
       regime, label: regime.replace(/_/g, "-").replace(/(^|-)([a-z])/g, (_, separator, char) => `${separator}${char.toUpperCase()}`),
@@ -81,7 +86,7 @@
       vix: { value: vix, change5d: vix5, change20d: vix20, trend: vixData.trend || "unavailable", shock: vixShock },
       spy, qqq, synchronizedBreakdown, synchronizedStrength, yield: yieldData,
       fearGreed: { value: fearGreedValue, label: fearGreed.label || "unavailable", trend: fearGreed.trend || "unavailable" },
-      earnings: earningsRisk, reasons,
+      earnings: earningsRisk, reasons, provenance: { asOf: context.as_of || context.updated_at || marketContext.updatedAt || metadata.asOf || null, source: context.source || marketContext.source || "unverified", units: { vix: "index_points", yield: "percent", yieldChanges: "basis_points", equityChanges: "percent" }, availability: regime === "unavailable" ? "unavailable" : context.stale ? "stale" : "available", timestampAlignment: "per-field timestamps required; legacy snapshots may be unverified" },
       dataQuality: Math.round(([Number.isFinite(vix), spy.available, qqq.available, yieldData.available, Number.isFinite(fearGreedValue)].filter(Boolean).length / 5) * 100),
     };
   }

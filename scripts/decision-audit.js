@@ -11,7 +11,7 @@ const profiles = require("../profile-definitions.js");
 
 for (const file of [
   "config.js", "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "etf-profile.js", "company-profile.js",
-  "execution-engine.js", "confidence-engine.js", "stability-engine.js", "decision-engine.js",
+  "planning-width.js", "execution-engine.js", "short-model-v2.js", "confidence-engine.js", "stability-engine.js", "decision-engine.js",
 ]) require(path.join(__dirname, "..", "decision-engine", file));
 
 const decisionEngine = globalThis.DecisionEngine;
@@ -39,29 +39,11 @@ const distribution = (values) => {
   ]) : { count: 0, min: null, p10: null, p25: null, median: null, p75: null, p90: null, max: null, mean: null };
 };
 
-const returnPct = (closes, lookback) => {
-  const values = (closes || []).map(finite).filter((value) => value != null);
-  const latest = values.at(-1);
-  const base = values.at(-1 - lookback);
-  return Number.isFinite(latest) && Number.isFinite(base) && base !== 0 ? (latest / base - 1) * 100 : null;
-};
-const marketCore = (market) => market?.market_context || market?.market_engine || market || {};
-function relativeStrength(quote, market) {
-  const core = marketCore(market);
-  const equity = core.equity_trend || { spy: core.spy_trend, qqq: core.qqq_trend };
-  return Object.fromEntries([20, 60, 120].flatMap((days) => {
-    const stock = returnPct(quote.history?.closes, days);
-    const against = (benchmark) => stock != null && finite(benchmark?.[`change_${days}d_pct`]) != null ? stock - finite(benchmark[`change_${days}d_pct`]) : null;
-    return [[`stock_return_${days}d`, stock], [`stock_vs_spy_${days}d`, against(equity.spy)], [`stock_vs_qqq_${days}d`, against(equity.qqq)]];
-  }));
-}
-function profileFor(ticker, quote = {}) {
-  return profiles.profileFor(ticker, quote.metadata || quote);
-}
+function profileFor(ticker, quote = {}) { return profiles.profileFor(ticker, quote.metadata || quote); }
 function featureFor(quote, market) {
   const price = finite(quote.price);
   return buildTechnicalFeatures({
-    history: quote.history || {}, currentPrice: price, relativeStrength: relativeStrength(quote, market),
+    history: quote.history || {}, currentPrice: price, benchmarkContext: market, calculatedAt: quote.updatedAt || quote.history?.as_of || new Date().toISOString(),
     fibonacciStructure: quote.technical?.fibonacci_structure || {}, shareBase: quote.metadata?.sharesOutstanding || null,
   });
 }
@@ -157,21 +139,23 @@ function landscapeViolations(value, price) {
   const neutralState = state === "NEUTRAL_ZONE";
   const nearReduce = state === "NEAR_REDUCE_ZONE";
   const reduceState = ["IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"].includes(state);
+  const stockShortV2 = value.debug.pathVersion === decisionEngine.config.shortV2.version;
+  const allowedWait = stockShortV2 && action === "hold";
   const midpoint = validRange(reduce) ? (reduce.low + reduce.high) / 2 : null;
   return {
     positiveActionOutsideOpportunity: positive && !opportunityState,
     trimSellOutsideReduceWithoutBreakdown: negative && !reduceState && state !== "BREAKDOWN_ZONE" && !breakdown,
     nearOpportunityNonHold: nearOpportunity && action !== "hold",
     nearReduceNonHold: nearReduce && action !== "hold",
-    opportunityNegativeAction: opportunityState && !positive,
+    opportunityNegativeAction: opportunityState && !positive && !allowedWait,
     neutralNonHold: neutralState && action !== "hold",
-    reduceHoldOrPositiveAction: reduceState && (!negative || action === "hold"),
+    reduceHoldOrPositiveAction: reduceState && !negative && !allowedWait,
     breakdownSellWithoutExecutableReanchor: action === "sell" && (state === "BREAKDOWN_ZONE" || breakdown) && Number.isFinite(midpoint) && Number.isFinite(price) && Math.abs(midpoint - price) > Math.max(1, Math.abs(price) * 0.02),
     overlap: validRange(opportunity) && validRange(reduce) && opportunity.high >= reduce.low,
     invertedRange: [opportunity, reduce].some((range) => range && Number.isFinite(range.low) && Number.isFinite(range.high) && range.low > range.high),
     invalidRange: [opportunity, reduce].some((range) => range && !validRange(range)),
     hysteresisFamilyViolation: Boolean(value.debug.stability?.heldPrevious && !value.debug.stability?.allowedActions?.includes(value.action)),
-    priceStateActionMismatch: opportunityState ? !positive : (nearOpportunity || neutralState || nearReduce) ? action !== "hold" : reduceState ? !negative : state === "BREAKDOWN_ZONE" ? !["sell", "avoid"].includes(action) : action !== "avoid",
+    priceStateActionMismatch: opportunityState ? !positive && !allowedWait : (nearOpportunity || neutralState || nearReduce) ? action !== "hold" : reduceState ? !negative && !allowedWait : state === "BREAKDOWN_ZONE" ? !["sell", "avoid"].includes(action) : action !== "avoid",
   };
 }
 

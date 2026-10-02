@@ -5,7 +5,26 @@
   const freeze = (value) => Object.freeze(value);
 
   engine.config = freeze({
-    version: "decision-engine-v1",
+    version: "decision-engine-v2.1-validated",
+    shortV2: freeze({
+      enabled: true, scope: "ordinary_stocks", version: "stock-short-v2-fixed",
+      policy: freeze({ workflow: 3, direction: 3, confirmation: 0, risk: 2, exhaustion: 1, structure: 6, entry: 30, confirm: 50, maxRisk: 65, near: 0.7, extension: 3, exit: 10, exhaustionGate: 50, macro: 0, reversal: false }),
+      directionWeights: freeze([0.25, 0.20, 0.05, 0.25, 0.25]), confirmationWeights: freeze([0.35, 0.35, 0.20, 0.10]),
+      groups: freeze({ ma: freeze([0.20, 0.45, 0.35]), macd: freeze([0.25, 0.45, 0.30]), early: freeze([0.50, 0.30, 0.20]), obv: freeze([0.55, 0.25, 0.20]), trendAgreement: freeze([0.45, 0.35, 0.20]), acceleration: freeze([0.55, 0.45]), risk: freeze([0.40, 0.40, 0.20]), macdChange: freeze([0.50, 0.30, 0.20]) }),
+      scales: freeze({ maPrice: 1.8, maOrder: 0.8, maSlope: 0.18, macdLevel: 0.4, macdImpulse: 0.07, macdChange: 0.045,
+        oscillatorHigh: 70, oscillatorLow: 30, qualityMinimum: 60, breakBuffer: 0.25, baselineBreakDirection: -68, baselineBreakConfirmation: 52,
+        eventDays: 6, immediateEventDays: 2, immediateEventRisk: 30, nearEventRisk: 18, strongDirection: 55, strongConfirmation: 68,
+        strongRisk: 55, strongExhaustion: 25, buyDirection: 30, buyConfirmation: 58, sellDirection: -45, entryDirectionFloor: -65,
+        minimumRoomAtr: 0.30, rewardRiskFloorAtr: 0.25, strongRewardRisk: 1.5, buyRewardRisk: 1,
+        exitHalfWidthAtr: 0.20, invalidBuffer: 0.70, profileRiskFloor: 0.85, profileRiskCeiling: 1.20,
+        rvolMissingReliability: 0.75, rvolReliabilityBase: 0.60, rvolReliabilityOrigin: 0.50, rvolReliabilityScale: 0.30, rvolReliabilityFloor: 0.40,
+        eventConfidencePenalty: 0.20, excessRiskStart: 60, excessRiskPenalty: 0.12, holdConfirmationScale: 1.5,
+        stretchBollingerHigh: 0.80, stretchBollingerLow: 0.20, stretchRsiHigh: 65, stretchRsiLow: 35,
+        nearNeutralShare: 0.40, reasonEvidenceThreshold: 20, directionLabelThreshold: 25,
+        confirmationStrongLabel: 75, confirmationModerateLabel: 50, exhaustionLabelThreshold: 30,
+        opportunityScoreScale: 35, opportunityRoomLabelAtr: 0.50 }),
+    }),
+    shortReduceWidth: freeze({ enabled: false, factor: 0.995, version: "short-reduce-0995", gate: "current-baseline-retention-replay" }),
     actions: freeze(["strong_buy", "buy", "accumulate", "hold", "trim", "sell", "avoid"]),
     actionLabels: freeze({
       strong_buy: freeze({ en: "Strong Buy", zh: "强力买入" }),
@@ -156,7 +175,8 @@
       noHistory: freeze({ ma: 0.36, macd: 0.30, adx: 0.18, relativeStrength: 0.16, minimum: 42, maximum: 76, unavailable: 45 }),
     }),
     confidence: freeze({
-      weights: freeze({ agreement: 0.35, actionStrength: 0.25, stability: 0.20, dataQuality: 0.10, profileConfidence: 0.10 }),
+      weights: freeze({ agreement: 0.35 / 0.90, actionStrength: 0.25 / 0.90, stability: 0.20 / 0.90, dataQuality: 0.10 / 0.90 }),
+      profileConfidenceWeight: 0,
       penalties: freeze({ marketConflict: 18, exhaustionConflict: 16, eventUncertainty: 12, internalConflict: 18, priceConflict: 14, invalidLandscape: 18 }),
     }),
     profile: freeze({

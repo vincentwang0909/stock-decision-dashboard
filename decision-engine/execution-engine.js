@@ -5,8 +5,8 @@
   const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
   const roundPrice = (value) => Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
   const round = (value) => Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
-  const range = (low, high) => Number.isFinite(low) && Number.isFinite(high)
-    ? { low: roundPrice(Math.min(low, high)), high: roundPrice(Math.max(low, high)) } : null;
+  const range = (low, high) => Number.isFinite(low) && Number.isFinite(high) && low > 0 && low < high && roundPrice(low) > 0 && roundPrice(low) < roundPrice(high)
+    ? { low: roundPrice(low), high: roundPrice(high) } : null;
   const positiveAction = (action) => ["strong_buy", "buy", "accumulate"].includes(action);
   const executionIntent = (action) => ({ strong_buy: "enter", buy: "enter", accumulate: "add", hold: "hold", trim: "reduce", sell: "exit", avoid: "avoid" }[action] || "avoid");
 
@@ -142,11 +142,13 @@
     const proportion = pair.opportunity.inputs.width / Math.max(0.000001, pair.opportunity.inputs.width + pair.reduce.inputs.width);
     const opportunity = landscapeRange({ center: pair.support.center, price, atr, horizon, confluence: pair.support, halfWidth: targetHalfTotal * proportion });
     const reduce = landscapeRange({ center: pair.resistance.center, price, atr, horizon, confluence: pair.resistance, halfWidth: targetHalfTotal * (1 - proportion) });
+    if (!opportunity?.range || !reduce?.range) return null;
     const separation = reduce.range.low - opportunity.range.high;
     return separation + 0.000001 >= buffer ? { ...pair, opportunity, reduce, buffer, separation, valid: true, rebuilt: "compressed_to_preserve_neutral_buffer" } : null;
   }
 
   function confirmedBreakdown(technical = {}) {
+    if (technical.useStructuralBreakdown) return technical.structuralBreakdown?.confirmed === true;
     const policy = engine.config.execution.actionFamily;
     const material = technical.materialSignals || [];
     return material.includes("major_support_breakdown")
@@ -210,21 +212,24 @@
       }];
     }
     const pairs = pairCandidates({ supportClusters, resistanceClusters, price, atr, horizon, context: { ...context, technical } });
-    let selected = pairs.find((pair) => pair.valid) || null;
+    const acceptable = (pair) => pair?.valid && pair.opportunity.range && pair.reduce.range && (!context.pairValidator || context.pairValidator(pair));
+    let selected = pairs.find(acceptable) || null;
     if (!selected) {
       for (const pair of pairs) {
         selected = compressPair(pair, { price, atr, horizon });
-        if (selected) break;
+        if (acceptable(selected)) break;
+        selected = null;
       }
     }
     if (!selected || selected.quality < engine.config.execution.landscape.minimumPairQuality) return invalid("no_independent_support_resistance_pair");
 
     const invalidation = preliminaryInvalidation({ technical, opportunityRange: selected.opportunity.range, atr });
-    const priceState = priceStateFor({ price, horizon, atr, opportunityRange: selected.opportunity.range, reduceRange: selected.reduce.range, neutralBuffer: selected.buffer, invalidation, breakdown });
+    const planning = engine.planningWidth.transform({ opportunityRange: selected.opportunity.range, reduceRange: selected.reduce.range, invalidation }, { horizon, breakdown, enabled: context.widthTransformEnabled });
+    const priceState = priceStateFor({ price, horizon, atr, opportunityRange: planning.opportunityRange, reduceRange: planning.reduceRange, neutralBuffer: selected.buffer, invalidation, breakdown });
     const qualityState = selected.rebuilt ? "rebuilt" : selected.quality >= 2.1 ? "high" : "low";
     const qualityPenalty = qualityState === "low" ? engine.config.execution.landscape.weakQualityPenalty : 0;
     return {
-      priceLandscape: { opportunityRange: selected.opportunity.range, reduceRange: selected.reduce.range, invalidation, currentPrice: roundPrice(price) },
+      priceLandscape: { opportunityRange: planning.opportunityRange, reduceRange: planning.reduceRange, invalidation, currentPrice: roundPrice(price) },
       priceState, actionFamily: actionFamilyForState(priceState),
       landscapeQuality: { state: qualityState, score: round(selected.quality), penalty: qualityPenalty, neutralBuffer: roundPrice(selected.buffer), separation: roundPrice(selected.separation), rebuilt: selected.rebuilt || null },
       debug: {
@@ -233,6 +238,8 @@
           opportunity: selected.opportunity.inputs, reduce: selected.reduce.inputs,
           neutralBuffer: roundPrice(selected.buffer), separation: roundPrice(selected.separation), rebuilt: selected.rebuilt || null,
           breakdownExitAnchor: breakdown, preliminaryInvalidation: invalidation, contextualSelection: selected.contextual,
+          originalReduceHigh: selected.reduce.range.high,
+          widthTransform: planning.widthTransform,
           selectedSupport: compactCluster(selected.support), selectedReduce: compactCluster(selected.resistance),
           // Candidate clusters are temporary work for this calculation. Keep
           // only bounded counts plus the selected provenance in the final
@@ -317,7 +324,7 @@
     if (!Number.isFinite(atr) || atr <= 0) return { value: null, inputs: {} };
     const positive = positiveAction(action) || action === "hold";
     if (positive && Number.isFinite(ranges.invalidation)) return { value: ranges.invalidation, inputs: { source: "opportunity_structure", atrBuffer: roundPrice(atr * engine.config.execution.invalidationAtrBuffer) } };
-    const reference = ranges.reduceRange?.high;
+    const reference = landscape?.debug?.priceLandscapeInputs?.originalReduceHigh ?? ranges.reduceRange?.high;
     const level = Number.isFinite(reference) ? nearestLevel(levels, reference, "above") : null;
     const base = level?.price ?? reference ?? null;
     const value = Number.isFinite(base) ? roundPrice(base + atr * engine.config.execution.invalidationAtrBuffer) : null;

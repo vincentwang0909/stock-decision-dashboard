@@ -1,0 +1,217 @@
+{
+  "rows": 21,
+  "checks": 126,
+  "all_passed": true,
+  "details": [
+    {
+      "ticker": "NVDA",
+      "horizon": "short",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "NVDA",
+      "horizon": "mid",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "NVDA",
+      "horizon": "long",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "FFAI",
+      "horizon": "short",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "FFAI",
+      "horizon": "mid",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "FFAI",
+      "horizon": "long",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "CRCL",
+      "horizon": "short",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "CRCL",
+      "horizon": "mid",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "CRCL",
+      "horizon": "long",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "QQQ",
+      "horizon": "short",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "QQQ",
+      "horizon": "mid",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "QQQ",
+      "horizon": "long",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "SOXL",
+      "horizon": "short",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "SOXL",
+      "horizon": "mid",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "SOXL",
+      "horizon": "long",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "SQQQ",
+      "horizon": "short",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "SQQQ",
+      "horizon": "mid",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "SQQQ",
+      "horizon": "long",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "SPCX",
+      "horizon": "short",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "SPCX",
+      "horizon": "mid",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    },
+    {
+      "ticker": "SPCX",
+      "horizon": "long",
+      "action": true,
+      "confidence": true,
+      "state": true,
+      "opportunity": true,
+      "reduce": true,
+      "invalidation": true
+    }
+  ]
+}

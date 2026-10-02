@@ -1,0 +1,254 @@
+[
+  {
+    "ticker": "NVDA",
+    "daily_valid": 2513,
+    "daily_rejected": {
+      "source_rows": 2513,
+      "rejected_rows": 0,
+      "reasons": {}
+    },
+    "native_4h_valid": 723,
+    "native_rejections": {
+      "normal_session_days": 360,
+      "single_session_days": 3,
+      "invalid_session_days": 2,
+      "invalid_session_examples": [
+        {
+          "date": "2026-01-30",
+          "times": [
+            "09:30"
+          ],
+          "reason": "missing_or_invalid_session_segment"
+        },
+        {
+          "date": "2026-02-02",
+          "times": [
+            "13:30"
+          ],
+          "reason": "missing_or_invalid_session_segment"
+        }
+      ],
+      "partial_session_days": 0,
+      "calendar_source": "exchange_calendars:XNYS",
+      "tail_method": "native_regular_session_tail_150_minutes_on_full_days"
+    },
+    "regular_quote": 230.86,
+    "daily_close": 230.86000061035156,
+    "native_4h_close": 230.9600067138672,
+    "quote_daily_difference": -6.103515488575795e-07,
+    "overlap_120_vs_365_mismatch_fields": 0,
+    "as_of": "2026-10-02T01:51:33.726518+00:00",
+    "currency": "USD",
+    "adjustment_basis": "provider_auto_adjust_false; cross-endpoint basis not independently exchange-certified"
+  },
+  {
+    "ticker": "FFAI",
+    "daily_valid": 1527,
+    "daily_rejected": {
+      "source_rows": 1527,
+      "rejected_rows": 0,
+      "reasons": {}
+    },
+    "native_4h_valid": 723,
+    "native_rejections": {
+      "normal_session_days": 360,
+      "single_session_days": 3,
+      "invalid_session_days": 2,
+      "invalid_session_examples": [
+        {
+          "date": "2026-01-30",
+          "times": [
+            "09:30"
+          ],
+          "reason": "missing_or_invalid_session_segment"
+        },
+        {
+          "date": "2026-02-02",
+          "times": [
+            "13:30"
+          ],
+          "reason": "missing_or_invalid_session_segment"
+        }
+      ],
+      "partial_session_days": 0,
+      "calendar_source": "exchange_calendars:XNYS",
+      "tail_method": "native_regular_session_tail_150_minutes_on_full_days"
+    },
+    "regular_quote": 1.25,
+    "daily_close": 1.25,
+    "native_4h_close": 1.2491999864578247,
+    "quote_daily_difference": 0.0,
+    "overlap_120_vs_365_mismatch_fields": 0,
+    "as_of": "2026-10-02T01:51:34.571522+00:00",
+    "currency": "USD",
+    "adjustment_basis": "provider_auto_adjust_false; cross-endpoint basis not independently exchange-certified"
+  },
+  {
+    "ticker": "CRCL",
+    "daily_valid": 333,
+    "daily_rejected": {
+      "source_rows": 333,
+      "rejected_rows": 0,
+      "reasons": {}
+    },
+    "native_4h_valid": 659,
+    "native_rejections": {
+      "normal_session_days": 328,
+      "single_session_days": 3,
+      "invalid_session_days": 2,
+      "invalid_session_examples": [
+        {
+          "date": "2026-01-30",
+          "times": [
+            "09:30"
+          ],
+          "reason": "missing_or_invalid_session_segment"
+        },
+        {
+          "date": "2026-02-02",
+          "times": [
+            "13:30"
+          ],
+          "reason": "missing_or_invalid_session_segment"
+        }
+      ],
+      "partial_session_days": 0,
+      "calendar_source": "exchange_calendars:XNYS",
+      "tail_method": "native_regular_session_tail_150_minutes_on_full_days"
+    },
+    "regular_quote": 82.91,
+    "daily_close": 82.91000366210938,
+    "native_4h_close": 82.87999725341797,
+    "quote_daily_difference": -3.662109378410605e-06,
+    "overlap_120_vs_365_mismatch_fields": 0,
+    "as_of": "2026-10-02T01:51:35.015685+00:00",
+    "currency": "USD",
+    "adjustment_basis": "provider_auto_adjust_false; cross-endpoint basis not independently exchange-certified"
+  },
+  {
+    "ticker": "QQQ",
+    "daily_valid": 2513,
+    "daily_rejected": {
+      "source_rows": 2513,
+      "rejected_rows": 0,
+      "reasons": {}
+    },
+    "native_4h_valid": 723,
+    "native_rejections": {
+      "normal_session_days": 360,
+      "single_session_days": 3,
+      "invalid_session_days": 2,
+      "invalid_session_examples": [
+        {
+          "date": "2026-01-30",
+          "times": [
+            "09:30"
+          ],
+          "reason": "missing_or_invalid_session_segment"
+        },
+        {
+          "date": "2026-02-02",
+          "times": [
+            "13:30"
+          ],
+          "reason": "missing_or_invalid_session_segment"
+        }
+      ],
+      "partial_session_days": 0,
+      "calendar_source": "exchange_calendars:XNYS",
+      "tail_method": "native_regular_session_tail_150_minutes_on_full_days"
+    },
+    "regular_quote": 742.03,
+    "daily_close": 742.030029296875,
+    "native_4h_close": 742.0399780273438,
+    "quote_daily_difference": -2.929687502728484e-05,
+    "overlap_120_vs_365_mismatch_fields": 0,
+    "as_of": "2026-10-02T01:51:35.420038+00:00",
+    "currency": "USD",
+    "adjustment_basis": "provider_auto_adjust_false; cross-endpoint basis not independently exchange-certified"
+  },
+  {
+    "ticker": "SOXL",
+    "daily_valid": 2513,
+    "daily_rejected": {
+      "source_rows": 2513,
+      "rejected_rows": 0,
+      "reasons": {}
+    },
+    "native_4h_valid": 723,
+    "native_rejections": {
+      "normal_session_days": 360,
+      "single_session_days": 3,
+      "invalid_session_days": 2,
+      "invalid_session_examples": [
+        {
+          "date": "2026-01-30",
+          "times": [
+            "09:30"
+          ],
+          "reason": "missing_or_invalid_session_segment"
+        },
+        {
+          "date": "2026-02-02",
+          "times": [
+            "13:30"
+          ],
+          "reason": "missing_or_invalid_session_segment"
+        }
+      ],
+      "partial_session_days": 0,
+      "calendar_source": "exchange_calendars:XNYS",
+      "tail_method": "native_regular_session_tail_150_minutes_on_full_days"
+    },
+    "regular_quote": 153.69,
+    "daily_close": 153.69000244140625,
+    "native_4h_close": 153.77000427246094,
+    "quote_daily_difference": -2.4414062522737368e-06,
+    "overlap_120_vs_365_mismatch_fields": 0,
+    "as_of": "2026-10-02T01:51:36.278692+00:00",
+    "currency": "USD",
+    "adjustment_basis": "provider_auto_adjust_false; cross-endpoint basis not independently exchange-certified"
+  },
+  {
+    "ticker": "SQQQ",
+    "daily_valid": 2513,
+    "daily_rejected": {
+      "source_rows": 2513,
+      "rejected_rows": 0,
+      "reasons": {}
+    },
+    "native_4h_valid": 723,
+    "native_rejections": {
+      "normal_session_days": 360,
+      "single_session_days": 3,
+      "invalid_session_days": 2,
+      "invalid_session_examples": [
+        {
+          "date": "2026-01-30",
+          "times": [
+            "09:30"
+          ],
+          "reason": "missing_or_invalid_session_segment"
+        },
+        {
+          "date": "2026-02-02",
+          "times": [
+            "13:30"
+          ],
+          "reason": "missing_or_invalid_session_segment"
+        }
+      ],
+      "partial_session_days": 0,
+      "calendar_source": "exchange_calendars:XNYS",
+      "tail_method": "native_regular_session_tail_150_minutes_on_full_days"
+    },
+    "regular_quote": 34.11,
+    "daily_close": 34.11000061035156,
+    "native_4h_close": 34.11000061035156,
+    "quote_daily_difference": -6.103515630684342e-07,
+    "overlap_120_vs_365_mismatch_fields": 0,
+    "as_of": "2026-10-02T01:51:36.860768+00:00",
+    "currency": "USD",
+    "adjustment_basis": "provider_auto_adjust_false; cross-endpoint basis not independently exchange-certified"
+  }
+]

@@ -1,0 +1,242 @@
+[
+  {
+    "ticker": "NVDA",
+    "interval": "4h",
+    "period": "120d",
+    "bars": 240,
+    "first": "2026-04-13 09:30:00-04:00",
+    "last": "2026-10-01 13:30:00-04:00",
+    "metadata": {
+      "currency": "USD",
+      "symbol": "NVDA",
+      "exchangeName": "NMS",
+      "fullExchangeName": "NasdaqGS",
+      "instrumentType": "EQUITY",
+      "firstTradeDate": 917015400,
+      "regularMarketTime": 1790884801,
+      "hasPrePostMarketData": true,
+      "gmtoffset": -14400,
+      "timezone": "EDT",
+      "exchangeTimezoneName": "America/New_York",
+      "regularMarketPrice": 230.86,
+      "regularMarketChangePercent": 1.086,
+      "fulldayPrice": 231.41,
+      "fulldayChange": 3.03,
+      "fulldayChangePercent": 1.327,
+      "fiftyTwoWeekHigh": 236.54,
+      "fiftyTwoWeekLow": 164.27,
+      "regularMarketDayHigh": 232.285,
+      "regularMarketDayLow": 228.16,
+      "regularMarketVolume": 97538145,
+      "longName": "NVIDIA Corporation",
+      "shortName": "NVIDIA Corporation",
+      "chartPreviousClose": 188.63,
+      "previousClose": 228.38,
+      "scale": 3,
+      "priceHint": 2,
+      "currentTradingPeriod": {
+        "pre": {
+          "timezone": "EDT",
+          "start": 1790841600,
+          "end": 1790861400,
+          "gmtoffset": -14400
+        },
+        "regular": {
+          "timezone": "EDT",
+          "start": 1790861400,
+          "end": 1790884800,
+          "gmtoffset": -14400
+        },
+        "post": {
+          "timezone": "EDT",
+          "start": 1790884800,
+          "end": 1790899200,
+          "gmtoffset": -14400
+        }
+      },
+      "tradingPeriods": "                                              start                       end\nDate                                                                         \n2026-04-13 00:00:00-04:00 2026-04-13 09:30:00-04:00 2026-04-13 16:00:00-04:00\n2026-04-14 00:00:00-04:00 2026-04-14 09:30:00-04:00 2026-04-14 16:00:00-04:00\n2026-04-15 00:00:00-04:00 2026-04-15 09:30:00-04:00 2026-04-15 16:00:00-04:00\n2026-04-16 00:00:00-04:00 2026-04-16 09:30:00-04:00 2026-04-16 16:00:00-04:00\n2026-04-17 00:00:00-04:00 2026-04-17 09:30:00-04:00 2026-04-17 16:00:00-04:00\n...                                             ...                       ...\n2026-09-25 00:00:00-04:00 2026-09-25 09:30:00-04:00 2026-09-25 16:00:00-04:00\n2026-09-28 00:00:00-04:00 2026-09-28 09:30:00-04:00 2026-09-28 16:00:00-04:00\n2026-09-29 00:00:00-04:00 2026-09-29 09:30:00-04:00 2026-09-29 16:00:00-04:00\n2026-09-30 00:00:00-04:00 2026-09-30 09:30:00-04:00 2026-09-30 16:00:00-04:00\n2026-10-01 00:00:00-04:00 2026-10-01 09:30:00-04:00 2026-10-01 16:00:00-04:00\n\n[120 rows x 2 columns]",
+      "dataGranularity": "4h",
+      "range": "120d",
+      "validRanges": [
+        "1d",
+        "5d",
+        "1mo",
+        "3mo",
+        "6mo",
+        "1y",
+        "2y",
+        "5y",
+        "10y",
+        "ytd",
+        "max"
+      ],
+      "YF repair?": false
+    },
+    "validation": {
+      "source_rows": 240,
+      "rejected_rows": 0,
+      "reasons": {}
+    },
+    "error": "Object of type DataFrame is not JSON serializable"
+  },
+  {
+    "ticker": "NVDA",
+    "interval": "4h",
+    "period": "365d",
+    "bars": 725,
+    "first": "2025-04-21 09:30:00-04:00",
+    "last": "2026-10-01 13:30:00-04:00",
+    "metadata": {
+      "currency": "USD",
+      "symbol": "NVDA",
+      "exchangeName": "NMS",
+      "fullExchangeName": "NasdaqGS",
+      "instrumentType": "EQUITY",
+      "firstTradeDate": 917015400,
+      "regularMarketTime": 1790884801,
+      "hasPrePostMarketData": true,
+      "gmtoffset": -14400,
+      "timezone": "EDT",
+      "exchangeTimezoneName": "America/New_York",
+      "regularMarketPrice": 230.86,
+      "regularMarketChangePercent": 1.086,
+      "fulldayPrice": 231.41,
+      "fulldayChange": 3.03,
+      "fulldayChangePercent": 1.327,
+      "fiftyTwoWeekHigh": 236.54,
+      "fiftyTwoWeekLow": 164.27,
+      "regularMarketDayHigh": 232.285,
+      "regularMarketDayLow": 228.16,
+      "regularMarketVolume": 97538145,
+      "longName": "NVIDIA Corporation",
+      "shortName": "NVIDIA Corporation",
+      "chartPreviousClose": 101.49,
+      "previousClose": 228.38,
+      "scale": 3,
+      "priceHint": 2,
+      "currentTradingPeriod": {
+        "pre": {
+          "timezone": "EDT",
+          "start": 1790841600,
+          "end": 1790861400,
+          "gmtoffset": -14400
+        },
+        "regular": {
+          "timezone": "EDT",
+          "start": 1790861400,
+          "end": 1790884800,
+          "gmtoffset": -14400
+        },
+        "post": {
+          "timezone": "EDT",
+          "start": 1790884800,
+          "end": 1790899200,
+          "gmtoffset": -14400
+        }
+      },
+      "tradingPeriods": "                                              start                       end\nDate                                                                         \n2025-04-21 00:00:00-04:00 2025-04-21 09:30:00-04:00 2025-04-21 16:00:00-04:00\n2025-04-22 00:00:00-04:00 2025-04-22 09:30:00-04:00 2025-04-22 16:00:00-04:00\n2025-04-23 00:00:00-04:00 2025-04-23 09:30:00-04:00 2025-04-23 16:00:00-04:00\n2025-04-24 00:00:00-04:00 2025-04-24 09:30:00-04:00 2025-04-24 16:00:00-04:00\n2025-04-25 00:00:00-04:00 2025-04-25 09:30:00-04:00 2025-04-25 16:00:00-04:00\n...                                             ...                       ...\n2026-09-25 00:00:00-04:00 2026-09-25 09:30:00-04:00 2026-09-25 16:00:00-04:00\n2026-09-28 00:00:00-04:00 2026-09-28 09:30:00-04:00 2026-09-28 16:00:00-04:00\n2026-09-29 00:00:00-04:00 2026-09-29 09:30:00-04:00 2026-09-29 16:00:00-04:00\n2026-09-30 00:00:00-04:00 2026-09-30 09:30:00-04:00 2026-09-30 16:00:00-04:00\n2026-10-01 00:00:00-04:00 2026-10-01 09:30:00-04:00 2026-10-01 16:00:00-04:00\n\n[365 rows x 2 columns]",
+      "dataGranularity": "4h",
+      "range": "365d",
+      "validRanges": [
+        "1d",
+        "5d",
+        "1mo",
+        "3mo",
+        "6mo",
+        "1y",
+        "2y",
+        "5y",
+        "10y",
+        "ytd",
+        "max"
+      ],
+      "YF repair?": false
+    },
+    "validation": {
+      "source_rows": 725,
+      "rejected_rows": 0,
+      "reasons": {}
+    },
+    "error": "Object of type DataFrame is not JSON serializable"
+  },
+  {
+    "ticker": "NVDA",
+    "interval": "4h",
+    "period": "2y",
+    "bars": 995,
+    "first": "2024-10-02 09:30:00-04:00",
+    "last": "2026-10-01 13:30:00-04:00",
+    "metadata": {
+      "currency": "USD",
+      "symbol": "NVDA",
+      "exchangeName": "NMS",
+      "fullExchangeName": "NasdaqGS",
+      "instrumentType": "EQUITY",
+      "firstTradeDate": 917015400,
+      "regularMarketTime": 1790884801,
+      "hasPrePostMarketData": true,
+      "gmtoffset": -14400,
+      "timezone": "EDT",
+      "exchangeTimezoneName": "America/New_York",
+      "regularMarketPrice": 230.86,
+      "regularMarketChangePercent": 1.086,
+      "fulldayPrice": 231.41,
+      "fulldayChange": 3.03,
+      "fulldayChangePercent": 1.327,
+      "fiftyTwoWeekHigh": 236.54,
+      "fiftyTwoWeekLow": 164.27,
+      "regularMarketDayHigh": 232.285,
+      "regularMarketDayLow": 228.16,
+      "regularMarketVolume": 97538145,
+      "longName": "NVIDIA Corporation",
+      "shortName": "NVIDIA Corporation",
+      "chartPreviousClose": 117.0,
+      "previousClose": 228.38,
+      "scale": 3,
+      "priceHint": 2,
+      "currentTradingPeriod": {
+        "pre": {
+          "timezone": "EDT",
+          "end": 1790861400,
+          "start": 1790841600,
+          "gmtoffset": -14400
+        },
+        "regular": {
+          "timezone": "EDT",
+          "end": 1790884800,
+          "start": 1790861400,
+          "gmtoffset": -14400
+        },
+        "post": {
+          "timezone": "EDT",
+          "end": 1790899200,
+          "start": 1790884800,
+          "gmtoffset": -14400
+        }
+      },
+      "tradingPeriods": "                                                end                     start\nDate                                                                         \n2024-10-02 00:00:00-04:00 2024-10-02 16:00:00-04:00 2024-10-02 09:30:00-04:00\n2024-10-03 00:00:00-04:00 2024-10-03 16:00:00-04:00 2024-10-03 09:30:00-04:00\n2024-10-04 00:00:00-04:00 2024-10-04 16:00:00-04:00 2024-10-04 09:30:00-04:00\n2024-10-07 00:00:00-04:00 2024-10-07 16:00:00-04:00 2024-10-07 09:30:00-04:00\n2024-10-08 00:00:00-04:00 2024-10-08 16:00:00-04:00 2024-10-08 09:30:00-04:00\n...                                             ...                       ...\n2026-09-25 00:00:00-04:00 2026-09-25 16:00:00-04:00 2026-09-25 09:30:00-04:00\n2026-09-28 00:00:00-04:00 2026-09-28 16:00:00-04:00 2026-09-28 09:30:00-04:00\n2026-09-29 00:00:00-04:00 2026-09-29 16:00:00-04:00 2026-09-29 09:30:00-04:00\n2026-09-30 00:00:00-04:00 2026-09-30 16:00:00-04:00 2026-09-30 09:30:00-04:00\n2026-10-01 00:00:00-04:00 2026-10-01 16:00:00-04:00 2026-10-01 09:30:00-04:00\n\n[501 rows x 2 columns]",
+      "dataGranularity": "4h",
+      "range": "2y",
+      "validRanges": [
+        "1d",
+        "5d",
+        "1mo",
+        "3mo",
+        "6mo",
+        "1y",
+        "2y",
+        "5y",
+        "10y",
+        "ytd",
+        "max"
+      ],
+      "YF repair?": false
+    },
+    "validation": {
+      "source_rows": 995,
+      "rejected_rows": 0,
+      "reasons": {}
+    },
+    "error": "Object of type DataFrame is not JSON serializable"
+  }
+]

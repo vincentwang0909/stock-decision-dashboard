@@ -36,7 +36,11 @@ DECISION_HISTORY_DB_PATH=/var/data/历史记录.sqlite
 EOD_DECISION_NODE_PATH=/path/to/node
 ```
 
-`EOD_HISTORY_NODE_MAX_OLD_SPACE_MB=192` 也已在 Blueprint 设置。这个一次性 Node 快照进程在提交后退出，不会长期占用 Dashboard RAM；如未来 watchlist 明显扩大，可在不超过 Render 内存预算的前提下审慎调整。
+Blueprint 现在固定 `EOD_HISTORY_NODE_MAX_OLD_SPACE_MB=128`、`EOD_HISTORY_NODE_MAX_SEMI_SPACE_MB=4`。这只是 V8 堆上限，**不是 Node RSS 或整个服务内存上限**。Python 3.12.14、Node 24.19.0 和依赖版本一并固定；实际 Render 尚未发布/验证。
+
+全刷新、画像分类和 EOD/decision.v1 Node 子进程共享服务级临界区。EOD 等待尚未完成的有界网络任务退出；若无法在预算内排空，明确失败并等待重试，不与残留工作叠加启动 Node。16:30 后若已有同日、相同完整 watchlist 的合格全刷新，则共享这一代际，仍逐证券检查当日 Daily 数据。
+
+交接使用临时 manifest 和逐 ticker 文件。Node 按需读取一个证券，三个期限共用一次 canonical features，必要 underlying 共用有界结果；输出逐行序列化，完成后退出并清理临时文件。Python 最后一次 SQLite 事务仍覆盖完整 watchlist × 三期限，不按输入批次分批提交。
 
 记录器必须使用 Node，因为正式 Decision Engine 是现有 JavaScript 实现；它不会创建 Python 近似推荐逻辑。
 
@@ -52,6 +56,8 @@ EOD_DECISION_NODE_PATH=/path/to/node
 - 当前真正用于决策的 Direction、Confirmation、Risk、Exhaustion。
 - 紧凑 Market context、supporting / limiting reasons、material-change 状态。
 - 紧凑 canonical technical feature snapshot：MA、RSI、MACD、ADX/DI、ATR、Bollinger、KDJ、OBV/RVOL、Relative Strength、Fibonacci provenance / selected structure、52W context。
+- 一根当日 OHLCV/Quote 观测及其时间、币种、价格基础；模型/特征版本、缺失原因、最终动作对应的可信度构成。可选 ATR250 缺失不将有效当日证券降为整只 unavailable；核心证据不足的期限保留 partial/unavailable 与原因。
+- Short 额外保存冻结的正常 Reduce ×0.995 baseline/candidate 精简对照；`shadow_only=true`，当前生产开关为关闭。这个对照仅供以后离线评价，不进入 Dashboard、不搜索参数、不改旧历史行。
 - Stock 的 Primary Classification、Company Traits、Lifecycle、应用 modifiers，以及仅供离线分析的内部 `sizeClass`；或 ETF 的 leveraged、direction、underlying、ETF modifiers。`sizeClass` 不会成为 Company Trait 或 Dashboard UI 标签，旧历史行也不会被回写。
 
 **不会**保存原始 OHLCV 数组、每根 1H/4H/Daily/Weekly bar、完整指标 series、目标价、旧 Action Score 或任何 Recommendation history cache。
@@ -100,4 +106,4 @@ python3 历史记录/导出历史记录.py \
 4. 从 Render Persistent Disk 删除 `/var/data/历史记录.sqlite` 及其 `-wal` / `-shm` 文件。
 5. 删除 `AGENTS.md` 中的 EOD Decision History Contract。
 
-删除这项功能不会改变当前 Dashboard、Technical / Market 页面或 V1 Decision Engine 的计算结果。
+删除这项功能不会改变当前 Dashboard、Technical / Market 页面或任何期限的生产 Decision Engine 计算结果。删除环境变量时也移除两个 EOD Node 堆预算变量；完整操作及当前资源限制见 [本次内存与运维说明](../docs/final-model-2026-10-01/内存与运维.md)。

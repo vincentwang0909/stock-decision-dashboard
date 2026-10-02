@@ -1,0 +1,27 @@
+[2026-10-01 21:11:00 -0400] [14920] [INFO] Starting gunicorn 26.0.0
+[2026-10-01 21:11:00 -0400] [14920] [INFO] Listening at: http://127.0.0.1:58007 (14920)
+[2026-10-01 21:11:00 -0400] [14920] [INFO] Using worker: gthread
+[2026-10-01 21:11:00 -0400] [14923] [INFO] Booting worker with pid: 14923
+[2026-10-01 21:11:00 -0400] [14920] [INFO] Control socket listening at /Users/vincentwang/.gunicorn/gunicorn.ctl
+Traceback (most recent call last):
+  File "/private/tmp/stock-final-baseline/server.py", line 4214, in read_json_cache_file
+    return json.load(handle)
+  File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+  File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+  File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+  File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/json/decoder.py", line 353, in raw_decode
+    obj, end = self.scan_once(s, idx)
+json.decoder.JSONDecodeError: Expecting ',' delimiter: line 1 column 130927 (char 130926)
+[2026-10-01 21:11:08 -0400] [14920] [INFO] Handling signal: term
+[2026-10-01 21:11:08 -0400] [14923] [INFO] Worker exiting (pid: 14923)
+[EOD HISTORY] started 2026-09-14 16:30 ET (isolated_memory_audit)
+[EOD HISTORY] full refresh complete
+[EOD HISTORY] 22 tickers / 66 horizon rows
+[EOD HISTORY] 0 unavailable
+[EOD HISTORY] database commit success
+[EOD HISTORY] db size 1.820 MB
+[EOD HISTORY] completed
+[2026-10-01 21:11:08 -0400] [14920] [INFO] Shutting down: Master

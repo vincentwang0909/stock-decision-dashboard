@@ -25,7 +25,7 @@ const { finite, featureInputs, quoteFromItem } = require(path.join(ROOT, "decisi
 
 for (const file of [
   "config.js", "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "etf-profile.js", "company-profile.js",
-  "execution-engine.js", "confidence-engine.js", "stability-engine.js", "decision-engine.js",
+  "planning-width.js", "execution-engine.js", "short-model-v2.js", "confidence-engine.js", "stability-engine.js", "decision-engine.js",
 ]) require(path.join(ROOT, "decision-engine", file));
 
 const engine = globalThis.DecisionEngine;
@@ -85,9 +85,9 @@ function horizonPayload(decision, horizon, quote) {
   };
 }
 
-function decisionFor({ ticker, quote, market }) {
+function decisionFor({ ticker, quote, market, features = null, underlying = null }) {
   const classification = profiles.profileFor(ticker, quote?.metadata || quote || {});
-  const features = featureFor(quote, market);
+  features = features || featureFor(quote, market);
   const decision = engine.decide({
     ticker,
     price: finite(quote?.price),
@@ -96,13 +96,14 @@ function decisionFor({ ticker, quote, market }) {
     classification,
     metadata: quote?.metadata || {},
     language: "en",
-    underlyingTechnicalFeatures: null,
-    underlyingPrice: null,
+    underlyingTechnicalFeatures: underlying?.features || null,
+    underlyingPrice: underlying?.price ?? null,
   });
 
   return {
     contractVersion: CONTRACT_VERSION,
     producer: PRODUCER,
+    modelVersion: engine.config.version,
     ticker,
     generatedAt: new Date().toISOString(),
     currentPrice: finite(quote?.price),
@@ -118,11 +119,30 @@ function build(input) {
 
   const decisions = {};
   const errors = {};
+  const byTicker = new Map(items.map((item) => [String(item.ticker || "").toUpperCase(), item]));
+  const readQuote = (item) => input.format === "ticker-files-v1" ? JSON.parse(fs.readFileSync(item.path, "utf8")) : quoteFromItem(item);
+  const underlyingTickers = new Set(Object.values(profiles.etfs).map((profile) => profile.underlyingTicker).filter(Boolean));
+  const underlyingFeatures = new Map();
+  function underlyingFor(ticker) {
+    if (underlyingFeatures.has(ticker)) return underlyingFeatures.get(ticker);
+    const item = byTicker.get(ticker);
+    if (!item) return null;
+    const quote = readQuote(item);
+    if (quote.stale || finite(quote.price) == null) return null;
+    const result = { features: featureFor(quote, market), price: finite(quote.price) };
+    underlyingFeatures.set(ticker, result);
+    return result;
+  }
   for (const item of items) {
     const ticker = String(item.ticker || "").toUpperCase();
     if (!ticker) continue;
     try {
-      decisions[ticker] = decisionFor({ ticker, quote: quoteFromItem(item), market });
+      const quote = readQuote(item);
+      const classification = profiles.profileFor(ticker, quote?.metadata || quote);
+      const features = underlyingFeatures.get(ticker)?.features || featureFor(quote, market);
+      if (underlyingTickers.has(ticker)) underlyingFeatures.set(ticker, { features, price: finite(quote.price) });
+      const underlying = classification.isETF && classification.underlyingTicker ? underlyingFor(classification.underlyingTicker) : null;
+      decisions[ticker] = decisionFor({ ticker, quote, market, features, underlying });
     } catch (error) {
       // One bad ticker must not fail the whole request. The caller sees which
       // failed and why, rather than an opaque 500.

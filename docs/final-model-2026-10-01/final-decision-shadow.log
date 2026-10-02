@@ -1,0 +1,1429 @@
+{
+  "generatedAt": "2026-10-02T04:26:51.433Z",
+  "cacheOnly": true,
+  "tickers": {
+    "META": {
+      "status": "available",
+      "price": 725.93,
+      "short": {
+        "action": "hold",
+        "confidence": 68,
+        "direction": 28,
+        "confirmation": 76,
+        "risk": 6,
+        "priceOpportunity": -19.94,
+        "exhaustion": 0,
+        "marketRegime": "risk_on",
+        "candidateAction": "hold",
+        "finalAction": "hold",
+        "priceState": "NEUTRAL_ZONE",
+        "actionFamily": "neutral",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 5.55,
+          "penalty": 0,
+          "neutralBuffer": 6.46,
+          "separation": 77.23,
+          "rebuilt": null
+        },
+        "stability": {
+          "score": 59,
+          "finalAction": "hold",
+          "source": "canonical_signal_persistence",
+          "identity": true
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 661.36,
+            "high": 705.08
+          },
+          "reduceRange": {
+            "low": 758.94,
+            "high": 802.66
+          },
+          "invalidation": 649.22,
+          "currentPrice": 725.93
+        },
+        "priceStateContract": {
+          "expected": "hold",
+          "valid": true
+        },
+        "supporting": [
+          {
+            "code": "primary_moving_average_structure_is_constructive",
+            "text": "Primary moving-average structure is constructive."
+          },
+          {
+            "code": "relative_strength_is_confirming_versus_the_selected_benchmarks",
+            "text": "Relative Strength is confirming versus the selected benchmarks."
+          },
+          {
+            "code": "obv_and_volume_participation_are_confirming_accumulation",
+            "text": "OBV and volume participation are confirming accumulation."
+          }
+        ],
+        "limiting": [
+          {
+            "code": "v2_location",
+            "text": "Current price lacks an entry location with sufficient room."
+          }
+        ]
+      },
+      "mid": {
+        "action": "hold",
+        "confidence": 77,
+        "direction": 65,
+        "confirmation": 86,
+        "risk": 17,
+        "priceOpportunity": 0,
+        "exhaustion": -13,
+        "marketRegime": "risk_on",
+        "candidateAction": "hold",
+        "finalAction": "hold",
+        "priceState": "NEUTRAL_ZONE",
+        "actionFamily": "neutral",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 5.47,
+          "penalty": 0,
+          "neutralBuffer": 14.75,
+          "separation": 51.53,
+          "rebuilt": null
+        },
+        "finalDecision": {
+          "action": "hold",
+          "priceState": "NEUTRAL_ZONE",
+          "actionFamily": "neutral",
+          "breakdown": false,
+          "bearishEvidence": false,
+          "reasons": {
+            "supporting": [
+              "Trend remains constructive, but current price is between the opportunity and reduce zones."
+            ],
+            "limiting": []
+          },
+          "guardrails": []
+        },
+        "stability": {
+          "finalAction": "hold",
+          "allowedActions": [
+            "hold"
+          ],
+          "actionFamily": "neutral",
+          "heldPrevious": false,
+          "familyBoundaryOverride": false,
+          "material": false,
+          "materialChangeReasons": [],
+          "score": 76,
+          "firstObservation": true,
+          "persistence": {
+            "score": 76,
+            "available": true,
+            "components": {
+              "ma": 91,
+              "macd": 72,
+              "adx": 85,
+              "relativeStrength": 100
+            }
+          },
+          "previous": null,
+          "lastMaterialChange": "2026-10-02T04:26:51.257Z"
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 668.93,
+            "high": 709.21
+          },
+          "reduceRange": {
+            "low": 760.74,
+            "high": 802.56
+          },
+          "invalidation": 637.76,
+          "currentPrice": 725.93
+        },
+        "priceStateContract": {
+          "expected": "hold",
+          "valid": true
+        },
+        "supporting": [
+          "Primary moving-average structure is constructive.",
+          "Relative Strength is confirming versus the selected benchmarks.",
+          "OBV and volume participation are confirming accumulation.",
+          "Primary MACD structure supports the current upside direction.",
+          "Trend remains constructive, but current price is between the opportunity and reduce zones."
+        ],
+        "limiting": [
+          "10Y yield backdrop is restrictive for rate-sensitive risk."
+        ]
+      },
+      "long": {
+        "action": "hold",
+        "confidence": 75,
+        "direction": 48,
+        "confirmation": 69,
+        "risk": 30,
+        "priceOpportunity": -24,
+        "exhaustion": 33,
+        "marketRegime": "risk_on",
+        "candidateAction": "hold",
+        "finalAction": "hold",
+        "priceState": "NEUTRAL_ZONE",
+        "actionFamily": "neutral",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 6.24,
+          "penalty": 0,
+          "neutralBuffer": 43.84,
+          "separation": 186.64,
+          "rebuilt": null
+        },
+        "finalDecision": {
+          "action": "hold",
+          "priceState": "NEUTRAL_ZONE",
+          "actionFamily": "neutral",
+          "breakdown": false,
+          "bearishEvidence": false,
+          "reasons": {
+            "supporting": [
+              "Trend remains constructive, but current price is between the opportunity and reduce zones."
+            ],
+            "limiting": []
+          },
+          "guardrails": []
+        },
+        "stability": {
+          "finalAction": "hold",
+          "allowedActions": [
+            "hold"
+          ],
+          "actionFamily": "neutral",
+          "heldPrevious": false,
+          "familyBoundaryOverride": false,
+          "material": false,
+          "materialChangeReasons": [],
+          "score": 75,
+          "firstObservation": true,
+          "persistence": {
+            "score": 75,
+            "available": true,
+            "components": {
+              "ma": 91,
+              "macd": 92,
+              "adx": 10,
+              "relativeStrength": 80
+            }
+          },
+          "previous": null,
+          "lastMaterialChange": "2026-10-02T04:26:51.257Z"
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 489.31,
+            "high": 565.13
+          },
+          "reduceRange": {
+            "low": 751.77,
+            "high": 827.59
+          },
+          "invalidation": 435.14,
+          "currentPrice": 725.93
+        },
+        "priceStateContract": {
+          "expected": "hold",
+          "valid": true
+        },
+        "supporting": [
+          "Primary MACD structure supports the current upside direction.",
+          "OBV and volume participation are confirming accumulation.",
+          "Primary moving-average structure is constructive.",
+          "Relative Strength is confirming versus the selected benchmarks.",
+          "Downside exhaustion is developing while repair evidence is appearing."
+        ],
+        "limiting": [
+          "Price is extended into layered resistance rather than support.",
+          "10Y yield backdrop is restrictive for rate-sensitive risk."
+        ]
+      }
+    },
+    "MSFT": {
+      "status": "available",
+      "price": 512.8,
+      "short": {
+        "action": "accumulate",
+        "confidence": 53,
+        "direction": 15,
+        "confirmation": 58,
+        "risk": 9,
+        "priceOpportunity": 26.16,
+        "exhaustion": 0,
+        "marketRegime": "risk_on",
+        "candidateAction": "accumulate",
+        "finalAction": "accumulate",
+        "priceState": "IN_OPPORTUNITY_ZONE",
+        "actionFamily": "opportunity",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 3.73,
+          "penalty": 0,
+          "neutralBuffer": 3.26,
+          "separation": 38.39,
+          "rebuilt": null
+        },
+        "stability": {
+          "score": 69,
+          "finalAction": "accumulate",
+          "source": "canonical_signal_persistence",
+          "identity": true
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 496.85,
+            "high": 517.61
+          },
+          "reduceRange": {
+            "low": 544.34,
+            "high": 565.1
+          },
+          "invalidation": 494.75,
+          "currentPrice": 512.8
+        },
+        "priceStateContract": {
+          "expected": "positive_or_wait",
+          "valid": true
+        },
+        "supporting": [
+          {
+            "code": "v2_entry",
+            "text": "Trend and participation support entry inside structural support."
+          },
+          {
+            "code": "primary_moving_average_structure_is_constructive",
+            "text": "Primary moving-average structure is constructive."
+          },
+          {
+            "code": "obv_and_volume_participation_are_confirming_accumulation",
+            "text": "OBV and volume participation are confirming accumulation."
+          }
+        ],
+        "limiting": []
+      },
+      "mid": {
+        "action": "buy",
+        "confidence": 84,
+        "direction": 67,
+        "confirmation": 69,
+        "risk": 15,
+        "priceOpportunity": 22,
+        "exhaustion": -14,
+        "marketRegime": "risk_on",
+        "candidateAction": "buy",
+        "finalAction": "buy",
+        "priceState": "IN_OPPORTUNITY_ZONE",
+        "actionFamily": "opportunity",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 5,
+          "penalty": 0,
+          "neutralBuffer": 6.72,
+          "separation": 28.33,
+          "rebuilt": null
+        },
+        "finalDecision": {
+          "action": "buy",
+          "priceState": "IN_OPPORTUNITY_ZONE",
+          "actionFamily": "opportunity",
+          "breakdown": false,
+          "bearishEvidence": false,
+          "reasons": {
+            "supporting": [],
+            "limiting": []
+          },
+          "guardrails": []
+        },
+        "stability": {
+          "finalAction": "buy",
+          "allowedActions": [
+            "strong_buy",
+            "buy",
+            "accumulate"
+          ],
+          "actionFamily": "opportunity",
+          "heldPrevious": false,
+          "familyBoundaryOverride": false,
+          "material": false,
+          "materialChangeReasons": [],
+          "score": 76,
+          "firstObservation": true,
+          "persistence": {
+            "score": 76,
+            "available": true,
+            "components": {
+              "ma": 91,
+              "macd": 83,
+              "adx": 48,
+              "relativeStrength": 100
+            }
+          },
+          "previous": null,
+          "lastMaterialChange": "2026-10-02T04:26:51.292Z"
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 498.05,
+            "high": 516.79
+          },
+          "reduceRange": {
+            "low": 545.12,
+            "high": 562.28
+          },
+          "invalidation": 479.39,
+          "currentPrice": 512.8
+        },
+        "priceStateContract": {
+          "expected": "positive",
+          "valid": true
+        },
+        "supporting": [
+          "Relative Strength is confirming versus the selected benchmarks.",
+          "Primary moving-average structure is constructive.",
+          "Primary MACD structure supports the current upside direction.",
+          "Several technical structures form nearby support confluence."
+        ],
+        "limiting": [
+          "OBV or price-volume behavior indicates distribution.",
+          "10Y yield backdrop is restrictive for rate-sensitive risk."
+        ]
+      },
+      "long": {
+        "action": "hold",
+        "confidence": 78,
+        "direction": 67,
+        "confirmation": 88,
+        "risk": 17,
+        "priceOpportunity": 4,
+        "exhaustion": -20,
+        "marketRegime": "risk_on",
+        "candidateAction": "hold",
+        "finalAction": "hold",
+        "priceState": "NEUTRAL_ZONE",
+        "actionFamily": "neutral",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 6.29,
+          "penalty": 0,
+          "neutralBuffer": 22.18,
+          "separation": 171.07,
+          "rebuilt": null
+        },
+        "finalDecision": {
+          "action": "hold",
+          "priceState": "NEUTRAL_ZONE",
+          "actionFamily": "neutral",
+          "breakdown": false,
+          "bearishEvidence": false,
+          "reasons": {
+            "supporting": [
+              "Trend remains constructive, but current price is between the opportunity and reduce zones."
+            ],
+            "limiting": []
+          },
+          "guardrails": []
+        },
+        "stability": {
+          "finalAction": "hold",
+          "allowedActions": [
+            "hold"
+          ],
+          "actionFamily": "neutral",
+          "heldPrevious": false,
+          "familyBoundaryOverride": false,
+          "material": false,
+          "materialChangeReasons": [],
+          "score": 76,
+          "firstObservation": true,
+          "persistence": {
+            "score": 76,
+            "available": true,
+            "components": {
+              "ma": 91,
+              "macd": 66,
+              "adx": 49,
+              "relativeStrength": 100
+            }
+          },
+          "previous": null,
+          "lastMaterialChange": "2026-10-02T04:26:51.292Z"
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 326.19,
+            "high": 364.61
+          },
+          "reduceRange": {
+            "low": 535.68,
+            "high": 573.54
+          },
+          "invalidation": 310.13,
+          "currentPrice": 512.8
+        },
+        "priceStateContract": {
+          "expected": "hold",
+          "valid": true
+        },
+        "supporting": [
+          "Relative Strength is confirming versus the selected benchmarks.",
+          "Primary moving-average structure is constructive.",
+          "Primary MACD structure supports the current upside direction.",
+          "OBV and volume participation are confirming accumulation.",
+          "Trend remains constructive, but current price is between the opportunity and reduce zones."
+        ],
+        "limiting": [
+          "10Y yield backdrop is restrictive for rate-sensitive risk."
+        ]
+      }
+    },
+    "NVDA": {
+      "status": "available",
+      "price": 230.86,
+      "short": {
+        "action": "hold",
+        "confidence": 77,
+        "direction": 30,
+        "confirmation": 62,
+        "risk": 0,
+        "priceOpportunity": -35,
+        "exhaustion": 0,
+        "marketRegime": "risk_on",
+        "candidateAction": "hold",
+        "finalAction": "hold",
+        "priceState": "IN_REDUCE_ZONE",
+        "actionFamily": "neutral",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 4.62,
+          "penalty": 0,
+          "neutralBuffer": 1.38,
+          "separation": 6.4,
+          "rebuilt": null
+        },
+        "stability": {
+          "score": 67,
+          "finalAction": "hold",
+          "source": "canonical_signal_persistence",
+          "identity": true
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 218.05,
+            "high": 227.07
+          },
+          "reduceRange": {
+            "low": 228.6,
+            "high": 237.62
+          },
+          "invalidation": 217.17,
+          "currentPrice": 230.86
+        },
+        "priceStateContract": {
+          "expected": "reduce_or_wait",
+          "valid": true
+        },
+        "supporting": [
+          {
+            "code": "primary_moving_average_structure_is_constructive",
+            "text": "Primary moving-average structure is constructive."
+          },
+          {
+            "code": "obv_and_volume_participation_are_confirming_accumulation",
+            "text": "OBV and volume participation are confirming accumulation."
+          }
+        ],
+        "limiting": [
+          {
+            "code": "v2_trend_resistance",
+            "text": "Resistance alone does not outweigh the continuing trend."
+          }
+        ]
+      },
+      "mid": {
+        "action": "hold",
+        "confidence": 70,
+        "direction": 63,
+        "confirmation": 69,
+        "risk": 10,
+        "priceOpportunity": 22,
+        "exhaustion": 15,
+        "marketRegime": "risk_on",
+        "candidateAction": "hold",
+        "finalAction": "hold",
+        "priceState": "NEAR_REDUCE_ZONE",
+        "actionFamily": "neutral",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 4.89,
+          "penalty": 0,
+          "neutralBuffer": 3.35,
+          "separation": 15.28,
+          "rebuilt": null
+        },
+        "finalDecision": {
+          "action": "hold",
+          "priceState": "NEAR_REDUCE_ZONE",
+          "actionFamily": "neutral",
+          "breakdown": false,
+          "bearishEvidence": false,
+          "reasons": {
+            "supporting": [],
+            "limiting": [
+              "Price is approaching the reduce range but has not entered the recommended reduce/exit zone."
+            ]
+          },
+          "guardrails": []
+        },
+        "stability": {
+          "finalAction": "hold",
+          "allowedActions": [
+            "hold"
+          ],
+          "actionFamily": "neutral",
+          "heldPrevious": false,
+          "familyBoundaryOverride": false,
+          "material": false,
+          "materialChangeReasons": [],
+          "score": 65,
+          "firstObservation": true,
+          "persistence": {
+            "score": 65,
+            "available": true,
+            "components": {
+              "ma": 91,
+              "macd": 59,
+              "adx": 7,
+              "relativeStrength": 82
+            }
+          },
+          "previous": null,
+          "lastMaterialChange": "2026-10-02T04:26:51.323Z"
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 207.25,
+            "high": 216.55
+          },
+          "reduceRange": {
+            "low": 231.83,
+            "high": 240.35
+          },
+          "invalidation": 199.38,
+          "currentPrice": 230.86
+        },
+        "priceStateContract": {
+          "expected": "hold",
+          "valid": true
+        },
+        "supporting": [
+          "Primary moving-average structure is constructive.",
+          "Primary MACD structure supports the current upside direction.",
+          "OBV and volume participation are confirming accumulation.",
+          "Relative Strength is confirming versus the selected benchmarks.",
+          "Several technical structures form nearby support confluence."
+        ],
+        "limiting": [
+          "Price is approaching the reduce range but has not entered the recommended reduce/exit zone.",
+          "10Y yield backdrop is restrictive for rate-sensitive risk."
+        ]
+      },
+      "long": {
+        "action": "hold",
+        "confidence": 74,
+        "direction": 48,
+        "confirmation": 70,
+        "risk": 10,
+        "priceOpportunity": 31,
+        "exhaustion": -2,
+        "marketRegime": "risk_on",
+        "candidateAction": "hold",
+        "finalAction": "hold",
+        "priceState": "NEUTRAL_ZONE",
+        "actionFamily": "neutral",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 3.13,
+          "penalty": 0,
+          "neutralBuffer": 13.51,
+          "separation": 58.72,
+          "rebuilt": null
+        },
+        "finalDecision": {
+          "action": "hold",
+          "priceState": "NEUTRAL_ZONE",
+          "actionFamily": "neutral",
+          "breakdown": false,
+          "bearishEvidence": false,
+          "reasons": {
+            "supporting": [
+              "Trend remains constructive, but current price is between the opportunity and reduce zones."
+            ],
+            "limiting": []
+          },
+          "guardrails": []
+        },
+        "stability": {
+          "finalAction": "hold",
+          "allowedActions": [
+            "hold"
+          ],
+          "actionFamily": "neutral",
+          "heldPrevious": false,
+          "familyBoundaryOverride": false,
+          "material": false,
+          "materialChangeReasons": [],
+          "score": 61,
+          "firstObservation": true,
+          "persistence": {
+            "score": 61,
+            "available": true,
+            "components": {
+              "ma": 91,
+              "macd": 30,
+              "adx": 31,
+              "relativeStrength": 83
+            }
+          },
+          "previous": null,
+          "lastMaterialChange": "2026-10-02T04:26:51.323Z"
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 187.49,
+            "high": 207.77
+          },
+          "reduceRange": {
+            "low": 266.49,
+            "high": 283.61
+          },
+          "invalidation": 169.37,
+          "currentPrice": 230.86
+        },
+        "priceStateContract": {
+          "expected": "hold",
+          "valid": true
+        },
+        "supporting": [
+          "Primary moving-average structure is constructive.",
+          "OBV and volume participation are confirming accumulation.",
+          "Primary MACD structure supports the current upside direction.",
+          "Relative Strength is confirming versus the selected benchmarks.",
+          "Several technical structures form nearby support confluence."
+        ],
+        "limiting": [
+          "10Y yield backdrop is restrictive for rate-sensitive risk."
+        ]
+      }
+    },
+    "MU": {
+      "status": "available",
+      "price": 1097.39,
+      "short": {
+        "action": "hold",
+        "confidence": 64,
+        "direction": 47,
+        "confirmation": 79,
+        "risk": 3,
+        "priceOpportunity": -35,
+        "exhaustion": -4,
+        "marketRegime": "risk_on",
+        "candidateAction": "hold",
+        "finalAction": "hold",
+        "priceState": "IN_REDUCE_ZONE",
+        "actionFamily": "neutral",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 4.57,
+          "penalty": 0,
+          "neutralBuffer": 10.47,
+          "separation": 17.31,
+          "rebuilt": null
+        },
+        "stability": {
+          "score": 73,
+          "finalAction": "hold",
+          "source": "canonical_signal_persistence",
+          "identity": true
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 1041.77,
+            "high": 1080.15
+          },
+          "reduceRange": {
+            "low": 1090.62,
+            "high": 1129
+          },
+          "invalidation": 1006.58,
+          "currentPrice": 1097.39
+        },
+        "priceStateContract": {
+          "expected": "reduce_or_wait",
+          "valid": true
+        },
+        "supporting": [
+          {
+            "code": "primary_moving_average_structure_is_constructive",
+            "text": "Primary moving-average structure is constructive."
+          },
+          {
+            "code": "relative_strength_is_confirming_versus_the_selected_benchmarks",
+            "text": "Relative Strength is confirming versus the selected benchmarks."
+          },
+          {
+            "code": "obv_and_volume_participation_are_confirming_accumulation",
+            "text": "OBV and volume participation are confirming accumulation."
+          }
+        ],
+        "limiting": [
+          {
+            "code": "v2_trend_resistance",
+            "text": "Resistance alone does not outweigh the continuing trend."
+          }
+        ]
+      },
+      "mid": {
+        "action": "hold",
+        "confidence": 75,
+        "direction": 58,
+        "confirmation": 74,
+        "risk": 12,
+        "priceOpportunity": 13,
+        "exhaustion": -11,
+        "marketRegime": "risk_on",
+        "candidateAction": "hold",
+        "finalAction": "hold",
+        "priceState": "NEUTRAL_ZONE",
+        "actionFamily": "neutral",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 3.99,
+          "penalty": 0,
+          "neutralBuffer": 28.01,
+          "separation": 159.03,
+          "rebuilt": null
+        },
+        "finalDecision": {
+          "action": "hold",
+          "priceState": "NEUTRAL_ZONE",
+          "actionFamily": "neutral",
+          "breakdown": false,
+          "bearishEvidence": false,
+          "reasons": {
+            "supporting": [
+              "Trend remains constructive, but current price is between the opportunity and reduce zones."
+            ],
+            "limiting": []
+          },
+          "guardrails": []
+        },
+        "stability": {
+          "finalAction": "hold",
+          "allowedActions": [
+            "hold"
+          ],
+          "actionFamily": "neutral",
+          "heldPrevious": false,
+          "familyBoundaryOverride": false,
+          "material": false,
+          "materialChangeReasons": [],
+          "score": 70,
+          "firstObservation": true,
+          "persistence": {
+            "score": 70,
+            "available": true,
+            "components": {
+              "ma": 91,
+              "macd": 56,
+              "adx": 34,
+              "relativeStrength": 86
+            }
+          },
+          "previous": null,
+          "lastMaterialChange": "2026-10-02T04:26:51.354Z"
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 980.35,
+            "high": 1053.15
+          },
+          "reduceRange": {
+            "low": 1212.18,
+            "high": 1281.4
+          },
+          "invalidation": 951.79,
+          "currentPrice": 1097.39
+        },
+        "priceStateContract": {
+          "expected": "hold",
+          "valid": true
+        },
+        "supporting": [
+          "Primary moving-average structure is constructive.",
+          "OBV and volume participation are confirming accumulation.",
+          "Primary MACD structure supports the current upside direction.",
+          "Relative Strength is confirming versus the selected benchmarks.",
+          "Trend remains constructive, but current price is between the opportunity and reduce zones."
+        ],
+        "limiting": [
+          "10Y yield backdrop is restrictive for rate-sensitive risk."
+        ]
+      },
+      "long": {
+        "action": "hold",
+        "confidence": 58,
+        "direction": 35,
+        "confirmation": 88,
+        "risk": 23,
+        "priceOpportunity": 22,
+        "exhaustion": 5,
+        "marketRegime": "risk_on",
+        "candidateAction": "hold",
+        "finalAction": "hold",
+        "priceState": "NEAR_OPPORTUNITY_ZONE",
+        "actionFamily": "neutral",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 4.92,
+          "penalty": 0,
+          "neutralBuffer": 97.4,
+          "separation": 144.1,
+          "rebuilt": null
+        },
+        "finalDecision": {
+          "action": "hold",
+          "priceState": "NEAR_OPPORTUNITY_ZONE",
+          "actionFamily": "neutral",
+          "breakdown": false,
+          "bearishEvidence": false,
+          "reasons": {
+            "supporting": [],
+            "limiting": [
+              "Price is near the opportunity range but has not entered the recommended buy/add zone."
+            ]
+          },
+          "guardrails": []
+        },
+        "stability": {
+          "finalAction": "hold",
+          "allowedActions": [
+            "hold"
+          ],
+          "actionFamily": "neutral",
+          "heldPrevious": false,
+          "familyBoundaryOverride": false,
+          "material": false,
+          "materialChangeReasons": [],
+          "score": 76,
+          "firstObservation": true,
+          "persistence": {
+            "score": 76,
+            "available": true,
+            "components": {
+              "ma": 91,
+              "macd": 49,
+              "adx": 76,
+              "relativeStrength": 100
+            }
+          },
+          "previous": null,
+          "lastMaterialChange": "2026-10-02T04:26:51.354Z"
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 930.55,
+            "high": 1062.23
+          },
+          "reduceRange": {
+            "low": 1206.33,
+            "high": 1338.01
+          },
+          "invalidation": 738.87,
+          "currentPrice": 1097.39
+        },
+        "priceStateContract": {
+          "expected": "hold",
+          "valid": true
+        },
+        "supporting": [
+          "Relative Strength is confirming versus the selected benchmarks.",
+          "Primary moving-average structure is constructive.",
+          "OBV and volume participation are confirming accumulation.",
+          "Several technical structures form nearby support confluence."
+        ],
+        "limiting": [
+          "Price is near the opportunity range but has not entered the recommended buy/add zone.",
+          "10Y yield backdrop is restrictive for rate-sensitive risk."
+        ]
+      }
+    },
+    "AMZN": {
+      "status": "available",
+      "price": 248.23,
+      "short": {
+        "action": "accumulate",
+        "confidence": 51,
+        "direction": -8,
+        "confirmation": 58,
+        "risk": 0,
+        "priceOpportunity": -23.24,
+        "exhaustion": 0,
+        "marketRegime": "risk_on",
+        "candidateAction": "accumulate",
+        "finalAction": "accumulate",
+        "priceState": "IN_OPPORTUNITY_ZONE",
+        "actionFamily": "opportunity",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 3.61,
+          "penalty": 0,
+          "neutralBuffer": 1.44,
+          "separation": 9.46,
+          "rebuilt": null
+        },
+        "stability": {
+          "score": 76,
+          "finalAction": "accumulate",
+          "source": "canonical_signal_persistence",
+          "identity": true
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 239.8,
+            "high": 249.02
+          },
+          "reduceRange": {
+            "low": 253.3,
+            "high": 262.52
+          },
+          "invalidation": 233.14,
+          "currentPrice": 248.23
+        },
+        "priceStateContract": {
+          "expected": "positive_or_wait",
+          "valid": true
+        },
+        "supporting": [
+          {
+            "code": "v2_entry",
+            "text": "Trend and participation support entry inside structural support."
+          },
+          {
+            "code": "obv_and_volume_participation_are_confirming_accumulation",
+            "text": "OBV and volume participation are confirming accumulation."
+          }
+        ],
+        "limiting": [
+          {
+            "code": "primary_moving_average_structure_remains_bearish",
+            "text": "Primary moving-average structure remains bearish."
+          }
+        ]
+      },
+      "mid": {
+        "action": "accumulate",
+        "confidence": 65,
+        "direction": -31,
+        "confirmation": 57,
+        "risk": 8,
+        "priceOpportunity": -18,
+        "exhaustion": -7,
+        "marketRegime": "risk_on",
+        "candidateAction": "accumulate",
+        "finalAction": "accumulate",
+        "priceState": "IN_OPPORTUNITY_ZONE",
+        "actionFamily": "opportunity",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 3.52,
+          "penalty": 0,
+          "neutralBuffer": 3.4,
+          "separation": 6.22,
+          "rebuilt": null
+        },
+        "finalDecision": {
+          "action": "accumulate",
+          "priceState": "IN_OPPORTUNITY_ZONE",
+          "actionFamily": "opportunity",
+          "breakdown": false,
+          "bearishEvidence": false,
+          "reasons": {
+            "supporting": [],
+            "limiting": []
+          },
+          "guardrails": []
+        },
+        "stability": {
+          "finalAction": "accumulate",
+          "allowedActions": [
+            "strong_buy",
+            "buy",
+            "accumulate"
+          ],
+          "actionFamily": "opportunity",
+          "heldPrevious": false,
+          "familyBoundaryOverride": false,
+          "material": false,
+          "materialChangeReasons": [],
+          "score": 56,
+          "firstObservation": true,
+          "persistence": {
+            "score": 56,
+            "available": true,
+            "components": {
+              "ma": 91,
+              "macd": 34,
+              "adx": 7,
+              "relativeStrength": 73
+            }
+          },
+          "previous": null,
+          "lastMaterialChange": "2026-10-02T04:26:51.383Z"
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 241.11,
+            "high": 249.09
+          },
+          "reduceRange": {
+            "low": 255.31,
+            "high": 264.15
+          },
+          "invalidation": 235.4,
+          "currentPrice": 248.23
+        },
+        "priceStateContract": {
+          "expected": "positive",
+          "valid": true
+        },
+        "supporting": [],
+        "limiting": [
+          "OBV or price-volume behavior indicates distribution.",
+          "Primary MACD structure still confirms downside momentum.",
+          "Primary moving-average structure remains bearish.",
+          "10Y yield backdrop is restrictive for rate-sensitive risk."
+        ]
+      },
+      "long": {
+        "action": "hold",
+        "confidence": 39,
+        "direction": 5,
+        "confirmation": 40,
+        "risk": 10,
+        "priceOpportunity": -10,
+        "exhaustion": -44,
+        "marketRegime": "risk_on",
+        "candidateAction": "hold",
+        "finalAction": "hold",
+        "priceState": "NEAR_OPPORTUNITY_ZONE",
+        "actionFamily": "neutral",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 5.55,
+          "penalty": 0,
+          "neutralBuffer": 12.52,
+          "separation": 28.1,
+          "rebuilt": null
+        },
+        "finalDecision": {
+          "action": "hold",
+          "priceState": "NEAR_OPPORTUNITY_ZONE",
+          "actionFamily": "neutral",
+          "breakdown": false,
+          "bearishEvidence": false,
+          "reasons": {
+            "supporting": [],
+            "limiting": [
+              "Price is near the opportunity range but has not entered the recommended buy/add zone."
+            ]
+          },
+          "guardrails": []
+        },
+        "stability": {
+          "finalAction": "hold",
+          "allowedActions": [
+            "hold"
+          ],
+          "actionFamily": "neutral",
+          "heldPrevious": false,
+          "familyBoundaryOverride": false,
+          "material": false,
+          "materialChangeReasons": [],
+          "score": 52,
+          "firstObservation": true,
+          "persistence": {
+            "score": 52,
+            "available": true,
+            "components": {
+              "ma": 31,
+              "macd": 89,
+              "adx": 7,
+              "relativeStrength": 77
+            }
+          },
+          "previous": null,
+          "lastMaterialChange": "2026-10-02T04:26:51.384Z"
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 226.64,
+            "high": 247
+          },
+          "reduceRange": {
+            "low": 275.1,
+            "high": 296.22
+          },
+          "invalidation": 215.46,
+          "currentPrice": 248.23
+        },
+        "priceStateContract": {
+          "expected": "hold",
+          "valid": true
+        },
+        "supporting": [
+          "Primary moving-average structure is constructive."
+        ],
+        "limiting": [
+          "OBV or price-volume behavior indicates distribution.",
+          "Primary MACD structure still confirms downside momentum.",
+          "Upside is extended and marginal momentum/participation is weakening.",
+          "Price is near the opportunity range but has not entered the recommended buy/add zone.",
+          "10Y yield backdrop is restrictive for rate-sensitive risk."
+        ]
+      }
+    },
+    "GOOGL": {
+      "status": "available",
+      "price": 338.24,
+      "short": {
+        "action": "hold",
+        "confidence": 74,
+        "direction": -32,
+        "confirmation": 68,
+        "risk": 11,
+        "priceOpportunity": 10.2,
+        "exhaustion": 0,
+        "marketRegime": "risk_on",
+        "candidateAction": "hold",
+        "finalAction": "hold",
+        "priceState": "IN_OPPORTUNITY_ZONE",
+        "actionFamily": "neutral",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 4.21,
+          "penalty": 0,
+          "neutralBuffer": 2.51,
+          "separation": 16.78,
+          "rebuilt": null
+        },
+        "stability": {
+          "score": 70,
+          "finalAction": "hold",
+          "source": "canonical_signal_persistence",
+          "identity": true
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 328.57,
+            "high": 344.93
+          },
+          "reduceRange": {
+            "low": 352.77,
+            "high": 369.13
+          },
+          "invalidation": 326.99,
+          "currentPrice": 338.24
+        },
+        "priceStateContract": {
+          "expected": "positive_or_wait",
+          "valid": true
+        },
+        "supporting": [],
+        "limiting": [
+          {
+            "code": "v2_entry_unconfirmed",
+            "text": "Support location is suitable but entry evidence is insufficient."
+          },
+          {
+            "code": "primary_moving_average_structure_remains_bearish",
+            "text": "Primary moving-average structure remains bearish."
+          }
+        ]
+      },
+      "mid": {
+        "action": "accumulate",
+        "confidence": 67,
+        "direction": -46,
+        "confirmation": 53,
+        "risk": 9,
+        "priceOpportunity": -6,
+        "exhaustion": 0,
+        "marketRegime": "risk_on",
+        "candidateAction": "accumulate",
+        "finalAction": "accumulate",
+        "priceState": "IN_OPPORTUNITY_ZONE",
+        "actionFamily": "opportunity",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 4.84,
+          "penalty": 0,
+          "neutralBuffer": 5.25,
+          "separation": 59.65,
+          "rebuilt": null
+        },
+        "finalDecision": {
+          "action": "accumulate",
+          "priceState": "IN_OPPORTUNITY_ZONE",
+          "actionFamily": "opportunity",
+          "breakdown": false,
+          "bearishEvidence": false,
+          "reasons": {
+            "supporting": [],
+            "limiting": []
+          },
+          "guardrails": []
+        },
+        "stability": {
+          "finalAction": "accumulate",
+          "allowedActions": [
+            "strong_buy",
+            "buy",
+            "accumulate"
+          ],
+          "actionFamily": "opportunity",
+          "heldPrevious": false,
+          "familyBoundaryOverride": false,
+          "material": false,
+          "materialChangeReasons": [],
+          "score": 76,
+          "firstObservation": true,
+          "persistence": {
+            "score": 76,
+            "available": true,
+            "components": {
+              "ma": 91,
+              "macd": 84,
+              "adx": 36,
+              "relativeStrength": 79
+            }
+          },
+          "previous": null,
+          "lastMaterialChange": "2026-10-02T04:26:51.433Z"
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 327.42,
+            "high": 341.68
+          },
+          "reduceRange": {
+            "low": 401.33,
+            "high": 415.89
+          },
+          "invalidation": 311.26,
+          "currentPrice": 338.24
+        },
+        "priceStateContract": {
+          "expected": "positive",
+          "valid": true
+        },
+        "supporting": [
+          "OBV and volume participation are confirming accumulation."
+        ],
+        "limiting": [
+          "Primary MACD structure still confirms downside momentum.",
+          "Primary moving-average structure remains bearish.",
+          "Relative Strength is lagging its relevant benchmarks.",
+          "10Y yield backdrop is restrictive for rate-sensitive risk."
+        ]
+      },
+      "long": {
+        "action": "accumulate",
+        "confidence": 62,
+        "direction": -11,
+        "confirmation": 59,
+        "risk": 14,
+        "priceOpportunity": 0,
+        "exhaustion": 2,
+        "marketRegime": "risk_on",
+        "candidateAction": "accumulate",
+        "finalAction": "accumulate",
+        "priceState": "IN_OPPORTUNITY_ZONE",
+        "actionFamily": "opportunity",
+        "landscapeQuality": {
+          "state": "high",
+          "score": 5.94,
+          "penalty": 0,
+          "neutralBuffer": 17.57,
+          "separation": 49.66,
+          "rebuilt": null
+        },
+        "finalDecision": {
+          "action": "accumulate",
+          "priceState": "IN_OPPORTUNITY_ZONE",
+          "actionFamily": "opportunity",
+          "breakdown": false,
+          "bearishEvidence": false,
+          "reasons": {
+            "supporting": [],
+            "limiting": []
+          },
+          "guardrails": []
+        },
+        "stability": {
+          "finalAction": "accumulate",
+          "allowedActions": [
+            "strong_buy",
+            "buy",
+            "accumulate"
+          ],
+          "actionFamily": "opportunity",
+          "heldPrevious": false,
+          "familyBoundaryOverride": false,
+          "material": false,
+          "materialChangeReasons": [],
+          "score": 44,
+          "firstObservation": true,
+          "persistence": {
+            "score": 44,
+            "available": true,
+            "components": {
+              "ma": 31,
+              "macd": 46,
+              "adx": 37,
+              "relativeStrength": 73
+            }
+          },
+          "previous": null,
+          "lastMaterialChange": "2026-10-02T04:26:51.433Z"
+        },
+        "priceLandscape": {
+          "opportunityRange": {
+            "low": 313.86,
+            "high": 343.92
+          },
+          "reduceRange": {
+            "low": 393.58,
+            "high": 423.64
+          },
+          "invalidation": 293.18,
+          "currentPrice": 338.24
+        },
+        "priceStateContract": {
+          "expected": "positive",
+          "valid": true
+        },
+        "supporting": [],
+        "limiting": [
+          "OBV or price-volume behavior indicates distribution.",
+          "10Y yield backdrop is restrictive for rate-sensitive risk."
+        ]
+      }
+    }
+  }
+}

@@ -4,9 +4,14 @@ __pycache__/
 .env
 data/
 *.db
-历史记录/*.sqlite
-历史记录/*.sqlite-*
+*.sqlite
+*.sqlite-*
 历史记录/导出/
 node_modules/
 .venv/
 watchlist.shared.json
+# Local, reproducible audit detail. Compact summaries and review tables remain deliverable.
+docs/final-model-*/replay-rows.jsonl
+docs/final-model-*/current-data/field-inventory.csv
+docs/final-model-*/previous-data/field-inventory.csv
+docs/final-model-*/离线复现材料.zip

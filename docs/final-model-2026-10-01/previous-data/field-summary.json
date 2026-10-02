@@ -1,0 +1,6266 @@
+{
+  "tickers": 22,
+  "fields": 39426,
+  "scope": "current returned source bars; legitimate missing stays missing; no historical raw reconstruction",
+  "by_status": {
+    "categorical": 16821,
+    "numeric": 18030,
+    "triggered_true": 2010,
+    "normal_false": 1650,
+    "not_recorded": 544,
+    "insufficient_history": 156,
+    "normal_zero": 121,
+    "insufficient_metadata": 45,
+    "not_applicable": 34,
+    "dependency_unavailable": 15
+  },
+  "tickers_detail": [
+    {
+      "ticker": "AAPL",
+      "as_of": "2026-09-14T18:28:54Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:19.913Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:19.913Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:19.913Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:19.913Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Consumer Technology",
+        "businessTrait": "CashCow",
+        "riskTrait": null,
+        "companyTraits": [
+          "CashCow"
+        ],
+        "lifecycle": "EstablishedLeader",
+        "sizeClass": "MegaCap",
+        "profileStatus": "incomplete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:consumer_technology"
+          ],
+          "businessTrait": [
+            "market_cap:4879825240064",
+            "profit_margin:0.2762",
+            "revenue_growth:0.164"
+          ],
+          "riskTrait": [],
+          "lifecycle": [
+            "market_cap:4879825240064",
+            "profit_margin:0.2762"
+          ],
+          "sizeClass": [
+            "market_cap:4879825240064"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "insufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 5.029699103801817,
+          "percentiles": {
+            "60": {
+              "value": 46.666666666666664,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 23.333333333333332,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 7.768856498954842,
+          "percentiles": {
+            "60": {
+              "value": 11.666666666666666,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 45,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 65.2,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 18.05550233299763,
+          "percentiles": {
+            "60": {
+              "value": 81.66666666666667,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 72.73524033432196,
+            "d": 73.80895974498628,
+            "j": 70.58780151299331,
+            "overbought": false,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 84.21970317426471,
+            "d": 71.97367169001872,
+            "j": 108.71176614275669,
+            "overbought": true,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 76.0208376985654,
+            "d": 67.2059361446453,
+            "j": 93.65064080640559,
+            "overbought": true,
+            "oversold": false
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "AMD",
+      "as_of": "2026-09-14T18:28:53Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:19.970Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:19.970Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:19.970Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:19.970Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Semiconductors",
+        "businessTrait": "HighGrowth",
+        "riskTrait": "HighVolatility",
+        "companyTraits": [
+          "HighGrowth",
+          "HighVolatility"
+        ],
+        "lifecycle": "EstablishedLeader",
+        "sizeClass": "MegaCap",
+        "profileStatus": "complete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:semiconductors"
+          ],
+          "businessTrait": [
+            "revenue_growth:0.501",
+            "market_cap:810850385920",
+            "profit_margin:0.1558"
+          ],
+          "riskTrait": [
+            "beta:2.476"
+          ],
+          "lifecycle": [
+            "market_cap:810850385920",
+            "profit_margin:0.1558"
+          ],
+          "sizeClass": [
+            "market_cap:810850385920"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "sufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 13.947193053787464,
+          "percentiles": {
+            "60": {
+              "value": 23.333333333333332,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 11.666666666666666,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 23.58165082987022,
+          "percentiles": {
+            "60": {
+              "value": 10,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 24.166666666666668,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 34,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 57.86318851167348,
+          "percentiles": {
+            "60": {
+              "value": 71.66666666666667,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 39.723895805961966,
+            "d": 43.42001210660396,
+            "j": 32.331663204677966,
+            "overbought": false,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 54.85923298382732,
+            "d": 68.37990802407121,
+            "j": 27.817882903339523,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 72.96130484527436,
+            "d": 67.55334719509283,
+            "j": 83.77722014563741,
+            "overbought": true,
+            "oversold": false
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "AMZN",
+      "as_of": "2026-09-14T18:28:53Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:19.986Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:19.986Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:19.986Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:19.986Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "E-Commerce",
+        "businessTrait": "MarketLeader",
+        "riskTrait": "MacroSensitive",
+        "companyTraits": [
+          "MarketLeader",
+          "MacroSensitive"
+        ],
+        "lifecycle": "EstablishedLeader",
+        "sizeClass": "MegaCap",
+        "profileStatus": "complete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:ecommerce"
+          ],
+          "businessTrait": [
+            "market_cap:2751589515264",
+            "profit_margin:0.1744"
+          ],
+          "riskTrait": [
+            "primary:E-Commerce"
+          ],
+          "lifecycle": [
+            "market_cap:2751589515264",
+            "profit_margin:0.1744",
+            "business:MarketLeader"
+          ],
+          "sizeClass": [
+            "market_cap:2751589515264"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "sufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 3.492158596259921,
+          "percentiles": {
+            "60": {
+              "value": 3.3333333333333335,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 1.6666666666666667,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 6.209678095976893,
+          "percentiles": {
+            "60": {
+              "value": 3.3333333333333335,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 2.5,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 26,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 16.509594841420043,
+          "percentiles": {
+            "60": {
+              "value": 60,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 56.56804037642717,
+            "d": 58.79260216102827,
+            "j": 52.11891680722496,
+            "overbought": false,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 59.165036654318,
+            "d": 49.282622358993166,
+            "j": 78.92986524496769,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 36.711294105536425,
+            "d": 32.071325646047214,
+            "j": 45.991231024514846,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "BABA",
+      "as_of": "2026-09-14T18:28:44Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.001Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.001Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.001Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.001Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "E-Commerce",
+        "businessTrait": "MatureGrowth",
+        "riskTrait": "MacroSensitive",
+        "companyTraits": [
+          "MatureGrowth",
+          "MacroSensitive"
+        ],
+        "lifecycle": null,
+        "sizeClass": "MegaCap",
+        "profileStatus": "incomplete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:ecommerce"
+          ],
+          "businessTrait": [
+            "market_cap:272474062848",
+            "revenue_growth:0.086"
+          ],
+          "riskTrait": [
+            "primary:E-Commerce"
+          ],
+          "lifecycle": [],
+          "sizeClass": [
+            "market_cap:272474062848"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "sufficient",
+          "lifecycle": "insufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 1.662600414058336,
+          "percentiles": {
+            "60": {
+              "value": 1.6666666666666667,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 0.8333333333333334,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 3.216722879129372,
+          "percentiles": {
+            "60": {
+              "value": 5,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 3.3333333333333335,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 4.3999999999999995,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 10.601293116348534,
+          "percentiles": {
+            "60": {
+              "value": 78.33333333333333,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 67.82776853612422,
+            "d": 59.094852525078274,
+            "j": 85.29360055821614,
+            "overbought": true,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 32.39164047438488,
+            "d": 30.069519352795744,
+            "j": 37.035882717563155,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 19.250136850481383,
+            "d": 15.806740665821813,
+            "j": 26.13692921980052,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "CRCL",
+      "as_of": "2026-09-14T18:28:50Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.013Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.013Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 320,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2025-06-05",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.013Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 320,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 67,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2025-06-06",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.013Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Capital Markets",
+        "businessTrait": "MatureGrowth",
+        "riskTrait": "InterestRateSensitive",
+        "companyTraits": [
+          "MatureGrowth",
+          "InterestRateSensitive"
+        ],
+        "lifecycle": null,
+        "sizeClass": "NonMegaCap",
+        "profileStatus": "incomplete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:capital_markets"
+          ],
+          "businessTrait": [
+            "revenue_growth:0.066",
+            "profit_margin:0.1553"
+          ],
+          "riskTrait": [
+            "primary:Capital Markets"
+          ],
+          "lifecycle": [],
+          "sizeClass": [
+            "market_cap:26119966720"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "sufficient",
+          "lifecycle": "insufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 3.8872700800702935,
+          "percentiles": {
+            "60": {
+              "value": 1.6666666666666667,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 0.8333333333333334,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 320,
+          "observations": 307,
+          "value": 6.3908162481034845,
+          "percentiles": {
+            "60": {
+              "value": 18.333333333333332,
+              "reason": null,
+              "available": 307,
+              "required": 60
+            },
+            "120": {
+              "value": 9.166666666666666,
+              "reason": null,
+              "available": 307,
+              "required": 120
+            },
+            "250": {
+              "value": 12,
+              "reason": null,
+              "available": 307,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 67,
+          "observations": 54,
+          "value": 16.041897946815244,
+          "percentiles": {
+            "60": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 54,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 54,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 54,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 70.14203053625084,
+            "d": 54.43239724449132,
+            "j": 101.56129711976989,
+            "overbought": true,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 45.41836327746516,
+            "d": 37.96772978385138,
+            "j": 60.319630264692705,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 320,
+            "required": 12,
+            "k": 47.52483855636552,
+            "d": 54.081722238917266,
+            "j": 34.41107119126204,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "FFAI",
+      "as_of": "2026-09-14T18:27:32Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.023Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.023Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.023Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.023Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Consumer Discretionary",
+        "businessTrait": "EmergingGrowth",
+        "riskTrait": "MacroSensitive",
+        "companyTraits": [
+          "EmergingGrowth",
+          "MacroSensitive"
+        ],
+        "lifecycle": "Scaling",
+        "sizeClass": "NonMegaCap",
+        "profileStatus": "complete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:consumer_discretionary"
+          ],
+          "businessTrait": [
+            "market_cap:6399799",
+            "revenue_growth:14.481",
+            "profit_margin:0"
+          ],
+          "riskTrait": [
+            "primary:Consumer Discretionary"
+          ],
+          "lifecycle": [
+            "revenue_growth:14.481",
+            "market_cap:6399799"
+          ],
+          "sizeClass": [
+            "market_cap:6399799"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "sufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 0.15881708977114897,
+          "percentiles": {
+            "60": {
+              "value": 1.6666666666666667,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 25.833333333333336,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 0.653937566817757,
+          "percentiles": {
+            "60": {
+              "value": 40,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 70,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 85.6,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 12.547832568254785,
+          "percentiles": {
+            "60": {
+              "value": 100,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 34.901592418961805,
+            "d": 29.18760014142303,
+            "j": 46.32957697403936,
+            "overbought": false,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 22.54886260235401,
+            "d": 20.229478110002727,
+            "j": 27.18763158705658,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 8.224390526745143,
+            "d": 6.57653172610407,
+            "j": 11.520108128027289,
+            "overbought": false,
+            "oversold": true
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "GOOGL",
+      "as_of": "2026-09-14T18:28:54Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.040Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.040Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.040Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.040Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Internet Platforms",
+        "businessTrait": "CashCow",
+        "riskTrait": null,
+        "companyTraits": [
+          "CashCow"
+        ],
+        "lifecycle": "EstablishedLeader",
+        "sizeClass": "MegaCap",
+        "profileStatus": "incomplete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:internet_platform"
+          ],
+          "businessTrait": [
+            "market_cap:4252226289664",
+            "profit_margin:0.5477"
+          ],
+          "riskTrait": [],
+          "lifecycle": [
+            "market_cap:4252226289664",
+            "profit_margin:0.5477"
+          ],
+          "sizeClass": [
+            "market_cap:4252226289664"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "insufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 4.975797010495347,
+          "percentiles": {
+            "60": {
+              "value": 43.333333333333336,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 21.666666666666668,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 8.386126779275283,
+          "percentiles": {
+            "60": {
+              "value": 10,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 14.166666666666666,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 27.200000000000003,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 22.5441265347959,
+          "percentiles": {
+            "60": {
+              "value": 83.33333333333334,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 84.88095893409316,
+            "d": 82.10032156502744,
+            "j": 90.4422336722246,
+            "overbought": true,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 76.56043739063713,
+            "d": 60.47683731779433,
+            "j": 108.72763753632275,
+            "overbought": true,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 55.346041948588415,
+            "d": 39.6942787935946,
+            "j": 86.64956825857605,
+            "overbought": true,
+            "oversold": false
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "HIMS",
+      "as_of": "2026-09-14T18:28:48Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.054Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.054Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.054Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.054Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Pharmaceuticals",
+        "businessTrait": "EmergingGrowth",
+        "riskTrait": "RegulatoryRisk",
+        "companyTraits": [
+          "EmergingGrowth",
+          "RegulatoryRisk"
+        ],
+        "lifecycle": "Scaling",
+        "sizeClass": "NonMegaCap",
+        "profileStatus": "complete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:pharmaceuticals"
+          ],
+          "businessTrait": [
+            "market_cap:6771921408",
+            "revenue_growth:0.382",
+            "profit_margin:-0.0551"
+          ],
+          "riskTrait": [
+            "primary:Pharmaceuticals"
+          ],
+          "lifecycle": [
+            "revenue_growth:0.382",
+            "market_cap:6771921408"
+          ],
+          "sizeClass": [
+            "market_cap:6771921408"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "sufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 0.9560567955278522,
+          "percentiles": {
+            "60": {
+              "value": 3.3333333333333335,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 1.6666666666666667,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 1.7833525780726778,
+          "percentiles": {
+            "60": {
+              "value": 1.6666666666666667,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 0.8333333333333334,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 14.399999999999999,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 5.1206654851595115,
+          "percentiles": {
+            "60": {
+              "value": 26.666666666666668,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 84.58495911661623,
+            "d": 77.90644948465894,
+            "j": 97.94197838053083,
+            "overbought": true,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 65.23748194133422,
+            "d": 46.66561822267757,
+            "j": 102.38120937864751,
+            "overbought": true,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 35.07098756710737,
+            "d": 22.238705330945155,
+            "j": 60.7355520394318,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "META",
+      "as_of": "2026-09-14T18:28:56Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.067Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.067Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.067Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.067Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Internet Platforms",
+        "businessTrait": "HighGrowth",
+        "riskTrait": null,
+        "companyTraits": [
+          "HighGrowth"
+        ],
+        "lifecycle": "EstablishedLeader",
+        "sizeClass": "MegaCap",
+        "profileStatus": "incomplete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:internet_platform"
+          ],
+          "businessTrait": [
+            "revenue_growth:0.28",
+            "market_cap:1701925224448",
+            "profit_margin:0.2983"
+          ],
+          "riskTrait": [],
+          "lifecycle": [
+            "market_cap:1701925224448",
+            "profit_margin:0.2983"
+          ],
+          "sizeClass": [
+            "market_cap:1701925224448"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "insufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 13.574922701935437,
+          "percentiles": {
+            "60": {
+              "value": 11.666666666666666,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 5.833333333333333,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 21.310631936041943,
+          "percentiles": {
+            "60": {
+              "value": 1.6666666666666667,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 28.333333333333332,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 53.6,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 54.12020214704659,
+          "percentiles": {
+            "60": {
+              "value": 76.66666666666667,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 79.02779892901927,
+            "d": 61.65622759334728,
+            "j": 113.77094160036324,
+            "overbought": true,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 88.71309368156719,
+            "d": 83.57347028742852,
+            "j": 98.99234046984449,
+            "overbought": true,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 90.16512885195088,
+            "d": 85.20331576887118,
+            "j": 100.08875501811028,
+            "overbought": true,
+            "oversold": false
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "MPT",
+      "as_of": "2026-09-14T18:28:53Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.080Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.080Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.080Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.080Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Real Estate",
+        "businessTrait": null,
+        "riskTrait": "InterestRateSensitive",
+        "companyTraits": [
+          "InterestRateSensitive"
+        ],
+        "lifecycle": null,
+        "sizeClass": "NonMegaCap",
+        "profileStatus": "incomplete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "sector:real_estate"
+          ],
+          "businessTrait": [],
+          "riskTrait": [
+            "primary:Real Estate"
+          ],
+          "lifecycle": [],
+          "sizeClass": [
+            "market_cap:2149920000"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "insufficient",
+          "riskTrait": "sufficient",
+          "lifecycle": "insufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 0.08269072356527676,
+          "percentiles": {
+            "60": {
+              "value": 56.666666666666664,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 73.33333333333333,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 0.1317892844054108,
+          "percentiles": {
+            "60": {
+              "value": 80,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 82.5,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 84,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 0.33188937083472136,
+          "percentiles": {
+            "60": {
+              "value": 86.66666666666667,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 21.671313066292505,
+            "d": 21.54416951091709,
+            "j": 21.925600177043343,
+            "overbought": false,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 9.847752391887415,
+            "d": 13.368178491559364,
+            "j": 2.806900192543516,
+            "overbought": false,
+            "oversold": true
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 12.942520731971925,
+            "d": 23.304762483659612,
+            "j": -7.78196277140345,
+            "overbought": false,
+            "oversold": true
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "MSFT",
+      "as_of": "2026-09-14T18:28:54Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.092Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.092Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.092Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.092Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Enterprise Software",
+        "businessTrait": "CashCow",
+        "riskTrait": null,
+        "companyTraits": [
+          "CashCow"
+        ],
+        "lifecycle": "EstablishedLeader",
+        "sizeClass": "MegaCap",
+        "profileStatus": "incomplete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:enterprise_software"
+          ],
+          "businessTrait": [
+            "market_cap:3769726926848",
+            "profit_margin:0.4031",
+            "revenue_growth:0.177"
+          ],
+          "riskTrait": [],
+          "lifecycle": [
+            "market_cap:3769726926848",
+            "profit_margin:0.4031"
+          ],
+          "sizeClass": [
+            "market_cap:3769726926848"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "insufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 6.471696462187829,
+          "percentiles": {
+            "60": {
+              "value": 3.3333333333333335,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 1.6666666666666667,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 10.942984231134517,
+          "percentiles": {
+            "60": {
+              "value": 3.3333333333333335,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 1.6666666666666667,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 33.6,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 29.776919831545303,
+          "percentiles": {
+            "60": {
+              "value": 53.333333333333336,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 87.9391618452623,
+            "d": 82.74903484078133,
+            "j": 98.31941585422422,
+            "overbought": true,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 69.16376278256519,
+            "d": 48.550013547088774,
+            "j": 110.39126125351801,
+            "overbought": true,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 44.58348318392694,
+            "d": 40.740329197716015,
+            "j": 52.269791156348774,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "NFLX",
+      "as_of": "2026-09-14T18:28:51Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.104Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.104Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.104Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.104Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Media & Entertainment",
+        "businessTrait": "CashCow",
+        "riskTrait": "HighVolatility",
+        "companyTraits": [
+          "CashCow",
+          "HighVolatility"
+        ],
+        "lifecycle": "EstablishedLeader",
+        "sizeClass": "MegaCap",
+        "profileStatus": "complete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:media_entertainment"
+          ],
+          "businessTrait": [
+            "market_cap:336363028480",
+            "profit_margin:0.2822",
+            "revenue_growth:0.134"
+          ],
+          "riskTrait": [
+            "beta:1.526"
+          ],
+          "lifecycle": [
+            "market_cap:336363028480",
+            "profit_margin:0.2822"
+          ],
+          "sizeClass": [
+            "market_cap:336363028480"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "sufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 1.346174211181365,
+          "percentiles": {
+            "60": {
+              "value": 3.3333333333333335,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 1.6666666666666667,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 2.268828255211875,
+          "percentiles": {
+            "60": {
+              "value": 13.333333333333334,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 22.5,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 32.800000000000004,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 5.525185138584292,
+          "percentiles": {
+            "60": {
+              "value": 38.333333333333336,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 93.69172019616383,
+            "d": 92.17264109533726,
+            "j": 96.72987839781698,
+            "overbought": true,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 66.16515270219169,
+            "d": 42.805321637007076,
+            "j": 112.88481483256093,
+            "overbought": true,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 37.931361147957595,
+            "d": 35.044541808982615,
+            "j": 43.70499982590755,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "NOW",
+      "as_of": "2026-09-14T18:28:52Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.116Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.116Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.116Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.116Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Enterprise Software",
+        "businessTrait": "HighGrowth",
+        "riskTrait": null,
+        "companyTraits": [
+          "HighGrowth"
+        ],
+        "lifecycle": "Scaling",
+        "sizeClass": "NonMegaCap",
+        "profileStatus": "incomplete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:enterprise_software"
+          ],
+          "businessTrait": [
+            "revenue_growth:0.24",
+            "market_cap:147077201920",
+            "profit_margin:0.1134"
+          ],
+          "riskTrait": [],
+          "lifecycle": [
+            "revenue_growth:0.24",
+            "market_cap:147077201920"
+          ],
+          "sizeClass": [
+            "market_cap:147077201920"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "insufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 3.9855906543437767,
+          "percentiles": {
+            "60": {
+              "value": 10,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 5,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 6.666565545195363,
+          "percentiles": {
+            "60": {
+              "value": 13.333333333333334,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 6.666666666666667,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 45.2,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 14.510762722089284,
+          "percentiles": {
+            "60": {
+              "value": 53.333333333333336,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 87.90545591542399,
+            "d": 76.80974540653456,
+            "j": 110.09687693320282,
+            "overbought": true,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 59.109763135999245,
+            "d": 35.529861335373425,
+            "j": 106.2695667372509,
+            "overbought": true,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 39.992577384977935,
+            "d": 42.156568641713214,
+            "j": 35.664594871507376,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "NVDA",
+      "as_of": "2026-09-14T18:28:52Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.129Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.129Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.129Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.129Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Semiconductors",
+        "businessTrait": "HighGrowth",
+        "riskTrait": "HighVolatility",
+        "companyTraits": [
+          "HighGrowth",
+          "HighVolatility"
+        ],
+        "lifecycle": "EstablishedLeader",
+        "sizeClass": "MegaCap",
+        "profileStatus": "complete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:semiconductors"
+          ],
+          "businessTrait": [
+            "revenue_growth:1.059",
+            "market_cap:5121134559232",
+            "profit_margin:0.6366"
+          ],
+          "riskTrait": [
+            "beta:2.217"
+          ],
+          "lifecycle": [
+            "market_cap:5121134559232",
+            "profit_margin:0.6366"
+          ],
+          "sizeClass": [
+            "market_cap:5121134559232"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "sufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 4.177904501777552,
+          "percentiles": {
+            "60": {
+              "value": 38.333333333333336,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 19.166666666666668,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 7.043831573719837,
+          "percentiles": {
+            "60": {
+              "value": 30,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 42.5,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 50.4,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 16.750640279813286,
+          "percentiles": {
+            "60": {
+              "value": 75,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 26.011619599139195,
+            "d": 24.894304642643316,
+            "j": 28.24624951213095,
+            "overbought": false,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 15.358476138270856,
+            "d": 19.271740197158827,
+            "j": 7.531948020494909,
+            "overbought": false,
+            "oversold": true
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 28.25071014693968,
+            "d": 42.87265054322586,
+            "j": -0.9931706456326737,
+            "overbought": false,
+            "oversold": true
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "PLTR",
+      "as_of": "2026-09-14T18:28:55Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.141Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.141Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.141Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.141Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Enterprise Software",
+        "businessTrait": "HighGrowth",
+        "riskTrait": "HighVolatility",
+        "companyTraits": [
+          "HighGrowth",
+          "HighVolatility"
+        ],
+        "lifecycle": "EstablishedLeader",
+        "sizeClass": "MegaCap",
+        "profileStatus": "complete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:enterprise_software"
+          ],
+          "businessTrait": [
+            "revenue_growth:0.928",
+            "market_cap:415116328960",
+            "profit_margin:0.4901"
+          ],
+          "riskTrait": [
+            "beta:1.621"
+          ],
+          "lifecycle": [
+            "market_cap:415116328960",
+            "profit_margin:0.4901"
+          ],
+          "sizeClass": [
+            "market_cap:415116328960"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "sufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 4.173025707353992,
+          "percentiles": {
+            "60": {
+              "value": 3.3333333333333335,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 1.6666666666666667,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 7.423794727628331,
+          "percentiles": {
+            "60": {
+              "value": 8.333333333333332,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 10.833333333333334,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 27.200000000000003,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 18.12674557339614,
+          "percentiles": {
+            "60": {
+              "value": 46.666666666666664,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 82.01114930928446,
+            "d": 71.34830850618145,
+            "j": 103.33683091549048,
+            "overbought": true,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 54.651787091436674,
+            "d": 35.33317455188233,
+            "j": 93.28901217054535,
+            "overbought": true,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 25.76681834586322,
+            "d": 30.716484149119726,
+            "j": 15.86748673935022,
+            "overbought": false,
+            "oversold": true
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "as_of": "2026-09-14T18:29:00Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "ETF",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.155Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.155Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.155Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.155Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "etf",
+        "isETF": true,
+        "leveraged": false,
+        "direction": "long",
+        "underlying": "Nasdaq-100",
+        "underlyingTicker": "QQQ"
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 5.265257197453879,
+          "percentiles": {
+            "60": {
+              "value": 16.666666666666664,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 8.333333333333332,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 9.225646003347407,
+          "percentiles": {
+            "60": {
+              "value": 8.333333333333332,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 4.166666666666666,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 16.8,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 27.07796502967558,
+          "percentiles": {
+            "60": {
+              "value": 75,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 57.53490517720861,
+            "d": 56.79391436113441,
+            "j": 59.016886809357004,
+            "overbought": false,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 50.4418739827788,
+            "d": 51.39066801023192,
+            "j": 48.54428592787255,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 50.19551509648841,
+            "d": 51.6368072946201,
+            "j": 47.312930700225024,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "SOFI",
+      "as_of": "2026-09-14T18:28:58Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.167Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.167Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.167Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.167Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Digital Financial Services",
+        "businessTrait": "HighGrowth",
+        "riskTrait": "MacroSensitive",
+        "companyTraits": [
+          "HighGrowth",
+          "MacroSensitive"
+        ],
+        "lifecycle": "Scaling",
+        "sizeClass": "NonMegaCap",
+        "profileStatus": "complete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:digital_financial_services"
+          ],
+          "businessTrait": [
+            "revenue_growth:0.426",
+            "market_cap:22647040000",
+            "profit_margin:0.1491"
+          ],
+          "riskTrait": [
+            "primary:Digital Financial Services"
+          ],
+          "lifecycle": [
+            "revenue_growth:0.426",
+            "market_cap:22647040000"
+          ],
+          "sizeClass": [
+            "market_cap:22647040000"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "sufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 0.423189538213852,
+          "percentiles": {
+            "60": {
+              "value": 3.3333333333333335,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 1.6666666666666667,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 0.7580439371093866,
+          "percentiles": {
+            "60": {
+              "value": 5,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 2.5,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 2.4,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 2.0495943372286347,
+          "percentiles": {
+            "60": {
+              "value": 45,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 74.11979012301259,
+            "d": 67.47128311090587,
+            "j": 87.41680414722603,
+            "overbought": true,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 39.28379311606136,
+            "d": 34.408295504962666,
+            "j": 49.03478833825875,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 28.29889056046745,
+            "d": 30.879247554033007,
+            "j": 23.138176573336338,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "TEM",
+      "as_of": "2026-09-14T18:28:46Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.181Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.181Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.181Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.181Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Enterprise Software",
+        "businessTrait": null,
+        "riskTrait": "RegulatoryRisk",
+        "companyTraits": [
+          "RegulatoryRisk"
+        ],
+        "lifecycle": "Scaling",
+        "sizeClass": "NonMegaCap",
+        "profileStatus": "incomplete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:health_information_services",
+            "summary:health_information_software"
+          ],
+          "businessTrait": [],
+          "riskTrait": [
+            "primary:Enterprise Software",
+            "summary:regulatory"
+          ],
+          "lifecycle": [
+            "revenue_growth:0.216",
+            "market_cap:11219432448"
+          ],
+          "sizeClass": [
+            "market_cap:11219432448"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "insufficient",
+          "riskTrait": "sufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 2.513250351165226,
+          "percentiles": {
+            "60": {
+              "value": 23.333333333333332,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 11.666666666666666,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 4.278170705557718,
+          "percentiles": {
+            "60": {
+              "value": 41.66666666666667,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 55.833333333333336,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 68,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 9.03168667887562,
+          "percentiles": {
+            "60": {
+              "value": 31.666666666666664,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 79.0687054499769,
+            "d": 63.567253306322,
+            "j": 110.0716097372867,
+            "overbought": true,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 37.86526779751787,
+            "d": 30.60292301335425,
+            "j": 52.38995736584512,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 27.47615855005575,
+            "d": 27.431125829235114,
+            "j": 27.56622399169703,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "TSLA",
+      "as_of": "2026-09-14T18:28:52Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.193Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.193Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.193Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.193Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Consumer Discretionary",
+        "businessTrait": "HighGrowth",
+        "riskTrait": "MacroSensitive",
+        "companyTraits": [
+          "HighGrowth",
+          "MacroSensitive"
+        ],
+        "lifecycle": null,
+        "sizeClass": "MegaCap",
+        "profileStatus": "incomplete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:consumer_discretionary"
+          ],
+          "businessTrait": [
+            "revenue_growth:0.255",
+            "market_cap:1426497601536",
+            "profit_margin:0.0367"
+          ],
+          "riskTrait": [
+            "primary:Consumer Discretionary"
+          ],
+          "lifecycle": [],
+          "sizeClass": [
+            "market_cap:1426497601536"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "sufficient",
+          "lifecycle": "insufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 8.334094467609452,
+          "percentiles": {
+            "60": {
+              "value": 36.666666666666664,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 18.333333333333332,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 13.867830403284305,
+          "percentiles": {
+            "60": {
+              "value": 13.333333333333334,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 28.333333333333332,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 41.6,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 34.55561109935742,
+          "percentiles": {
+            "60": {
+              "value": 65,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 43.71425970405535,
+            "d": 44.04432731619461,
+            "j": 43.054124479776846,
+            "overbought": false,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 38.87436792492352,
+            "d": 45.61267637294253,
+            "j": 25.397751028885494,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 46.044300529888204,
+            "d": 52.83545340125169,
+            "j": 32.46199478716123,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "UNH",
+      "as_of": "2026-09-14T18:28:42Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.205Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.205Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.205Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.205Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Managed Care & Health Services",
+        "businessTrait": null,
+        "riskTrait": "RegulatoryRisk",
+        "companyTraits": [
+          "RegulatoryRisk"
+        ],
+        "lifecycle": null,
+        "sizeClass": "MegaCap",
+        "profileStatus": "incomplete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:managed_care"
+          ],
+          "businessTrait": [],
+          "riskTrait": [
+            "primary:Managed Care & Health Services"
+          ],
+          "lifecycle": [],
+          "sizeClass": [
+            "market_cap:344909807616"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "insufficient",
+          "riskTrait": "sufficient",
+          "lifecycle": "insufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 6.801856441343614,
+          "percentiles": {
+            "60": {
+              "value": 66.66666666666666,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 63.33333333333333,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 10.608061861603634,
+          "percentiles": {
+            "60": {
+              "value": 66.66666666666666,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 68.33333333333333,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 54.400000000000006,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 22.578558289665335,
+          "percentiles": {
+            "60": {
+              "value": 23.333333333333332,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 67.43886502986322,
+            "d": 50.41493003706783,
+            "j": 101.486735015454,
+            "overbought": true,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 26.860234273130533,
+            "d": 33.65274525225571,
+            "j": 13.275212314880179,
+            "overbought": false,
+            "oversold": true
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 33.98706925006835,
+            "d": 43.81423710875977,
+            "j": 14.332733532685523,
+            "overbought": false,
+            "oversold": true
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "XE",
+      "as_of": "2026-09-14T18:28:59Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 682,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-04-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.217Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 682,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 196,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-04-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.217Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 196,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 98,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 98,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2026-04-24",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.217Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 98,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 21,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2026-04-24",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.217Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Industrials",
+        "businessTrait": "EmergingGrowth",
+        "riskTrait": null,
+        "companyTraits": [
+          "EmergingGrowth"
+        ],
+        "lifecycle": "Scaling",
+        "sizeClass": "NonMegaCap",
+        "profileStatus": "incomplete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:industrials"
+          ],
+          "businessTrait": [
+            "market_cap:4504478208",
+            "revenue_growth:1.962",
+            "profit_margin:-2.987"
+          ],
+          "riskTrait": [],
+          "lifecycle": [
+            "revenue_growth:1.962",
+            "market_cap:4504478208"
+          ],
+          "sizeClass": [
+            "market_cap:4504478208"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "insufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 196,
+          "observations": 183,
+          "value": 0.9213660361697981,
+          "percentiles": {
+            "60": {
+              "value": 40,
+              "reason": null,
+              "available": 183,
+              "required": 60
+            },
+            "120": {
+              "value": 29.166666666666668,
+              "reason": null,
+              "available": 183,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 183,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 98,
+          "observations": 85,
+          "value": 1.6375299539672545,
+          "percentiles": {
+            "60": {
+              "value": 51.66666666666667,
+              "reason": null,
+              "available": 85,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 85,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 85,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 21,
+          "observations": 8,
+          "value": 4.6418758963393,
+          "percentiles": {
+            "60": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 8,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 8,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 8,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 682,
+            "required": 12,
+            "k": 48.53054659190521,
+            "d": 38.658509162359564,
+            "j": 68.2746214509965,
+            "overbought": false,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 196,
+            "required": 12,
+            "k": 13.188649613522504,
+            "d": 13.795449650621544,
+            "j": 11.975049539324427,
+            "overbought": false,
+            "oversold": true
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 98,
+            "required": 12,
+            "k": 14.040086870751564,
+            "d": 18.43792352560141,
+            "j": 5.244413561051871,
+            "overbought": false,
+            "oversold": true
+          }
+        },
+        "long": {}
+      }
+    },
+    {
+      "ticker": "ZETA",
+      "as_of": "2026-09-14T18:28:58Z",
+      "feature_version": "technical-features-v4-validated",
+      "asset_type": "stock",
+      "source_intervals": {
+        "1h": {
+          "interval": "1h",
+          "bar_count": 838,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.222Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 838,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_intraday",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "4h": {
+          "interval": "4h",
+          "bar_count": 240,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "120d",
+          "requested_history": "120d",
+          "first_bar_timestamp": "2026-03-24T09:30:00-0400",
+          "last_bar_timestamp": "2026-09-14T13:30:00-0400",
+          "as_of": "2026-10-02T03:56:20.222Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 240,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance",
+          "bar_method": "provider_native_v1",
+          "regular_hours_only": true,
+          "timezone": "America/New_York",
+          "session_validation": {
+            "normal_session_days": 120,
+            "single_session_days": 0,
+            "invalid_session_days": 0,
+            "invalid_session_examples": []
+          }
+        },
+        "1d": {
+          "interval": "1d",
+          "bar_count": 500,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": "2y",
+          "requested_history": "2y",
+          "first_bar_timestamp": "2024-09-16",
+          "last_bar_timestamp": "2026-09-14",
+          "as_of": "2026-10-02T03:56:20.222Z",
+          "last_bar_completed": null,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": {
+            "source_rows": 500,
+            "rejected_rows": 0,
+            "reasons": {}
+          },
+          "rejected_reasons": {},
+          "weekly_completion": null,
+          "source": "yfinance_or_yahoo_chart_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        },
+        "1w": {
+          "interval": "1w",
+          "bar_count": 104,
+          "availability": "available",
+          "available": true,
+          "unavailable_reason": null,
+          "lookback": null,
+          "requested_history": null,
+          "first_bar_timestamp": "2024-09-20",
+          "last_bar_timestamp": "2026-09-11",
+          "as_of": "2026-10-02T03:56:20.222Z",
+          "last_bar_completed": true,
+          "last_bar_duration_minutes": null,
+          "active_bar_usage": "legacy_completion_metadata_unavailable",
+          "adjustment_basis": "unverified",
+          "currency": null,
+          "request": {},
+          "validation": null,
+          "rejected_reasons": {},
+          "weekly_completion": {
+            "source": "legacy_calendar_unavailable",
+            "excluded_weeks": null
+          },
+          "source": "completed_weekly_from_daily",
+          "bar_method": null,
+          "regular_hours_only": null,
+          "timezone": null,
+          "session_validation": null
+        }
+      },
+      "profile": {
+        "type": "stock",
+        "isETF": false,
+        "primaryClassification": "Enterprise Software",
+        "businessTrait": "EmergingGrowth",
+        "riskTrait": null,
+        "companyTraits": [
+          "EmergingGrowth"
+        ],
+        "lifecycle": "Scaling",
+        "sizeClass": "NonMegaCap",
+        "profileStatus": "incomplete",
+        "profileSource": "automatic",
+        "profileEvidence": {
+          "primaryClassification": [
+            "industry:enterprise_software"
+          ],
+          "businessTrait": [
+            "market_cap:7680873472",
+            "revenue_growth:0.435",
+            "profit_margin:-0.0014"
+          ],
+          "riskTrait": [],
+          "lifecycle": [
+            "revenue_growth:0.435",
+            "market_cap:7680873472"
+          ],
+          "sizeClass": [
+            "market_cap:7680873472"
+          ]
+        },
+        "profileSufficiency": {
+          "primaryClassification": "sufficient",
+          "businessTrait": "sufficient",
+          "riskTrait": "insufficient",
+          "lifecycle": "sufficient",
+          "sizeClass": "sufficient"
+        },
+        "profileSchemaVersion": "2.1",
+        "profileConfidence": 0.82,
+        "lastProfileReview": null
+      },
+      "atr": {
+        "short": {
+          "bars": 240,
+          "observations": 227,
+          "value": 0.8784297238615443,
+          "percentiles": {
+            "60": {
+              "value": 1.6666666666666667,
+              "reason": null,
+              "available": 227,
+              "required": 60
+            },
+            "120": {
+              "value": 0.8333333333333334,
+              "reason": null,
+              "available": 227,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 227,
+              "required": 250
+            }
+          }
+        },
+        "mid": {
+          "bars": 500,
+          "observations": 487,
+          "value": 1.4386837058294055,
+          "percentiles": {
+            "60": {
+              "value": 6.666666666666667,
+              "reason": null,
+              "available": 487,
+              "required": 60
+            },
+            "120": {
+              "value": 3.3333333333333335,
+              "reason": null,
+              "available": 487,
+              "required": 120
+            },
+            "250": {
+              "value": 5.6000000000000005,
+              "reason": null,
+              "available": 487,
+              "required": 250
+            }
+          }
+        },
+        "long": {
+          "bars": 104,
+          "observations": 91,
+          "value": 3.066634667273397,
+          "percentiles": {
+            "60": {
+              "value": 3.3333333333333335,
+              "reason": null,
+              "available": 91,
+              "required": 60
+            },
+            "120": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 120
+            },
+            "250": {
+              "value": null,
+              "reason": "insufficient_history",
+              "available": 91,
+              "required": 250
+            }
+          }
+        }
+      },
+      "kdj": {
+        "short": {
+          "kdj_9_1h": {
+            "bars": 838,
+            "required": 12,
+            "k": 64.5186152126158,
+            "d": 50.45461749280522,
+            "j": 92.64661065223696,
+            "overbought": true,
+            "oversold": false
+          },
+          "kdj_9_4h": {
+            "bars": 240,
+            "required": 12,
+            "k": 49.43358255314305,
+            "d": 39.58641035009702,
+            "j": 69.1279269592351,
+            "overbought": false,
+            "oversold": false
+          }
+        },
+        "mid": {
+          "kdj_9_1d": {
+            "bars": 500,
+            "required": 12,
+            "k": 39.16552522766825,
+            "d": 51.73687617401907,
+            "j": 14.022823334966603,
+            "overbought": false,
+            "oversold": true
+          }
+        },
+        "long": {}
+      }
+    }
+  ]
+}

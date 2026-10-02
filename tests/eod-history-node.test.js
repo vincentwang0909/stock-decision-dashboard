@@ -113,6 +113,22 @@ try {
   assert.equal(stockShort.applied_profile_modifiers.profile_confidence, 0.82);
   assert.ok(qqqShort.technical_features, "available record includes compact canonical features");
   assert.equal(hasRawSeries(qqqShort.technical_features), false, "raw OHLCV and indicator series must never be persisted");
+  assert.equal(stockShort.technical_features.model_diagnostics.confidence.profileConfidenceWeight, 0);
+  assert.equal(stockShort.technical_features.model_diagnostics.width_comparison.shadow_only, true);
+  assert.equal(stockShort.technical_features.model_diagnostics.width_comparison.production_enabled, false);
+  assert.equal(stockShort.technical_features.current_observation.close, stock.history.closes.at(-1));
+  assert.equal(stockShort.technical_features.model_diagnostics.width_comparison.baseline.action, stockShort.action);
+  // The bounded handoff must preserve precisely the legacy input's result.
+  const manifest = { ...input, format: "ticker-files-v1", marketContext: input.payload.marketContext, items: input.payload.items.map((item, index) => {
+    const quotePath = path.join(temporary, `quote-${index}.json`);
+    fs.writeFileSync(quotePath, JSON.stringify(item.analysis));
+    return { ticker: item.ticker, path: quotePath };
+  }) };
+  delete manifest.payload;
+  fs.writeFileSync(inputPath, JSON.stringify(manifest));
+  const bounded = spawnSync(process.execPath, ["--max-old-space-size=128", "--max-semi-space-size=4", runner, inputPath, outputPath], { encoding: "utf8" });
+  assert.equal(bounded.status, 0, bounded.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(outputPath, "utf8")), output, "file handoff and streamed records cannot change production decisions");
   assert.ok(Array.isArray(qqqShort.supporting_reasons));
   console.log("EOD history Node snapshot tests passed.");
 } finally {

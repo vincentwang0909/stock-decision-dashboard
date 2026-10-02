@@ -4,10 +4,12 @@ const path = require("node:path");
 require(path.join(__dirname, "..", "decision-engine", "company-profile-classifier.js"));
 for (const file of [
   "config.js", "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "etf-profile.js", "company-profile.js",
-  "execution-engine.js", "confidence-engine.js", "stability-engine.js", "decision-engine.js",
+  "planning-width.js", "execution-engine.js", "short-model-v2.js", "confidence-engine.js", "stability-engine.js", "decision-engine.js",
 ]) require(path.join(__dirname, "..", "decision-engine", file));
 
+// Existing V1 policy regressions remain explicit; stock Short V2 has its own tests.
 const engine = globalThis.DecisionEngine;
+engine.config = { ...engine.config, shortV2: { ...engine.config.shortV2, enabled: false } };
 const profiles = require("../profile-definitions.js");
 const unavailable = { availability: "unavailable" };
 const clone = (value) => JSON.parse(JSON.stringify(value));

@@ -1,0 +1,751 @@
+{
+  "read_only": true,
+  "max_concurrency": 2,
+  "source_retries": 0,
+  "cases": [
+    {
+      "ticker": "NVDA",
+      "interval": "1d",
+      "requested_period": "10y",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:33.726518+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 2513,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 2513,
+      "valid_bars": 2513,
+      "first_timestamp": "2016-10-03 00:00:00-04:00",
+      "last_timestamp": "2026-10-01 00:00:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "1h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 230.86,
+        "previousClose": 228.38,
+        "chartPreviousClose": 224.58,
+        "range": "5d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/NVDA-1d-10y.json",
+      "seconds": 0.956
+    },
+    {
+      "ticker": "NVDA",
+      "interval": "1h",
+      "requested_period": "120d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:33.726939+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 840,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 840,
+      "valid_bars": 840,
+      "first_timestamp": "2026-04-13 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 15:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "1h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 230.86,
+        "previousClose": 228.38,
+        "chartPreviousClose": 188.63,
+        "range": "120d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/NVDA-1h-120d.json",
+      "seconds": 0.395
+    },
+    {
+      "ticker": "NVDA",
+      "interval": "4h",
+      "requested_period": "120d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:34.122088+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 240,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 240,
+      "valid_bars": 240,
+      "first_timestamp": "2026-04-13 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 13:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "4h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 230.86,
+        "previousClose": 228.38,
+        "chartPreviousClose": 188.63,
+        "range": "120d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/NVDA-4h-120d.json",
+      "seconds": 0.148
+    },
+    {
+      "ticker": "NVDA",
+      "interval": "4h",
+      "requested_period": "365d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:34.270331+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 725,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 725,
+      "valid_bars": 725,
+      "first_timestamp": "2025-04-21 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 13:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "4h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 230.86,
+        "previousClose": 228.38,
+        "chartPreviousClose": 101.49,
+        "range": "365d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/NVDA-4h-365d.json",
+      "seconds": 0.301
+    },
+    {
+      "ticker": "FFAI",
+      "interval": "1d",
+      "requested_period": "10y",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:34.571522+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 1527,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 1527,
+      "valid_bars": 1527,
+      "first_timestamp": "2020-09-02 00:00:00-04:00",
+      "last_timestamp": "2026-10-01 00:00:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "1h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 1.25,
+        "previousClose": 1.21,
+        "chartPreviousClose": 1.31,
+        "range": "5d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/FFAI-1d-10y.json",
+      "seconds": 0.413
+    },
+    {
+      "ticker": "FFAI",
+      "interval": "1h",
+      "requested_period": "120d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:34.682617+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 840,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 840,
+      "valid_bars": 840,
+      "first_timestamp": "2026-04-13 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 15:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "1h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 1.25,
+        "previousClose": 1.21,
+        "chartPreviousClose": 48.0,
+        "range": "120d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/FFAI-1h-120d.json",
+      "seconds": 0.194
+    },
+    {
+      "ticker": "FFAI",
+      "interval": "4h",
+      "requested_period": "120d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:34.876559+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 240,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 240,
+      "valid_bars": 240,
+      "first_timestamp": "2026-04-13 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 13:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "4h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 1.25,
+        "previousClose": 1.21,
+        "chartPreviousClose": 48.0,
+        "range": "120d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/FFAI-4h-120d.json",
+      "seconds": 0.139
+    },
+    {
+      "ticker": "FFAI",
+      "interval": "4h",
+      "requested_period": "365d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:34.984818+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 725,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 725,
+      "valid_bars": 725,
+      "first_timestamp": "2025-04-21 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 13:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "4h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 1.25,
+        "previousClose": 1.21,
+        "chartPreviousClose": 139.35,
+        "range": "365d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/FFAI-4h-365d.json",
+      "seconds": 0.22
+    },
+    {
+      "ticker": "CRCL",
+      "interval": "1d",
+      "requested_period": "10y",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:35.015685+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 333,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 333,
+      "valid_bars": 333,
+      "first_timestamp": "2025-06-05 00:00:00-04:00",
+      "last_timestamp": "2026-10-01 00:00:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "1h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884802,
+        "regularMarketPrice": 82.91,
+        "previousClose": 82.17,
+        "chartPreviousClose": 93.0,
+        "range": "5d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/CRCL-1d-10y.json",
+      "seconds": 0.24
+    },
+    {
+      "ticker": "CRCL",
+      "interval": "1h",
+      "requested_period": "120d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:35.204606+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 840,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 840,
+      "valid_bars": 840,
+      "first_timestamp": "2026-04-13 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 15:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "1h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884802,
+        "regularMarketPrice": 82.91,
+        "previousClose": 82.17,
+        "chartPreviousClose": 88.04,
+        "range": "120d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/CRCL-1h-120d.json",
+      "seconds": 0.208
+    },
+    {
+      "ticker": "CRCL",
+      "interval": "4h",
+      "requested_period": "120d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:35.255964+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 240,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 240,
+      "valid_bars": 240,
+      "first_timestamp": "2026-04-13 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 13:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "4h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884802,
+        "regularMarketPrice": 82.91,
+        "previousClose": 82.17,
+        "chartPreviousClose": 88.04,
+        "range": "120d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/CRCL-4h-120d.json",
+      "seconds": 0.164
+    },
+    {
+      "ticker": "CRCL",
+      "interval": "4h",
+      "requested_period": "365d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:35.412260+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 661,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 661,
+      "valid_bars": 661,
+      "first_timestamp": "2025-06-05 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 13:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "4h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884802,
+        "regularMarketPrice": 82.91,
+        "previousClose": 82.17,
+        "chartPreviousClose": 69.0,
+        "range": "365d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/CRCL-4h-365d.json",
+      "seconds": 0.183
+    },
+    {
+      "ticker": "QQQ",
+      "interval": "1d",
+      "requested_period": "10y",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:35.420038+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 2513,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 2513,
+      "valid_bars": 2513,
+      "first_timestamp": "2016-10-03 00:00:00-04:00",
+      "last_timestamp": "2026-10-01 00:00:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "1h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884800,
+        "regularMarketPrice": 742.03,
+        "previousClose": 739.77,
+        "chartPreviousClose": 741.1,
+        "range": "5d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/QQQ-1d-10y.json",
+      "seconds": 0.896
+    },
+    {
+      "ticker": "QQQ",
+      "interval": "1h",
+      "requested_period": "120d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:35.595574+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 840,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 840,
+      "valid_bars": 840,
+      "first_timestamp": "2026-04-13 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 15:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "1h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884800,
+        "regularMarketPrice": 742.03,
+        "previousClose": 739.77,
+        "chartPreviousClose": 611.07,
+        "range": "120d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/QQQ-1h-120d.json",
+      "seconds": 0.208
+    },
+    {
+      "ticker": "QQQ",
+      "interval": "4h",
+      "requested_period": "120d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:35.803832+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 240,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 240,
+      "valid_bars": 240,
+      "first_timestamp": "2026-04-13 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 13:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "4h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884800,
+        "regularMarketPrice": 742.03,
+        "previousClose": 739.77,
+        "chartPreviousClose": 611.07,
+        "range": "120d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/QQQ-4h-120d.json",
+      "seconds": 0.147
+    },
+    {
+      "ticker": "QQQ",
+      "interval": "4h",
+      "requested_period": "365d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:35.950889+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 725,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 725,
+      "valid_bars": 725,
+      "first_timestamp": "2025-04-21 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 13:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "4h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884800,
+        "regularMarketPrice": 742.03,
+        "previousClose": 739.77,
+        "chartPreviousClose": 444.1,
+        "range": "365d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/QQQ-4h-365d.json",
+      "seconds": 0.328
+    },
+    {
+      "ticker": "SOXL",
+      "interval": "1d",
+      "requested_period": "10y",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:36.278692+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 2513,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 2513,
+      "valid_bars": 2513,
+      "first_timestamp": "2016-10-03 00:00:00-04:00",
+      "last_timestamp": "2026-10-01 00:00:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "1h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 153.69,
+        "previousClose": 147.86,
+        "chartPreviousClose": 146.33,
+        "range": "5d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/SOXL-1d-10y.json",
+      "seconds": 0.581
+    },
+    {
+      "ticker": "SOXL",
+      "interval": "1h",
+      "requested_period": "120d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:36.315781+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 840,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 840,
+      "valid_bars": 840,
+      "first_timestamp": "2026-04-13 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 15:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "1h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 153.69,
+        "previousClose": 147.86,
+        "chartPreviousClose": 76.39,
+        "range": "120d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/SOXL-1h-120d.json",
+      "seconds": 0.228
+    },
+    {
+      "ticker": "SOXL",
+      "interval": "4h",
+      "requested_period": "120d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:36.543674+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 240,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 240,
+      "valid_bars": 240,
+      "first_timestamp": "2026-04-13 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 13:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "4h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 153.69,
+        "previousClose": 147.86,
+        "chartPreviousClose": 76.39,
+        "range": "120d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/SOXL-4h-120d.json",
+      "seconds": 0.316
+    },
+    {
+      "ticker": "SOXL",
+      "interval": "4h",
+      "requested_period": "365d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:36.859740+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 725,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 725,
+      "valid_bars": 725,
+      "first_timestamp": "2025-04-21 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 13:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "4h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 153.69,
+        "previousClose": 147.86,
+        "chartPreviousClose": 9.2,
+        "range": "365d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/SOXL-4h-365d.json",
+      "seconds": 0.201
+    },
+    {
+      "ticker": "SQQQ",
+      "interval": "1d",
+      "requested_period": "10y",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:36.860768+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 2513,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 2513,
+      "valid_bars": 2513,
+      "first_timestamp": "2016-10-03 00:00:00-04:00",
+      "last_timestamp": "2026-10-01 00:00:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "1h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 34.11,
+        "previousClose": 34.41,
+        "chartPreviousClose": 34.18,
+        "range": "5d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/SQQQ-1d-10y.json",
+      "seconds": 0.578
+    },
+    {
+      "ticker": "SQQQ",
+      "interval": "1h",
+      "requested_period": "120d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:37.060697+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 840,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 840,
+      "valid_bars": 840,
+      "first_timestamp": "2026-04-13 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 15:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "1h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 34.11,
+        "previousClose": 34.41,
+        "chartPreviousClose": 67.62,
+        "range": "120d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/SQQQ-1h-120d.json",
+      "seconds": 0.255
+    },
+    {
+      "ticker": "SQQQ",
+      "interval": "4h",
+      "requested_period": "120d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:37.315674+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 240,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 240,
+      "valid_bars": 240,
+      "first_timestamp": "2026-04-13 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 13:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "4h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 34.11,
+        "previousClose": 34.41,
+        "chartPreviousClose": 67.62,
+        "range": "120d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/SQQQ-4h-120d.json",
+      "seconds": 0.161
+    },
+    {
+      "ticker": "SQQQ",
+      "interval": "4h",
+      "requested_period": "365d",
+      "source": "yfinance",
+      "version": "1.5.2",
+      "as_of": "2026-10-02T01:51:37.438994+00:00",
+      "adjustment_basis": "auto_adjust=False",
+      "native_requested": true,
+      "validation": {
+        "source_rows": 725,
+        "rejected_rows": 0,
+        "reasons": {}
+      },
+      "returned_bars": 725,
+      "valid_bars": 725,
+      "first_timestamp": "2025-04-21 09:30:00-04:00",
+      "last_timestamp": "2026-10-01 13:30:00-04:00",
+      "provider_metadata": {
+        "dataGranularity": "4h",
+        "exchangeTimezoneName": "America/New_York",
+        "currency": "USD",
+        "regularMarketTime": 1790884801,
+        "regularMarketPrice": 34.11,
+        "previousClose": 34.41,
+        "chartPreviousClose": 193.2,
+        "range": "365d"
+      },
+      "raw_file": "/private/tmp/stock-final-runtime/provider-bars/SQQQ-4h-365d.json",
+      "seconds": 0.214
+    }
+  ]
+}

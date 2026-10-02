@@ -7,7 +7,7 @@
 (function exposeCanonicalTechnicalFeatures(root) {
   "use strict";
 
-  const SCHEMA_VERSION = "technical-features-v3";
+  const SCHEMA_VERSION = "technical-features-v4-validated";
   const AVAILABILITY_REASONS = Object.freeze([
     "available",
     "source_unavailable",
@@ -24,8 +24,8 @@
   const HORIZON_CONFIG = Object.freeze({
     short: {
       label: "1–30 days",
-      primary_intervals: ["1h", "4h"],
-      supporting_intervals: ["1d"],
+      primary_intervals: ["4h"],
+      supporting_intervals: ["1h", "1d"],
       ema: { "1h": [9, 20], "4h": [9, 20, 50] },
       rsi: { "1h": [6], "4h": [6, 14] },
       macd: { "1h": [12, 26, 9], "4h": [12, 26, 9] },
@@ -80,7 +80,7 @@
     long_daily_fallback: { source_timeframe: "1d", lookback: 250, min_lookback: 120, max_lookback: 320, pivot_bars: 5, min_pivot_separation: 20, min_swing_pct: 15, stale_after_bars: 80 },
   });
 
-  const finite = (value) => value == null || value === "" ? null : Number.isFinite(Number(value)) ? Number(value) : null;
+  const finite = (value) => value == null || typeof value === "boolean" || (typeof value === "string" && value.trim() === "") ? null : Number.isFinite(Number(value)) ? Number(value) : null;
   const mean = (values) => {
     const valid = values.filter(Number.isFinite);
     return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : null;
@@ -94,29 +94,48 @@
   const last = (values) => values.length ? values[values.length - 1] : null;
   const valueAgo = (values, bars) => values.length > bars ? values[values.length - 1 - bars] : null;
 
-  function normalizeBars(source = {}) {
-    const closes = Array.isArray(source.closes) ? source.closes : [];
-    const highs = Array.isArray(source.highs) ? source.highs : [];
-    const lows = Array.isArray(source.lows) ? source.lows : [];
-    const opens = Array.isArray(source.opens) ? source.opens : [];
-    const volumes = Array.isArray(source.volumes) ? source.volumes : [];
-    const timestamps = Array.isArray(source.timestamps) ? source.timestamps : (Array.isArray(source.dates) ? source.dates : []);
-    const length = Math.min(closes.length, highs.length, lows.length);
-    const bars = [];
-    for (let index = 0; index < length; index += 1) {
-      const close = finite(closes[index]);
-      const high = finite(highs[index]);
-      const low = finite(lows[index]);
-      if (close == null || high == null || low == null || high < low) continue;
-      bars.push({
-        open: finite(opens[index]) ?? close,
-        high,
-        low,
-        close,
-        volume: finite(volumes[index]),
-        timestamp: timestamps[index] ?? null,
-      });
+  function timestampMillis(value) {
+    if (value == null || value === "") return null;
+    const number = typeof value === "number" ? value : null;
+    if (number != null) {
+      // Epoch seconds/milliseconds are explicit accepted units; reject other
+      // magnitudes rather than interpreting seconds as a date in 1970.
+      const ms = number >= 1e12 && number < 1e14 ? number : number >= 1e9 && number < 1e11 ? number * 1000 : null;
+      return Number.isFinite(ms) ? ms : null;
     }
+    const dateMatch = typeof value === "string" ? value.match(/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/) : null;
+    if (!dateMatch) return null;
+    if (value.includes("T") && !/(?:Z|[+-]\d{2}:?\d{2})$/.test(value)) return null;
+    const [year, month, day] = dateMatch.slice(1).map(Number);
+    const calendarDay = new Date(Date.UTC(year, month - 1, day));
+    if (calendarDay.getUTCFullYear() !== year || calendarDay.getUTCMonth() !== month - 1 || calendarDay.getUTCDate() !== day) return null;
+    const stamp = Date.parse(value);
+    return Number.isFinite(stamp) ? stamp : null;
+  }
+
+  function normalizeBars(source = {}) {
+    const arrays = Object.fromEntries(["opens", "highs", "lows", "closes", "volumes"].map((key) => [key, Array.isArray(source[key]) ? source[key] : []]));
+    const timestamps = Array.isArray(source.timestamps) ? source.timestamps : (Array.isArray(source.dates) ? source.dates : []);
+    const length = Math.max(timestamps.length, ...Object.values(arrays).map((array) => array.length));
+    const bars = [], reasons = {};
+    let previous = null;
+    const reject = (reason) => { reasons[reason] = (reasons[reason] || 0) + 1; };
+    for (let index = 0; index < length; index += 1) {
+      const stamp = timestampMillis(timestamps[index]);
+      if (stamp == null) { reject("invalid_timestamp"); continue; }
+      if (previous != null && stamp <= previous) { reject("duplicate_or_unordered_timestamp"); continue; }
+      previous = stamp;
+      const [open, high, low, close, volume] = ["opens", "highs", "lows", "closes", "volumes"].map((key) => finite(arrays[key][index]));
+      if ([open, high, low, close, volume].some((value) => value == null)) { reject("missing_or_nonfinite_ohlcv"); continue; }
+      if (Math.min(open, high, low, close) <= 0) { reject("nonpositive_price"); continue; }
+      if (!(low <= Math.min(open, close) && Math.max(open, close) <= high)) { reject("ohlc_envelope"); continue; }
+      if (volume < 0) { reject("negative_volume"); continue; }
+      const bar = { open, high, low, close, volume, timestamp: typeof timestamps[index] === "number" ? new Date(stamp).toISOString() : timestamps[index] };
+      const completed = source.last_bar_completed ?? source.bar_segments?.at(-1)?.completed;
+      if (index === length - 1 && typeof completed === "boolean") bar.completed = completed;
+      bars.push(bar);
+    }
+    Object.defineProperty(bars, "validation", { value: { source_rows: length, rejected_rows: length - bars.length, reasons }, enumerable: false });
     return bars;
   }
 
@@ -139,7 +158,7 @@
     return [];
   }
 
-  function completedWeeklyBars(dailyBars = []) {
+  function completedWeeklyBars(dailyBars = [], { asOf = null, calendar = null } = {}) {
     const result = [];
     let current = null;
     let currentKey = null;
@@ -168,7 +187,22 @@
     push();
     // Model features use completed weekly candles. A final Mon-Thu partial bar
     // stays unavailable rather than being treated as a completed weekly signal.
-    if (result.length && Number.isFinite(result[result.length - 1].last_day) && result[result.length - 1].last_day < 5) result.pop();
+    if (calendar?.completed_week_keys) {
+      const completed = new Set(calendar.completed_week_keys);
+      return result.filter((bar) => completed.has(bar.week_key)).map(({ last_day, week_key, ...bar }) => bar);
+    }
+    // Legacy/offline inputs without a session calendar use an explicit
+    // conservative fallback. A current Friday still needs its session close.
+    if (result.length) {
+      const final = result.at(-1);
+      const stamp = new Date(final.timestamp);
+      const asOfMs = timestampMillis(asOf);
+      const etDate = Number.isFinite(asOfMs) ? new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(asOfMs)) : null;
+      const etParts = Number.isFinite(asOfMs) ? new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(new Date(asOfMs)) : [];
+      const hour = Number(etParts.find((part) => part.type === "hour")?.value);
+      const beforeFridayClose = etDate === stamp.toISOString().slice(0, 10) && hour < 16;
+      if (final.last_day < 5 || beforeFridayClose) result.pop();
+    }
     return result.map(({ last_day, week_key, ...bar }) => bar);
   }
 
@@ -405,9 +439,11 @@
     const macd = last(macdSeries);
     const signalLine = last(signalSeries);
     let crossoverState = "none";
+    let crossoverAge = null;
+    let crossoverTimestamp = null;
     for (let index = histogramSeries.length - 1; index > 0; index -= 1) {
       if (!Number.isFinite(histogramSeries[index]) || !Number.isFinite(histogramSeries[index - 1])) continue;
-      if ((histogramSeries[index] >= 0) !== (histogramSeries[index - 1] >= 0)) { crossoverState = histogramSeries[index] >= 0 ? "bullish_cross" : "bearish_cross"; break; }
+      if ((histogramSeries[index] >= 0) !== (histogramSeries[index - 1] >= 0)) { crossoverState = histogramSeries[index] >= 0 ? "bullish_cross" : "bearish_cross"; crossoverAge = histogramSeries.length - 1 - index; crossoverTimestamp = bars[index].timestamp; break; }
     }
     const histogramSlope = slopeState(histogramSeries, 3);
     const state = histogram > 0 && histogramSlope.change > 0 ? "accelerating_bullish"
@@ -421,7 +457,7 @@
       histogram_change_3: Number.isFinite(histogram) && Number.isFinite(valueAgo(histogramSeries, 3)) ? histogram - valueAgo(histogramSeries, 3) : null,
       histogram_change_5: Number.isFinite(histogram) && Number.isFinite(valueAgo(histogramSeries, 5)) ? histogram - valueAgo(histogramSeries, 5) : null,
       histogram_slope: histogramSlope,
-      crossover_state: crossoverState,
+      crossover_state: crossoverState, crossover_age_bars: crossoverAge, crossover_timestamp: crossoverTimestamp, crossover_method: "most_recent_historical_cross",
       above_or_below_zero: macd > 0 ? "above_zero" : macd < 0 ? "below_zero" : "at_zero",
       improving_or_deteriorating: histogramSlope.state === "rising" ? "improving" : histogramSlope.state === "falling" ? "deteriorating" : histogramSlope.state,
       state,
@@ -452,6 +488,7 @@
     }
     const adxValues = smaSeries(dx, period);
     const adx = last(adxValues); const plusDi = last(plus); const minusDi = last(minus);
+    if (![adx, plusDi, minusDi].every(Number.isFinite)) return unavailableFeature({ indicator: "adx", interval, period, lookback: period * 2 + 1, bars, calculatedAt, unavailableReason: "dependency_unavailable" });
     const trendStrength = adx < 15 ? "no_trend" : adx < 22 ? "weak" : adx < 30 ? "developing" : adx < 40 ? "strong" : "very_strong";
     return { adx, plus_di: plusDi, minus_di: minusDi, trend_strength: trendStrength, directional_bias: plusDi > minusDi ? "bullish" : minusDi > plusDi ? "bearish" : "neutral", slope: slopeState(adxValues, 3), ...metadata({ indicator: "adx", interval, period, lookback: period * 2 + 1, bars, calculatedAt }) };
   }
@@ -494,7 +531,7 @@
   }
 
   function kdjFeature(bars, interval, period, calculatedAt) {
-    if (bars.length < period + 3) return unavailableFeature({ indicator: "kdj", interval, period, lookback: period, bars, calculatedAt });
+    if (bars.length < period + 3) return unavailableFeature({ indicator: "kdj", interval, period, lookback: period, requiredBars: period + 3, bars, calculatedAt });
     const kSeries = []; const dSeries = []; const jSeries = [];
     let k = 50; let d = 50;
     bars.forEach((bar, index) => {
@@ -508,7 +545,7 @@
     const kValue = last(kSeries); const dValue = last(dSeries); const jValue = last(jSeries);
     const previousK = valueAgo(kSeries, 1); const previousD = valueAgo(dSeries, 1);
     const crossover = Number.isFinite(previousK) && Number.isFinite(previousD) && (kValue >= dValue) !== (previousK >= previousD) ? kValue > dValue ? "bullish_cross" : "bearish_cross" : "none";
-    return { k: kValue, d: dValue, j: jValue, crossover_state: crossover, direction: slopeState(jSeries, 3).state, overbought: jValue >= 80, oversold: jValue <= 20, k_slope: slopeState(kSeries, 3), d_slope: slopeState(dSeries, 3), j_slope: slopeState(jSeries, 3), ...metadata({ indicator: "kdj", interval, period, lookback: period, bars, calculatedAt }) };
+    return { k: kValue, d: dValue, j: jValue, crossover_state: crossover, direction: slopeState(jSeries, 3).state, overbought: jValue >= 80, oversold: jValue <= 20, k_slope: slopeState(kSeries, 3), d_slope: slopeState(dSeries, 3), j_slope: slopeState(jSeries, 3), ...metadata({ indicator: "kdj", interval, period, lookback: period, requiredBars: period + 3, bars, calculatedAt }) };
   }
 
   function bollingerFeature(bars, interval, parameters, calculatedAt) {
@@ -954,7 +991,7 @@
     Object.entries(config.obv || {}).forEach(([interval, lookback]) => { indicators.obv[`obv_${interval}`] = obvFeature(use(interval), interval, lookback, calculatedAt); });
     const allMa = [...Object.values(indicators.ema), ...Object.values(indicators.sma)];
     const preferredMa = allMa.filter((feature) => feature.interval === (horizon === "short" ? "4h" : "1d"));
-    const missing = Object.entries(indicators).filter(([, group]) => Object.values(group).every((feature) => feature.availability === "unavailable")).map(([key]) => key);
+    const missing = Object.entries(indicators).filter(([, group]) => Object.keys(group).length && Object.values(group).every((feature) => feature.availability === "unavailable")).map(([key]) => key);
     return {
       horizon,
       horizon_label: config.label,
@@ -971,21 +1008,23 @@
     };
   }
 
-  function buildTechnicalFeatures({ history = {}, currentPrice = null, relativeStrength = {}, fibonacciStructure = {}, shareBase = null, calculatedAt = timestampNow() } = {}) {
+  function buildTechnicalFeatures({ history = {}, currentPrice = null, relativeStrength = null, benchmarkContext = null, fibonacciStructure = {}, shareBase = null, calculatedAt = timestampNow() } = {}) {
     const daily = pickBars(history, "1d");
+    const inputHelpers = root.CanonicalFeatureInputs || (typeof require !== "undefined" ? require("./decision-engine/feature-inputs.js") : null);
+    relativeStrength = relativeStrength || (benchmarkContext && inputHelpers ? inputHelpers.relativeStrengthFromBars(daily, benchmarkContext) : {});
     const hourly = pickBars(history, "1h");
     // 4H is provider-native market data. Never reconstruct it from 1H, daily,
     // or any other interval: unavailable provider data must remain unavailable.
     const fourHour = pickBars(history, "4h");
-    const weekly = completedWeeklyBars(daily);
+    const weekly = completedWeeklyBars(daily, { asOf: history.as_of || calculatedAt, calendar: history.session_calendar });
     const sources = { "1h": hourly, "4h": fourHour, "1d": daily, "1w": weekly };
     const normalizedPrice = Number.isFinite(currentPrice) ? currentPrice : last(daily)?.close ?? null;
-    const fibonacci = fibonacciFeatures(fibonacciStructure, fourHour, daily, weekly, normalizedPrice);
+    const fibonacci = fibonacciFeatures(fibonacciStructure, fourHour.filter((bar) => bar.completed !== false), daily.filter((bar) => bar.completed !== false), weekly, normalizedPrice);
     const volume = canonicalVolumeFeature(daily, finite(shareBase), calculatedAt);
     const hourlySource = history.intervals?.["1h"] || history.by_interval?.["1h"] || history.intervals?.hourly || {};
     const fourHourSource = history.intervals?.["4h"] || history.by_interval?.["4h"] || {};
     const sourceIntervalMetadata = (interval, bars) => {
-      const upstream = interval === "1h" ? hourlySource : interval === "4h" ? fourHourSource : {};
+      const upstream = interval === "1h" ? hourlySource : interval === "4h" ? fourHourSource : history;
       const available = bars.length > 0;
       const unavailableReason = available ? null
         : interval === "4h" ? (upstream.unavailable_reason || "source_unavailable")
@@ -999,8 +1038,19 @@
         unavailable_reason: unavailableReason,
         lookback: interval === "1d" ? (history.daily_history_metadata?.lookback || history.lookback || null) : interval === "1h" ? (hourlySource.lookback || null) : interval === "4h" ? (fourHourSource.lookback || null) : null,
         requested_history: interval === "1h" ? (hourlySource.lookback || null) : interval === "1d" ? (history.daily_history_metadata?.lookback || history.lookback || null) : interval === "4h" ? (fourHourSource.lookback || null) : null,
+        first_bar_timestamp: bars[0]?.timestamp ?? null,
         last_bar_timestamp: last(bars)?.timestamp ?? null,
-        source: interval === "4h" ? (fourHourSource.source || "yfinance") : interval === "1w" ? "completed_weekly_from_daily" : "market_ohlcv",
+        as_of: upstream.as_of || history.as_of || calculatedAt,
+        last_bar_completed: interval === "1w" ? true : upstream.last_bar_completed ?? upstream.bar_segments?.at(-1)?.completed ?? null,
+        last_bar_duration_minutes: upstream.last_bar_duration_minutes ?? (interval === "4h" ? fourHourSource.bar_segments?.at(-1)?.duration_minutes ?? null : null),
+        active_bar_usage: upstream.active_bar_usage || "legacy_completion_metadata_unavailable",
+        adjustment_basis: upstream.adjustment_basis || "unverified",
+        currency: upstream.currency || history.currency || null,
+        request: upstream.request || {},
+        validation: bars.validation || null,
+        rejected_reasons: upstream.rejected_reasons || {},
+        weekly_completion: interval === "1w" ? { source: history.session_calendar?.source || "legacy_calendar_unavailable", excluded_weeks: history.session_calendar?.excluded_weeks ?? null } : null,
+        source: interval === "1w" ? "completed_weekly_from_daily" : upstream.source || "unverified_provider",
         bar_method: interval === "4h" ? (fourHourSource.bar_method || null) : null,
         regular_hours_only: interval === "4h" ? Boolean(fourHourSource.regular_hours_only) : null,
         timezone: interval === "4h" ? (fourHourSource.timezone || null) : null,
@@ -1029,7 +1079,7 @@
     };
   }
 
-  const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, _test: { normalizeBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, pricePositionFeatures, canonicalVolumeFeature, canonicalFibonacciHorizon, canonicalFibonacciStructure } };
+  const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, _test: { smaSeries, normalizeBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, atrFeature, kdjFeature, macdFeature, adxFeature, bollingerFeature, obvFeature, pricePositionFeatures, canonicalVolumeFeature, canonicalFibonacciHorizon, canonicalFibonacciStructure } };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.CanonicalTechnicalFeatures = api;
 }(typeof globalThis !== "undefined" ? globalThis : window));

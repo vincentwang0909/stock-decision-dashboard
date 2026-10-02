@@ -2,11 +2,25 @@
 (function createDecisionPresentation(root) {
   "use strict";
 
-  const finite = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
-  const validRange = (range) => finite(range?.low) != null && finite(range?.high) != null;
+  const finite = (value) => value == null || typeof value === "boolean" || (typeof value === "string" && !value.trim()) ? null : Number.isFinite(Number(value)) ? Number(value) : null;
+  const validRange = (range) => finite(range?.low) > 0 && finite(range?.high) > finite(range?.low);
   const actionIntent = Object.freeze({ strong_buy: "enter", buy: "enter", accumulate: "add", hold: "hold", trim: "reduce", sell: "exit", avoid: "avoid" });
   const actionTone = Object.freeze({ strong_buy: "strong-buy", buy: "buy", accumulate: "accumulate", hold: "hold", trim: "trim", sell: "sell", avoid: "avoid" });
   const REASONS = Object.freeze({
+    market_context_is_unavailable_its_risk_regime_cannot_be_verified: { en: "Market context is unavailable; its risk regime cannot be verified.", zh: "市场上下文不可用，无法核实当前风险环境。" },
+    v2_wait: { en: "Evidence does not support a new action.", zh: "当前证据不足以支持新动作。" },
+    v2_missing: { en: "Required technical evidence is unavailable.", zh: "核心技术证据不可用。" },
+    v2_break: { en: "Price broke confirmed swing support with bearish confirmation.", zh: "价格跌破已确认波段支撑，原技术趋势与确认满足防御退出门槛。" },
+    v2_structure_missing: { en: "Independent structures cannot form valid separated ranges.", zh: "独立结构不能构成有效、分离的规划区间。" },
+    v2_entry: { en: "Trend and participation support entry inside structural support.", zh: "价格位于机会区间，趋势及量价参与支持入场。" },
+    v2_weak_resistance: { en: "Bearish evidence is confirmed in the reduce range.", zh: "价格位于减持区间且下行证据获得确认。" },
+    v2_exhausted_resistance: { en: "Upside stretch accompanies weakening momentum in the reduce range.", zh: "价格位于减持区间，上侧伸展伴随边际动量走弱。" },
+    v2_trend_resistance: { en: "Resistance alone does not outweigh the continuing trend.", zh: "趋势仍延续，阻力位置本身不足以触发减持。" },
+    v2_event: { en: "The recorded earnings window blocks a new entry.", zh: "当时已知财报剩余 0–6 天，暂停新增买入或加仓。" },
+    v2_risk: { en: "Execution risk exceeds the entry limit.", zh: "执行风险超过入场上限，暂时持有。" },
+    v2_entry_unconfirmed: { en: "Support location is suitable but entry evidence is insufficient.", zh: "机会位置合适，但入场参与或向上确认不足。" },
+    v2_location: { en: "Current price lacks an entry location with sufficient room.", zh: "当前价格不在满足空间和位置约束的入场区域。" },
+    v2_shock: { en: "A market shock blocks a new entry.", zh: "市场冲击暂停新增入场。" },
     obv_participation_improving: { en: "OBV participation is improving.", zh: "OBV 参与度正在改善。" },
     obv_participation_weakening: { en: "OBV participation is weakening.", zh: "OBV 参与度正在走弱。" },
     moving_average_structure_bearish: { en: "Moving-average structure is bearish.", zh: "均线结构偏空。" },

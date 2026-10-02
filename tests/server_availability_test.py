@@ -208,6 +208,7 @@ class ServerAvailabilityTests(unittest.TestCase):
     def test_full_refresh_route_returns_cache_snapshot_after_all_live_batches(self):
         full_summary = {
             "completed": True,
+            "live_success_tickers": ["AAPL", "TSM", "NVDA"],
             "batch_count": 2,
             "requested_tickers": ["AAPL", "TSM", "NVDA"],
             "success_count": 3,
@@ -418,7 +419,7 @@ class ServerAvailabilityTests(unittest.TestCase):
         self.assertIs(result, frame)
         self.assertEqual(reason, None)
         self.assertEqual(metadata["dataGranularity"], "4h")
-        self.assertEqual(instrument.calls, [{"period": "120d", "interval": "4h", "auto_adjust": False, "prepost": False}])
+        self.assertEqual(instrument.calls, [{"period": "120d", "interval": "4h", "auto_adjust": False, "prepost": False, "timeout": server.PROVIDER_READ_TIMEOUT_SECONDS}])
 
     def test_native_four_hour_failure_stays_unavailable(self):
         payload = server.native_four_hour_history_payload(None, failure_reason="source_unavailable")

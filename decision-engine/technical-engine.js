@@ -368,7 +368,8 @@
     const technical = mean([...coreDirection, ...coreConfirmation].map(Boolean).map(Number)) * 100;
     const structure = parts.fibonacci.status === "available" || parts.fibonacci.status === "stale_swing" ? 100 : 45;
     const volume = availability(parts.volume) ? 100 : 0;
-    return { score: Math.round(technical * 0.76 + structure * 0.14 + volume * 0.10), components: { primaryDirection: coreDirection, confirmation: coreConfirmation, fibonacci: structure, volume } };
+    const missingCore = [...coreDirection, ...coreConfirmation].flatMap((value, index) => value ? [] : [["ma", "macd", "adx", "early", "relative_strength", "participation", "rsi", "adx_confirmation"][index]]);
+    return { score: Math.round(technical * 0.76 + structure * 0.14 + volume * 0.10), missingCore, optionalWindowsDoNotPenalizeCore: true, components: { primaryDirection: coreDirection, confirmation: coreConfirmation, fibonacci: structure, volume } };
   }
 
   function signalPersistence(ma, macd, adx, relativeStrength) {

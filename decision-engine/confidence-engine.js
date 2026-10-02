@@ -12,11 +12,9 @@
       ?? technical.signalPersistence?.score
       ?? engine.config.stability.noHistory.unavailable;
     const dataQuality = clamp(technical.dataQuality?.score || 0, 0, 100);
-    const profileConfidence = clamp((profile.profileConfidence || 0) * 100, 0, 100);
     const components = {
       signalAgreement: Math.round(agreement), actionStrength: Math.round(actionStrength),
       decisionStability: Math.round(stabilityScore), dataQuality: Math.round(dataQuality),
-      profileConfidence: Math.round(profileConfidence),
     };
     const base = Object.entries(config.weights).reduce((sum, [key, weight]) => {
       const componentKey = key === "agreement" ? "signalAgreement" : key === "stability" ? "decisionStability" : key;
@@ -46,7 +44,7 @@
     const preProfileScale = clamp(Math.round(base - penalty), 0, 100);
     const confidenceScale = Number.isFinite(profile.effectiveModifiers?.confidenceScale) ? profile.effectiveModifiers.confidenceScale : 1;
     const confidence = clamp(Math.round(preProfileScale * confidenceScale), 0, 100);
-    return { score: confidence, components, penalties: Object.fromEntries(Object.entries(penalties).map(([key, value]) => [key, Math.round(value)])), base: Math.round(base), preProfileScale, confidenceScale, action, priceState, actionFamily: finalDecision?.actionFamily || null, landscapeQuality: landscapeQuality?.state || null };
+    return { score: confidence, components, weights: config.weights, profileConfidenceWeight: 0, penalties: Object.fromEntries(Object.entries(penalties).map(([key, value]) => [key, Math.round(value)])), base: Math.round(base), preProfileScale, confidenceScale, action, priceState, actionFamily: finalDecision?.actionFamily || null, landscapeQuality: landscapeQuality?.state || null };
   }
 
   engine.confidence = Object.freeze({ calculate });

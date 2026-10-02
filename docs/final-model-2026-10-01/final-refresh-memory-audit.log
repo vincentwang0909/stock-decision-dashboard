@@ -1,0 +1,59 @@
+{
+  "generatedAt": "2026-10-02T04:26:58.426Z",
+  "cacheOnly": true,
+  "refreshes": 5,
+  "validTickerCount": 29,
+  "canonicalNormalization": "once_per_ticker_per_refresh",
+  "priorLandscapeReuse": false,
+  "landscapeFingerprintMismatchCount": 0,
+  "mismatches": [],
+  "memory": {
+    "samples": [
+      {
+        "refresh": 1,
+        "heapUsedMB": 76.18,
+        "rssMB": 488.06,
+        "stabilityEntries": 62,
+        "profileReviewEntries": 0
+      },
+      {
+        "refresh": 2,
+        "heapUsedMB": 76.23,
+        "rssMB": 520.33,
+        "stabilityEntries": 62,
+        "profileReviewEntries": 0
+      },
+      {
+        "refresh": 3,
+        "heapUsedMB": 76.26,
+        "rssMB": 520.61,
+        "stabilityEntries": 62,
+        "profileReviewEntries": 0
+      },
+      {
+        "refresh": 4,
+        "heapUsedMB": 76.3,
+        "rssMB": 521.02,
+        "stabilityEntries": 62,
+        "profileReviewEntries": 0
+      },
+      {
+        "refresh": 5,
+        "heapUsedMB": 76.37,
+        "rssMB": 521.13,
+        "stabilityEntries": 62,
+        "profileReviewEntries": 0
+      }
+    ],
+    "firstHeapUsedMB": 76.18,
+    "lastHeapUsedMB": 76.37,
+    "deltaHeapMB": 0.19,
+    "maxHeapUsedMB": 76.37
+  },
+  "boundedState": {
+    "stabilityCacheLimit": 300,
+    "stabilityEntries": 62,
+    "profileReviewCacheLimit": 300,
+    "profileReviewEntries": 0
+  }
+}

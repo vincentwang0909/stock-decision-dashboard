@@ -1,0 +1,56 @@
+[
+  {
+    "ticker": "SQQQ",
+    "audit": {
+      "source_rows": 2513,
+      "rejected_rows": 0,
+      "reasons": {}
+    },
+    "valid_bars": 2513
+  },
+  {
+    "ticker": "CRCL",
+    "audit": {
+      "source_rows": 333,
+      "rejected_rows": 0,
+      "reasons": {}
+    },
+    "valid_bars": 333
+  },
+  {
+    "ticker": "FFAI",
+    "audit": {
+      "source_rows": 1527,
+      "rejected_rows": 0,
+      "reasons": {}
+    },
+    "valid_bars": 1527
+  },
+  {
+    "ticker": "QQQ",
+    "audit": {
+      "source_rows": 2513,
+      "rejected_rows": 0,
+      "reasons": {}
+    },
+    "valid_bars": 2513
+  },
+  {
+    "ticker": "NVDA",
+    "audit": {
+      "source_rows": 2513,
+      "rejected_rows": 0,
+      "reasons": {}
+    },
+    "valid_bars": 2513
+  },
+  {
+    "ticker": "SOXL",
+    "audit": {
+      "source_rows": 2513,
+      "rejected_rows": 0,
+      "reasons": {}
+    },
+    "valid_bars": 2513
+  }
+]

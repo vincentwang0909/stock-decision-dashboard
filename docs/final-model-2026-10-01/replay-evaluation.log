@@ -1,0 +1,1 @@
+{"width_gate": {"factor": 0.995, "passed": false, "failures": ["short:stock:five_observation_coverage_lost:2026-09-14:ZETA"], "action_changes": 0, "state_changes": 3, "confidence_changes": 0}, "rows": 2820, "output_dir": "docs/final-model-2026-10-01"}

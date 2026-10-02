@@ -9,29 +9,13 @@ const { buildTechnicalFeatures } = require("../technical-features.js");
 
 for (const file of [
   "config.js", "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "etf-profile.js", "company-profile.js",
-  "execution-engine.js", "confidence-engine.js", "stability-engine.js", "decision-engine.js",
+  "planning-width.js", "execution-engine.js", "short-model-v2.js", "confidence-engine.js", "stability-engine.js", "decision-engine.js",
 ]) require(path.join(__dirname, "..", "decision-engine", file));
 
 const DEFAULT_TICKERS = ["META", "MSFT", "NVDA", "MU", "AMZN", "GOOGL"];
 const profiles = require("../profile-definitions.js");
 
 const finite = (value) => value == null || value === "" ? null : Number.isFinite(Number(value)) ? Number(value) : null;
-const returnPct = (closes, lookback) => {
-  const values = (closes || []).map(finite).filter((value) => value != null);
-  const last = values.at(-1);
-  const base = values.at(-1 - lookback);
-  return Number.isFinite(last) && Number.isFinite(base) && base !== 0 ? (last / base - 1) * 100 : null;
-};
-const marketCore = (market) => market?.market_context || market?.market_engine || market || {};
-function relativeStrength(quote, market) {
-  const core = marketCore(market);
-  const equity = core.equity_trend || { spy: core.spy_trend, qqq: core.qqq_trend };
-  return Object.fromEntries([20, 60, 120].flatMap((days) => {
-    const stock = returnPct(quote.history?.closes, days);
-    const against = (benchmark) => stock != null && finite(benchmark?.[`change_${days}d_pct`]) != null ? stock - finite(benchmark[`change_${days}d_pct`]) : null;
-    return [[`stock_return_${days}d`, stock], [`stock_vs_spy_${days}d`, against(equity.spy)], [`stock_vs_qqq_${days}d`, against(equity.qqq)]];
-  }));
-}
 
 function summary(decision) {
   return Object.fromEntries(Object.entries(decision.horizons).map(([horizon, value]) => [horizon, {
@@ -51,9 +35,10 @@ function strictPriceStateContract(value) {
   const action = value.action;
   const positive = ["strong_buy", "buy", "accumulate"].includes(action);
   const defensive = ["trim", "sell"].includes(action);
-  if (state === "IN_OPPORTUNITY_ZONE") return { expected: "positive", valid: positive };
+  const stockShortV2 = value.debug?.pathVersion === globalThis.DecisionEngine.config.shortV2.version;
+  if (state === "IN_OPPORTUNITY_ZONE") return { expected: stockShortV2 ? "positive_or_wait" : "positive", valid: positive || (stockShortV2 && action === "hold") };
   if (["NEAR_OPPORTUNITY_ZONE", "NEUTRAL_ZONE", "NEAR_REDUCE_ZONE"].includes(state)) return { expected: "hold", valid: action === "hold" };
-  if (["IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"].includes(state)) return { expected: "reduce", valid: defensive };
+  if (["IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"].includes(state)) return { expected: stockShortV2 ? "reduce_or_wait" : "reduce", valid: defensive || (stockShortV2 && action === "hold") };
   if (state === "BREAKDOWN_ZONE") return { expected: "defensive", valid: ["sell", "avoid"].includes(action) };
   return { expected: "avoid", valid: action === "avoid" };
 }
@@ -75,7 +60,7 @@ async function main() {
       continue;
     }
     const technicalFeatures = buildTechnicalFeatures({
-      history: quote.history || {}, currentPrice: price, relativeStrength: relativeStrength(quote, market),
+      history: quote.history || {}, currentPrice: price, benchmarkContext: market, calculatedAt: quote.updatedAt || quote.history?.as_of || new Date().toISOString(),
       fibonacciStructure: quote.technical?.fibonacci_structure || {}, shareBase: quote.metadata?.sharesOutstanding || null,
     });
     output[ticker] = { status: "available", price, ...summary(globalThis.DecisionEngine.decide({ ticker, price, technicalFeatures, marketContext: market, classification: profiles.profileFor(ticker, quote.metadata || {}), metadata: quote.metadata || {}, language: "en" })) };

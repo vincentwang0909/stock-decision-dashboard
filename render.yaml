@@ -4,7 +4,7 @@ services:
     runtime: python
     region: oregon
     buildCommand: "pip install -r requirements.txt"
-    startCommand: gunicorn --timeout 120 --workers 1 server:app
+    startCommand: gunicorn --timeout 120 --workers 1 --threads 2 server:app
     healthCheckPath: /
     disk:
       name: watchlist-data
@@ -18,7 +18,21 @@ services:
       - key: EOD_DECISION_NODE_PATH
         value: node
       - key: EOD_HISTORY_NODE_MAX_OLD_SPACE_MB
-        value: "192"
+        value: "128"
+      - key: EOD_HISTORY_NODE_MAX_SEMI_SPACE_MB
+        value: "4"
+      - key: QUOTE_RAM_CACHE_MAX_BYTES
+        value: "8388608"
+      - key: PYTHON_VERSION
+        value: "3.12.14"
+      - key: NODE_VERSION
+        value: "24.19.0"
+      - key: RESOURCE_METRICS_ENABLED
+        value: "true"
+      - key: TECHNICAL_DAILY_HISTORY_PERIOD
+        value: "10y"
+      - key: TECHNICAL_FOUR_HOUR_HISTORY_PERIOD
+        value: "365d"
       - key: MARKET_CACHE_DIR
         value: /var/data/cache
       - key: MARKET_DATA_MAX_TICKERS

@@ -1,0 +1,74 @@
+{
+  "identity": {
+    "url": "http://127.0.0.1:4173/",
+    "title": "Stock Decision Dashboard",
+    "contentLength": 833,
+    "rows": 7
+  },
+  "buttons": [
+    {
+      "text": "×",
+      "attrs": {
+        "class": "detail-close",
+        "type": "button",
+        "aria-label": "Close"
+      }
+    },
+    {
+      "text": "AI Decision",
+      "attrs": {
+        "class": "detail-tab active",
+        "type": "button",
+        "data-detail-tab": "summary"
+      }
+    },
+    {
+      "text": "Technical",
+      "attrs": {
+        "class": "detail-tab",
+        "type": "button",
+        "data-detail-tab": "technical"
+      }
+    },
+    {
+      "text": "Market Data",
+      "attrs": {
+        "class": "detail-tab",
+        "type": "button",
+        "data-detail-tab": "market"
+      }
+    },
+    {
+      "text": "i",
+      "attrs": {
+        "type": "button",
+        "class": "decision-confidence-help",
+        "title": "Recommendation Confidence measures the consistency and stability of support for this action. It is not a probability of future price appreciation.",
+        "aria-label": "Recommendation Confidence measures the consistency and stability of support for this action. It is not a probability of future price appreciation."
+      }
+    },
+    {
+      "text": "i",
+      "attrs": {
+        "type": "button",
+        "class": "decision-confidence-help",
+        "title": "Recommendation Confidence measures the consistency and stability of support for this action. It is not a probability of future price appreciation.",
+        "aria-label": "Recommendation Confidence measures the consistency and stability of support for this action. It is not a probability of future price appreciation."
+      }
+    },
+    {
+      "text": "i",
+      "attrs": {
+        "type": "button",
+        "class": "decision-confidence-help",
+        "title": "Recommendation Confidence measures the consistency and stability of support for this action. It is not a probability of future price appreciation.",
+        "aria-label": "Recommendation Confidence measures the consistency and stability of support for this action. It is not a probability of future price appreciation."
+      }
+    }
+  ],
+  "text": "×\nData time Oct 1, 2026, 9:51 PM ET\nNVDA\nNVDA\nPrice $230.86\nDay move —\nPRIMARY CLASSIFICATION\nSemiconductors\nBUSINESS TRAIT\nHighGrowth\nRISK / BEHAVIOR TRAIT\nHighVolatility\nLIFECYCLE\nEstablishedLeader\nAI Decision\nTechnical\nMarket Data\nFinal Decision\n\nSelect a horizon card to view its price map and decision drivers.\n\nSHORT · 1–30 DAYS\nHold\nRecommendation Confidence i\n77 / 100\nPOTENTIAL ADD RANGE\n$218.05 – $227.07\nCURRENT PRICE\n$230.86\nPOTENTIAL REDUCE RANGE\n$228.60 – $237.62\nRISK / INVALIDATION\n$217.17\nMID · 1–6 MONTHS\nHold\nRecommendation Confidence i\n70 / 100\nPOTENTIAL ADD RANGE\n$207.25 – $216.55\nCURRENT PRICE\n$230.86\nPOTENTIAL REDUCE RANGE\n$231.83 – $240.35\nRISK / INVALIDATION\n$199.38\nLONG · >6 MONTHS\nHold\nRecommendation Confidence i\n74 / 100\nPOTENTIAL ADD RANGE\n$187.49 – $207.77\nCURRENT PRICE\n$230.86\nPOTENTIAL REDUCE RANGE\n$266.49 – $283.61\nRISK / INVALIDATION\n$169.37\nPrice Landscape\nSHORT · 1–30 DAYS\n│\n▲\nRisk / Invalidation\n$217.17\nDistance -5.9%\nPotential Add Range\n$218.05 – $227.07\nDistance -1.6%\nCurrent Price\n$230.86\nPotential Reduce Range\n$228.60 – $237.62\nCurrently in this range\nRisk / Invalidation\nPotential Add Range\nCurrent Price\nPotential Reduce Range\nWhy This Decision\nSHORT · 1–30 DAYS\nSUPPORTING EVIDENCE\n✓ Primary moving-average structure is constructive.\n✓ OBV and volume participation are confirming accumulation.\nLIMITING EVIDENCE\n⚠ Resistance alone does not outweigh the continuing trend.\nMarket Risk Environment\nREGIME\nRisk-On\nA broad-market risk regime from VIX and SPY/QQQ trend conditions; it is not a stock-specific action.\nIMPACT ON THIS STOCK\nNeutral\nThe horizon-specific market adjustment to this stock's execution risk; it does not create a Buy or Sell by itself.\nSPY\nneutral\nThe benchmark trend is not clearly rising or falling under the market rules.\nQQQ\nneutral\nThe benchmark trend is not clearly rising or falling under the market rules.\nVIX\n16.39 · 5D +0.72 · 20D +2.07\nVIX level and recent changes describe the market's volatility backdrop.\nFEAR & GREED\nfear · 28/100\nA sentiment context indicator; it is not a standalone Buy or Sell signal.\nUS 10Y\n5.24% · severe\nThe 10Y yield backdrop affects rate-sensitive execution risk.\nEARNINGS PROXIMITY\nNext Earnings 46 days\nUpcoming earnings can increase event uncertainty.\nWHY THIS REGIME\n\n10Y yield backdrop is restrictive for rate-sensitive risk.",
+  "logs": [],
+  "requests": [
+    "http://127.0.0.1:4173/api/market-data?tickers=NVDA%2CFFAI%2CCRCL%2CQQQ%2CSOXL%2CSQQQ%2CSPCX&format=compact"
+  ]
+}

@@ -1,0 +1,7 @@
+date,ticker,old_action,action,old_confidence,confidence,state
+2026-08-19,NOW,hold,trim,57,57,IN_REDUCE_ZONE
+2026-08-26,MPT,hold,trim,63,63,IN_REDUCE_ZONE
+2026-08-27,MPT,hold,accumulate,61,61,IN_OPPORTUNITY_ZONE
+2026-09-01,NOK,hold,accumulate,76,80,IN_OPPORTUNITY_ZONE
+2026-09-08,MPT,hold,accumulate,54,54,IN_OPPORTUNITY_ZONE
+2026-09-21,NOK,hold,trim,72,70,IN_REDUCE_ZONE

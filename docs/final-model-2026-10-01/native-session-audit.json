@@ -1,0 +1,86 @@
+[
+  {
+    "ticker": "NVDA",
+    "input": 725,
+    "accepted": 723,
+    "normal_sessions": 360,
+    "half_sessions": 3,
+    "invalid_days": 2,
+    "tail_durations": [
+      150.0,
+      210.0,
+      240.0
+    ],
+    "completed": 723
+  },
+  {
+    "ticker": "SQQQ",
+    "input": 725,
+    "accepted": 723,
+    "normal_sessions": 360,
+    "half_sessions": 3,
+    "invalid_days": 2,
+    "tail_durations": [
+      150.0,
+      210.0,
+      240.0
+    ],
+    "completed": 723
+  },
+  {
+    "ticker": "SOXL",
+    "input": 725,
+    "accepted": 723,
+    "normal_sessions": 360,
+    "half_sessions": 3,
+    "invalid_days": 2,
+    "tail_durations": [
+      150.0,
+      210.0,
+      240.0
+    ],
+    "completed": 723
+  },
+  {
+    "ticker": "QQQ",
+    "input": 725,
+    "accepted": 723,
+    "normal_sessions": 360,
+    "half_sessions": 3,
+    "invalid_days": 2,
+    "tail_durations": [
+      150.0,
+      210.0,
+      240.0
+    ],
+    "completed": 723
+  },
+  {
+    "ticker": "FFAI",
+    "input": 725,
+    "accepted": 723,
+    "normal_sessions": 360,
+    "half_sessions": 3,
+    "invalid_days": 2,
+    "tail_durations": [
+      150.0,
+      210.0,
+      240.0
+    ],
+    "completed": 723
+  },
+  {
+    "ticker": "CRCL",
+    "input": 661,
+    "accepted": 659,
+    "normal_sessions": 328,
+    "half_sessions": 3,
+    "invalid_days": 2,
+    "tail_durations": [
+      150.0,
+      210.0,
+      240.0
+    ],
+    "completed": 659
+  }
+]

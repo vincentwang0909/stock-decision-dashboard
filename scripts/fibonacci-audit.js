@@ -11,25 +11,9 @@ const HORIZONS = Object.freeze([
 ]);
 const finite = (value) => value == null || value === "" ? null : Number.isFinite(Number(value)) ? Number(value) : null;
 const round = (value, digits = 4) => Number.isFinite(value) ? Number(value.toFixed(digits)) : null;
-const returnPct = (closes, lookback) => {
-  const values = (closes || []).map(finite).filter((value) => value != null);
-  const current = values.at(-1);
-  const prior = values.at(-1 - lookback);
-  return Number.isFinite(current) && Number.isFinite(prior) && prior !== 0 ? (current / prior - 1) * 100 : null;
-};
-const marketCore = (market) => market?.market_context || market?.market_engine || market || {};
-function relativeStrength(quote, market) {
-  const core = marketCore(market);
-  const equity = core.equity_trend || { spy: core.spy_trend, qqq: core.qqq_trend };
-  return Object.fromEntries([20, 60, 120].flatMap((days) => {
-    const stock = returnPct(quote.history?.closes, days);
-    const against = (benchmark) => stock != null && finite(benchmark?.[`change_${days}d_pct`]) != null ? stock - finite(benchmark[`change_${days}d_pct`]) : null;
-    return [[`stock_return_${days}d`, stock], [`stock_vs_spy_${days}d`, against(equity.spy)], [`stock_vs_qqq_${days}d`, against(equity.qqq)]];
-  }));
-}
 function featureFor(quote, market) {
   return buildTechnicalFeatures({
-    history: quote.history || {}, currentPrice: finite(quote.price), relativeStrength: relativeStrength(quote, market),
+    history: quote.history || {}, currentPrice: finite(quote.price), benchmarkContext: market, calculatedAt: quote.updatedAt || quote.history?.as_of || new Date().toISOString(),
     fibonacciStructure: quote.technical?.fibonacci_structure || {}, shareBase: quote.metadata?.sharesOutstanding || null,
   });
 }

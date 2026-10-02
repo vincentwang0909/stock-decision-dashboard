@@ -14,7 +14,7 @@ require(path.join(ROOT, "decision-engine", "config.js"));
 const classifier = require(path.join(ROOT, "decision-engine", "company-profile-classifier.js"));
 for (const file of ["etf-profile.js", "company-profile.js"]) require(path.join(ROOT, "decision-engine", file));
 const profileEngine = globalThis.DecisionEngine.profile;
-const CACHE_DIRECTORY = path.join(ROOT, "data", "cache", "quotes");
+const CACHE_DIRECTORY = process.env.COMPANY_PROFILE_AUDIT_CACHE || path.join(process.env.MARKET_CACHE_DIR || path.join(ROOT, "data", "cache"), "quotes");
 const DB_PATH = process.env.WATCHLIST_DB_PATH || path.join(ROOT, "data", "watchlist.db");
 const requested = new Set((process.argv.find((value) => value.startsWith("--tickers=")) || "").slice(10).split(",").map((value) => value.trim().toUpperCase()).filter(Boolean));
 const details = process.argv.includes("--details");
@@ -29,7 +29,7 @@ function persistedProfiles() {
   if (!fs.existsSync(DB_PATH)) return {};
   const script = [
     "import json, sqlite3, sys",
-    "conn=sqlite3.connect(sys.argv[1]); conn.row_factory=sqlite3.Row",
+    "conn=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro', uri=True); conn.row_factory=sqlite3.Row",
     "cols={r[1] for r in conn.execute('PRAGMA table_info(company_profiles)')}",
     "wanted=['ticker','primary_classification','business_trait','risk_trait','lifecycle','profile_status','profile_schema_version'] + (['size_class'] if 'size_class' in cols else [])",
     "rows=[dict(r) for r in conn.execute('SELECT '+','.join(wanted)+' FROM company_profiles')]",
@@ -46,7 +46,7 @@ function activeWatchlist() {
   if (!fs.existsSync(DB_PATH)) return [];
   const script = [
     "import json, sqlite3, sys",
-    "conn=sqlite3.connect(sys.argv[1])",
+    "conn=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro', uri=True)",
     "rows=[r[0] for r in conn.execute('SELECT ticker FROM watchlist ORDER BY datetime(created_at) ASC, id ASC')]",
     "print(json.dumps(rows, ensure_ascii=False)); conn.close()",
   ].join("\n");

@@ -94,9 +94,12 @@
     return Number.isFinite(value.directionScore) ? value.directionScore : null;
   }
 
-  function decideHorizon({ ticker, horizon, price, technicalFeatures, market, profile, metadata, underlyingTechnicalFeatures, underlyingPrice, language = "en" }) {
+  function decideHorizon({ ticker, horizon, price, technicalFeatures, market, profile, metadata, underlyingTechnicalFeatures, underlyingPrice, language = "en", modelOptions = {} }) {
     const horizonProfile = engine.profile.forHorizon(profile, horizon);
     let technical = engine.technical.evaluate(technicalFeatures, horizon, price, horizonProfile);
+    if (horizon === "short" && engine.config.shortV2.enabled && !horizonProfile.isETF) {
+      return engine.shortV2.decide({ ticker, price, technicalFeatures, technical, market, profile: horizonProfile, language, modelOptions });
+    }
     const underlying = engine.etfProfile.underlyingContext({
       profile: horizonProfile,
       ownDirection: technical.directionScore,
@@ -119,7 +122,7 @@
     // core final-decision input, not a post-hoc execution decoration.
     const rawLandscape = engine.execution.buildLandscape({
       price, horizon, technical,
-      context: { risk, exhaustionScore: exhaustion.score, marketModifiers, profile: horizonProfile },
+      context: { risk, exhaustionScore: exhaustion.score, marketModifiers, profile: horizonProfile, widthTransformEnabled: modelOptions.widthTransformEnabled },
     });
     technical = applyLandscapeQuality(technical, rawLandscape);
     const edgeBeforeMarket = opportunityEdge(technical, exhaustion, riskAdjustment.profileRisk);
@@ -182,6 +185,7 @@
         candidateAction: familyDecision.action, actionBeforeStability, finalAction,
         priceState: rawLandscape.priceState, actionFamily: familyDecision.actionFamily, landscapeQuality: rawLandscape.landscapeQuality, finalDecision: familyDecision,
         stability, guardrails, materialChangeReasons,
+        modelVersion: engine.config.version, pathVersion: "legacy-v1", widthTransform: rawLandscape.debug?.widthTransform,
         confidenceComponents: confidence, priceLandscapeInputs: execution.debug?.priceLandscapeInputs || {}, invalidationInputs: execution.debug?.invalidationInputs || {},
         dataQuality: technical.dataQuality,
       },
@@ -196,5 +200,6 @@
   }
 
   engine.decide = decide;
+  engine.decideHorizon = decideHorizon;
   engine.actionLabel = localized;
 }(globalThis));

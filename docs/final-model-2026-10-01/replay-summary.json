@@ -1,0 +1,4532 @@
+{
+  "source_rows": 2820,
+  "symbols": 37,
+  "origin_dates": 28,
+  "first_date": "2026-08-18",
+  "last_date": "2026-09-25",
+  "method": "daily recorded-price first observed; full continuous 30-calendar-day path; unresolved included; no fill/fee/position assumptions",
+  "versions": {
+    "short:stock": {
+      "baseline": {
+        "historical_original_match_rows": 766,
+        "original_consistent_subset": {
+          "buy": {
+            "incorrect": 10,
+            "correct": 20,
+            "incomplete_path": 2,
+            "immature": 127
+          },
+          "reduce": {
+            "incorrect": 10,
+            "correct": 5,
+            "immature": 48
+          }
+        },
+        "rows": 772,
+        "actions": {
+          "hold": 541,
+          "accumulate": 151,
+          "sell": 36,
+          "trim": 30,
+          "buy": 11,
+          "avoid": 3
+        },
+        "directional_coverage": 0.29533678756476683,
+        "observed_30_calendar_days_first_3pct": {
+          "buy": {
+            "incorrect": 10,
+            "correct": 20,
+            "incomplete_path": 2,
+            "immature": 130
+          },
+          "reduce": {
+            "incorrect": 11,
+            "correct": 6,
+            "immature": 49
+          }
+        },
+        "short_threshold_sensitivity": {
+          "0.02": {
+            "correct": 27,
+            "incorrect": 20,
+            "incomplete_path": 2,
+            "immature": 179
+          },
+          "0.03": {
+            "incorrect": 21,
+            "correct": 26,
+            "incomplete_path": 2,
+            "immature": 179
+          },
+          "0.05": {
+            "incorrect": 20,
+            "correct": 23,
+            "unresolved": 4,
+            "incomplete_path": 2,
+            "immature": 179
+          }
+        },
+        "short_record_sensitivity": {
+          "1": {
+            "correct": 113,
+            "incorrect": 106,
+            "unresolved": 2,
+            "immature": 7
+          },
+          "3": {
+            "incorrect": 97,
+            "correct": 104,
+            "unresolved": 1,
+            "immature": 26
+          },
+          "5": {
+            "correct": 108,
+            "incorrect": 77,
+            "unresolved": 1,
+            "immature": 42
+          },
+          "10": {
+            "incorrect": 65,
+            "correct": 76,
+            "immature": 87
+          },
+          "20": {
+            "incorrect": 22,
+            "correct": 27,
+            "immature": 179
+          }
+        },
+        "short_next_observation_execution": {
+          "incorrect": 21,
+          "correct": 26,
+          "incomplete_path": 2,
+          "immature": 179
+        },
+        "short_first_consecutive_family_only": {
+          "incorrect": 16,
+          "correct": 20,
+          "incomplete_path": 1,
+          "immature": 119
+        },
+        "by_origin_date": {
+          "2026-08-18": {
+            "incorrect": 4,
+            "correct": 3
+          },
+          "2026-08-19": {
+            "incomplete_path": 1,
+            "incorrect": 3,
+            "correct": 4
+          },
+          "2026-08-20": {
+            "correct": 5,
+            "incorrect": 4,
+            "incomplete_path": 1
+          },
+          "2026-08-21": {
+            "incorrect": 1,
+            "correct": 3
+          },
+          "2026-08-24": {
+            "incorrect": 4,
+            "correct": 1
+          },
+          "2026-08-25": {
+            "correct": 5
+          },
+          "2026-08-26": {
+            "incorrect": 5,
+            "correct": 5
+          },
+          "2026-08-27": {
+            "immature": 6
+          },
+          "2026-08-28": {
+            "immature": 8
+          },
+          "2026-08-31": {
+            "immature": 11
+          },
+          "2026-09-01": {
+            "immature": 9
+          },
+          "2026-09-02": {
+            "immature": 9
+          },
+          "2026-09-03": {
+            "immature": 8
+          },
+          "2026-09-04": {
+            "immature": 7
+          },
+          "2026-09-08": {
+            "immature": 12
+          },
+          "2026-09-09": {
+            "immature": 7
+          },
+          "2026-09-10": {
+            "immature": 10
+          },
+          "2026-09-11": {
+            "immature": 8
+          },
+          "2026-09-14": {
+            "immature": 7
+          },
+          "2026-09-15": {
+            "immature": 10
+          },
+          "2026-09-16": {
+            "immature": 13
+          },
+          "2026-09-17": {
+            "immature": 8
+          },
+          "2026-09-18": {
+            "immature": 9
+          },
+          "2026-09-21": {
+            "immature": 8
+          },
+          "2026-09-22": {
+            "immature": 6
+          },
+          "2026-09-23": {
+            "immature": 8
+          },
+          "2026-09-24": {
+            "immature": 9
+          },
+          "2026-09-25": {
+            "immature": 6
+          }
+        },
+        "by_ticker": {
+          "AAPL": {
+            "correct": 1,
+            "immature": 3
+          },
+          "AMD": {
+            "correct": 1,
+            "incorrect": 1,
+            "immature": 5
+          },
+          "AMZN": {
+            "incorrect": 2,
+            "immature": 6
+          },
+          "BABA": {
+            "incorrect": 2,
+            "immature": 10
+          },
+          "CRCL": {
+            "correct": 1,
+            "immature": 9
+          },
+          "CRWV": {
+            "immature": 2
+          },
+          "FFAI": {
+            "incomplete_path": 2,
+            "immature": 3
+          },
+          "GEV": {
+            "incorrect": 2,
+            "immature": 8
+          },
+          "GOOGL": {
+            "immature": 6
+          },
+          "GS": {
+            "immature": 6
+          },
+          "HIMS": {
+            "incorrect": 3,
+            "immature": 5
+          },
+          "LULU": {
+            "immature": 2
+          },
+          "META": {
+            "incorrect": 3,
+            "correct": 1,
+            "immature": 2
+          },
+          "MPT": {
+            "incorrect": 1,
+            "correct": 2,
+            "immature": 15
+          },
+          "MSFT": {
+            "correct": 1,
+            "immature": 2
+          },
+          "MU": {
+            "correct": 2,
+            "incorrect": 1,
+            "immature": 7
+          },
+          "NFLX": {
+            "incorrect": 1,
+            "immature": 8
+          },
+          "NOK": {
+            "correct": 3,
+            "immature": 11
+          },
+          "NOW": {
+            "incorrect": 1,
+            "correct": 1,
+            "immature": 8
+          },
+          "NVDA": {
+            "correct": 1,
+            "immature": 7
+          },
+          "ORCL": {
+            "correct": 1,
+            "incorrect": 1,
+            "immature": 3
+          },
+          "PDD": {
+            "immature": 1
+          },
+          "PLTR": {
+            "correct": 1,
+            "incorrect": 1,
+            "immature": 6
+          },
+          "SOFI": {
+            "correct": 3,
+            "immature": 3
+          },
+          "SPCX": {
+            "correct": 1,
+            "immature": 8
+          },
+          "TEM": {
+            "immature": 5
+          },
+          "TSLA": {
+            "correct": 2,
+            "immature": 7
+          },
+          "TSM": {
+            "correct": 1,
+            "immature": 7
+          },
+          "UNH": {
+            "correct": 1,
+            "incorrect": 2,
+            "immature": 6
+          },
+          "XE": {
+            "immature": 3
+          },
+          "ZETA": {
+            "correct": 2,
+            "immature": 5
+          }
+        },
+        "endpoint_before_shared_cutoff": {
+          "2026-09-18": {
+            "origin_dates": [
+              "2026-08-18"
+            ],
+            "outcomes": {
+              "incorrect": 4,
+              "correct": 3
+            }
+          },
+          "2026-09-26": {
+            "origin_dates": [
+              "2026-08-18",
+              "2026-08-19",
+              "2026-08-20",
+              "2026-08-21",
+              "2026-08-24",
+              "2026-08-25",
+              "2026-08-26"
+            ],
+            "outcomes": {
+              "incorrect": 21,
+              "correct": 26
+            }
+          }
+        },
+        "leave_one_origin_date_out": {
+          "2026-08-18": {
+            "incorrect": 17,
+            "correct": 23
+          },
+          "2026-08-19": {
+            "incorrect": 18,
+            "correct": 22
+          },
+          "2026-08-20": {
+            "incorrect": 17,
+            "correct": 21
+          },
+          "2026-08-21": {
+            "incorrect": 20,
+            "correct": 23
+          },
+          "2026-08-24": {
+            "incorrect": 17,
+            "correct": 25
+          },
+          "2026-08-25": {
+            "incorrect": 21,
+            "correct": 21
+          },
+          "2026-08-26": {
+            "incorrect": 16,
+            "correct": 21
+          }
+        },
+        "leave_one_ticker_out": {
+          "AAPL": {
+            "incorrect": 21,
+            "correct": 25
+          },
+          "AMD": {
+            "incorrect": 20,
+            "correct": 25
+          },
+          "AMZN": {
+            "correct": 26,
+            "incorrect": 19
+          },
+          "BABA": {
+            "incorrect": 19,
+            "correct": 26
+          },
+          "CRCL": {
+            "incorrect": 21,
+            "correct": 25
+          },
+          "GEV": {
+            "incorrect": 19,
+            "correct": 26
+          },
+          "HIMS": {
+            "incorrect": 18,
+            "correct": 26
+          },
+          "META": {
+            "incorrect": 18,
+            "correct": 25
+          },
+          "MPT": {
+            "incorrect": 20,
+            "correct": 24
+          },
+          "MSFT": {
+            "incorrect": 21,
+            "correct": 25
+          },
+          "MU": {
+            "incorrect": 20,
+            "correct": 24
+          },
+          "NFLX": {
+            "incorrect": 20,
+            "correct": 26
+          },
+          "NOK": {
+            "incorrect": 21,
+            "correct": 23
+          },
+          "NOW": {
+            "incorrect": 20,
+            "correct": 25
+          },
+          "NVDA": {
+            "incorrect": 21,
+            "correct": 25
+          },
+          "ORCL": {
+            "incorrect": 20,
+            "correct": 25
+          },
+          "PLTR": {
+            "incorrect": 20,
+            "correct": 25
+          },
+          "SOFI": {
+            "incorrect": 21,
+            "correct": 23
+          },
+          "SPCX": {
+            "incorrect": 21,
+            "correct": 25
+          },
+          "TSLA": {
+            "incorrect": 21,
+            "correct": 24
+          },
+          "TSM": {
+            "incorrect": 21,
+            "correct": 25
+          },
+          "UNH": {
+            "incorrect": 19,
+            "correct": 25
+          },
+          "ZETA": {
+            "incorrect": 21,
+            "correct": 24
+          }
+        },
+        "first_observed_early_resolution_3pct": {
+          "buy": {
+            "incorrect": 51,
+            "correct": 75,
+            "immature": 36
+          },
+          "reduce": {
+            "incorrect": 30,
+            "correct": 25,
+            "immature": 11
+          }
+        }
+      },
+      "resourceAndValidation": {
+        "historical_original_match_rows": 766,
+        "original_consistent_subset": {
+          "buy": {
+            "incorrect": 10,
+            "correct": 20,
+            "incomplete_path": 3,
+            "immature": 126
+          },
+          "reduce": {
+            "incorrect": 10,
+            "correct": 5,
+            "immature": 51
+          }
+        },
+        "rows": 772,
+        "actions": {
+          "hold": 538,
+          "accumulate": 151,
+          "sell": 36,
+          "trim": 33,
+          "buy": 11,
+          "avoid": 3
+        },
+        "directional_coverage": 0.29922279792746115,
+        "observed_30_calendar_days_first_3pct": {
+          "buy": {
+            "incorrect": 10,
+            "correct": 20,
+            "incomplete_path": 3,
+            "immature": 129
+          },
+          "reduce": {
+            "incorrect": 11,
+            "correct": 6,
+            "immature": 52
+          }
+        },
+        "short_threshold_sensitivity": {
+          "0.02": {
+            "correct": 27,
+            "incomplete_path": 3,
+            "incorrect": 20,
+            "immature": 181
+          },
+          "0.03": {
+            "incorrect": 21,
+            "correct": 26,
+            "incomplete_path": 3,
+            "immature": 181
+          },
+          "0.05": {
+            "incorrect": 20,
+            "correct": 23,
+            "incomplete_path": 3,
+            "unresolved": 4,
+            "immature": 181
+          }
+        },
+        "short_record_sensitivity": {
+          "1": {
+            "correct": 114,
+            "incorrect": 108,
+            "unresolved": 2,
+            "immature": 7
+          },
+          "3": {
+            "incorrect": 99,
+            "correct": 105,
+            "unresolved": 1,
+            "immature": 26
+          },
+          "5": {
+            "correct": 109,
+            "incorrect": 79,
+            "unresolved": 1,
+            "immature": 42
+          },
+          "10": {
+            "incorrect": 67,
+            "correct": 77,
+            "immature": 87
+          },
+          "20": {
+            "incorrect": 22,
+            "correct": 27,
+            "immature": 182
+          }
+        },
+        "short_next_observation_execution": {
+          "incorrect": 21,
+          "correct": 26,
+          "incomplete_path": 3,
+          "immature": 181
+        },
+        "short_first_consecutive_family_only": {
+          "incorrect": 16,
+          "correct": 20,
+          "incomplete_path": 1,
+          "immature": 122
+        },
+        "by_origin_date": {
+          "2026-08-18": {
+            "incorrect": 4,
+            "correct": 3,
+            "incomplete_path": 1
+          },
+          "2026-08-19": {
+            "incomplete_path": 1,
+            "incorrect": 3,
+            "correct": 4
+          },
+          "2026-08-20": {
+            "correct": 5,
+            "incorrect": 4,
+            "incomplete_path": 1
+          },
+          "2026-08-21": {
+            "incorrect": 1,
+            "correct": 3
+          },
+          "2026-08-24": {
+            "incorrect": 4,
+            "correct": 1
+          },
+          "2026-08-25": {
+            "correct": 5
+          },
+          "2026-08-26": {
+            "incorrect": 5,
+            "correct": 5
+          },
+          "2026-08-27": {
+            "immature": 6
+          },
+          "2026-08-28": {
+            "immature": 8
+          },
+          "2026-08-31": {
+            "immature": 11
+          },
+          "2026-09-01": {
+            "immature": 9
+          },
+          "2026-09-02": {
+            "immature": 9
+          },
+          "2026-09-03": {
+            "immature": 9
+          },
+          "2026-09-04": {
+            "immature": 7
+          },
+          "2026-09-08": {
+            "immature": 12
+          },
+          "2026-09-09": {
+            "immature": 8
+          },
+          "2026-09-10": {
+            "immature": 10
+          },
+          "2026-09-11": {
+            "immature": 8
+          },
+          "2026-09-14": {
+            "immature": 7
+          },
+          "2026-09-15": {
+            "immature": 10
+          },
+          "2026-09-16": {
+            "immature": 13
+          },
+          "2026-09-17": {
+            "immature": 8
+          },
+          "2026-09-18": {
+            "immature": 9
+          },
+          "2026-09-21": {
+            "immature": 8
+          },
+          "2026-09-22": {
+            "immature": 6
+          },
+          "2026-09-23": {
+            "immature": 7
+          },
+          "2026-09-24": {
+            "immature": 10
+          },
+          "2026-09-25": {
+            "immature": 6
+          }
+        },
+        "by_ticker": {
+          "AAPL": {
+            "correct": 1,
+            "immature": 3
+          },
+          "AMD": {
+            "correct": 1,
+            "incorrect": 1,
+            "immature": 5
+          },
+          "AMZN": {
+            "incorrect": 2,
+            "immature": 6
+          },
+          "BABA": {
+            "incorrect": 2,
+            "immature": 10
+          },
+          "CRCL": {
+            "correct": 1,
+            "immature": 9
+          },
+          "CRWV": {
+            "immature": 2
+          },
+          "FFAI": {
+            "incomplete_path": 3,
+            "immature": 3
+          },
+          "GEV": {
+            "incorrect": 2,
+            "immature": 8
+          },
+          "GOOGL": {
+            "immature": 8
+          },
+          "GS": {
+            "immature": 6
+          },
+          "HIMS": {
+            "incorrect": 3,
+            "immature": 5
+          },
+          "LULU": {
+            "immature": 2
+          },
+          "META": {
+            "incorrect": 3,
+            "correct": 1,
+            "immature": 2
+          },
+          "MPT": {
+            "incorrect": 1,
+            "correct": 2,
+            "immature": 15
+          },
+          "MSFT": {
+            "correct": 1,
+            "immature": 2
+          },
+          "MU": {
+            "correct": 2,
+            "incorrect": 1,
+            "immature": 7
+          },
+          "NFLX": {
+            "incorrect": 1,
+            "immature": 8
+          },
+          "NOK": {
+            "correct": 3,
+            "immature": 11
+          },
+          "NOW": {
+            "incorrect": 1,
+            "correct": 1,
+            "immature": 7
+          },
+          "NVDA": {
+            "correct": 1,
+            "immature": 7
+          },
+          "ORCL": {
+            "correct": 1,
+            "incorrect": 1,
+            "immature": 3
+          },
+          "PDD": {
+            "immature": 1
+          },
+          "PLTR": {
+            "correct": 1,
+            "incorrect": 1,
+            "immature": 6
+          },
+          "SOFI": {
+            "correct": 3,
+            "immature": 3
+          },
+          "SPCX": {
+            "correct": 1,
+            "immature": 8
+          },
+          "TEM": {
+            "immature": 5
+          },
+          "TSLA": {
+            "correct": 2,
+            "immature": 7
+          },
+          "TSM": {
+            "correct": 1,
+            "immature": 7
+          },
+          "UNH": {
+            "correct": 1,
+            "incorrect": 2,
+            "immature": 6
+          },
+          "XE": {
+            "immature": 3
+          },
+          "ZETA": {
+            "correct": 2,
+            "immature": 6
+          }
+        },
+        "endpoint_before_shared_cutoff": {
+          "2026-09-18": {
+            "origin_dates": [
+              "2026-08-18"
+            ],
+            "outcomes": {
+              "incorrect": 4,
+              "correct": 3
+            }
+          },
+          "2026-09-26": {
+            "origin_dates": [
+              "2026-08-18",
+              "2026-08-19",
+              "2026-08-20",
+              "2026-08-21",
+              "2026-08-24",
+              "2026-08-25",
+              "2026-08-26"
+            ],
+            "outcomes": {
+              "incorrect": 21,
+              "correct": 26
+            }
+          }
+        },
+        "leave_one_origin_date_out": {
+          "2026-08-18": {
+            "incorrect": 17,
+            "correct": 23
+          },
+          "2026-08-19": {
+            "incorrect": 18,
+            "correct": 22
+          },
+          "2026-08-20": {
+            "incorrect": 17,
+            "correct": 21
+          },
+          "2026-08-21": {
+            "incorrect": 20,
+            "correct": 23
+          },
+          "2026-08-24": {
+            "incorrect": 17,
+            "correct": 25
+          },
+          "2026-08-25": {
+            "incorrect": 21,
+            "correct": 21
+          },
+          "2026-08-26": {
+            "incorrect": 16,
+            "correct": 21
+          }
+        },
+        "leave_one_ticker_out": {
+          "AAPL": {
+            "incorrect": 21,
+            "correct": 25
+          },
+          "AMD": {
+            "incorrect": 20,
+            "correct": 25
+          },
+          "AMZN": {
+            "correct": 26,
+            "incorrect": 19
+          },
+          "BABA": {
+            "incorrect": 19,
+            "correct": 26
+          },
+          "CRCL": {
+            "incorrect": 21,
+            "correct": 25
+          },
+          "GEV": {
+            "incorrect": 19,
+            "correct": 26
+          },
+          "HIMS": {
+            "incorrect": 18,
+            "correct": 26
+          },
+          "META": {
+            "incorrect": 18,
+            "correct": 25
+          },
+          "MPT": {
+            "incorrect": 20,
+            "correct": 24
+          },
+          "MSFT": {
+            "incorrect": 21,
+            "correct": 25
+          },
+          "MU": {
+            "incorrect": 20,
+            "correct": 24
+          },
+          "NFLX": {
+            "incorrect": 20,
+            "correct": 26
+          },
+          "NOK": {
+            "incorrect": 21,
+            "correct": 23
+          },
+          "NOW": {
+            "incorrect": 20,
+            "correct": 25
+          },
+          "NVDA": {
+            "incorrect": 21,
+            "correct": 25
+          },
+          "ORCL": {
+            "incorrect": 20,
+            "correct": 25
+          },
+          "PLTR": {
+            "incorrect": 20,
+            "correct": 25
+          },
+          "SOFI": {
+            "incorrect": 21,
+            "correct": 23
+          },
+          "SPCX": {
+            "incorrect": 21,
+            "correct": 25
+          },
+          "TSLA": {
+            "incorrect": 21,
+            "correct": 24
+          },
+          "TSM": {
+            "incorrect": 21,
+            "correct": 25
+          },
+          "UNH": {
+            "incorrect": 19,
+            "correct": 25
+          },
+          "ZETA": {
+            "incorrect": 21,
+            "correct": 24
+          }
+        },
+        "first_observed_early_resolution_3pct": {
+          "buy": {
+            "incorrect": 51,
+            "correct": 75,
+            "immature": 36
+          },
+          "reduce": {
+            "incorrect": 30,
+            "correct": 27,
+            "immature": 12
+          }
+        }
+      },
+      "current": {
+        "historical_original_match_rows": 766,
+        "original_consistent_subset": {
+          "buy": {
+            "correct": 22,
+            "incomplete_path": 2,
+            "incorrect": 12,
+            "immature": 82
+          },
+          "reduce": {
+            "correct": 7,
+            "incorrect": 9,
+            "immature": 52
+          }
+        },
+        "rows": 772,
+        "actions": {
+          "hold": 581,
+          "accumulate": 96,
+          "trim": 50,
+          "sell": 18,
+          "strong_buy": 8,
+          "buy": 14,
+          "avoid": 5
+        },
+        "directional_coverage": 0.24093264248704663,
+        "observed_30_calendar_days_first_3pct": {
+          "buy": {
+            "correct": 22,
+            "incomplete_path": 2,
+            "incorrect": 12,
+            "immature": 82
+          },
+          "reduce": {
+            "correct": 7,
+            "incorrect": 9,
+            "immature": 52
+          }
+        },
+        "short_threshold_sensitivity": {
+          "0.02": {
+            "correct": 30,
+            "incomplete_path": 2,
+            "incorrect": 20,
+            "immature": 134
+          },
+          "0.03": {
+            "correct": 29,
+            "incomplete_path": 2,
+            "incorrect": 21,
+            "immature": 134
+          },
+          "0.05": {
+            "correct": 26,
+            "incomplete_path": 2,
+            "unresolved": 6,
+            "incorrect": 18,
+            "immature": 134
+          }
+        },
+        "short_record_sensitivity": {
+          "1": {
+            "correct": 91,
+            "incorrect": 90,
+            "unresolved": 2,
+            "immature": 3
+          },
+          "3": {
+            "correct": 84,
+            "incorrect": 81,
+            "immature": 21
+          },
+          "5": {
+            "correct": 91,
+            "incorrect": 62,
+            "unresolved": 1,
+            "immature": 32
+          },
+          "10": {
+            "correct": 81,
+            "incorrect": 46,
+            "immature": 59
+          },
+          "20": {
+            "correct": 28,
+            "immature": 137,
+            "incorrect": 21
+          }
+        },
+        "short_next_observation_execution": {
+          "correct": 33,
+          "incomplete_path": 2,
+          "incorrect": 17,
+          "immature": 134
+        },
+        "short_first_consecutive_family_only": {
+          "correct": 24,
+          "incomplete_path": 1,
+          "incorrect": 19,
+          "immature": 95
+        },
+        "by_origin_date": {
+          "2026-08-18": {
+            "correct": 5,
+            "incomplete_path": 1,
+            "incorrect": 4
+          },
+          "2026-08-19": {
+            "incorrect": 3,
+            "incomplete_path": 1,
+            "correct": 5
+          },
+          "2026-08-20": {
+            "correct": 5,
+            "incorrect": 1
+          },
+          "2026-08-21": {
+            "incorrect": 4,
+            "correct": 3
+          },
+          "2026-08-24": {
+            "incorrect": 4,
+            "correct": 4
+          },
+          "2026-08-25": {
+            "correct": 3,
+            "incorrect": 2
+          },
+          "2026-08-26": {
+            "correct": 4,
+            "incorrect": 3
+          },
+          "2026-08-27": {
+            "immature": 6
+          },
+          "2026-08-28": {
+            "immature": 5
+          },
+          "2026-08-31": {
+            "immature": 5
+          },
+          "2026-09-01": {
+            "immature": 7
+          },
+          "2026-09-02": {
+            "immature": 6
+          },
+          "2026-09-03": {
+            "immature": 4
+          },
+          "2026-09-04": {
+            "immature": 8
+          },
+          "2026-09-08": {
+            "immature": 9
+          },
+          "2026-09-09": {
+            "immature": 7
+          },
+          "2026-09-10": {
+            "immature": 12
+          },
+          "2026-09-11": {
+            "immature": 6
+          },
+          "2026-09-14": {
+            "immature": 2
+          },
+          "2026-09-15": {
+            "immature": 7
+          },
+          "2026-09-16": {
+            "immature": 7
+          },
+          "2026-09-17": {
+            "immature": 6
+          },
+          "2026-09-18": {
+            "immature": 6
+          },
+          "2026-09-21": {
+            "immature": 8
+          },
+          "2026-09-22": {
+            "immature": 3
+          },
+          "2026-09-23": {
+            "immature": 9
+          },
+          "2026-09-24": {
+            "immature": 8
+          },
+          "2026-09-25": {
+            "immature": 3
+          }
+        },
+        "by_ticker": {
+          "AAPL": {
+            "incorrect": 1,
+            "correct": 1,
+            "immature": 6
+          },
+          "AMD": {
+            "incorrect": 2,
+            "immature": 4
+          },
+          "AMZN": {
+            "incorrect": 1,
+            "immature": 3
+          },
+          "BABA": {
+            "immature": 7
+          },
+          "CRCL": {
+            "correct": 1,
+            "immature": 3
+          },
+          "CRWV": {
+            "immature": 2
+          },
+          "FFAI": {
+            "incomplete_path": 2
+          },
+          "GEV": {
+            "correct": 3,
+            "immature": 5
+          },
+          "GOOGL": {
+            "correct": 2,
+            "immature": 4
+          },
+          "GS": {
+            "immature": 4
+          },
+          "HIMS": {
+            "correct": 1,
+            "incorrect": 2,
+            "immature": 7
+          },
+          "LULU": {
+            "immature": 1
+          },
+          "META": {
+            "correct": 1,
+            "immature": 1
+          },
+          "MPT": {
+            "correct": 1,
+            "immature": 7
+          },
+          "MSFT": {
+            "correct": 3,
+            "immature": 2
+          },
+          "MU": {
+            "correct": 1,
+            "incorrect": 2,
+            "immature": 3
+          },
+          "NFLX": {
+            "correct": 1,
+            "incorrect": 1,
+            "immature": 2
+          },
+          "NOK": {
+            "incorrect": 2,
+            "correct": 3,
+            "immature": 4
+          },
+          "NOW": {
+            "immature": 5
+          },
+          "NVDA": {
+            "incorrect": 1,
+            "correct": 1,
+            "immature": 7
+          },
+          "ORCL": {
+            "incorrect": 2,
+            "correct": 1,
+            "immature": 4
+          },
+          "PDD": {
+            "immature": 1
+          },
+          "PLTR": {
+            "incorrect": 1,
+            "immature": 3
+          },
+          "SOFI": {
+            "correct": 1,
+            "immature": 8
+          },
+          "SPCX": {
+            "correct": 2,
+            "immature": 8
+          },
+          "TEM": {
+            "incorrect": 1,
+            "correct": 2,
+            "immature": 1
+          },
+          "TSLA": {
+            "incorrect": 1,
+            "immature": 8
+          },
+          "TSM": {
+            "correct": 2,
+            "immature": 8
+          },
+          "UNH": {
+            "incorrect": 2,
+            "correct": 1,
+            "immature": 6
+          },
+          "XE": {
+            "incorrect": 2,
+            "immature": 7
+          },
+          "ZETA": {
+            "correct": 1,
+            "immature": 3
+          }
+        },
+        "endpoint_before_shared_cutoff": {
+          "2026-09-18": {
+            "origin_dates": [
+              "2026-08-18"
+            ],
+            "outcomes": {
+              "correct": 5,
+              "incorrect": 4
+            }
+          },
+          "2026-09-26": {
+            "origin_dates": [
+              "2026-08-18",
+              "2026-08-19",
+              "2026-08-20",
+              "2026-08-21",
+              "2026-08-24",
+              "2026-08-25",
+              "2026-08-26"
+            ],
+            "outcomes": {
+              "correct": 29,
+              "incorrect": 21
+            }
+          }
+        },
+        "leave_one_origin_date_out": {
+          "2026-08-18": {
+            "incorrect": 17,
+            "correct": 24
+          },
+          "2026-08-19": {
+            "correct": 24,
+            "incorrect": 18
+          },
+          "2026-08-20": {
+            "correct": 24,
+            "incorrect": 20
+          },
+          "2026-08-21": {
+            "correct": 26,
+            "incorrect": 17
+          },
+          "2026-08-24": {
+            "correct": 25,
+            "incorrect": 17
+          },
+          "2026-08-25": {
+            "correct": 26,
+            "incorrect": 19
+          },
+          "2026-08-26": {
+            "correct": 25,
+            "incorrect": 18
+          }
+        },
+        "leave_one_ticker_out": {
+          "AAPL": {
+            "correct": 28,
+            "incorrect": 20
+          },
+          "AMD": {
+            "correct": 29,
+            "incorrect": 19
+          },
+          "AMZN": {
+            "correct": 29,
+            "incorrect": 20
+          },
+          "CRCL": {
+            "correct": 28,
+            "incorrect": 21
+          },
+          "GEV": {
+            "correct": 26,
+            "incorrect": 21
+          },
+          "GOOGL": {
+            "correct": 27,
+            "incorrect": 21
+          },
+          "HIMS": {
+            "correct": 28,
+            "incorrect": 19
+          },
+          "META": {
+            "correct": 28,
+            "incorrect": 21
+          },
+          "MPT": {
+            "correct": 28,
+            "incorrect": 21
+          },
+          "MSFT": {
+            "correct": 26,
+            "incorrect": 21
+          },
+          "MU": {
+            "correct": 28,
+            "incorrect": 19
+          },
+          "NFLX": {
+            "correct": 28,
+            "incorrect": 20
+          },
+          "NOK": {
+            "correct": 26,
+            "incorrect": 19
+          },
+          "NVDA": {
+            "correct": 28,
+            "incorrect": 20
+          },
+          "ORCL": {
+            "correct": 28,
+            "incorrect": 19
+          },
+          "PLTR": {
+            "correct": 29,
+            "incorrect": 20
+          },
+          "SOFI": {
+            "correct": 28,
+            "incorrect": 21
+          },
+          "SPCX": {
+            "correct": 27,
+            "incorrect": 21
+          },
+          "TEM": {
+            "correct": 27,
+            "incorrect": 20
+          },
+          "TSLA": {
+            "correct": 29,
+            "incorrect": 20
+          },
+          "TSM": {
+            "correct": 27,
+            "incorrect": 21
+          },
+          "UNH": {
+            "correct": 28,
+            "incorrect": 19
+          },
+          "XE": {
+            "correct": 29,
+            "incorrect": 19
+          },
+          "ZETA": {
+            "correct": 28,
+            "incorrect": 21
+          }
+        },
+        "first_observed_early_resolution_3pct": {
+          "buy": {
+            "correct": 53,
+            "incorrect": 38,
+            "immature": 27
+          },
+          "reduce": {
+            "correct": 36,
+            "incorrect": 26,
+            "immature": 6
+          }
+        }
+      },
+      "candidate": {
+        "historical_original_match_rows": 766,
+        "original_consistent_subset": {
+          "buy": {
+            "correct": 22,
+            "incomplete_path": 2,
+            "incorrect": 12,
+            "immature": 82
+          },
+          "reduce": {
+            "correct": 7,
+            "incorrect": 9,
+            "immature": 52
+          }
+        },
+        "rows": 772,
+        "actions": {
+          "hold": 581,
+          "accumulate": 96,
+          "trim": 50,
+          "sell": 18,
+          "strong_buy": 8,
+          "buy": 14,
+          "avoid": 5
+        },
+        "directional_coverage": 0.24093264248704663,
+        "observed_30_calendar_days_first_3pct": {
+          "buy": {
+            "correct": 22,
+            "incomplete_path": 2,
+            "incorrect": 12,
+            "immature": 82
+          },
+          "reduce": {
+            "correct": 7,
+            "incorrect": 9,
+            "immature": 52
+          }
+        },
+        "short_threshold_sensitivity": {
+          "0.02": {
+            "correct": 30,
+            "incomplete_path": 2,
+            "incorrect": 20,
+            "immature": 134
+          },
+          "0.03": {
+            "correct": 29,
+            "incomplete_path": 2,
+            "incorrect": 21,
+            "immature": 134
+          },
+          "0.05": {
+            "correct": 26,
+            "incomplete_path": 2,
+            "unresolved": 6,
+            "incorrect": 18,
+            "immature": 134
+          }
+        },
+        "short_record_sensitivity": {
+          "1": {
+            "correct": 91,
+            "incorrect": 90,
+            "unresolved": 2,
+            "immature": 3
+          },
+          "3": {
+            "correct": 84,
+            "incorrect": 81,
+            "immature": 21
+          },
+          "5": {
+            "correct": 91,
+            "incorrect": 62,
+            "unresolved": 1,
+            "immature": 32
+          },
+          "10": {
+            "correct": 81,
+            "incorrect": 46,
+            "immature": 59
+          },
+          "20": {
+            "correct": 28,
+            "immature": 137,
+            "incorrect": 21
+          }
+        },
+        "short_next_observation_execution": {
+          "correct": 33,
+          "incomplete_path": 2,
+          "incorrect": 17,
+          "immature": 134
+        },
+        "short_first_consecutive_family_only": {
+          "correct": 24,
+          "incomplete_path": 1,
+          "incorrect": 19,
+          "immature": 95
+        },
+        "by_origin_date": {
+          "2026-08-18": {
+            "correct": 5,
+            "incomplete_path": 1,
+            "incorrect": 4
+          },
+          "2026-08-19": {
+            "incorrect": 3,
+            "incomplete_path": 1,
+            "correct": 5
+          },
+          "2026-08-20": {
+            "correct": 5,
+            "incorrect": 1
+          },
+          "2026-08-21": {
+            "incorrect": 4,
+            "correct": 3
+          },
+          "2026-08-24": {
+            "incorrect": 4,
+            "correct": 4
+          },
+          "2026-08-25": {
+            "correct": 3,
+            "incorrect": 2
+          },
+          "2026-08-26": {
+            "correct": 4,
+            "incorrect": 3
+          },
+          "2026-08-27": {
+            "immature": 6
+          },
+          "2026-08-28": {
+            "immature": 5
+          },
+          "2026-08-31": {
+            "immature": 5
+          },
+          "2026-09-01": {
+            "immature": 7
+          },
+          "2026-09-02": {
+            "immature": 6
+          },
+          "2026-09-03": {
+            "immature": 4
+          },
+          "2026-09-04": {
+            "immature": 8
+          },
+          "2026-09-08": {
+            "immature": 9
+          },
+          "2026-09-09": {
+            "immature": 7
+          },
+          "2026-09-10": {
+            "immature": 12
+          },
+          "2026-09-11": {
+            "immature": 6
+          },
+          "2026-09-14": {
+            "immature": 2
+          },
+          "2026-09-15": {
+            "immature": 7
+          },
+          "2026-09-16": {
+            "immature": 7
+          },
+          "2026-09-17": {
+            "immature": 6
+          },
+          "2026-09-18": {
+            "immature": 6
+          },
+          "2026-09-21": {
+            "immature": 8
+          },
+          "2026-09-22": {
+            "immature": 3
+          },
+          "2026-09-23": {
+            "immature": 9
+          },
+          "2026-09-24": {
+            "immature": 8
+          },
+          "2026-09-25": {
+            "immature": 3
+          }
+        },
+        "by_ticker": {
+          "AAPL": {
+            "incorrect": 1,
+            "correct": 1,
+            "immature": 6
+          },
+          "AMD": {
+            "incorrect": 2,
+            "immature": 4
+          },
+          "AMZN": {
+            "incorrect": 1,
+            "immature": 3
+          },
+          "BABA": {
+            "immature": 7
+          },
+          "CRCL": {
+            "correct": 1,
+            "immature": 3
+          },
+          "CRWV": {
+            "immature": 2
+          },
+          "FFAI": {
+            "incomplete_path": 2
+          },
+          "GEV": {
+            "correct": 3,
+            "immature": 5
+          },
+          "GOOGL": {
+            "correct": 2,
+            "immature": 4
+          },
+          "GS": {
+            "immature": 4
+          },
+          "HIMS": {
+            "correct": 1,
+            "incorrect": 2,
+            "immature": 7
+          },
+          "LULU": {
+            "immature": 1
+          },
+          "META": {
+            "correct": 1,
+            "immature": 1
+          },
+          "MPT": {
+            "correct": 1,
+            "immature": 7
+          },
+          "MSFT": {
+            "correct": 3,
+            "immature": 2
+          },
+          "MU": {
+            "correct": 1,
+            "incorrect": 2,
+            "immature": 3
+          },
+          "NFLX": {
+            "correct": 1,
+            "incorrect": 1,
+            "immature": 2
+          },
+          "NOK": {
+            "incorrect": 2,
+            "correct": 3,
+            "immature": 4
+          },
+          "NOW": {
+            "immature": 5
+          },
+          "NVDA": {
+            "incorrect": 1,
+            "correct": 1,
+            "immature": 7
+          },
+          "ORCL": {
+            "incorrect": 2,
+            "correct": 1,
+            "immature": 4
+          },
+          "PDD": {
+            "immature": 1
+          },
+          "PLTR": {
+            "incorrect": 1,
+            "immature": 3
+          },
+          "SOFI": {
+            "correct": 1,
+            "immature": 8
+          },
+          "SPCX": {
+            "correct": 2,
+            "immature": 8
+          },
+          "TEM": {
+            "incorrect": 1,
+            "correct": 2,
+            "immature": 1
+          },
+          "TSLA": {
+            "incorrect": 1,
+            "immature": 8
+          },
+          "TSM": {
+            "correct": 2,
+            "immature": 8
+          },
+          "UNH": {
+            "incorrect": 2,
+            "correct": 1,
+            "immature": 6
+          },
+          "XE": {
+            "incorrect": 2,
+            "immature": 7
+          },
+          "ZETA": {
+            "correct": 1,
+            "immature": 3
+          }
+        },
+        "endpoint_before_shared_cutoff": {
+          "2026-09-18": {
+            "origin_dates": [
+              "2026-08-18"
+            ],
+            "outcomes": {
+              "correct": 5,
+              "incorrect": 4
+            }
+          },
+          "2026-09-26": {
+            "origin_dates": [
+              "2026-08-18",
+              "2026-08-19",
+              "2026-08-20",
+              "2026-08-21",
+              "2026-08-24",
+              "2026-08-25",
+              "2026-08-26"
+            ],
+            "outcomes": {
+              "correct": 29,
+              "incorrect": 21
+            }
+          }
+        },
+        "leave_one_origin_date_out": {
+          "2026-08-18": {
+            "incorrect": 17,
+            "correct": 24
+          },
+          "2026-08-19": {
+            "correct": 24,
+            "incorrect": 18
+          },
+          "2026-08-20": {
+            "correct": 24,
+            "incorrect": 20
+          },
+          "2026-08-21": {
+            "correct": 26,
+            "incorrect": 17
+          },
+          "2026-08-24": {
+            "correct": 25,
+            "incorrect": 17
+          },
+          "2026-08-25": {
+            "correct": 26,
+            "incorrect": 19
+          },
+          "2026-08-26": {
+            "correct": 25,
+            "incorrect": 18
+          }
+        },
+        "leave_one_ticker_out": {
+          "AAPL": {
+            "correct": 28,
+            "incorrect": 20
+          },
+          "AMD": {
+            "correct": 29,
+            "incorrect": 19
+          },
+          "AMZN": {
+            "correct": 29,
+            "incorrect": 20
+          },
+          "CRCL": {
+            "correct": 28,
+            "incorrect": 21
+          },
+          "GEV": {
+            "correct": 26,
+            "incorrect": 21
+          },
+          "GOOGL": {
+            "correct": 27,
+            "incorrect": 21
+          },
+          "HIMS": {
+            "correct": 28,
+            "incorrect": 19
+          },
+          "META": {
+            "correct": 28,
+            "incorrect": 21
+          },
+          "MPT": {
+            "correct": 28,
+            "incorrect": 21
+          },
+          "MSFT": {
+            "correct": 26,
+            "incorrect": 21
+          },
+          "MU": {
+            "correct": 28,
+            "incorrect": 19
+          },
+          "NFLX": {
+            "correct": 28,
+            "incorrect": 20
+          },
+          "NOK": {
+            "correct": 26,
+            "incorrect": 19
+          },
+          "NVDA": {
+            "correct": 28,
+            "incorrect": 20
+          },
+          "ORCL": {
+            "correct": 28,
+            "incorrect": 19
+          },
+          "PLTR": {
+            "correct": 29,
+            "incorrect": 20
+          },
+          "SOFI": {
+            "correct": 28,
+            "incorrect": 21
+          },
+          "SPCX": {
+            "correct": 27,
+            "incorrect": 21
+          },
+          "TEM": {
+            "correct": 27,
+            "incorrect": 20
+          },
+          "TSLA": {
+            "correct": 29,
+            "incorrect": 20
+          },
+          "TSM": {
+            "correct": 27,
+            "incorrect": 21
+          },
+          "UNH": {
+            "correct": 28,
+            "incorrect": 19
+          },
+          "XE": {
+            "correct": 29,
+            "incorrect": 19
+          },
+          "ZETA": {
+            "correct": 28,
+            "incorrect": 21
+          }
+        },
+        "first_observed_early_resolution_3pct": {
+          "buy": {
+            "correct": 53,
+            "incorrect": 38,
+            "immature": 27
+          },
+          "reduce": {
+            "correct": 36,
+            "incorrect": 26,
+            "immature": 6
+          }
+        }
+      },
+      "reference": {
+        "historical_original_match_rows": 766,
+        "original_consistent_subset": {
+          "buy": {
+            "correct": 27,
+            "incorrect": 12,
+            "incomplete_path": 1,
+            "immature": 93
+          },
+          "reduce": {
+            "correct": 7,
+            "incorrect": 8,
+            "incomplete_path": 1,
+            "immature": 52
+          }
+        },
+        "rows": 772,
+        "actions": {
+          "hold": 568,
+          "accumulate": 113,
+          "trim": 50,
+          "sell": 19,
+          "strong_buy": 7,
+          "buy": 13,
+          "avoid": 2
+        },
+        "directional_coverage": 0.2616580310880829,
+        "observed_30_calendar_days_first_3pct": {
+          "buy": {
+            "correct": 27,
+            "incorrect": 12,
+            "incomplete_path": 1,
+            "immature": 93
+          },
+          "reduce": {
+            "correct": 8,
+            "incorrect": 8,
+            "incomplete_path": 1,
+            "immature": 52
+          }
+        },
+        "short_threshold_sensitivity": {
+          "0.02": {
+            "correct": 35,
+            "incorrect": 20,
+            "incomplete_path": 2,
+            "immature": 145
+          },
+          "0.03": {
+            "correct": 35,
+            "incorrect": 20,
+            "incomplete_path": 2,
+            "immature": 145
+          },
+          "0.05": {
+            "correct": 31,
+            "unresolved": 6,
+            "incorrect": 18,
+            "incomplete_path": 2,
+            "immature": 145
+          }
+        },
+        "short_record_sensitivity": {
+          "1": {
+            "correct": 104,
+            "incorrect": 93,
+            "unresolved": 2,
+            "immature": 3
+          },
+          "3": {
+            "correct": 92,
+            "incorrect": 87,
+            "immature": 23
+          },
+          "5": {
+            "correct": 104,
+            "incorrect": 63,
+            "unresolved": 1,
+            "immature": 34
+          },
+          "10": {
+            "correct": 87,
+            "incorrect": 49,
+            "immature": 66
+          },
+          "20": {
+            "correct": 32,
+            "incorrect": 22,
+            "immature": 148
+          }
+        },
+        "short_next_observation_execution": {
+          "correct": 36,
+          "incorrect": 19,
+          "incomplete_path": 2,
+          "immature": 145
+        },
+        "short_first_consecutive_family_only": {
+          "correct": 28,
+          "incorrect": 18,
+          "incomplete_path": 2,
+          "immature": 95
+        },
+        "by_origin_date": {
+          "2026-08-18": {
+            "correct": 5,
+            "incorrect": 4
+          },
+          "2026-08-19": {
+            "incorrect": 3,
+            "incomplete_path": 1,
+            "correct": 7
+          },
+          "2026-08-20": {
+            "correct": 5,
+            "incorrect": 1
+          },
+          "2026-08-21": {
+            "incorrect": 4,
+            "correct": 3
+          },
+          "2026-08-24": {
+            "incorrect": 3,
+            "incomplete_path": 1,
+            "correct": 5
+          },
+          "2026-08-25": {
+            "correct": 4,
+            "incorrect": 2
+          },
+          "2026-08-26": {
+            "correct": 6,
+            "incorrect": 3
+          },
+          "2026-08-27": {
+            "immature": 6
+          },
+          "2026-08-28": {
+            "immature": 6
+          },
+          "2026-08-31": {
+            "immature": 5
+          },
+          "2026-09-01": {
+            "immature": 7
+          },
+          "2026-09-02": {
+            "immature": 7
+          },
+          "2026-09-03": {
+            "immature": 5
+          },
+          "2026-09-04": {
+            "immature": 9
+          },
+          "2026-09-08": {
+            "immature": 9
+          },
+          "2026-09-09": {
+            "immature": 6
+          },
+          "2026-09-10": {
+            "immature": 12
+          },
+          "2026-09-11": {
+            "immature": 8
+          },
+          "2026-09-14": {
+            "immature": 2
+          },
+          "2026-09-15": {
+            "immature": 7
+          },
+          "2026-09-16": {
+            "immature": 8
+          },
+          "2026-09-17": {
+            "immature": 6
+          },
+          "2026-09-18": {
+            "immature": 8
+          },
+          "2026-09-21": {
+            "immature": 8
+          },
+          "2026-09-22": {
+            "immature": 3
+          },
+          "2026-09-23": {
+            "immature": 8
+          },
+          "2026-09-24": {
+            "immature": 12
+          },
+          "2026-09-25": {
+            "immature": 3
+          }
+        },
+        "by_ticker": {
+          "AAPL": {
+            "incorrect": 1,
+            "correct": 1,
+            "immature": 6
+          },
+          "AMD": {
+            "incorrect": 2,
+            "immature": 5
+          },
+          "AMZN": {
+            "incorrect": 1,
+            "immature": 3
+          },
+          "BABA": {
+            "immature": 7
+          },
+          "CRCL": {
+            "correct": 1,
+            "immature": 7
+          },
+          "CRWV": {
+            "immature": 2
+          },
+          "FFAI": {
+            "incomplete_path": 2,
+            "immature": 1
+          },
+          "GEV": {
+            "correct": 3,
+            "immature": 6
+          },
+          "GOOGL": {
+            "correct": 2,
+            "immature": 4
+          },
+          "GS": {
+            "immature": 4
+          },
+          "HIMS": {
+            "correct": 1,
+            "incorrect": 2,
+            "immature": 7
+          },
+          "LULU": {},
+          "META": {
+            "correct": 1,
+            "immature": 1
+          },
+          "MPT": {
+            "correct": 2,
+            "immature": 8
+          },
+          "MSFT": {
+            "correct": 3,
+            "immature": 2
+          },
+          "MU": {
+            "correct": 2,
+            "incorrect": 2,
+            "immature": 4
+          },
+          "NFLX": {
+            "correct": 1,
+            "incorrect": 1,
+            "immature": 2
+          },
+          "NOK": {
+            "incorrect": 1,
+            "correct": 3,
+            "immature": 7
+          },
+          "NOW": {
+            "immature": 5
+          },
+          "NVDA": {
+            "incorrect": 1,
+            "correct": 1,
+            "immature": 7
+          },
+          "ORCL": {
+            "incorrect": 2,
+            "correct": 1,
+            "immature": 4
+          },
+          "PDD": {
+            "immature": 1
+          },
+          "PLTR": {
+            "incorrect": 1,
+            "immature": 3
+          },
+          "SOFI": {
+            "correct": 3,
+            "immature": 7
+          },
+          "SPCX": {
+            "correct": 2,
+            "immature": 9
+          },
+          "TEM": {
+            "incorrect": 1,
+            "correct": 2,
+            "immature": 1
+          },
+          "TSLA": {
+            "incorrect": 1,
+            "correct": 1,
+            "immature": 6
+          },
+          "TSM": {
+            "correct": 2,
+            "immature": 9
+          },
+          "UNH": {
+            "incorrect": 2,
+            "correct": 1,
+            "immature": 6
+          },
+          "XE": {
+            "incorrect": 2,
+            "immature": 7
+          },
+          "ZETA": {
+            "correct": 2,
+            "immature": 4
+          }
+        },
+        "endpoint_before_shared_cutoff": {
+          "2026-09-18": {
+            "origin_dates": [
+              "2026-08-18"
+            ],
+            "outcomes": {
+              "correct": 5,
+              "incorrect": 4
+            }
+          },
+          "2026-09-26": {
+            "origin_dates": [
+              "2026-08-18",
+              "2026-08-19",
+              "2026-08-20",
+              "2026-08-21",
+              "2026-08-24",
+              "2026-08-25",
+              "2026-08-26"
+            ],
+            "outcomes": {
+              "correct": 35,
+              "incorrect": 20
+            }
+          }
+        },
+        "leave_one_origin_date_out": {
+          "2026-08-18": {
+            "incorrect": 16,
+            "correct": 30
+          },
+          "2026-08-19": {
+            "correct": 28,
+            "incorrect": 17
+          },
+          "2026-08-20": {
+            "correct": 30,
+            "incorrect": 19
+          },
+          "2026-08-21": {
+            "correct": 32,
+            "incorrect": 16
+          },
+          "2026-08-24": {
+            "correct": 30,
+            "incorrect": 17
+          },
+          "2026-08-25": {
+            "correct": 31,
+            "incorrect": 18
+          },
+          "2026-08-26": {
+            "correct": 29,
+            "incorrect": 17
+          }
+        },
+        "leave_one_ticker_out": {
+          "AAPL": {
+            "correct": 34,
+            "incorrect": 19
+          },
+          "AMD": {
+            "correct": 35,
+            "incorrect": 18
+          },
+          "AMZN": {
+            "correct": 35,
+            "incorrect": 19
+          },
+          "CRCL": {
+            "correct": 34,
+            "incorrect": 20
+          },
+          "GEV": {
+            "correct": 32,
+            "incorrect": 20
+          },
+          "GOOGL": {
+            "correct": 33,
+            "incorrect": 20
+          },
+          "HIMS": {
+            "correct": 34,
+            "incorrect": 18
+          },
+          "META": {
+            "correct": 34,
+            "incorrect": 20
+          },
+          "MPT": {
+            "correct": 33,
+            "incorrect": 20
+          },
+          "MSFT": {
+            "correct": 32,
+            "incorrect": 20
+          },
+          "MU": {
+            "correct": 33,
+            "incorrect": 18
+          },
+          "NFLX": {
+            "correct": 34,
+            "incorrect": 19
+          },
+          "NOK": {
+            "correct": 32,
+            "incorrect": 19
+          },
+          "NVDA": {
+            "correct": 34,
+            "incorrect": 19
+          },
+          "ORCL": {
+            "correct": 34,
+            "incorrect": 18
+          },
+          "PLTR": {
+            "correct": 35,
+            "incorrect": 19
+          },
+          "SOFI": {
+            "correct": 32,
+            "incorrect": 20
+          },
+          "SPCX": {
+            "correct": 33,
+            "incorrect": 20
+          },
+          "TEM": {
+            "correct": 33,
+            "incorrect": 19
+          },
+          "TSLA": {
+            "correct": 34,
+            "incorrect": 19
+          },
+          "TSM": {
+            "correct": 33,
+            "incorrect": 20
+          },
+          "UNH": {
+            "correct": 34,
+            "incorrect": 18
+          },
+          "XE": {
+            "correct": 35,
+            "incorrect": 18
+          },
+          "ZETA": {
+            "correct": 33,
+            "incorrect": 20
+          }
+        },
+        "first_observed_early_resolution_3pct": {
+          "buy": {
+            "correct": 60,
+            "incorrect": 43,
+            "immature": 30
+          },
+          "reduce": {
+            "correct": 40,
+            "incorrect": 24,
+            "immature": 5
+          }
+        }
+      }
+    },
+    "mid:stock": {
+      "baseline": {
+        "historical_original_match_rows": 766,
+        "original_consistent_subset": null,
+        "rows": 772,
+        "actions": {
+          "hold": 542,
+          "accumulate": 144,
+          "avoid": 9,
+          "trim": 40,
+          "sell": 34,
+          "buy": 3
+        },
+        "directional_coverage": 0.2862694300518135,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "resourceAndValidation": {
+        "historical_original_match_rows": 766,
+        "original_consistent_subset": null,
+        "rows": 772,
+        "actions": {
+          "hold": 540,
+          "accumulate": 144,
+          "avoid": 9,
+          "trim": 42,
+          "sell": 34,
+          "buy": 3
+        },
+        "directional_coverage": 0.28886010362694303,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "current": {
+        "historical_original_match_rows": 766,
+        "original_consistent_subset": null,
+        "rows": 772,
+        "actions": {
+          "hold": 540,
+          "accumulate": 144,
+          "avoid": 9,
+          "trim": 42,
+          "sell": 34,
+          "buy": 3
+        },
+        "directional_coverage": 0.28886010362694303,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "candidate": {
+        "historical_original_match_rows": 766,
+        "original_consistent_subset": null,
+        "rows": 772,
+        "actions": {
+          "hold": 540,
+          "accumulate": 144,
+          "avoid": 9,
+          "trim": 42,
+          "sell": 34,
+          "buy": 3
+        },
+        "directional_coverage": 0.28886010362694303,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "reference": {
+        "historical_original_match_rows": 766,
+        "original_consistent_subset": null,
+        "rows": 772,
+        "actions": {
+          "hold": 542,
+          "accumulate": 144,
+          "avoid": 9,
+          "trim": 40,
+          "sell": 34,
+          "buy": 3
+        },
+        "directional_coverage": 0.2862694300518135,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      }
+    },
+    "long:stock": {
+      "baseline": {
+        "historical_original_match_rows": 766,
+        "original_consistent_subset": null,
+        "rows": 772,
+        "actions": {
+          "hold": 608,
+          "accumulate": 86,
+          "sell": 27,
+          "avoid": 23,
+          "trim": 28
+        },
+        "directional_coverage": 0.18264248704663213,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "resourceAndValidation": {
+        "historical_original_match_rows": 766,
+        "original_consistent_subset": null,
+        "rows": 772,
+        "actions": {
+          "hold": 608,
+          "accumulate": 86,
+          "sell": 27,
+          "avoid": 23,
+          "trim": 28
+        },
+        "directional_coverage": 0.18264248704663213,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "current": {
+        "historical_original_match_rows": 766,
+        "original_consistent_subset": null,
+        "rows": 772,
+        "actions": {
+          "hold": 608,
+          "accumulate": 86,
+          "sell": 27,
+          "avoid": 23,
+          "trim": 28
+        },
+        "directional_coverage": 0.18264248704663213,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "candidate": {
+        "historical_original_match_rows": 766,
+        "original_consistent_subset": null,
+        "rows": 772,
+        "actions": {
+          "hold": 608,
+          "accumulate": 86,
+          "sell": 27,
+          "avoid": 23,
+          "trim": 28
+        },
+        "directional_coverage": 0.18264248704663213,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "reference": {
+        "historical_original_match_rows": 766,
+        "original_consistent_subset": null,
+        "rows": 772,
+        "actions": {
+          "hold": 608,
+          "accumulate": 86,
+          "sell": 27,
+          "avoid": 23,
+          "trim": 28
+        },
+        "directional_coverage": 0.18264248704663213,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      }
+    },
+    "short:etf": {
+      "baseline": {
+        "historical_original_match_rows": 168,
+        "original_consistent_subset": {
+          "buy": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 3,
+            "immature": 24
+          },
+          "reduce": {
+            "immature": 8
+          }
+        },
+        "rows": 168,
+        "actions": {
+          "hold": 126,
+          "accumulate": 30,
+          "trim": 5,
+          "sell": 3,
+          "avoid": 4
+        },
+        "directional_coverage": 0.2261904761904762,
+        "observed_30_calendar_days_first_3pct": {
+          "buy": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 3,
+            "immature": 24
+          },
+          "reduce": {
+            "immature": 8
+          }
+        },
+        "short_threshold_sensitivity": {
+          "0.02": {
+            "unresolved": 1,
+            "incorrect": 4,
+            "correct": 1,
+            "immature": 32
+          },
+          "0.03": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 3,
+            "immature": 32
+          },
+          "0.05": {
+            "unresolved": 4,
+            "incorrect": 1,
+            "correct": 1,
+            "immature": 32
+          }
+        },
+        "short_record_sensitivity": {
+          "1": {
+            "correct": 19,
+            "incorrect": 17,
+            "immature": 2
+          },
+          "3": {
+            "incorrect": 17,
+            "correct": 18,
+            "immature": 3
+          },
+          "5": {
+            "correct": 23,
+            "incorrect": 11,
+            "immature": 4
+          },
+          "10": {
+            "correct": 14,
+            "incorrect": 10,
+            "immature": 14
+          },
+          "20": {
+            "correct": 4,
+            "immature": 34
+          }
+        },
+        "short_next_observation_execution": {
+          "unresolved": 2,
+          "incorrect": 1,
+          "correct": 3,
+          "immature": 32
+        },
+        "short_first_consecutive_family_only": {
+          "unresolved": 1,
+          "correct": 2,
+          "incorrect": 2,
+          "immature": 23
+        },
+        "by_origin_date": {
+          "2026-08-18": {},
+          "2026-08-19": {},
+          "2026-08-20": {
+            "unresolved": 1,
+            "correct": 1
+          },
+          "2026-08-21": {
+            "incorrect": 3
+          },
+          "2026-08-24": {
+            "correct": 1
+          },
+          "2026-08-25": {},
+          "2026-08-26": {},
+          "2026-08-27": {
+            "immature": 1
+          },
+          "2026-08-28": {
+            "immature": 2
+          },
+          "2026-08-31": {
+            "immature": 4
+          },
+          "2026-09-01": {
+            "immature": 1
+          },
+          "2026-09-02": {
+            "immature": 3
+          },
+          "2026-09-03": {
+            "immature": 2
+          },
+          "2026-09-04": {
+            "immature": 1
+          },
+          "2026-09-08": {
+            "immature": 2
+          },
+          "2026-09-09": {},
+          "2026-09-10": {
+            "immature": 2
+          },
+          "2026-09-11": {},
+          "2026-09-14": {
+            "immature": 3
+          },
+          "2026-09-15": {
+            "immature": 3
+          },
+          "2026-09-16": {
+            "immature": 3
+          },
+          "2026-09-17": {
+            "immature": 1
+          },
+          "2026-09-18": {},
+          "2026-09-21": {
+            "immature": 1
+          },
+          "2026-09-22": {},
+          "2026-09-23": {
+            "immature": 1
+          },
+          "2026-09-24": {},
+          "2026-09-25": {
+            "immature": 2
+          }
+        },
+        "by_ticker": {
+          "QQQ": {
+            "unresolved": 1,
+            "correct": 1,
+            "immature": 7
+          },
+          "SOXL": {
+            "incorrect": 1,
+            "immature": 5
+          },
+          "SOXS": {
+            "immature": 5
+          },
+          "SPMO": {
+            "incorrect": 1,
+            "immature": 3
+          },
+          "SQQQ": {
+            "immature": 4
+          },
+          "TQQQ": {
+            "correct": 1,
+            "incorrect": 1,
+            "immature": 8
+          }
+        },
+        "endpoint_before_shared_cutoff": {
+          "2026-09-18": {
+            "origin_dates": [],
+            "outcomes": {}
+          },
+          "2026-09-26": {
+            "origin_dates": [
+              "2026-08-20",
+              "2026-08-21",
+              "2026-08-24"
+            ],
+            "outcomes": {
+              "unresolved": 1,
+              "correct": 2,
+              "incorrect": 3
+            }
+          }
+        },
+        "leave_one_origin_date_out": {
+          "2026-08-20": {
+            "incorrect": 3,
+            "correct": 1
+          },
+          "2026-08-21": {
+            "unresolved": 1,
+            "correct": 2
+          },
+          "2026-08-24": {
+            "unresolved": 1,
+            "correct": 1,
+            "incorrect": 3
+          }
+        },
+        "leave_one_ticker_out": {
+          "QQQ": {
+            "correct": 1,
+            "incorrect": 3
+          },
+          "SOXL": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 2
+          },
+          "SPMO": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 2
+          },
+          "TQQQ": {
+            "unresolved": 1,
+            "incorrect": 2,
+            "correct": 1
+          }
+        },
+        "first_observed_early_resolution_3pct": {
+          "buy": {
+            "unresolved": 1,
+            "correct": 18,
+            "incorrect": 10,
+            "immature": 1
+          },
+          "reduce": {
+            "incorrect": 3,
+            "correct": 3,
+            "immature": 2
+          }
+        }
+      },
+      "resourceAndValidation": {
+        "historical_original_match_rows": 168,
+        "original_consistent_subset": {
+          "buy": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 3,
+            "immature": 22
+          },
+          "reduce": {
+            "immature": 8
+          }
+        },
+        "rows": 168,
+        "actions": {
+          "hold": 128,
+          "accumulate": 28,
+          "trim": 5,
+          "sell": 3,
+          "avoid": 4
+        },
+        "directional_coverage": 0.21428571428571427,
+        "observed_30_calendar_days_first_3pct": {
+          "buy": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 3,
+            "immature": 22
+          },
+          "reduce": {
+            "immature": 8
+          }
+        },
+        "short_threshold_sensitivity": {
+          "0.02": {
+            "unresolved": 1,
+            "incorrect": 4,
+            "correct": 1,
+            "immature": 30
+          },
+          "0.03": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 3,
+            "immature": 30
+          },
+          "0.05": {
+            "unresolved": 4,
+            "incorrect": 1,
+            "correct": 1,
+            "immature": 30
+          }
+        },
+        "short_record_sensitivity": {
+          "1": {
+            "correct": 18,
+            "incorrect": 16,
+            "immature": 2
+          },
+          "3": {
+            "incorrect": 16,
+            "correct": 17,
+            "immature": 3
+          },
+          "5": {
+            "correct": 22,
+            "incorrect": 10,
+            "immature": 4
+          },
+          "10": {
+            "correct": 12,
+            "incorrect": 10,
+            "immature": 14
+          },
+          "20": {
+            "correct": 4,
+            "immature": 32
+          }
+        },
+        "short_next_observation_execution": {
+          "unresolved": 2,
+          "incorrect": 1,
+          "correct": 3,
+          "immature": 30
+        },
+        "short_first_consecutive_family_only": {
+          "unresolved": 1,
+          "correct": 2,
+          "incorrect": 2,
+          "immature": 23
+        },
+        "by_origin_date": {
+          "2026-08-18": {},
+          "2026-08-19": {},
+          "2026-08-20": {
+            "unresolved": 1,
+            "correct": 1
+          },
+          "2026-08-21": {
+            "incorrect": 3
+          },
+          "2026-08-24": {
+            "correct": 1
+          },
+          "2026-08-25": {},
+          "2026-08-26": {},
+          "2026-08-27": {
+            "immature": 1
+          },
+          "2026-08-28": {
+            "immature": 2
+          },
+          "2026-08-31": {
+            "immature": 4
+          },
+          "2026-09-01": {
+            "immature": 1
+          },
+          "2026-09-02": {
+            "immature": 2
+          },
+          "2026-09-03": {
+            "immature": 2
+          },
+          "2026-09-04": {
+            "immature": 1
+          },
+          "2026-09-08": {
+            "immature": 1
+          },
+          "2026-09-09": {},
+          "2026-09-10": {
+            "immature": 2
+          },
+          "2026-09-11": {},
+          "2026-09-14": {
+            "immature": 3
+          },
+          "2026-09-15": {
+            "immature": 3
+          },
+          "2026-09-16": {
+            "immature": 3
+          },
+          "2026-09-17": {
+            "immature": 1
+          },
+          "2026-09-18": {},
+          "2026-09-21": {
+            "immature": 1
+          },
+          "2026-09-22": {},
+          "2026-09-23": {
+            "immature": 1
+          },
+          "2026-09-24": {},
+          "2026-09-25": {
+            "immature": 2
+          }
+        },
+        "by_ticker": {
+          "QQQ": {
+            "unresolved": 1,
+            "correct": 1,
+            "immature": 7
+          },
+          "SOXL": {
+            "incorrect": 1,
+            "immature": 4
+          },
+          "SOXS": {
+            "immature": 5
+          },
+          "SPMO": {
+            "incorrect": 1,
+            "immature": 3
+          },
+          "SQQQ": {
+            "immature": 4
+          },
+          "TQQQ": {
+            "correct": 1,
+            "incorrect": 1,
+            "immature": 7
+          }
+        },
+        "endpoint_before_shared_cutoff": {
+          "2026-09-18": {
+            "origin_dates": [],
+            "outcomes": {}
+          },
+          "2026-09-26": {
+            "origin_dates": [
+              "2026-08-20",
+              "2026-08-21",
+              "2026-08-24"
+            ],
+            "outcomes": {
+              "unresolved": 1,
+              "correct": 2,
+              "incorrect": 3
+            }
+          }
+        },
+        "leave_one_origin_date_out": {
+          "2026-08-20": {
+            "incorrect": 3,
+            "correct": 1
+          },
+          "2026-08-21": {
+            "unresolved": 1,
+            "correct": 2
+          },
+          "2026-08-24": {
+            "unresolved": 1,
+            "correct": 1,
+            "incorrect": 3
+          }
+        },
+        "leave_one_ticker_out": {
+          "QQQ": {
+            "correct": 1,
+            "incorrect": 3
+          },
+          "SOXL": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 2
+          },
+          "SPMO": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 2
+          },
+          "TQQQ": {
+            "unresolved": 1,
+            "incorrect": 2,
+            "correct": 1
+          }
+        },
+        "first_observed_early_resolution_3pct": {
+          "buy": {
+            "unresolved": 1,
+            "correct": 17,
+            "incorrect": 9,
+            "immature": 1
+          },
+          "reduce": {
+            "incorrect": 3,
+            "correct": 3,
+            "immature": 2
+          }
+        }
+      },
+      "current": {
+        "historical_original_match_rows": 168,
+        "original_consistent_subset": {
+          "buy": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 3,
+            "immature": 22
+          },
+          "reduce": {
+            "immature": 8
+          }
+        },
+        "rows": 168,
+        "actions": {
+          "hold": 128,
+          "accumulate": 28,
+          "trim": 5,
+          "sell": 3,
+          "avoid": 4
+        },
+        "directional_coverage": 0.21428571428571427,
+        "observed_30_calendar_days_first_3pct": {
+          "buy": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 3,
+            "immature": 22
+          },
+          "reduce": {
+            "immature": 8
+          }
+        },
+        "short_threshold_sensitivity": {
+          "0.02": {
+            "unresolved": 1,
+            "incorrect": 4,
+            "correct": 1,
+            "immature": 30
+          },
+          "0.03": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 3,
+            "immature": 30
+          },
+          "0.05": {
+            "unresolved": 4,
+            "incorrect": 1,
+            "correct": 1,
+            "immature": 30
+          }
+        },
+        "short_record_sensitivity": {
+          "1": {
+            "correct": 18,
+            "incorrect": 16,
+            "immature": 2
+          },
+          "3": {
+            "incorrect": 16,
+            "correct": 17,
+            "immature": 3
+          },
+          "5": {
+            "correct": 22,
+            "incorrect": 10,
+            "immature": 4
+          },
+          "10": {
+            "correct": 12,
+            "incorrect": 10,
+            "immature": 14
+          },
+          "20": {
+            "correct": 4,
+            "immature": 32
+          }
+        },
+        "short_next_observation_execution": {
+          "unresolved": 2,
+          "incorrect": 1,
+          "correct": 3,
+          "immature": 30
+        },
+        "short_first_consecutive_family_only": {
+          "unresolved": 1,
+          "correct": 2,
+          "incorrect": 2,
+          "immature": 23
+        },
+        "by_origin_date": {
+          "2026-08-18": {},
+          "2026-08-19": {},
+          "2026-08-20": {
+            "unresolved": 1,
+            "correct": 1
+          },
+          "2026-08-21": {
+            "incorrect": 3
+          },
+          "2026-08-24": {
+            "correct": 1
+          },
+          "2026-08-25": {},
+          "2026-08-26": {},
+          "2026-08-27": {
+            "immature": 1
+          },
+          "2026-08-28": {
+            "immature": 2
+          },
+          "2026-08-31": {
+            "immature": 4
+          },
+          "2026-09-01": {
+            "immature": 1
+          },
+          "2026-09-02": {
+            "immature": 2
+          },
+          "2026-09-03": {
+            "immature": 2
+          },
+          "2026-09-04": {
+            "immature": 1
+          },
+          "2026-09-08": {
+            "immature": 1
+          },
+          "2026-09-09": {},
+          "2026-09-10": {
+            "immature": 2
+          },
+          "2026-09-11": {},
+          "2026-09-14": {
+            "immature": 3
+          },
+          "2026-09-15": {
+            "immature": 3
+          },
+          "2026-09-16": {
+            "immature": 3
+          },
+          "2026-09-17": {
+            "immature": 1
+          },
+          "2026-09-18": {},
+          "2026-09-21": {
+            "immature": 1
+          },
+          "2026-09-22": {},
+          "2026-09-23": {
+            "immature": 1
+          },
+          "2026-09-24": {},
+          "2026-09-25": {
+            "immature": 2
+          }
+        },
+        "by_ticker": {
+          "QQQ": {
+            "unresolved": 1,
+            "correct": 1,
+            "immature": 7
+          },
+          "SOXL": {
+            "incorrect": 1,
+            "immature": 4
+          },
+          "SOXS": {
+            "immature": 5
+          },
+          "SPMO": {
+            "incorrect": 1,
+            "immature": 3
+          },
+          "SQQQ": {
+            "immature": 4
+          },
+          "TQQQ": {
+            "correct": 1,
+            "incorrect": 1,
+            "immature": 7
+          }
+        },
+        "endpoint_before_shared_cutoff": {
+          "2026-09-18": {
+            "origin_dates": [],
+            "outcomes": {}
+          },
+          "2026-09-26": {
+            "origin_dates": [
+              "2026-08-20",
+              "2026-08-21",
+              "2026-08-24"
+            ],
+            "outcomes": {
+              "unresolved": 1,
+              "correct": 2,
+              "incorrect": 3
+            }
+          }
+        },
+        "leave_one_origin_date_out": {
+          "2026-08-20": {
+            "incorrect": 3,
+            "correct": 1
+          },
+          "2026-08-21": {
+            "unresolved": 1,
+            "correct": 2
+          },
+          "2026-08-24": {
+            "unresolved": 1,
+            "correct": 1,
+            "incorrect": 3
+          }
+        },
+        "leave_one_ticker_out": {
+          "QQQ": {
+            "correct": 1,
+            "incorrect": 3
+          },
+          "SOXL": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 2
+          },
+          "SPMO": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 2
+          },
+          "TQQQ": {
+            "unresolved": 1,
+            "incorrect": 2,
+            "correct": 1
+          }
+        },
+        "first_observed_early_resolution_3pct": {
+          "buy": {
+            "unresolved": 1,
+            "correct": 17,
+            "incorrect": 9,
+            "immature": 1
+          },
+          "reduce": {
+            "incorrect": 3,
+            "correct": 3,
+            "immature": 2
+          }
+        }
+      },
+      "candidate": {
+        "historical_original_match_rows": 168,
+        "original_consistent_subset": {
+          "buy": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 3,
+            "immature": 22
+          },
+          "reduce": {
+            "immature": 8
+          }
+        },
+        "rows": 168,
+        "actions": {
+          "hold": 128,
+          "accumulate": 28,
+          "trim": 5,
+          "sell": 3,
+          "avoid": 4
+        },
+        "directional_coverage": 0.21428571428571427,
+        "observed_30_calendar_days_first_3pct": {
+          "buy": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 3,
+            "immature": 22
+          },
+          "reduce": {
+            "immature": 8
+          }
+        },
+        "short_threshold_sensitivity": {
+          "0.02": {
+            "unresolved": 1,
+            "incorrect": 4,
+            "correct": 1,
+            "immature": 30
+          },
+          "0.03": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 3,
+            "immature": 30
+          },
+          "0.05": {
+            "unresolved": 4,
+            "incorrect": 1,
+            "correct": 1,
+            "immature": 30
+          }
+        },
+        "short_record_sensitivity": {
+          "1": {
+            "correct": 18,
+            "incorrect": 16,
+            "immature": 2
+          },
+          "3": {
+            "incorrect": 16,
+            "correct": 17,
+            "immature": 3
+          },
+          "5": {
+            "correct": 22,
+            "incorrect": 10,
+            "immature": 4
+          },
+          "10": {
+            "correct": 12,
+            "incorrect": 10,
+            "immature": 14
+          },
+          "20": {
+            "correct": 4,
+            "immature": 32
+          }
+        },
+        "short_next_observation_execution": {
+          "unresolved": 2,
+          "incorrect": 1,
+          "correct": 3,
+          "immature": 30
+        },
+        "short_first_consecutive_family_only": {
+          "unresolved": 1,
+          "correct": 2,
+          "incorrect": 2,
+          "immature": 23
+        },
+        "by_origin_date": {
+          "2026-08-18": {},
+          "2026-08-19": {},
+          "2026-08-20": {
+            "unresolved": 1,
+            "correct": 1
+          },
+          "2026-08-21": {
+            "incorrect": 3
+          },
+          "2026-08-24": {
+            "correct": 1
+          },
+          "2026-08-25": {},
+          "2026-08-26": {},
+          "2026-08-27": {
+            "immature": 1
+          },
+          "2026-08-28": {
+            "immature": 2
+          },
+          "2026-08-31": {
+            "immature": 4
+          },
+          "2026-09-01": {
+            "immature": 1
+          },
+          "2026-09-02": {
+            "immature": 2
+          },
+          "2026-09-03": {
+            "immature": 2
+          },
+          "2026-09-04": {
+            "immature": 1
+          },
+          "2026-09-08": {
+            "immature": 1
+          },
+          "2026-09-09": {},
+          "2026-09-10": {
+            "immature": 2
+          },
+          "2026-09-11": {},
+          "2026-09-14": {
+            "immature": 3
+          },
+          "2026-09-15": {
+            "immature": 3
+          },
+          "2026-09-16": {
+            "immature": 3
+          },
+          "2026-09-17": {
+            "immature": 1
+          },
+          "2026-09-18": {},
+          "2026-09-21": {
+            "immature": 1
+          },
+          "2026-09-22": {},
+          "2026-09-23": {
+            "immature": 1
+          },
+          "2026-09-24": {},
+          "2026-09-25": {
+            "immature": 2
+          }
+        },
+        "by_ticker": {
+          "QQQ": {
+            "unresolved": 1,
+            "correct": 1,
+            "immature": 7
+          },
+          "SOXL": {
+            "incorrect": 1,
+            "immature": 4
+          },
+          "SOXS": {
+            "immature": 5
+          },
+          "SPMO": {
+            "incorrect": 1,
+            "immature": 3
+          },
+          "SQQQ": {
+            "immature": 4
+          },
+          "TQQQ": {
+            "correct": 1,
+            "incorrect": 1,
+            "immature": 7
+          }
+        },
+        "endpoint_before_shared_cutoff": {
+          "2026-09-18": {
+            "origin_dates": [],
+            "outcomes": {}
+          },
+          "2026-09-26": {
+            "origin_dates": [
+              "2026-08-20",
+              "2026-08-21",
+              "2026-08-24"
+            ],
+            "outcomes": {
+              "unresolved": 1,
+              "correct": 2,
+              "incorrect": 3
+            }
+          }
+        },
+        "leave_one_origin_date_out": {
+          "2026-08-20": {
+            "incorrect": 3,
+            "correct": 1
+          },
+          "2026-08-21": {
+            "unresolved": 1,
+            "correct": 2
+          },
+          "2026-08-24": {
+            "unresolved": 1,
+            "correct": 1,
+            "incorrect": 3
+          }
+        },
+        "leave_one_ticker_out": {
+          "QQQ": {
+            "correct": 1,
+            "incorrect": 3
+          },
+          "SOXL": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 2
+          },
+          "SPMO": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 2
+          },
+          "TQQQ": {
+            "unresolved": 1,
+            "incorrect": 2,
+            "correct": 1
+          }
+        },
+        "first_observed_early_resolution_3pct": {
+          "buy": {
+            "unresolved": 1,
+            "correct": 17,
+            "incorrect": 9,
+            "immature": 1
+          },
+          "reduce": {
+            "incorrect": 3,
+            "correct": 3,
+            "immature": 2
+          }
+        }
+      },
+      "reference": {
+        "historical_original_match_rows": 168,
+        "original_consistent_subset": {
+          "buy": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 3,
+            "immature": 26
+          },
+          "reduce": {
+            "immature": 6
+          }
+        },
+        "rows": 168,
+        "actions": {
+          "hold": 126,
+          "accumulate": 32,
+          "trim": 5,
+          "sell": 1,
+          "avoid": 4
+        },
+        "directional_coverage": 0.2261904761904762,
+        "observed_30_calendar_days_first_3pct": {
+          "buy": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 3,
+            "immature": 26
+          },
+          "reduce": {
+            "immature": 6
+          }
+        },
+        "short_threshold_sensitivity": {
+          "0.02": {
+            "unresolved": 1,
+            "incorrect": 4,
+            "correct": 1,
+            "immature": 32
+          },
+          "0.03": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 3,
+            "immature": 32
+          },
+          "0.05": {
+            "unresolved": 4,
+            "incorrect": 1,
+            "correct": 1,
+            "immature": 32
+          }
+        },
+        "short_record_sensitivity": {
+          "1": {
+            "correct": 19,
+            "incorrect": 17,
+            "immature": 2
+          },
+          "3": {
+            "incorrect": 17,
+            "correct": 18,
+            "immature": 3
+          },
+          "5": {
+            "correct": 23,
+            "incorrect": 11,
+            "immature": 4
+          },
+          "10": {
+            "correct": 14,
+            "incorrect": 10,
+            "immature": 14
+          },
+          "20": {
+            "correct": 4,
+            "immature": 34
+          }
+        },
+        "short_next_observation_execution": {
+          "unresolved": 2,
+          "incorrect": 1,
+          "correct": 3,
+          "immature": 32
+        },
+        "short_first_consecutive_family_only": {
+          "unresolved": 1,
+          "correct": 2,
+          "incorrect": 2,
+          "immature": 23
+        },
+        "by_origin_date": {
+          "2026-08-18": {},
+          "2026-08-19": {},
+          "2026-08-20": {
+            "unresolved": 1,
+            "correct": 1
+          },
+          "2026-08-21": {
+            "incorrect": 3
+          },
+          "2026-08-24": {
+            "correct": 1
+          },
+          "2026-08-25": {},
+          "2026-08-26": {},
+          "2026-08-27": {
+            "immature": 1
+          },
+          "2026-08-28": {
+            "immature": 2
+          },
+          "2026-08-31": {
+            "immature": 4
+          },
+          "2026-09-01": {
+            "immature": 1
+          },
+          "2026-09-02": {
+            "immature": 3
+          },
+          "2026-09-03": {
+            "immature": 2
+          },
+          "2026-09-04": {
+            "immature": 1
+          },
+          "2026-09-08": {
+            "immature": 2
+          },
+          "2026-09-09": {},
+          "2026-09-10": {
+            "immature": 2
+          },
+          "2026-09-11": {},
+          "2026-09-14": {
+            "immature": 3
+          },
+          "2026-09-15": {
+            "immature": 3
+          },
+          "2026-09-16": {
+            "immature": 3
+          },
+          "2026-09-17": {
+            "immature": 1
+          },
+          "2026-09-18": {},
+          "2026-09-21": {
+            "immature": 1
+          },
+          "2026-09-22": {},
+          "2026-09-23": {
+            "immature": 1
+          },
+          "2026-09-24": {},
+          "2026-09-25": {
+            "immature": 2
+          }
+        },
+        "by_ticker": {
+          "QQQ": {
+            "unresolved": 1,
+            "correct": 1,
+            "immature": 7
+          },
+          "SOXL": {
+            "incorrect": 1,
+            "immature": 5
+          },
+          "SOXS": {
+            "immature": 5
+          },
+          "SPMO": {
+            "incorrect": 1,
+            "immature": 3
+          },
+          "SQQQ": {
+            "immature": 4
+          },
+          "TQQQ": {
+            "correct": 1,
+            "incorrect": 1,
+            "immature": 8
+          }
+        },
+        "endpoint_before_shared_cutoff": {
+          "2026-09-18": {
+            "origin_dates": [],
+            "outcomes": {}
+          },
+          "2026-09-26": {
+            "origin_dates": [
+              "2026-08-20",
+              "2026-08-21",
+              "2026-08-24"
+            ],
+            "outcomes": {
+              "unresolved": 1,
+              "correct": 2,
+              "incorrect": 3
+            }
+          }
+        },
+        "leave_one_origin_date_out": {
+          "2026-08-20": {
+            "incorrect": 3,
+            "correct": 1
+          },
+          "2026-08-21": {
+            "unresolved": 1,
+            "correct": 2
+          },
+          "2026-08-24": {
+            "unresolved": 1,
+            "correct": 1,
+            "incorrect": 3
+          }
+        },
+        "leave_one_ticker_out": {
+          "QQQ": {
+            "correct": 1,
+            "incorrect": 3
+          },
+          "SOXL": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 2
+          },
+          "SPMO": {
+            "unresolved": 1,
+            "correct": 2,
+            "incorrect": 2
+          },
+          "TQQQ": {
+            "unresolved": 1,
+            "incorrect": 2,
+            "correct": 1
+          }
+        },
+        "first_observed_early_resolution_3pct": {
+          "buy": {
+            "unresolved": 1,
+            "correct": 18,
+            "incorrect": 10,
+            "immature": 3
+          },
+          "reduce": {
+            "incorrect": 3,
+            "correct": 3
+          }
+        }
+      }
+    },
+    "mid:etf": {
+      "baseline": {
+        "historical_original_match_rows": 168,
+        "original_consistent_subset": null,
+        "rows": 168,
+        "actions": {
+          "accumulate": 43,
+          "hold": 109,
+          "trim": 9,
+          "avoid": 7
+        },
+        "directional_coverage": 0.30952380952380953,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "resourceAndValidation": {
+        "historical_original_match_rows": 168,
+        "original_consistent_subset": null,
+        "rows": 168,
+        "actions": {
+          "accumulate": 42,
+          "hold": 110,
+          "trim": 9,
+          "avoid": 7
+        },
+        "directional_coverage": 0.30357142857142855,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "current": {
+        "historical_original_match_rows": 168,
+        "original_consistent_subset": null,
+        "rows": 168,
+        "actions": {
+          "accumulate": 42,
+          "hold": 110,
+          "trim": 9,
+          "avoid": 7
+        },
+        "directional_coverage": 0.30357142857142855,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "candidate": {
+        "historical_original_match_rows": 168,
+        "original_consistent_subset": null,
+        "rows": 168,
+        "actions": {
+          "accumulate": 42,
+          "hold": 110,
+          "trim": 9,
+          "avoid": 7
+        },
+        "directional_coverage": 0.30357142857142855,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "reference": {
+        "historical_original_match_rows": 168,
+        "original_consistent_subset": null,
+        "rows": 168,
+        "actions": {
+          "accumulate": 43,
+          "hold": 109,
+          "trim": 9,
+          "avoid": 7
+        },
+        "directional_coverage": 0.30952380952380953,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      }
+    },
+    "long:etf": {
+      "baseline": {
+        "historical_original_match_rows": 168,
+        "original_consistent_subset": null,
+        "rows": 168,
+        "actions": {
+          "hold": 153,
+          "accumulate": 15
+        },
+        "directional_coverage": 0.08928571428571429,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "resourceAndValidation": {
+        "historical_original_match_rows": 168,
+        "original_consistent_subset": null,
+        "rows": 168,
+        "actions": {
+          "hold": 153,
+          "accumulate": 15
+        },
+        "directional_coverage": 0.08928571428571429,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "current": {
+        "historical_original_match_rows": 168,
+        "original_consistent_subset": null,
+        "rows": 168,
+        "actions": {
+          "hold": 153,
+          "accumulate": 15
+        },
+        "directional_coverage": 0.08928571428571429,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "candidate": {
+        "historical_original_match_rows": 168,
+        "original_consistent_subset": null,
+        "rows": 168,
+        "actions": {
+          "hold": 153,
+          "accumulate": 15
+        },
+        "directional_coverage": 0.08928571428571429,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      },
+      "reference": {
+        "historical_original_match_rows": 168,
+        "original_consistent_subset": null,
+        "rows": 168,
+        "actions": {
+          "hold": 153,
+          "accumulate": 15
+        },
+        "directional_coverage": 0.08928571428571429,
+        "observed_30_calendar_days_first_3pct": null,
+        "short_threshold_sensitivity": null,
+        "short_record_sensitivity": null,
+        "short_next_observation_execution": null,
+        "short_first_consecutive_family_only": null,
+        "by_origin_date": null,
+        "by_ticker": null
+      }
+    }
+  },
+  "ranges": {
+    "short:stock": {
+      "current": {
+        "fixed_origins": 176,
+        "defensive_origins_separate": 2,
+        "opportunityRange": {
+          "mean_width_origin_atr": 2.441745976325326,
+          "recorded_extreme_inside": 55,
+          "denominator": 176,
+          "mean_distance_error_atr": 1.3683985874489353,
+          "first_observed_touch_response_3pct": {
+            "untouched": 55,
+            "adverse": 51,
+            "unresolved": 3,
+            "favorable": 67
+          }
+        },
+        "reduceRange": {
+          "mean_width_origin_atr": 2.4410834679780646,
+          "recorded_extreme_inside": 59,
+          "denominator": 176,
+          "mean_distance_error_atr": 2.0297387815564387,
+          "first_observed_touch_response_3pct": {
+            "untouched": 53,
+            "adverse": 50,
+            "favorable": 68,
+            "unresolved": 5
+          }
+        }
+      },
+      "candidate": {
+        "fixed_origins": 176,
+        "defensive_origins_separate": 2,
+        "opportunityRange": {
+          "mean_width_origin_atr": 2.441745976325326,
+          "recorded_extreme_inside": 55,
+          "denominator": 176,
+          "mean_distance_error_atr": 1.3683985874489353,
+          "first_observed_touch_response_3pct": {
+            "untouched": 55,
+            "adverse": 51,
+            "unresolved": 3,
+            "favorable": 67
+          }
+        },
+        "reduceRange": {
+          "mean_width_origin_atr": 2.429923426326835,
+          "recorded_extreme_inside": 59,
+          "denominator": 176,
+          "mean_distance_error_atr": 2.0337063141511105,
+          "first_observed_touch_response_3pct": {
+            "untouched": 53,
+            "adverse": 50,
+            "favorable": 68,
+            "unresolved": 5
+          }
+        }
+      }
+    },
+    "mid:stock": {
+      "current": {
+        "status": "no_full_horizon_mature_path",
+        "one_month_mid_evidence_only": true
+      },
+      "candidate": {
+        "status": "no_full_horizon_mature_path",
+        "one_month_mid_evidence_only": true
+      }
+    },
+    "long:stock": {
+      "current": {
+        "status": "no_full_horizon_mature_path",
+        "one_month_mid_evidence_only": false
+      },
+      "candidate": {
+        "status": "no_full_horizon_mature_path",
+        "one_month_mid_evidence_only": false
+      }
+    },
+    "short:etf": {
+      "current": {
+        "fixed_origins": 42,
+        "defensive_origins_separate": 0,
+        "opportunityRange": {
+          "mean_width_origin_atr": 1.0813306442506212,
+          "recorded_extreme_inside": 12,
+          "denominator": 42,
+          "mean_distance_error_atr": 0.9585248825432836,
+          "first_observed_touch_response_3pct": {
+            "unresolved": 6,
+            "untouched": 13,
+            "adverse": 4,
+            "favorable": 19
+          }
+        },
+        "reduceRange": {
+          "mean_width_origin_atr": 1.0926267640144354,
+          "recorded_extreme_inside": 11,
+          "denominator": 42,
+          "mean_distance_error_atr": 1.957239051061109,
+          "first_observed_touch_response_3pct": {
+            "untouched": 13,
+            "adverse": 5,
+            "favorable": 22,
+            "unresolved": 2
+          }
+        }
+      },
+      "candidate": {
+        "fixed_origins": 42,
+        "defensive_origins_separate": 0,
+        "opportunityRange": {
+          "mean_width_origin_atr": 1.0813306442506212,
+          "recorded_extreme_inside": 12,
+          "denominator": 42,
+          "mean_distance_error_atr": 0.9585248825432836,
+          "first_observed_touch_response_3pct": {
+            "unresolved": 6,
+            "untouched": 13,
+            "adverse": 4,
+            "favorable": 19
+          }
+        },
+        "reduceRange": {
+          "mean_width_origin_atr": 1.0866426176260933,
+          "recorded_extreme_inside": 11,
+          "denominator": 42,
+          "mean_distance_error_atr": 1.9593076773650193,
+          "first_observed_touch_response_3pct": {
+            "untouched": 13,
+            "adverse": 5,
+            "favorable": 22,
+            "unresolved": 2
+          }
+        }
+      }
+    },
+    "mid:etf": {
+      "current": {
+        "status": "no_full_horizon_mature_path",
+        "one_month_mid_evidence_only": true
+      },
+      "candidate": {
+        "status": "no_full_horizon_mature_path",
+        "one_month_mid_evidence_only": true
+      }
+    },
+    "long:etf": {
+      "current": {
+        "status": "no_full_horizon_mature_path",
+        "one_month_mid_evidence_only": false
+      },
+      "candidate": {
+        "status": "no_full_horizon_mature_path",
+        "one_month_mid_evidence_only": false
+      }
+    }
+  },
+  "confidence": {
+    "short:stock": {
+      "current": {
+        "buy": {
+          "same_final_action_rows": 34,
+          "auc_correct_vs_incorrect": 0.4640151515151515,
+          "top_quartile": {
+            "correct": 5,
+            "incorrect": 4
+          },
+          "support_score_is_probability": false
+        },
+        "reduce": {
+          "same_final_action_rows": 16,
+          "auc_correct_vs_incorrect": 0.4444444444444444,
+          "top_quartile": {
+            "incorrect": 3,
+            "correct": 1
+          },
+          "support_score_is_probability": false
+        }
+      },
+      "candidate": {
+        "buy": {
+          "same_final_action_rows": 34,
+          "auc_correct_vs_incorrect": 0.4640151515151515,
+          "top_quartile": {
+            "correct": 5,
+            "incorrect": 4
+          },
+          "support_score_is_probability": false
+        },
+        "reduce": {
+          "same_final_action_rows": 16,
+          "auc_correct_vs_incorrect": 0.4444444444444444,
+          "top_quartile": {
+            "incorrect": 3,
+            "correct": 1
+          },
+          "support_score_is_probability": false
+        }
+      }
+    },
+    "mid:stock": {
+      "current": {
+        "buy": {
+          "same_final_action_rows": 24,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        },
+        "reduce": {
+          "same_final_action_rows": 9,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        }
+      },
+      "candidate": {
+        "buy": {
+          "same_final_action_rows": 24,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        },
+        "reduce": {
+          "same_final_action_rows": 9,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        }
+      }
+    },
+    "long:stock": {
+      "current": {
+        "buy": {
+          "same_final_action_rows": 0,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        },
+        "reduce": {
+          "same_final_action_rows": 0,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        }
+      },
+      "candidate": {
+        "buy": {
+          "same_final_action_rows": 0,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        },
+        "reduce": {
+          "same_final_action_rows": 0,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        }
+      }
+    },
+    "short:etf": {
+      "current": {
+        "buy": {
+          "same_final_action_rows": 6,
+          "auc_correct_vs_incorrect": 1.0,
+          "top_quartile": {
+            "correct": 2
+          },
+          "support_score_is_probability": false
+        },
+        "reduce": {
+          "same_final_action_rows": 0,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": {},
+          "support_score_is_probability": false
+        }
+      },
+      "candidate": {
+        "buy": {
+          "same_final_action_rows": 6,
+          "auc_correct_vs_incorrect": 1.0,
+          "top_quartile": {
+            "correct": 2
+          },
+          "support_score_is_probability": false
+        },
+        "reduce": {
+          "same_final_action_rows": 0,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": {},
+          "support_score_is_probability": false
+        }
+      }
+    },
+    "mid:etf": {
+      "current": {
+        "buy": {
+          "same_final_action_rows": 14,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        },
+        "reduce": {
+          "same_final_action_rows": 1,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        }
+      },
+      "candidate": {
+        "buy": {
+          "same_final_action_rows": 14,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        },
+        "reduce": {
+          "same_final_action_rows": 1,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        }
+      }
+    },
+    "long:etf": {
+      "current": {
+        "buy": {
+          "same_final_action_rows": 0,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        },
+        "reduce": {
+          "same_final_action_rows": 0,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        }
+      },
+      "candidate": {
+        "buy": {
+          "same_final_action_rows": 0,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        },
+        "reduce": {
+          "same_final_action_rows": 0,
+          "auc_correct_vs_incorrect": null,
+          "top_quartile": null,
+          "support_score_is_probability": false
+        }
+      }
+    }
+  },
+  "width_gate": {
+    "factor": 0.995,
+    "passed": false,
+    "failures": [
+      "short:stock:five_observation_coverage_lost:2026-09-14:ZETA"
+    ],
+    "action_changes": 0,
+    "state_changes": 3,
+    "confidence_changes": 0
+  },
+  "limits": [
+    "Historical raw OHLCV absent: canonical-snapshot replay only.",
+    "Historical legacy profile slots are validated without guessing metadata.",
+    "Old reference 6/940 replay discrepancies remain a separate supplied-evidence subset; current V2.1 profiles/configuration need not reproduce it.",
+    "All tickers share origin-date cutoffs. No parameter search or new unseen test.",
+    "Mid minimum-one-month context does not validate a six-month horizon; Long has no >6-month mature results."
+  ],
+  "ranges_five_records": {
+    "etf": {
+      "counts": {
+        "origins": 138,
+        "current:opportunityRange": 28,
+        "candidate:opportunityRange": 28,
+        "current:reduceRange": 23,
+        "candidate:reduceRange": 23
+      },
+      "lost_rows": []
+    },
+    "stock": {
+      "counts": {
+        "origins": 601,
+        "current:opportunityRange": 281,
+        "candidate:opportunityRange": 281,
+        "current:reduceRange": 229,
+        "candidate:reduceRange": 228
+      },
+      "lost_rows": [
+        {
+          "date": "2026-09-14",
+          "ticker": "ZETA",
+          "side": "reduceRange",
+          "recorded_extreme": 31.15,
+          "baseline": {
+            "low": 31.15,
+            "high": 33.51
+          },
+          "candidate": {
+            "low": 31.16,
+            "high": 33.5
+          }
+        }
+      ]
+    }
+  }
+}

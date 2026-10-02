@@ -1,0 +1,117 @@
+{
+  "all_passed": true,
+  "checks": [
+    {
+      "name": "decision-engine",
+      "group": "js",
+      "exit_code": 0,
+      "seconds": 0.217,
+      "log": "final-decision-engine.log"
+    },
+    {
+      "name": "company-profile",
+      "group": "js",
+      "exit_code": 0,
+      "seconds": 0.058,
+      "log": "final-company-profile.log"
+    },
+    {
+      "name": "technical-features",
+      "group": "js",
+      "exit_code": 0,
+      "seconds": 0.111,
+      "log": "final-technical-features.log"
+    },
+    {
+      "name": "dashboard-regression",
+      "group": "js",
+      "exit_code": 0,
+      "seconds": 0.053,
+      "log": "final-dashboard-regression.log"
+    },
+    {
+      "name": "decision-ui",
+      "group": "js",
+      "exit_code": 0,
+      "seconds": 0.037,
+      "log": "final-decision-ui.log"
+    },
+    {
+      "name": "decision-v1",
+      "group": "js",
+      "exit_code": 0,
+      "seconds": 0.122,
+      "log": "final-decision-v1.log"
+    },
+    {
+      "name": "eod-history-node",
+      "group": "js",
+      "exit_code": 0,
+      "seconds": 0.24,
+      "log": "final-eod-history-node.log"
+    },
+    {
+      "name": "final-model",
+      "group": "js",
+      "exit_code": 0,
+      "seconds": 0.047,
+      "log": "final-final-model.log"
+    },
+    {
+      "name": "server_availability_test.py",
+      "group": "python",
+      "exit_code": 0,
+      "seconds": 0.783,
+      "log": "final-server_availability_test.py.log"
+    },
+    {
+      "name": "eod_history_test.py",
+      "group": "python",
+      "exit_code": 0,
+      "seconds": 0.227,
+      "log": "final-eod_history_test.py.log"
+    },
+    {
+      "name": "service_resources_test.py",
+      "group": "python",
+      "exit_code": 0,
+      "seconds": 0.664,
+      "log": "final-service_resources_test.py.log"
+    },
+    {
+      "name": "decision-audit",
+      "group": "audit",
+      "exit_code": 0,
+      "seconds": 4.797,
+      "log": "final-decision-audit.log"
+    },
+    {
+      "name": "decision-shadow",
+      "group": "audit",
+      "exit_code": 0,
+      "seconds": 0.483,
+      "log": "final-decision-shadow.log"
+    },
+    {
+      "name": "fibonacci-audit",
+      "group": "audit",
+      "exit_code": 0,
+      "seconds": 1.426,
+      "log": "final-fibonacci-audit.log"
+    },
+    {
+      "name": "refresh-memory-audit",
+      "group": "audit",
+      "exit_code": 0,
+      "seconds": 5.584,
+      "log": "final-refresh-memory-audit.log"
+    },
+    {
+      "name": "company-profile-audit",
+      "group": "audit",
+      "exit_code": 0,
+      "seconds": 0.164,
+      "log": "final-company-profile-audit.log"
+    }
+  ]
+}

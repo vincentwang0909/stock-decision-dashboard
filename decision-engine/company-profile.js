@@ -50,7 +50,7 @@
     profile.profileEvidence = source.profileEvidence || source.profile_evidence || {};
     profile.profileSufficiency = source.profileSufficiency || source.profile_sufficiency || fallback.profileSufficiency || {};
     profile.profileSchemaVersion = source.profileSchemaVersion || source.profile_schema_version || fallback.profileSchemaVersion || null;
-    // Do not alter Profile Confidence or its contribution to final Confidence.
+    // Retain legacy metadata for offline provenance; scoring weight is zero.
     profile.profileConfidence = Number.isFinite(source.profileConfidence) ? clamp(source.profileConfidence, 0, 1)
       : Number.isFinite(fallback.profileConfidence) ? clamp(fallback.profileConfidence, 0, 1) : 0.82;
     profile.lastProfileReview = source.lastProfileReview || source.last_profile_review || fallback.lastProfileReview || null;

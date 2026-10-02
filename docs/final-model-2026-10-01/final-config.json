@@ -1,0 +1,1300 @@
+{
+  "version": "decision-engine-v2.1-validated",
+  "shortV2": {
+    "enabled": true,
+    "scope": "ordinary_stocks",
+    "version": "stock-short-v2-fixed",
+    "policy": {
+      "workflow": 3,
+      "direction": 3,
+      "confirmation": 0,
+      "risk": 2,
+      "exhaustion": 1,
+      "structure": 6,
+      "entry": 30,
+      "confirm": 50,
+      "maxRisk": 65,
+      "near": 0.7,
+      "extension": 3,
+      "exit": 10,
+      "exhaustionGate": 50,
+      "macro": 0,
+      "reversal": false
+    },
+    "directionWeights": [
+      0.25,
+      0.2,
+      0.05,
+      0.25,
+      0.25
+    ],
+    "confirmationWeights": [
+      0.35,
+      0.35,
+      0.2,
+      0.1
+    ],
+    "groups": {
+      "ma": [
+        0.2,
+        0.45,
+        0.35
+      ],
+      "macd": [
+        0.25,
+        0.45,
+        0.3
+      ],
+      "early": [
+        0.5,
+        0.3,
+        0.2
+      ],
+      "obv": [
+        0.55,
+        0.25,
+        0.2
+      ],
+      "trendAgreement": [
+        0.45,
+        0.35,
+        0.2
+      ],
+      "acceleration": [
+        0.55,
+        0.45
+      ],
+      "risk": [
+        0.4,
+        0.4,
+        0.2
+      ],
+      "macdChange": [
+        0.5,
+        0.3,
+        0.2
+      ]
+    },
+    "scales": {
+      "maPrice": 1.8,
+      "maOrder": 0.8,
+      "maSlope": 0.18,
+      "macdLevel": 0.4,
+      "macdImpulse": 0.07,
+      "macdChange": 0.045,
+      "oscillatorHigh": 70,
+      "oscillatorLow": 30,
+      "qualityMinimum": 60,
+      "breakBuffer": 0.25,
+      "baselineBreakDirection": -68,
+      "baselineBreakConfirmation": 52,
+      "eventDays": 6,
+      "immediateEventDays": 2,
+      "immediateEventRisk": 30,
+      "nearEventRisk": 18,
+      "strongDirection": 55,
+      "strongConfirmation": 68,
+      "strongRisk": 55,
+      "strongExhaustion": 25,
+      "buyDirection": 30,
+      "buyConfirmation": 58,
+      "sellDirection": -45,
+      "entryDirectionFloor": -65,
+      "minimumRoomAtr": 0.3,
+      "rewardRiskFloorAtr": 0.25,
+      "strongRewardRisk": 1.5,
+      "buyRewardRisk": 1,
+      "exitHalfWidthAtr": 0.2,
+      "invalidBuffer": 0.7,
+      "profileRiskFloor": 0.85,
+      "profileRiskCeiling": 1.2,
+      "rvolMissingReliability": 0.75,
+      "rvolReliabilityBase": 0.6,
+      "rvolReliabilityOrigin": 0.5,
+      "rvolReliabilityScale": 0.3,
+      "rvolReliabilityFloor": 0.4,
+      "eventConfidencePenalty": 0.2,
+      "excessRiskStart": 60,
+      "excessRiskPenalty": 0.12,
+      "holdConfirmationScale": 1.5,
+      "stretchBollingerHigh": 0.8,
+      "stretchBollingerLow": 0.2,
+      "stretchRsiHigh": 65,
+      "stretchRsiLow": 35,
+      "nearNeutralShare": 0.4,
+      "reasonEvidenceThreshold": 20,
+      "directionLabelThreshold": 25,
+      "confirmationStrongLabel": 75,
+      "confirmationModerateLabel": 50,
+      "exhaustionLabelThreshold": 30,
+      "opportunityScoreScale": 35,
+      "opportunityRoomLabelAtr": 0.5
+    }
+  },
+  "shortReduceWidth": {
+    "enabled": false,
+    "factor": 0.995,
+    "version": "short-reduce-0995",
+    "gate": "current-baseline-retention-replay"
+  },
+  "actions": [
+    "strong_buy",
+    "buy",
+    "accumulate",
+    "hold",
+    "trim",
+    "sell",
+    "avoid"
+  ],
+  "actionLabels": {
+    "strong_buy": {
+      "en": "Strong Buy",
+      "zh": "强力买入"
+    },
+    "buy": {
+      "en": "Buy",
+      "zh": "买入"
+    },
+    "accumulate": {
+      "en": "Accumulate",
+      "zh": "逐步加仓"
+    },
+    "hold": {
+      "en": "Hold",
+      "zh": "持有"
+    },
+    "trim": {
+      "en": "Trim",
+      "zh": "减仓"
+    },
+    "sell": {
+      "en": "Sell",
+      "zh": "卖出"
+    },
+    "avoid": {
+      "en": "Avoid",
+      "zh": "回避"
+    }
+  },
+  "horizons": {
+    "short": {
+      "label": "1–30 days",
+      "technicalKey": "short",
+      "fibonacciKey": "short_term",
+      "primaryInterval": "4h",
+      "earlyInterval": "1h",
+      "rsiPeriod": 6,
+      "directionWeights": {
+        "ma": 0.4,
+        "macd": 0.3,
+        "adx": 0.15,
+        "early": 0.15
+      },
+      "confirmationWeights": {
+        "relativeStrength": 0.3,
+        "participation": 0.3,
+        "rsi": 0.2,
+        "adx": 0.1,
+        "momentum": 0.1
+      },
+      "marketSensitivity": 1,
+      "rangeAtrWidth": 0.65,
+      "structuralDistanceAtr": 2.2
+    },
+    "mid": {
+      "label": "1–6 months",
+      "technicalKey": "medium",
+      "fibonacciKey": "mid_term",
+      "primaryInterval": "1d",
+      "earlyInterval": "4h",
+      "rsiPeriod": 14,
+      "directionWeights": {
+        "ma": 0.45,
+        "macd": 0.3,
+        "adx": 0.15,
+        "early": 0.1
+      },
+      "confirmationWeights": {
+        "relativeStrength": 0.35,
+        "participation": 0.3,
+        "rsi": 0.2,
+        "adx": 0.1,
+        "momentum": 0.05
+      },
+      "marketSensitivity": 0.7,
+      "rangeAtrWidth": 0.85,
+      "structuralDistanceAtr": 2.8
+    },
+    "long": {
+      "label": "> 6 months",
+      "technicalKey": "long",
+      "fibonacciKey": "long_term",
+      "primaryInterval": "1w",
+      "maInterval": "1d",
+      "earlyInterval": "1d",
+      "rsiPeriod": 21,
+      "directionWeights": {
+        "ma": 0.5,
+        "macd": 0.3,
+        "adx": 0.15,
+        "early": 0.05
+      },
+      "confirmationWeights": {
+        "relativeStrength": 0.4,
+        "participation": 0.3,
+        "rsi": 0.2,
+        "adx": 0.1,
+        "momentum": 0
+      },
+      "marketSensitivity": 0.4,
+      "rangeAtrWidth": 0.7,
+      "structuralDistanceAtr": 3.5
+    }
+  },
+  "componentScales": {
+    "stateScores": {
+      "bullish": 58,
+      "bearish": -58,
+      "recovering": 28,
+      "deteriorating": -28,
+      "rising": 32,
+      "falling": -32,
+      "neutral": 0
+    },
+    "ma": {
+      "priceAtrScale": 1.8,
+      "orderingAtrScale": 0.8,
+      "priceWeight": 0.36,
+      "orderingWeight": 0.4,
+      "slopeWeight": 0.2,
+      "persistenceWeight": 0.04
+    },
+    "macd": {
+      "lineSignalAtrScale": 0.14,
+      "histogramAtrScale": 0.07,
+      "histogramChangeAtrScale": 0.045,
+      "zeroWeight": 0.24,
+      "spreadWeight": 0.27,
+      "histogramWeight": 0.2,
+      "changeWeight": 0.17,
+      "crossoverWeight": 0.07,
+      "stateWeight": 0.05
+    },
+    "adx": {
+      "low": 15,
+      "fullStrength": 42,
+      "diSpreadScale": 0.55
+    },
+    "relativeStrength": {
+      "benchmarkWeight": 0.65,
+      "stockReturnWeight": 0.35,
+      "returnScale": 4.2,
+      "persistenceBonus": 10
+    },
+    "participation": {
+      "obvWeight": 0.38,
+      "divergenceWeight": 0.22,
+      "confirmationWeight": 0.18,
+      "rvolWeight": 0.12,
+      "volumeTrendWeight": 0.1
+    },
+    "rsi": {
+      "healthyBullish": [
+        52,
+        70
+      ],
+      "healthyBearish": [
+        30,
+        48
+      ],
+      "extremeHigh": 78,
+      "extremeLow": 22
+    },
+    "opportunity": {
+      "confluenceBandAtr": 0.72,
+      "supportEligibilityAtr": 0.05,
+      "reduceEligibilityAtr": 0.25,
+      "clusterDedupAtr": 0.32,
+      "clusterCandidateLimit": 8,
+      "structuralLevelWeight": {
+        "fib": 0.65,
+        "moving_average": 0.8,
+        "swing": 1,
+        "price_structure": 1.1,
+        "bollinger": 0.65,
+        "daily_fib_confirmation": 0.25
+      },
+      "unifiedConfluence": {
+        "categoryForType": {
+          "fib": "fibonacci",
+          "daily_fib_confirmation": "fibonacci",
+          "swing": "swing",
+          "price_structure": "historical",
+          "moving_average": "moving_average",
+          "bollinger": "bollinger"
+        },
+        "categoryContributionCap": {
+          "fibonacci": 0.85,
+          "swing": 1,
+          "historical": 1.1,
+          "moving_average": 0.82,
+          "bollinger": 0.65
+        },
+        "crossCategoryBonus": 0.3,
+        "categoryQualityFloor": 0.15,
+        "qualityReference": 3.2,
+        "pairQualityReference": 6.4,
+        "roleAlignmentWeight": 0.45
+      },
+      "maxConfluenceScore": 62,
+      "extensionWeight": 24
+    }
+  },
+  "risk": {
+    "atrPct": {
+      "mild": 2,
+      "elevated": 4,
+      "high": 7,
+      "extreme": 11
+    },
+    "atrPercentile": {
+      "elevated": 70,
+      "extreme": 92
+    },
+    "volatilityRegime": {
+      "low": 0,
+      "normal": 0,
+      "elevated": 55,
+      "high": 75,
+      "extreme": 90,
+      "unavailable": 0
+    },
+    "bollingerPercentB": {
+      "extended": 1,
+      "extreme": 1.25
+    },
+    "bollingerWidthPercentile": {
+      "elevated": 75,
+      "extreme": 95
+    },
+    "maExtensionAtr": {
+      "elevated": 2,
+      "extreme": 3.8
+    },
+    "rsi": {
+      "elevatedHigh": 74,
+      "elevatedLow": 26,
+      "extremeHigh": 84,
+      "extremeLow": 16
+    },
+    "kdj": {
+      "elevated": 90,
+      "extreme": 105
+    },
+    "rvol": {
+      "elevated": 1.8,
+      "extreme": 3.2
+    },
+    "groupBlend": {
+      "primary": 0.65,
+      "secondary": 0.25,
+      "tertiary": 0.1
+    },
+    "nonlinearImpacts": {
+      "volatility": 0.34,
+      "extension": 0.3,
+      "eventShock": 0.25
+    },
+    "extremeFloor": {
+      "volatility": 84,
+      "extension": 74,
+      "shock": 88
+    },
+    "labels": [
+      [
+        30,
+        "normal"
+      ],
+      [
+        50,
+        "mild"
+      ],
+      [
+        70,
+        "elevated"
+      ],
+      [
+        85,
+        "high"
+      ],
+      [
+        101,
+        "extreme"
+      ]
+    ]
+  },
+  "exhaustion": {
+    "highRsi": 72,
+    "lowRsi": 28,
+    "extremeRsi": 82,
+    "extremeLowRsi": 18,
+    "highKdj": 88,
+    "lowKdj": 12,
+    "extensionPercentB": 1.05,
+    "downsidePercentB": -0.05,
+    "trendWithoutDeteriorationCap": 28,
+    "marketContrarianMax": 14,
+    "contrarianEdgeWeight": 0.28
+  },
+  "market": {
+    "vix": {
+      "cautious": 21,
+      "riskOff": 28,
+      "shock": 35,
+      "spike5d": 6,
+      "spike20d": 10
+    },
+    "yields": {
+      "restrictive": 4.5,
+      "severe": 5,
+      "rising5dBps": 18,
+      "rising20dBps": 35
+    },
+    "regimes": {
+      "risk_on": {
+        "riskAdd": 0,
+        "confidencePenalty": 0
+      },
+      "normal": {
+        "riskAdd": 0,
+        "confidencePenalty": 0
+      },
+      "cautious": {
+        "riskAdd": 10,
+        "confidencePenalty": 6
+      },
+      "risk_off": {
+        "riskAdd": 22,
+        "confidencePenalty": 13
+      },
+      "shock": {
+        "riskAdd": 38,
+        "confidencePenalty": 24
+      }
+    },
+    "maxRiskAdd": {
+      "short": 32,
+      "mid": 24,
+      "long": 18
+    },
+    "earnings": {
+      "nearDays": 7,
+      "immediateDays": 2,
+      "nearRiskAdd": 12,
+      "immediateRiskAdd": 20,
+      "confidencePenalty": 10
+    },
+    "fearGreed": {
+      "extremeGreed": 80,
+      "extremeFear": 20
+    }
+  },
+  "edge": {
+    "directionTrustFloor": 0.46,
+    "directionTrustConfirmationWeight": 0.54,
+    "priceOpportunityWeight": 0.2,
+    "riskPenaltyMax": 0.52,
+    "riskPenaltyStart": 32,
+    "riskPenaltyPower": 1.65
+  },
+  "actionPolicy": {
+    "minimumDataQuality": 38,
+    "territories": {
+      "strongBuy": 80,
+      "buy": 55,
+      "accumulate": 25,
+      "holdFloor": -20,
+      "trim": -25,
+      "sell": -55
+    },
+    "gates": {
+      "strongBuy": {
+        "direction": 62,
+        "confirmation": 76,
+        "priceOpportunity": 24,
+        "riskMaximum": 42,
+        "bullishExhaustionMaximum": 28,
+        "confidence": 78
+      },
+      "buy": {
+        "direction": 30,
+        "confirmation": 57,
+        "riskMaximum": 64
+      },
+      "accumulate": {
+        "riskMaximum": 76
+      },
+      "sell": {
+        "direction": -55,
+        "confirmation": 58
+      },
+      "bearishContrarianAccumulate": {
+        "exhaustion": 58,
+        "priceOpportunity": 36,
+        "dataQuality": 55
+      },
+      "neutralAvoidRisk": 84,
+      "extremeRisk": 88,
+      "confidenceMinimum": {
+        "strong_buy": 78,
+        "buy": 48,
+        "accumulate": 38
+      }
+    }
+  },
+  "execution": {
+    "invalidationAtrBuffer": 0.55,
+    "actionableRangeToleranceAtr": 0.28,
+    "staleRangeDistanceAtr": 2.5,
+    "maxHalfWidthPct": {
+      "short": 0.035,
+      "mid": 0.045,
+      "long": 0.06
+    },
+    "maxEntryCenterDistanceAtr": {
+      "short": 1.15,
+      "mid": 1.45,
+      "long": 1.7
+    },
+    "maxEntryCenterDistancePct": {
+      "short": 0.035,
+      "mid": 0.055,
+      "long": 0.07
+    },
+    "confluenceWidthMultiplier": {
+      "weak": 0.72,
+      "strong": 0.94
+    },
+    "minimumConfluenceForFormalEntry": 14,
+    "landscape": {
+      "neutralBufferAtr": {
+        "short": 0.42,
+        "mid": 0.62,
+        "long": 0.86
+      },
+      "minimumHalfWidthAtr": {
+        "short": 0.22,
+        "mid": 0.28,
+        "long": 0.34
+      },
+      "weakQualityPenalty": 9,
+      "invalidQualityPenalty": 24,
+      "minimumPairQuality": 0.85,
+      "contextualSelection": {
+        "minimumReduceDistanceAtr": {
+          "short": 0.7,
+          "mid": 0.95,
+          "long": 1.2
+        },
+        "bullishTrendLiftAtr": {
+          "short": 1.1,
+          "mid": 1.45,
+          "long": 1.85
+        },
+        "prematureReducePenalty": 0.72,
+        "supportDistancePenalty": 0.13,
+        "reduceDistancePenalty": 0.05,
+        "bearishPressureProximityBonus": 0.16
+      }
+    },
+    "priceState": {
+      "nearOpportunityAtr": {
+        "short": 1.15,
+        "mid": 1.45,
+        "long": 1.7
+      },
+      "nearReduceAtr": {
+        "short": 0.85,
+        "mid": 1.15,
+        "long": 1.45
+      },
+      "neutralBufferNearShare": 0.42,
+      "minimumNearAtr": 0.15
+    },
+    "actionFamily": {
+      "breakdownDirection": -68,
+      "breakdownConfirmation": 52,
+      "sellDirection": -45,
+      "sellConfirmation": 55,
+      "sellRisk": 60,
+      "sellBullishExhaustion": -56
+    }
+  },
+  "stability": {
+    "cacheLimit": 300,
+    "materialEdgeDelta": 26,
+    "stayBands": {
+      "strong_buy": [
+        68,
+        101
+      ],
+      "buy": [
+        35,
+        101
+      ],
+      "accumulate": [
+        6,
+        101
+      ],
+      "hold": [
+        -30,
+        34
+      ],
+      "trim": [
+        -64,
+        -8
+      ],
+      "sell": [
+        -101,
+        -35
+      ],
+      "avoid": [
+        -101,
+        30
+      ]
+    },
+    "material": {
+      "atrShock": 82,
+      "majorBreakdown": -68,
+      "majorBreakout": 68
+    },
+    "noHistory": {
+      "ma": 0.36,
+      "macd": 0.3,
+      "adx": 0.18,
+      "relativeStrength": 0.16,
+      "minimum": 42,
+      "maximum": 76,
+      "unavailable": 45
+    }
+  },
+  "confidence": {
+    "weights": {
+      "agreement": 0.38888888888888884,
+      "actionStrength": 0.2777777777777778,
+      "stability": 0.22222222222222224,
+      "dataQuality": 0.11111111111111112
+    },
+    "profileConfidenceWeight": 0,
+    "penalties": {
+      "marketConflict": 18,
+      "exhaustionConflict": 16,
+      "eventUncertainty": 12,
+      "internalConflict": 18,
+      "priceConflict": 14,
+      "invalidLandscape": 18
+    }
+  },
+  "profile": {
+    "schemaVersion": "2.1",
+    "classifier": {
+      "sizeClass": {
+        "megaCapMarketCap": 200000000000
+      },
+      "business": {
+        "tieBreakOrder": [
+          "MarketLeader",
+          "Cyclical",
+          "HighGrowth",
+          "MatureGrowth",
+          "CashCow",
+          "Defensive",
+          "Turnaround",
+          "EmergingGrowth"
+        ],
+        "minimumEvidence": {
+          "MarketLeader": 3,
+          "HighGrowth": 3,
+          "MatureGrowth": 3,
+          "CashCow": 4,
+          "Defensive": 3,
+          "Cyclical": 3,
+          "Turnaround": 3,
+          "EmergingGrowth": 4
+        },
+        "points": {
+          "leaderScale": 2,
+          "leaderMargin": 1,
+          "leaderLanguage": 2,
+          "highGrowthStrong": 2,
+          "highGrowthBase": 1,
+          "highGrowthScale": 1,
+          "highGrowthProfitability": 1,
+          "highGrowthScalableBusiness": 1,
+          "matureGrowthScale": 1,
+          "matureGrowthGrowth": 2,
+          "matureGrowthMargin": 1,
+          "cashCowScale": 1,
+          "cashCowMargin": 3,
+          "cashCowLowGrowth": 1,
+          "defensivePrimary": 2,
+          "defensiveMargin": 1,
+          "cyclicalStructuralPrimary": 1,
+          "cyclicalExposure": 2,
+          "cyclicalReboundGrowth": 1,
+          "cyclicalLanguage": 3,
+          "turnaroundLanguage": 3,
+          "emergingGrowthScale": 2,
+          "emergingGrowthGrowth": 2,
+          "emergingGrowthCondition": 1
+        },
+        "thresholds": {
+          "leaderMarketCap": 200000000000,
+          "leaderMargin": 0.15,
+          "highGrowthStrong": 0.25,
+          "highGrowth": 0.18,
+          "highGrowthScaleFloor": 10000000000,
+          "highGrowthProfitMarginFloor": 0,
+          "matureGrowthMarketCap": 40000000000,
+          "matureGrowthLow": 0.04,
+          "matureGrowthHigh": 0.18,
+          "matureGrowthMargin": 0.1,
+          "cashCowMarketCap": 10000000000,
+          "cashCowMargin": 0.2,
+          "cashCowGrowthCeiling": 0.18,
+          "defensiveMargin": 0.08,
+          "emergingGrowthMarketCap": 10000000000,
+          "emergingGrowth": 0.25,
+          "emergingMarginCeiling": 0.05,
+          "cyclicalReboundGrowth": 0.25
+        },
+        "structuralCyclicalPrimaries": [
+          "Semiconductors",
+          "Semiconductor Equipment",
+          "Energy",
+          "Materials",
+          "Industrials",
+          "Transportation & Logistics",
+          "Capital Markets"
+        ]
+      },
+      "lifecycle": {
+        "tieBreakOrder": [
+          "Declining",
+          "Recovery",
+          "Emerging",
+          "Scaling",
+          "EstablishedLeader",
+          "MatureLeader"
+        ],
+        "minimumEvidence": {
+          "Declining": 3,
+          "Recovery": 3,
+          "Emerging": 4,
+          "Scaling": 3,
+          "EstablishedLeader": 4,
+          "MatureLeader": 4
+        },
+        "points": {
+          "decliningLanguage": 3,
+          "recoveryLanguage": 3,
+          "emergingScale": 2,
+          "emergingStage": 2,
+          "scalingGrowth": 2,
+          "scalingNonHugeScale": 1,
+          "scalingScalableBusiness": 1,
+          "establishedScale": 3,
+          "establishedMargin": 1,
+          "establishedBusinessLeader": 1,
+          "matureScale": 1,
+          "matureMargin": 1,
+          "matureGrowth": 2
+        },
+        "thresholds": {
+          "emergingMarketCap": 2000000000,
+          "scalingGrowth": 0.18,
+          "scalingMarketCapCeiling": 200000000000,
+          "establishedMarketCap": 200000000000,
+          "establishedMargin": 0.08,
+          "matureMarketCap": 40000000000,
+          "matureMargin": 0.1,
+          "matureGrowthFloor": 0,
+          "matureGrowthCeiling": 0.12
+        }
+      },
+      "risk": {
+        "highBeta": 1.45,
+        "lowBeta": 0.75
+      }
+    },
+    "review": {
+      "annualReviewMonth": 3,
+      "annualReviewDay": 31,
+      "timeZone": "America/New_York",
+      "cacheLimit": 300
+    },
+    "modifierCaps": {
+      "normal": [
+        0.85,
+        1.15
+      ],
+      "special": [
+        0.8,
+        1.2
+      ]
+    },
+    "correlatedLongStability": {
+      "businessTrait": [
+        "MarketLeader",
+        "MatureGrowth",
+        "CashCow",
+        "Defensive"
+      ],
+      "lifecycle": [
+        "EstablishedLeader",
+        "MatureLeader"
+      ],
+      "sizeClass": [
+        "MegaCap"
+      ]
+    },
+    "primaryClassificationModifiers": {
+      "Semiconductors": {
+        "confirmationWeights": {
+          "relativeStrength": 0.06,
+          "participation": 0.05
+        },
+        "normalAtrTolerance": 0.04,
+        "marketSensitivity": 0.05,
+        "benchmarkWeights": {
+          "qqq": 0.06
+        }
+      },
+      "Semiconductor Equipment": {
+        "confirmationWeights": {
+          "participation": 0.07
+        },
+        "marketSensitivity": 0.06,
+        "benchmarkWeights": {
+          "qqq": 0.05
+        }
+      },
+      "Enterprise Software": {
+        "directionWeights": {
+          "ma": 0.04
+        },
+        "confirmationWeights": {
+          "relativeStrength": 0.04
+        },
+        "marketSensitivity": 0.03,
+        "rateSensitivity": 0.03,
+        "benchmarkWeights": {
+          "qqq": 0.04
+        }
+      },
+      "Cloud Infrastructure": {
+        "directionWeights": {
+          "ma": 0.04
+        },
+        "confirmationWeights": {
+          "relativeStrength": 0.06,
+          "participation": 0.04
+        },
+        "marketSensitivity": 0.05,
+        "benchmarkWeights": {
+          "qqq": 0.06
+        }
+      },
+      "Consumer Technology": {
+        "confirmationWeights": {
+          "relativeStrength": 0.04
+        },
+        "marketSensitivity": 0.04,
+        "benchmarkWeights": {
+          "qqq": 0.04
+        }
+      },
+      "Internet Platforms": {
+        "confirmationWeights": {
+          "relativeStrength": 0.04
+        },
+        "eventSensitivity": 0.04,
+        "marketSensitivity": 0.03,
+        "benchmarkWeights": {
+          "qqq": 0.04
+        }
+      },
+      "Media & Entertainment": {
+        "confirmationWeights": {
+          "participation": 0.04,
+          "relativeStrength": 0.03
+        },
+        "eventSensitivity": 0.04,
+        "marketSensitivity": 0.04,
+        "benchmarkWeights": {
+          "qqq": 0.03
+        }
+      },
+      "E-Commerce": {
+        "confirmationWeights": {
+          "participation": 0.05
+        },
+        "marketSensitivity": 0.06
+      },
+      "Digital Advertising": {
+        "confirmationWeights": {
+          "participation": 0.06
+        },
+        "marketSensitivity": 0.06
+      },
+      "Telecommunications Infrastructure": {
+        "directionWeights": {
+          "ma": 0.04
+        },
+        "marketSensitivity": 0.04
+      },
+      "Capital Markets": {
+        "marketSensitivity": 0.08,
+        "rateSensitivity": 0.08,
+        "benchmarkWeights": {
+          "spy": 0.05
+        }
+      },
+      "Banking": {
+        "marketSensitivity": 0.07,
+        "rateSensitivity": 0.12,
+        "benchmarkWeights": {
+          "spy": 0.06
+        }
+      },
+      "Digital Financial Services": {
+        "directionWeights": {
+          "macd": 0.04
+        },
+        "marketSensitivity": 0.07,
+        "rateSensitivity": 0.05,
+        "benchmarkWeights": {
+          "qqq": 0.03
+        }
+      },
+      "Payments": {
+        "directionWeights": {
+          "ma": 0.03
+        },
+        "marketSensitivity": 0.04
+      },
+      "Insurance": {
+        "rateSensitivity": 0.07,
+        "longStability": 0.05,
+        "strongBuyOpportunity": 0.03
+      },
+      "Managed Care & Health Services": {
+        "marketSensitivity": -0.05,
+        "eventSensitivity": 0.07,
+        "longStability": 0.06
+      },
+      "Pharmaceuticals": {
+        "eventSensitivity": 0.09,
+        "actionGates": {
+          "buyConfirmation": 2,
+          "strongBuyConfirmation": 3
+        }
+      },
+      "Biotechnology": {
+        "eventSensitivity": 0.14,
+        "riskSensitivity": 0.07,
+        "actionGates": {
+          "buyConfirmation": 5,
+          "strongBuyConfirmation": 7
+        }
+      },
+      "Medical Devices": {
+        "marketSensitivity": -0.02,
+        "eventSensitivity": 0.04,
+        "longStability": 0.03
+      },
+      "Consumer Discretionary": {
+        "marketSensitivity": 0.07,
+        "confirmationWeights": {
+          "participation": 0.05
+        }
+      },
+      "Consumer Staples": {
+        "marketSensitivity": -0.07,
+        "longStability": 0.08,
+        "actionGates": {
+          "buyConfirmation": 2
+        }
+      },
+      "Retail": {
+        "marketSensitivity": 0.07,
+        "confirmationWeights": {
+          "participation": 0.06
+        }
+      },
+      "Industrials": {
+        "directionWeights": {
+          "ma": 0.05
+        },
+        "marketSensitivity": 0.05
+      },
+      "Aerospace & Defense": {
+        "longStability": 0.07,
+        "eventSensitivity": 0.04
+      },
+      "Transportation & Logistics": {
+        "marketSensitivity": 0.08,
+        "confirmationWeights": {
+          "participation": 0.06
+        }
+      },
+      "Energy": {
+        "marketSensitivity": 0.07,
+        "confirmationWeights": {
+          "participation": 0.06
+        }
+      },
+      "Utilities": {
+        "rateSensitivity": 0.14,
+        "marketSensitivity": -0.06,
+        "longStability": 0.09
+      },
+      "Real Estate": {
+        "rateSensitivity": 0.16,
+        "marketSensitivity": -0.03,
+        "longStability": 0.06
+      },
+      "Materials": {
+        "marketSensitivity": 0.08,
+        "confirmationWeights": {
+          "participation": 0.06
+        }
+      }
+    },
+    "sizeClassModifiers": {
+      "MegaCap": {
+        "riskSensitivity": -0.02,
+        "marketSensitivity": -0.02,
+        "longStability": 0.03
+      },
+      "NonMegaCap": {}
+    },
+    "businessTraitModifiers": {
+      "MarketLeader": {
+        "directionWeights": {
+          "ma": 0.04
+        },
+        "confirmationWeights": {
+          "relativeStrength": 0.06
+        },
+        "longStability": 0.04
+      },
+      "HighGrowth": {
+        "directionWeights": {
+          "macd": 0.05
+        },
+        "confirmationWeights": {
+          "relativeStrength": 0.05
+        },
+        "marketSensitivity": 0.05,
+        "rateSensitivity": 0.04,
+        "exhaustionSensitivity": 0.05,
+        "actionGates": {
+          "buyConfirmation": 2
+        }
+      },
+      "MatureGrowth": {
+        "directionWeights": {
+          "ma": 0.03
+        },
+        "longStability": 0.05,
+        "normalAtrTolerance": -0.03
+      },
+      "CashCow": {
+        "riskSensitivity": -0.04,
+        "marketSensitivity": -0.04,
+        "rateSensitivity": -0.03,
+        "longStability": 0.08
+      },
+      "Defensive": {
+        "marketSensitivity": -0.07,
+        "longStability": 0.09,
+        "actionGates": {
+          "buyConfirmation": 2
+        }
+      },
+      "Cyclical": {
+        "confirmationWeights": {
+          "participation": 0.06,
+          "relativeStrength": 0.03
+        },
+        "marketSensitivity": 0.07,
+        "longStability": -0.03,
+        "actionGates": {
+          "buyConfirmation": 2
+        }
+      },
+      "Turnaround": {
+        "riskSensitivity": 0.06,
+        "longStability": -0.06,
+        "actionGates": {
+          "buyDirection": 3,
+          "buyConfirmation": 7,
+          "strongBuyConfirmation": 8
+        }
+      },
+      "EmergingGrowth": {
+        "directionWeights": {
+          "macd": 0.04
+        },
+        "confirmationWeights": {
+          "relativeStrength": 0.04
+        },
+        "riskSensitivity": 0.04,
+        "normalAtrTolerance": 0.03,
+        "longStability": -0.04,
+        "actionGates": {
+          "buyConfirmation": 3,
+          "strongBuyConfirmation": 4
+        }
+      }
+    },
+    "riskTraitModifiers": {
+      "HighVolatility": {
+        "normalAtrTolerance": 0.1,
+        "exhaustionSensitivity": -0.05,
+        "actionGates": {
+          "buyConfirmation": 2
+        }
+      },
+      "RegulatoryRisk": {
+        "eventSensitivity": 0.12,
+        "actionGates": {
+          "buyConfirmation": 3,
+          "strongBuyConfirmation": 4
+        }
+      },
+      "InterestRateSensitive": {
+        "rateSensitivity": 0.12,
+        "marketSensitivity": 0.03
+      },
+      "CommoditySensitive": {
+        "marketSensitivity": 0.07,
+        "actionGates": {
+          "buyConfirmation": 3
+        }
+      },
+      "MacroSensitive": {
+        "marketSensitivity": 0.09,
+        "actionGates": {
+          "buyConfirmation": 3
+        }
+      },
+      "CrowdedLeader": {
+        "exhaustionSensitivity": 0.11,
+        "riskSensitivity": 0.04,
+        "actionGates": {
+          "buyConfirmation": 2
+        }
+      },
+      "ExecutionRisk": {
+        "riskSensitivity": 0.07,
+        "eventSensitivity": 0.08,
+        "longStability": -0.04,
+        "actionGates": {
+          "buyConfirmation": 5,
+          "strongBuyConfirmation": 6
+        }
+      },
+      "LowVolatility": {
+        "normalAtrTolerance": -0.07,
+        "exhaustionSensitivity": -0.03,
+        "longStability": 0.07
+      }
+    },
+    "lifecycleModifiers": {
+      "Emerging": {
+        "riskSensitivity": 0.08,
+        "normalAtrTolerance": 0.06,
+        "longStability": -0.07,
+        "actionGates": {
+          "buyDirection": 3,
+          "buyConfirmation": 7,
+          "strongBuyConfirmation": 8
+        }
+      },
+      "Scaling": {
+        "directionWeights": {
+          "macd": 0.04
+        },
+        "confirmationWeights": {
+          "relativeStrength": 0.04
+        },
+        "normalAtrTolerance": 0.04,
+        "actionGates": {
+          "buyConfirmation": 2
+        }
+      },
+      "EstablishedLeader": {
+        "directionWeights": {
+          "ma": 0.05
+        },
+        "confirmationWeights": {
+          "relativeStrength": 0.04
+        },
+        "longStability": 0.08
+      },
+      "MatureLeader": {
+        "longStability": 0.1,
+        "marketSensitivity": -0.04,
+        "exhaustionSensitivity": 0.04
+      },
+      "Recovery": {
+        "confirmationWeights": {
+          "participation": 0.08
+        },
+        "riskSensitivity": 0.05,
+        "longStability": -0.06,
+        "actionGates": {
+          "buyDirection": 3,
+          "buyConfirmation": 6,
+          "strongBuyConfirmation": 7
+        }
+      },
+      "Declining": {
+        "riskSensitivity": 0.08,
+        "longStability": -0.08,
+        "actionGates": {
+          "buyDirection": 4,
+          "buyConfirmation": 8,
+          "strongBuyConfirmation": 9
+        }
+      }
+    }
+  },
+  "etf": {
+    "leveraged": {
+      "modifierDelta": {
+        "riskSensitivity": 0.12,
+        "exhaustionSensitivity": 0.1,
+        "marketSensitivity": 0.16,
+        "normalAtrTolerance": 0.1
+      },
+      "gates": {
+        "buyDirection": 4,
+        "buyConfirmation": 3,
+        "strongBuyDirection": 8,
+        "strongBuyConfirmation": 6
+      },
+      "confidenceScale": {
+        "short": 0.98,
+        "mid": 0.92,
+        "long": 0.86
+      }
+    },
+    "inverse": {
+      "underlyingConfirmationImpact": 14,
+      "underlyingConflictImpact": 16
+    }
+  }
+}

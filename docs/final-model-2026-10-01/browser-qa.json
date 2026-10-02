@@ -1,0 +1,44 @@
+{
+  "flow": "local Dashboard → Technical flags/percentiles → forced full refresh → failure recovery → reload/mobile",
+  "fallback": "Browser plugin not available; bundled Playwright, isolated Chrome",
+  "identity": {
+    "url": "http://127.0.0.1:4173/",
+    "title": "Stock Decision Dashboard"
+  },
+  "checks": [
+    "identity, nonblank seven-card screen, no error overlay",
+    "KDJ true/false/unavailable, complete ATR percentile rendering, profile score removed",
+    "genuine Short ATR250 shortage rendered as 141/250 observations",
+    "manual/auto share one forced full-watchlist refresh and finish after recalculation/render/paint",
+    "failed auto preserves Dashboard/freshness, releases loading, next forced attempt works",
+    "cold reload preserves action rules on identical input",
+    "mobile has no horizontal overflow; Long displays legitimate 55/250 ATR shortage without configured KDJ"
+  ],
+  "requests": [
+    "http://127.0.0.1:4173/api/market-data?tickers=NVDA%2CFFAI%2CCRCL%2CQQQ%2CSOXL%2CSQQQ%2CSPCX&format=compact",
+    "http://127.0.0.1:4173/api/market-data?tickers=NVDA%2CFFAI%2CCRCL%2CQQQ%2CSOXL%2CSQQQ%2CSPCX&format=compact&force=true&full_refresh=true",
+    "http://127.0.0.1:4173/api/market-data?tickers=NVDA%2CFFAI%2CCRCL%2CQQQ%2CSOXL%2CSQQQ%2CSPCX&format=compact&force=true&full_refresh=true&auto_refresh=true",
+    "http://127.0.0.1:4173/api/market-data?tickers=NVDA%2CFFAI%2CCRCL%2CQQQ%2CSOXL%2CSQQQ%2CSPCX&format=compact&force=true&full_refresh=true&auto_refresh=true",
+    "http://127.0.0.1:4173/api/market-data?tickers=NVDA%2CFFAI%2CCRCL%2CQQQ%2CSOXL%2CSQQQ%2CSPCX&format=compact"
+  ],
+  "expected_failure_logs": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    },
+    {
+      "type": "error",
+      "text": "Market refresh failed Error: market request failed (503)\n    at http://127.0.0.1:4173/main.js?v=20261001-final-model:804:31\n    at async <anonymous>:337:30"
+    }
+  ],
+  "unexpected_logs": [],
+  "screenshots": [
+    "browser-desktop.png",
+    "browser-mobile.png",
+    "browser-technical-en.png",
+    "browser-technical-zh.png",
+    "browser-mobile-long.png"
+  ],
+  "font_requests": "fulfilled with empty CSS to keep QA offline; system fallback font",
+  "live_render_verified": false
+}

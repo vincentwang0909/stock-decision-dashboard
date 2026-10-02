@@ -34,7 +34,7 @@ const I18N = {
     recommendation: "Action", confidence: "Confidence", invalidation: "Invalidation", currentPrice: "Current Price",
     recommendationConfidence: "Recommendation Confidence", confidenceHelp: "Recommendation Confidence measures the consistency and stability of support for this action. It is not a probability of future price appreciation.",
     recommendedBuyAddRange: "Recommended Buy / Add Range", potentialAddRange: "Potential Add Range", reevaluationRange: "Re-evaluation Range", potentialReduceRange: "Potential Reduce Range", recommendedReduceRange: "Recommended Reduce Range", recommendedExitRange: "Recommended Exit Range", riskInvalidation: "Risk / Invalidation", avoidNoEntry: "Avoid / No Entry", currentPrice: "Current Price", withinRange: "Currently in this range", distanceToRange: "Distance",
-    finalDecision: "Final Decision", decisionCardHint: "Select a horizon card to view its price map and decision drivers.", decisionPriceMap: "Price Landscape", priceLandscape: "Price Landscape", whyThisDecision: "Why This Decision", marketRiskRegime: "Market Risk Environment", marketImpact: "Impact on this stock", primaryClassification: "Primary Classification", companyTraits: "Company Traits", businessTrait: "Business Trait", riskTrait: "Risk / Behavior Trait", lifecycle: "Lifecycle", profileConfidence: "Profile Confidence", lastReview: "Last Profile Review", etfProfile: "ETF Profile", leveraged: "Leveraged", direction: "Direction", underlying: "Underlying", yes: "Yes", no: "No", longDirection: "Long", inverseDirection: "Inverse", noDecision: "Insufficient data to generate a recommendation for this horizon.",
+    finalDecision: "Final Decision", decisionCardHint: "Select a horizon card to view its price map and decision drivers.", decisionPriceMap: "Price Landscape", priceLandscape: "Price Landscape", whyThisDecision: "Why This Decision", marketRiskRegime: "Market Risk Environment", marketImpact: "Impact on this stock", primaryClassification: "Primary Classification", companyTraits: "Company Traits", businessTrait: "Business Trait", riskTrait: "Risk / Behavior Trait", lifecycle: "Lifecycle", lastReview: "Last Profile Review", etfProfile: "ETF Profile", leveraged: "Leveraged", direction: "Direction", underlying: "Underlying", yes: "Yes", no: "No", longDirection: "Long", inverseDirection: "Inverse", noDecision: "Insufficient data to generate a recommendation for this horizon.",
     shortHorizon: "1–30 Days", midHorizon: "1–6 Months", longHorizon: ">6 Months", support: "Supporting evidence", limiting: "Limiting evidence", regime: "Regime", earningsProximity: "Earnings proximity", nextEarnings: "Next Earnings", daysAgo: "days ago", days: "days", supportive: "Supportive", neutral: "Neutral", restrictive: "Restrictive", shockSensitive: "Shock-sensitive", marketRegimeHelp: "A broad-market risk regime from VIX and SPY/QQQ trend conditions; it is not a stock-specific action.", marketImpactHelp: "The horizon-specific market adjustment to this stock's execution risk; it does not create a Buy or Sell by itself.", benchmarkNeutralHelp: "The benchmark trend is not clearly rising or falling under the market rules.", vixHelp: "VIX level and recent changes describe the market's volatility backdrop.", fearGreedHelp: "A sentiment context indicator; it is not a standalone Buy or Sell signal.", yieldHelp: "The 10Y yield backdrop affects rate-sensitive execution risk.", earningsHelp: "Upcoming earnings can increase event uncertainty.", marketBasis: "Why this regime",
     technicalOverview: "Technical Overview", fibonacciStructure: "Fibonacci Structure", fibonacciDescription: "Confirmed swing anchors and retracement / extension levels. Technical display data only.", historicalVolume: "52-Week / Historical Position and Volume", advancedSwingMetadata: "Advanced Swing Metadata", retracement: "Retracement", extension: "Extension", level: "Level", distance: "Distance", swingHigh: "Swing High", swingLow: "Swing Low", swingRange: "Swing Range", currentPosition: "Current Position", nearestBelow: "Nearest Below", nearestAbove: "Nearest Above", sourceTimeframe: "Source timeframe", lookbackBars: "Lookback bars", fallbackUsed: "Fallback used", fallbackReason: "Fallback reason", technicalUnavailable: "Technical data is currently unavailable.",
     trendSummary: "Trend", momentumSummary: "Momentum", volatilitySummary: "Volatility", relativeStrengthSummary: "Relative Strength", participationSummary: "Participation", marketStatus: "Market Status", current: "Current", change5d: "5D Change", change20d: "20D Change", expanded: "Expanded", collapsed: "Collapsed", primaryInterval: "Primary interval", supportingIntervals: "Supporting intervals shown where available.",
@@ -50,7 +50,7 @@ const I18N = {
     aiDecision: "AI 决策", technical: "技术面", market: "市场数据", price: "价格", dataTime: "数据时间", updated: "更新时间", unavailable: "—",
     recommendation: "操作", confidence: "置信度", invalidation: "失效价", currentPrice: "当前价格",
     recommendationConfidence: "推荐可信度", confidenceHelp: "推荐可信度表示当前数据对该操作建议的支持一致性和稳定程度，不代表未来上涨概率。", recommendedBuyAddRange: "推荐买入／加仓区", potentialAddRange: "潜在加仓区", reevaluationRange: "重新评估区", potentialReduceRange: "潜在减仓区", recommendedReduceRange: "推荐减仓区", recommendedExitRange: "推荐退出区", riskInvalidation: "风险／失效位", avoidNoEntry: "回避／不建立新仓", currentPrice: "当前价格", withinRange: "当前位于区间内", distanceToRange: "距离",
-    finalDecision: "最终决策", decisionCardHint: "点击周期卡片查看对应的价格图和决策原因。", decisionPriceMap: "价格区间图", priceLandscape: "价格区间图", whyThisDecision: "为什么是这个决策", marketRiskRegime: "市场风险环境", marketImpact: "对该股票的影响", primaryClassification: "主要分类", companyTraits: "公司特征标签", businessTrait: "业务特征", riskTrait: "风险／行为特征", lifecycle: "生命周期", profileConfidence: "画像可信度", lastReview: "最近画像复核", etfProfile: "ETF 画像", leveraged: "杠杆", direction: "方向", underlying: "标的", yes: "是", no: "否", longDirection: "做多", inverseDirection: "反向", noDecision: "数据不足，暂无法生成该周期推荐。", shortHorizon: "1–30 天", midHorizon: "1–6 个月", longHorizon: ">6 个月", support: "支持当前推荐", limiting: "限制当前推荐", regime: "风险环境", earningsProximity: "财报临近", nextEarnings: "下一次财报", daysAgo: "天前", days: "天", supportive: "支持", neutral: "中性", restrictive: "限制", shockSensitive: "对冲击敏感",
+    finalDecision: "最终决策", decisionCardHint: "点击周期卡片查看对应的价格图和决策原因。", decisionPriceMap: "价格区间图", priceLandscape: "价格区间图", whyThisDecision: "为什么是这个决策", marketRiskRegime: "市场风险环境", marketImpact: "对该股票的影响", primaryClassification: "主要分类", companyTraits: "公司特征标签", businessTrait: "业务特征", riskTrait: "风险／行为特征", lifecycle: "生命周期", lastReview: "最近画像复核", etfProfile: "ETF 画像", leveraged: "杠杆", direction: "方向", underlying: "标的", yes: "是", no: "否", longDirection: "做多", inverseDirection: "反向", noDecision: "数据不足，暂无法生成该周期推荐。", shortHorizon: "1–30 天", midHorizon: "1–6 个月", longHorizon: ">6 个月", support: "支持当前推荐", limiting: "限制当前推荐", regime: "风险环境", earningsProximity: "财报临近", nextEarnings: "下一次财报", daysAgo: "天前", days: "天", supportive: "支持", neutral: "中性", restrictive: "限制", shockSensitive: "对冲击敏感",
     technicalOverview: "技术概览", fibonacciStructure: "斐波那契结构", fibonacciDescription: "已确认的摆动锚点与回撤／扩展水平；仅作技术数据展示。", historicalVolume: "52 周／历史位置与成交量", advancedSwingMetadata: "高级摆动元数据", retracement: "回撤", extension: "扩展", level: "级别", distance: "距离", swingHigh: "摆动高点", swingLow: "摆动低点", swingRange: "摆动区间", currentPosition: "当前位置", nearestBelow: "最近下方水平", nearestAbove: "最近上方水平", sourceTimeframe: "来源周期", lookbackBars: "回看 K 线数", fallbackUsed: "已使用回退", fallbackReason: "回退原因", primaryClassification: "主要分类", technicalUnavailable: "技术数据暂不可用。", trendSummary: "趋势", momentumSummary: "动量", volatilitySummary: "波动", relativeStrengthSummary: "相对强弱", participationSummary: "参与度", marketStatus: "市场状态", current: "当前", change5d: "5 日变化", change20d: "20 日变化", expanded: "展开", collapsed: "收起", primaryInterval: "主周期", supportingIntervals: "支持周期会在可用时显示。",
     supporting: "支持证据", limiting: "限制因素", marketState: "市场状态", marketRegimeHelp: "由 VIX 以及 SPY／QQQ 趋势背景综合判断的市场风险环境，不是个股买卖信号。", marketImpactHelp: "该周期市场环境对这只股票执行风险的修正，不会单独产生买入或卖出。", benchmarkNeutralHelp: "在当前市场规则下，基准指数尚未形成明确上涨或下跌趋势。", vixHelp: "VIX 当前水平及近期变化，用于描述市场波动背景。", fearGreedHelp: "市场情绪背景指标，不是单独的买入或卖出信号。", yieldHelp: "10 年期收益率背景会影响利率敏感型股票的执行风险。", earningsHelp: "财报临近可能提高事件不确定性。", marketBasis: "判定依据",
     technicalData: "标准化技术数据", dataStatus: "数据状态", trend: "趋势", momentum: "动量", volatility: "波动", participation: "参与度",
@@ -206,47 +206,13 @@ function profileFor(ticker, quote = {}) {
   };
 }
 
-function returnPct(closes, lookback) {
-  const values = (Array.isArray(closes) ? closes : []).map(finite).filter((value) => value != null);
-  const latest = values.at(-1);
-  const base = values.at(-1 - lookback);
-  return Number.isFinite(latest) && Number.isFinite(base) && base !== 0 ? (latest / base - 1) * 100 : null;
-}
-
 function marketCore(marketContext = {}) {
-  return marketContext.market_engine || marketContext.market_context || marketContext || {};
-}
-
-function buildRelativeStrength(quote = {}, marketContext = {}) {
-  const closes = quote.history?.closes || quote.history?.daily?.closes || [];
-  const core = marketCore(marketContext);
-  // API snapshots normally include `marketContext.market_context.equity_trend`.
-  // Cached/flattened snapshots expose the same canonical benchmarks as
-  // `spy_trend` / `qqq_trend`; accept both shapes so valid Relative Strength
-  // never becomes unavailable merely because the payload was persisted.
-  const equityTrend = core.equity_trend || { spy: core.spy_trend, qqq: core.qqq_trend };
-  const stockReturn = (lookback) => returnPct(closes, lookback);
-  const vsBenchmark = (benchmark, lookback) => {
-    const stock = stockReturn(lookback);
-    const benchmarkReturn = finite(benchmark?.[`change_${lookback}d_pct`]);
-    return stock != null && benchmarkReturn != null ? stock - benchmarkReturn : null;
-  };
-  return Object.fromEntries([20, 60, 120].flatMap((lookback) => [
-    [`stock_return_${lookback}d`, stockReturn(lookback)],
-    [`stock_vs_spy_${lookback}d`, vsBenchmark(equityTrend.spy, lookback)],
-    [`stock_vs_qqq_${lookback}d`, vsBenchmark(equityTrend.qqq, lookback)],
-  ]));
+  return window.CanonicalFeatureInputs.marketCore(marketContext);
 }
 
 function buildFeatures(quote, price, marketContext) {
   if (!window.CanonicalTechnicalFeatures) return null;
-  return window.CanonicalTechnicalFeatures.buildTechnicalFeatures({
-    history: quote?.history || {},
-    currentPrice: price,
-    relativeStrength: buildRelativeStrength(quote, marketContext),
-    fibonacciStructure: quote?.technical?.fibonacci_structure || {},
-    shareBase: quote?.metadata?.sharesOutstanding || null,
-  });
+  return window.CanonicalTechnicalFeatures.buildTechnicalFeatures({ ...window.CanonicalFeatureInputs.featureInputs(quote, marketContext), currentPrice: price });
 }
 
 function buildRow(ticker, quote = {}, marketContext = {}, decisionContext = {}) {
@@ -345,7 +311,10 @@ function executionFields(row, decision) {
   if (!decision) return `<p class="decision-no-data">${t("noDecision")}</p>`;
   const presentation = window.DecisionPresentation?.executionSemantics?.(decision) || { intent: decision.executionIntent || "hold" };
   const landscape = decision.priceLandscape || {};
-  const field = (label, value) => value ? `<div class="decision-execution-field"><span>${escapeHtml(t(label))}</span><strong>${value}</strong></div>` : "";
+  const invalidationMeaning = ["reduce", "exit"].includes(presentation.intent)
+    ? (state.language === "zh" ? "减持路径的结构重新审查阈值；不是等待远处反弹的退出目标。" : "Structural review threshold for the reduction path; execution follows the current plan.")
+    : (state.language === "zh" ? "机会规划的结构失效阈值；触及后需重新评估。" : "Structural invalidation threshold for the opportunity plan; reassess if reached.");
+  const field = (label, value) => value ? `<div class="decision-execution-field"${label === presentation.invalidation ? ` title="${escapeHtml(invalidationMeaning)}"` : ""}><span>${escapeHtml(t(label))}</span><strong>${value}</strong></div>` : "";
   const current = Number.isFinite(landscape.currentPrice) ? landscape.currentPrice : row.price;
   const common = `${field("currentPrice", Number.isFinite(current) ? formatPrice(current, row.currency) : "")}`;
   if (presentation.intent === "avoid") return `<p class="decision-no-data execution-avoid-note">${t("avoidNoEntry")}</p>${field(presentation.opportunity, validPriceRange(landscape.opportunityRange) ? formatRange(landscape.opportunityRange, row.currency) : "")}${common}`;
@@ -353,7 +322,7 @@ function executionFields(row, decision) {
 }
 
 function validPriceRange(range) {
-  return Number.isFinite(range?.low) && Number.isFinite(range?.high);
+  return Number.isFinite(range?.low) && Number.isFinite(range?.high) && range.low > 0 && range.high > range.low;
 }
 
 function horizonCoreCard(row, horizon) {
@@ -376,6 +345,13 @@ function technicalLine(label, value, note = "") {
 
 function technicalState(value) {
   if (!value || value === "unavailable") return t("unavailable");
+  const reasons = {
+    source_unavailable: ["Source unavailable", "来源不可用"], insufficient_history: ["Insufficient history", "历史不足"],
+    calculation_error: ["Calculation error", "计算错误"], dependency_unavailable: ["Required input unavailable", "必要输入不可用"],
+    not_applicable: ["Not applicable", "不适用"], market_session_incomplete: ["Session unfinished", "交易时段未完成"],
+    invalid_source_data: ["Invalid source data", "源数据无效"], previous_refresh_generation: ["Earlier refresh generation", "来自较早刷新代际"],
+  };
+  if (reasons[value]) return reasons[value][state.language === "zh" ? 1 : 0];
   return String(value).replace(/_/g, " ");
 }
 
@@ -391,6 +367,17 @@ function technicalAvailability(feature = {}) {
   const required = feature?.required_observations ?? feature?.required_bars;
   const detail = Number.isFinite(available) && Number.isFinite(required) ? ` (${available}/${required})` : "";
   return reason ? `${technicalState(reason)}${detail}` : "";
+}
+
+function technicalBoolean(value) {
+  return value === true ? (state.language === "zh" ? "触发" : "Triggered") : value === false ? (state.language === "zh" ? "未触发" : "Not triggered") : (state.language === "zh" ? "不可用" : "Unavailable");
+}
+
+function atrPercentileDisplay(atr, window) {
+  const feature = atr.atr_percentiles?.[`d${window}`] || {};
+  const value = atr[`atr_percentile_${window}`];
+  if (Number.isFinite(value)) return percentValue(value, 1);
+  return technicalAvailability(feature) || t("unavailable");
 }
 
 function technicalCard(title, stateLabel, detail, rows = [], details = [], availability = null) {
@@ -473,9 +460,9 @@ function technicalBlock(row, horizon) {
         ${technicalCard("RSI", rsi.state, `${interval.toUpperCase()} · primary RSI ${rsi.period || rsiPeriod}`, rsiRows, [technicalLine("Primary slope", technicalState(rsi.slope?.state), technicalAvailability(rsi.slope)), technicalLine("Primary divergence", technicalState(rsi.divergence))], rsi)}
         ${technicalCard("MACD", macd.state, `${interval.toUpperCase()} · MACD ${macd.period || "12/26/9"}`, [technicalLine("MACD line", technicalNumber(macd.macd_line, 3)), technicalLine("Signal line", technicalNumber(macd.signal_line, 3)), technicalLine("Histogram", technicalNumber(macd.histogram, 3))], [technicalLine("Histogram 1-bar Δ", technicalNumber(macd.histogram_change_1, 3)), technicalLine("Histogram 3-bar Δ", technicalNumber(macd.histogram_change_3, 3)), technicalLine("Histogram 5-bar Δ", technicalNumber(macd.histogram_change_5, 3)), technicalLine("Zero line", technicalState(macd.above_or_below_zero)), technicalLine("Improving / deteriorating", technicalState(macd.improving_or_deteriorating)), technicalLine("Crossover", technicalState(macd.crossover_state)), technicalLine("Histogram slope", technicalState(macd.histogram_slope?.state), technicalAvailability(macd.histogram_slope)), ...secondaryMacdRows], macd)}
         ${technicalCard("ADX / DI", adx.trend_strength, `${interval.toUpperCase()} · ADX ${adx.period || 14}`, [technicalLine("ADX", indicatorValue(adx, "adx", (value) => value.toFixed(1))), technicalLine("+DI / −DI", `${indicatorValue(adx, "plus_di", (value) => value.toFixed(1))} / ${indicatorValue(adx, "minus_di", (value) => value.toFixed(1))}`)], [technicalLine("Trend strength", technicalState(adx.trend_strength)), technicalLine("Directional bias", technicalState(adx.directional_bias)), technicalLine("ADX slope", technicalState(adx.slope?.state), technicalAvailability(adx.slope))], adx)}
-        ${technicalCard("ATR", atr.volatility_regime, `${interval.toUpperCase()} · ATR ${atr.period || 14}`, [technicalLine("Raw ATR", indicatorValue(atr, "value", (value) => formatPrice(value, row.currency))), technicalLine("ATR %", indicatorValue(atr, "atr_pct", (value) => percentValue(value, 2)))], [technicalLine("ATR percentile", indicatorValue(atr, "atr_percentile_pct", (value) => percentValue(value, 1)), technicalAvailability(atr.atr_percentile)), technicalLine("60 / 120 / 250-bar percentile", `${percentValue(atr.atr_percentile_60)} / ${percentValue(atr.atr_percentile_120)} / ${percentValue(atr.atr_percentile_250)}`), technicalLine("Volatility regime", technicalState(atr.volatility_regime), technicalAvailability(atr.volatility_regime_availability)), technicalLine("Expanding / contracting", technicalState(atr.expansion_state)), technicalLine("ATR slope", technicalState(atr.slope?.state), technicalAvailability(atr.slope))], atr)}
+        ${technicalCard("ATR", atr.volatility_regime, `${interval.toUpperCase()} · ATR ${atr.period || 14}`, [technicalLine("Raw ATR", indicatorValue(atr, "value", (value) => formatPrice(value, row.currency))), technicalLine("ATR %", indicatorValue(atr, "atr_pct", (value) => percentValue(value, 2)))], [technicalLine("ATR percentile", indicatorValue(atr, "atr_percentile_pct", (value) => percentValue(value, 1)), technicalAvailability(atr.atr_percentile)), ...[60, 120, 250].map((window) => technicalLine(`${window}-bar percentile`, atrPercentileDisplay(atr, window))), technicalLine("Volatility regime", technicalState(atr.volatility_regime), technicalAvailability(atr.volatility_regime_availability)), technicalLine("Expanding / contracting", technicalState(atr.expansion_state)), technicalLine("ATR slope", technicalState(atr.slope?.state), technicalAvailability(atr.slope))], atr)}
         ${technicalCard("Bollinger", bands.squeeze_state, `${interval.toUpperCase()} · BB ${bands.period || 20}`, [technicalLine("%B", indicatorValue(bands, "percent_b", (value) => value.toFixed(2))), technicalLine("Bandwidth", indicatorValue(bands, "bandwidth_pct", (value) => percentValue(value, 2))), technicalLine("Upper / middle / lower", `${formatPrice(bands.upper_band, row.currency)} / ${formatPrice(bands.middle_band, row.currency)} / ${formatPrice(bands.lower_band, row.currency)}`)], [technicalLine("Bandwidth percentile", indicatorValue(bands, "bandwidth_percentile", (value) => percentValue(value, 1)), technicalAvailability(bands.bandwidth_percentile_availability)), technicalLine("Squeeze / expanded state", technicalState(bands.squeeze_state), technicalAvailability(bands.squeeze_state_availability)), technicalLine("Price position", technicalState(bands.price_position))], bands)}
-        ${Object.keys(featureSet.momentum?.kdj || {}).length ? technicalCard("KDJ", kdj.crossover_state, `${interval.toUpperCase()} · KDJ ${kdj.period || 9}`, [technicalLine("K / D / J", `${indicatorValue(kdj, "k", (value) => value.toFixed(1))} / ${indicatorValue(kdj, "d", (value) => value.toFixed(1))} / ${indicatorValue(kdj, "j", (value) => value.toFixed(1))}`)], [technicalLine("Crossover", technicalState(kdj.crossover_state)), technicalLine("Direction", technicalState(kdj.direction)), technicalLine("K / D / J slope", `${technicalState(kdj.k_slope?.state)} / ${technicalState(kdj.d_slope?.state)} / ${technicalState(kdj.j_slope?.state)}`), technicalLine("Overbought / oversold", `${kdj.overbought ? "overbought" : "—"} / ${kdj.oversold ? "oversold" : "—"}`)], kdj) : ""}
+        ${Object.keys(featureSet.momentum?.kdj || {}).length ? technicalCard("KDJ", kdj.crossover_state, `${interval.toUpperCase()} · KDJ ${kdj.period || 9}`, [technicalLine("K / D / J", `${indicatorValue(kdj, "k", (value) => value.toFixed(1))} / ${indicatorValue(kdj, "d", (value) => value.toFixed(1))} / ${indicatorValue(kdj, "j", (value) => value.toFixed(1))}`)], [technicalLine("Crossover", technicalState(kdj.crossover_state)), technicalLine("Direction", technicalState(kdj.direction)), technicalLine("K / D / J slope", `${technicalState(kdj.k_slope?.state)} / ${technicalState(kdj.d_slope?.state)} / ${technicalState(kdj.j_slope?.state)}`), technicalLine("Overbought / oversold", `${technicalBoolean(kdj.overbought)} / ${technicalBoolean(kdj.oversold)}`)], kdj) : ""}
         ${technicalCard("Relative Strength", rs.state, `1D · ${rs.primary_lookback_days || t("unavailable")}D primary lookback`, [technicalLine("Stock return", formatPct(rs.primary?.stock_return)), technicalLine("vs SPY", formatPct(rs.primary?.vs_spy)), technicalLine("vs QQQ", formatPct(rs.primary?.vs_qqq))], [technicalLine("Stock return · 20 / 60 / 120D", `${formatPct(rs.returns?.stock_20d)} / ${formatPct(rs.returns?.stock_60d)} / ${formatPct(rs.returns?.stock_120d)}`), technicalLine("vs SPY · 20 / 60 / 120D", `${formatPct(rs.vs_spy?.d20)} / ${formatPct(rs.vs_spy?.d60)} / ${formatPct(rs.vs_spy?.d120)}`), technicalLine("vs QQQ · 20 / 60 / 120D", `${formatPct(rs.vs_qqq?.d20)} / ${formatPct(rs.vs_qqq?.d60)} / ${formatPct(rs.vs_qqq?.d120)}`), technicalLine("Consistency", technicalState(rs.consistency?.state || rs.consistency_state))], rs)}
         ${technicalCard("OBV", obv.trend, `${interval.toUpperCase()} OBV`, [technicalLine("Raw OBV", compactNumber(obv.raw_value)), technicalLine("Trend", technicalState(obv.trend)), technicalLine("Divergence", technicalState(obv.divergence)), technicalLine("Price-volume confirmation", technicalState(obv.price_obv_confirmation))], [technicalLine("OBV slope", technicalState(obv.slope?.state), technicalAvailability(obv.slope))], obv)}
       </div>
@@ -537,7 +524,10 @@ function renderTechnicalFoundation(row) {
 
 function renderTechnicalPanel(row) {
   if (!row.technicalFeatures) return `<section class="detail-tab-section"><p>${t("noData")}</p></section>`;
-  return `<section class="detail-tab-section technical-tab-panel">${renderFibonacciStructure(row)}${renderTechnicalFoundation(row)}<section class="technical-overview-section"><div class="detail-section-head"><h3>${t("technicalOverview")}</h3></div>${technicalTabSelector("technical-horizon", state.technicalHorizon)}${technicalBlock(row, state.technicalHorizon)}</section></section>`;
+  const source = row.technicalFeatures.source_intervals?.[primaryIntervalFor(state.technicalHorizon)] || {};
+  const completion = source.last_bar_completed === false ? (state.language === "zh" ? "最新 K 线未完成；当前指标为盘中值，确认波段仅使用完成 K 线。" : "Latest bar is unfinished; current indicators are provisional and confirmed pivots use completed bars.") : source.last_bar_completed === true ? (state.language === "zh" ? "最新 K 线已完成。" : "Latest bar is completed.") : (state.language === "zh" ? "历史快照未记录 K 线完成状态。" : "Bar completion was not recorded in this snapshot.");
+  const duration = Number.isFinite(source.last_bar_duration_minutes) ? ` · ${source.last_bar_duration_minutes} ${state.language === "zh" ? "分钟" : "minutes"}` : "";
+  return `<section class="detail-tab-section technical-tab-panel">${renderFibonacciStructure(row)}${renderTechnicalFoundation(row)}<section class="technical-overview-section"><div class="detail-section-head"><h3>${t("technicalOverview")}</h3></div>${technicalTabSelector("technical-horizon", state.technicalHorizon)}<p class="detail-line-note">${escapeHtml(completion + duration)}</p>${technicalBlock(row, state.technicalHorizon)}</section></section>`;
 }
 
 function marketLine(label, value, note = "") {
@@ -584,9 +574,7 @@ function tagPills(tags, className = "") {
 function renderProfileHeader(row) {
   const profile = profileFromRow(row);
   const groups = window.DecisionPresentation?.profileGroups?.(profile) || { traits: profile.companyTraits || [], lifecycle: profile.lifecycle || null, visible: {} };
-  const confidence = Number.isFinite(profile.profileConfidence) ? `${Math.round(profile.profileConfidence * 100)}%` : "";
   const profileMeta = profile.isETF ? [] : [
-    confidence ? `<span>${t("profileConfidence")}: <b>${confidence}</b></span>` : "",
     profile.lastProfileReview ? `<span>${t("lastReview")}: <b>${formatDate(profile.lastProfileReview)}</b></span>` : "",
   ].filter(Boolean).join("");
   // Keep the four canonical company-profile slots visually stable. A missing
@@ -654,67 +642,6 @@ function renderMarketRiskRegime(row) {
   const basis = window.DecisionPresentation?.reasonList?.(market.reasons, state.language, 3) || [];
   const basisMarkup = basis.length ? `<div class="market-regime-basis"><span>${t("marketBasis")}</span><p>${basis.map((reason) => escapeHtml(reason)).join(" · ")}</p></div>` : "";
   return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("marketRiskRegime")}</h3></div>${decision ? `<div class="market-regime-grid">${article(t("regime"), market.label || t("unavailable"), t("marketRegimeHelp"))}${article(t("marketImpact"), marketImpact(decision), t("marketImpactHelp"))}${article("SPY", indexMetric(market.spy), t("benchmarkNeutralHelp"))}${article("QQQ", indexMetric(market.qqq), t("benchmarkNeutralHelp"))}${article("VIX", Number.isFinite(vix.value) ? `${vix.value.toFixed(2)} · 5D ${vixDelta(vix.change5d)} · 20D ${vixDelta(vix.change20d)}` : t("unavailable"), t("vixHelp"))}${article("Fear & Greed", `${market.fearGreed?.label || t("unavailable")}${Number.isFinite(market.fearGreed?.value) ? ` · ${Math.round(market.fearGreed.value)}/100` : ""}`, t("fearGreedHelp"))}${article("US 10Y", yieldText, t("yieldHelp"))}${article(t("earningsProximity"), earningsText(market.earnings), t("earningsHelp"))}</div>${basisMarkup}` : `<p class="decision-no-data">${t("noDecision")}</p>`}</section>`;
-}
-
-function modifierDescription(tag) {
-  const descriptions = {
-    Semiconductors: { en: "Relative Strength and participation matter more; normal volatility tolerance is moderately higher.", zh: "更重视相对强弱与参与度，并适度提高正常波动容忍度。" },
-    "Semiconductor Equipment": { en: "Participation and economic-cycle confirmation carry more weight.", zh: "更重视参与度与经济周期确认。" },
-    "Enterprise Software": { en: "Trend structure and Relative Strength receive more emphasis.", zh: "更重视趋势结构与相对强弱。" },
-    "Cloud Infrastructure": { en: "Trend, Relative Strength, and participation receive more emphasis.", zh: "更重视趋势、相对强弱与参与度。" },
-    "Consumer Technology": { en: "Relative Strength and growth-market context receive modestly more emphasis.", zh: "适度提高相对强弱与成长市场背景的重要性。" },
-    "Internet Platforms": { en: "Relative Strength is emphasized and event sensitivity is modestly higher.", zh: "更重视相对强弱，并适度提高事件敏感度。" },
-    "Media & Entertainment": { en: "Participation, Relative Strength, and event context receive moderate emphasis.", zh: "适度提高参与度、相对强弱和事件环境的重要性。" },
-    "E-Commerce": { en: "Participation and consumer/macro context receive more emphasis.", zh: "更重视参与度以及消费／宏观环境。" },
-    "Digital Advertising": { en: "Participation and advertising-cycle context receive more emphasis.", zh: "更重视参与度与广告周期背景。" },
-    "Telecommunications Infrastructure": { en: "Trend structure and order-cycle context receive more emphasis.", zh: "更重视趋势结构与订单周期背景。" },
-    "Capital Markets": { en: "Market-regime and financial-conditions sensitivity are higher.", zh: "提高市场环境与金融条件敏感度。" },
-    Banking: { en: "Rate and macro relevance are higher; rate direction remains contextual.", zh: "提高利率与宏观相关性；利率方向仍按实际环境解释。" },
-    "Digital Financial Services": { en: "Trend and financial-conditions sensitivity are moderately higher.", zh: "适度提高趋势与金融条件敏感度。" },
-    Payments: { en: "Stable trend structure and consumer/macro context receive modest emphasis.", zh: "适度重视稳定趋势结构与消费／宏观环境。" },
-    Insurance: { en: "Rate relevance and long-horizon stability are moderately higher.", zh: "适度提高利率相关性与长期稳定性。" },
-    "Managed Care & Health Services": { en: "Broad-market sensitivity is lower while event sensitivity and stability increase.", zh: "降低广义市场敏感度，同时提高事件敏感度与稳定性。" },
-    Pharmaceuticals: { en: "Event uncertainty requires stronger execution confirmation.", zh: "事件不确定性要求更强的执行确认。" },
-    Biotechnology: { en: "Event risk and execution requirements are materially higher.", zh: "显著提高事件风险与执行要求。" },
-    "Medical Devices": { en: "Defensive market context and regulatory-event sensitivity are moderated.", zh: "适度采用防御性市场解读与监管事件敏感度。" },
-    "Consumer Discretionary": { en: "Consumer/risk-on context and participation carry more weight.", zh: "更重视消费／风险偏好环境与参与度。" },
-    "Consumer Staples": { en: "Broad-market sensitivity is lower and long-horizon stability is higher.", zh: "降低广义市场敏感度并提高长期稳定性。" },
-    Retail: { en: "Consumer/macro context and volume participation receive more emphasis.", zh: "更重视消费／宏观环境与成交参与度。" },
-    Industrials: { en: "MA trend structure and economic-cycle context receive more emphasis.", zh: "更重视均线趋势结构与经济周期背景。" },
-    "Aerospace & Defense": { en: "Long-trend stability and event sensitivity are modestly higher.", zh: "适度提高长期趋势稳定性与事件敏感度。" },
-    "Transportation & Logistics": { en: "Economic-cycle context and demand participation receive more emphasis.", zh: "更重视经济周期背景与需求参与度。" },
-    Energy: { en: "Macro/commodity context and participation receive more emphasis.", zh: "更重视宏观／商品环境与参与度。" },
-    Utilities: { en: "Rate relevance and long-horizon stability are materially higher.", zh: "显著提高利率相关性与长期稳定性。" },
-    "Real Estate": { en: "Rate relevance is materially higher with an income/stability interpretation.", zh: "显著提高利率相关性，并采用收益／稳定性解读。" },
-    Materials: { en: "Commodity/global-cycle context and participation receive more emphasis.", zh: "更重视商品／全球周期环境与参与度。" },
-    MarketLeader: { en: "Trend persistence and Relative Strength matter more.", zh: "更重视趋势延续性与相对强弱。" },
-    HighGrowth: { en: "Trend/Relative Strength importance and confirmation requirements increase.", zh: "提高趋势／相对强弱的重要性与确认要求。" },
-    MatureGrowth: { en: "Trend reliability and long-horizon stability increase modestly.", zh: "适度提高趋势可靠性与长期稳定性。" },
-    CashCow: { en: "Risk and broad market/rate sensitivity are lower; stability is higher.", zh: "降低风险及广义市场／利率敏感度，并提高稳定性。" },
-    Defensive: { en: "Broad-market sensitivity is lower and breakout execution is stricter.", zh: "降低广义市场敏感度，并收紧突破执行条件。" },
-    Cyclical: { en: "Participation confirmation and macro sensitivity are higher.", zh: "提高参与度确认与宏观敏感度。" },
-    Turnaround: { en: "Bullish execution requires materially stronger confirmation.", zh: "多头执行需要显著更强的确认。" },
-    EmergingGrowth: { en: "Growth confirmation remains important while risk controls and long-horizon stability stay stricter.", zh: "成长确认仍然重要，同时维持更严格的风险控制与长期稳定性要求。" },
-    HighVolatility: { en: "Normal ATR and exhaustion tolerance are higher; entry confirmation is modestly stricter.", zh: "提高正常 ATR 与衰竭容忍度，并适度收紧介入确认。" },
-    RegulatoryRisk: { en: "Event sensitivity and execution requirements increase.", zh: "提高事件敏感度与执行要求。" },
-    InterestRateSensitive: { en: "US 10Y/rate-regime relevance increases without a fixed rate direction.", zh: "提高美国 10 年期／利率环境相关性，不预设固定利率方向。" },
-    CommoditySensitive: { en: "Macro/commodity context and confirmation requirements increase.", zh: "提高宏观／商品环境相关性与确认要求。" },
-    MacroSensitive: { en: "Broad market/VIX sensitivity and confirmation requirements increase.", zh: "提高广义市场／VIX 敏感度与确认要求。" },
-    CrowdedLeader: { en: "Bullish-exhaustion and failed-breakout sensitivity increase.", zh: "提高多头衰竭与失败突破敏感度。" },
-    ExecutionRisk: { en: "Risk, event sensitivity, and execution confirmation increase.", zh: "提高风险、事件敏感度与执行确认。" },
-    LowVolatility: { en: "Unusual volatility expansion receives more attention and stability increases.", zh: "更重视异常波动扩张，并提高稳定性。" },
-    Emerging: { en: "Confirmation and execution requirements increase; stability is lower.", zh: "提高确认与执行要求，并降低稳定性。" },
-    Scaling: { en: "Trend and Relative Strength matter more with moderate volatility tolerance.", zh: "更重视趋势与相对强弱，并适度提高波动容忍度。" },
-    EstablishedLeader: { en: "MA/trend persistence and Relative Strength usefulness increase.", zh: "提高均线／趋势延续性与相对强弱的参考价值。" },
-    MatureLeader: { en: "Long-horizon stability is higher and momentum chasing is reduced.", zh: "提高长期稳定性，并降低追逐动量的倾向。" },
-    Recovery: { en: "Participation and structure-repair confirmation are more important.", zh: "更重视参与度与结构修复确认。" },
-    Declining: { en: "Breakdown risk is higher and positive execution needs stronger evidence.", zh: "提高破位风险，多头执行需要更强证据。" },
-  };
-  const etfDescriptions = {
-    LeveragedETF: { en: "Raises volatility, exhaustion, and market-shock sensitivity; formal action gates are stricter.", zh: "提高波动、衰竭和市场冲击敏感度，并收紧正式操作门槛。" },
-    InverseETF: { en: "Uses the underlying index as bounded inverted confirmation while retaining the ETF's own technical direction.", zh: "将标的指数作为有限的反向确认，同时保留 ETF 自身技术方向。" },
-  };
-  return descriptions[tag]?.[state.language] || etfDescriptions[tag]?.[state.language] || "";
 }
 
 function renderDecisionPanel(row) {
@@ -860,7 +787,7 @@ async function runFullRefresh({ source = "initial" } = {}) {
   const refreshWork = (async () => {
     let applied = false;
     try {
-      const params = new URLSearchParams({ tickers: state.watchlist.join(",") });
+      const params = new URLSearchParams({ tickers: state.watchlist.join(","), format: "compact" });
       // Both user-triggered and hourly automatic refreshes request the same
       // force-live server path. Initial cache hydration and watchlist edits can
       // still use this full pipeline without forcing a provider refresh.

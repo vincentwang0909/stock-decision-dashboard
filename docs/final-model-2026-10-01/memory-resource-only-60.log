@@ -1,0 +1,15 @@
+[2026-10-01 21:25:18 -0400] [15839] [INFO] Starting gunicorn 26.0.0
+[2026-10-01 21:25:18 -0400] [15839] [INFO] Listening at: http://127.0.0.1:58216 (15839)
+[2026-10-01 21:25:18 -0400] [15839] [INFO] Using worker: gthread
+[2026-10-01 21:25:18 -0400] [15842] [INFO] Booting worker with pid: 15842
+[2026-10-01 21:25:18 -0400] [15839] [INFO] Control socket listening at /Users/vincentwang/.gunicorn/gunicorn.ctl
+[2026-10-01 21:25:58 -0400] [15839] [INFO] Handling signal: term
+[2026-10-01 21:25:58 -0400] [15842] [INFO] Worker exiting (pid: 15842)
+[EOD HISTORY] started 2026-09-14 16:30 ET (isolated_memory_audit)
+[EOD HISTORY] full refresh complete
+[EOD HISTORY] 60 tickers / 180 horizon rows
+[EOD HISTORY] 0 unavailable
+[EOD HISTORY] database commit success
+[EOD HISTORY] db size 4.945 MB
+[EOD HISTORY] completed
+[2026-10-01 21:25:58 -0400] [15839] [INFO] Shutting down: Master

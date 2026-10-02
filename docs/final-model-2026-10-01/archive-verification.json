@@ -1,0 +1,9 @@
+{
+  "archive_extracted_to_isolated_temp": true,
+  "replay_exit_code": 0,
+  "same_frozen_output_sha256": true,
+  "expected_sha256": "4dc977914c5487385c63c63f7d3551c72920725e534d8d9a29cb6910e8091c34",
+  "actual_sha256": "4dc977914c5487385c63c63f7d3551c72920725e534d8d9a29cb6910e8091c34",
+  "replay_stdout": "{\"rows\":2820,\"baselineVersion\":\"decision-engine-v1\",\"currentVersion\":\"decision-engine-v2.1-validated\",\"frozenPolicy\":{\"workflow\":3,\"direction\":3,\"confirmation\":0,\"risk\":2,\"exhaustion\":1,\"structure\":6,\"entry\":30,\"confirm\":50,\"maxRisk\":65,\"near\":0.7,\"extension\":3,\"exit\":10,\"exhaustionGate\":50,\"macro\":0,\"reversal\":false},\"widthFactor\":0.995,\"outputPath\":\"/var/folders/gw/99ddsghs6zx45ywd8q5tv_0h0000gn/T/stock-final-delivery-replay-h7whjp9r/new-replay.jsonl\",\"coldStart\":true,\"historicalProfileSlots\":\"validated snapshot only; metadata unavailable\",\"rawOHLCVRecalculation\":false}",
+  "replay_stderr": ""
+}

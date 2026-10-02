@@ -1,0 +1,19 @@
+[EOD HISTORY] started 2026-08-18 16:30 ET (test)
+[EOD HISTORY] full refresh complete
+[EOD HISTORY] FAILED: engine failure
+[EOD HISTORY] started 2026-08-18 16:30 ET (test)
+[EOD HISTORY] full refresh complete
+[EOD HISTORY] 1 tickers / 3 horizon rows
+[EOD HISTORY] 0 unavailable
+[EOD HISTORY] database commit success
+[EOD HISTORY] db size 0.023 MB
+[EOD HISTORY] completed
+[EOD HISTORY] started 2026-08-18 16:30 ET (test)
+[EOD HISTORY] skipped: no valid trading session.
+[EOD HISTORY] started 2026-08-22 16:30 ET (test)
+[EOD HISTORY] skipped: no valid trading session.
+.................
+----------------------------------------------------------------------
+Ran 17 tests in 0.103s
+
+OK

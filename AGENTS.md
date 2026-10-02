@@ -10,7 +10,7 @@ This is a lightweight stock decision dashboard. It displays a shared watchlist, 
 - `main.js` owns application state, data integration, and DOM rendering. It must never calculate a recommendation.
 - `technical-features.js` produces the canonical technical feature object used by both the Technical tab and the Decision Engine.
 - `decision-engine/company-profile-classifier.js` is the deterministic, metadata-only Company Profile V2.1 classifier. `profile-definitions.js` validates its canonical stock slots and holds the separate ETF definitions.
-- `decision-engine/` contains the calibrated V1 recommendation model. `etf-profile.js` supplies ETF-specific behavior modifiers.
+- `decision-engine/` contains the fixed ordinary-stock Short V2 path in `short-model-v2.js` and the retained V1 ETF/Mid/Long paths. `planning-width.js` holds the independently gated normal-Short Reduce-width transform (0.995, disabled after its retention gate failed). `etf-profile.js` supplies ETF-specific behavior modifiers.
 - `decision-presentation.js` is a pure UI helper for execution labels, reason translation, and the native DOM/CSS Price Landscape model.
 - `scripts/` contains bounded, read-only audit/shadow tooling, not production history storage.
 - `tests/` contains deterministic regression, feature, engine, and server checks.
@@ -52,9 +52,9 @@ Technical structure still supplies zone calculations, but never expose a remote 
 
 `Price State` is the mandatory Action-Family input: `IN_OPPORTUNITY_ZONE`, `NEAR_OPPORTUNITY_ZONE`, `NEUTRAL_ZONE`, `NEAR_REDUCE_ZONE`, `IN_REDUCE_ZONE`, `BEYOND_REDUCE_ZONE`, `BREAKDOWN_ZONE`, or `INVALID_LANDSCAPE`.
 
-- `IN_OPPORTUNITY_ZONE` permits only Strong Buy, Buy, or Accumulate. Direction, Confirmation, Risk, Exhaustion, Market and Profile modifiers choose intensity inside that family. Opportunity itself never automatically creates Buy.
+- For the retained ETF/Mid/Long paths, `IN_OPPORTUNITY_ZONE` permits only Strong Buy, Buy, or Accumulate. Ordinary-stock Short V2 permits Hold when its fixed entry evidence, event, shock, or risk gates fail; each reason remains explicit. Direction, Confirmation, Risk, Exhaustion, Market and Profile modifiers choose intensity inside that family. Opportunity itself never automatically creates Buy.
 - `NEAR_OPPORTUNITY_ZONE`, `NEUTRAL_ZONE`, and `NEAR_REDUCE_ZONE` all produce Hold. Near zones are informational analysis states only; they can affect reasons and confidence but cannot trigger an early entry or reduction.
-- `IN_REDUCE_ZONE` and `BEYOND_REDUCE_ZONE` permit only Trim or Sell. Hold and every positive Action are prohibited; if the model needs Hold, rebuild the final landscape rather than add an exception.
+- For the retained ETF/Mid/Long paths, `IN_REDUCE_ZONE` and `BEYOND_REDUCE_ZONE` permit only Trim or Sell. Hold and every positive Action are prohibited; if the model needs Hold, rebuild the final landscape rather than add an exception.
 - Breakdown / invalidation permits Sell or Avoid. Sell requires bearish confirmation or a structural/material breakdown; price being high alone cannot create Sell.
 - Near-zone tolerance is ATR-normalized but capped by the Neutral buffer, so it cannot consume the entire Neutral state.
 - When a breakdown occurs, the exit range must re-anchor near the executable current area.
@@ -170,8 +170,8 @@ otherwise use Render's writable `/var/data/历史记录.sqlite`, with
 remain ignored by Git. No normal Dashboard request may open or preload this
 database. The recorder uses short connections/transactions, has no history
 cache, and discards temporary provider payloads and JS process state after a
-run. The one-shot Node serializer is heap-capped by
-`EOD_HISTORY_NODE_MAX_OLD_SPACE_MB` (Render Blueprint: `192`) and exits after
+run. The one-shot Node serializer reads ticker files and streams compact output, heap-capped by
+`EOD_HISTORY_NODE_MAX_OLD_SPACE_MB` (Render Blueprint: `128`, young semi-space `4` MB) and exits after
 each write.
 
 `decision_history` has exactly one official row per
@@ -258,7 +258,7 @@ order and candidate scores—never ticker-specific overrides or category quotas.
 
 It stores compact current profiles in the persistent `company_profiles` table inside `watchlist.db`; Dashboard restart must not change their source of truth. The V2.1 migration runs once per stock when compact fresh/cached metadata is available, replaces legacy slot values with the current classifier result, removes legacy visible `MegaCap`, and stores `profile_schema_version = 2.1`. It is idempotent. Complete V2.1 profiles do not change on normal hourly refreshes. Incomplete profiles may fill a null slot, but never overwrite a populated slot outside the annual review.
 
-The only annual review date is **March 31, `America/New_York`**. A review does not force a change and sparse review metadata must never erase an established value. A valid review persists the date/provenance; it must also update the modifiers actually used by the engine. `profileConfidence` and its existing Final Confidence contribution are intentionally unchanged in V2.
+The only annual review date is **March 31, `America/New_York`**. A review does not force a change and sparse review metadata must never erase an established value. A valid review persists the date/provenance; it must also update the modifiers actually used by the engine. `profileConfidence` can remain in old rows, but its Final Confidence contribution is zero and the UI exposes no profile score. Confidence weights are renormalized over agreement/action strength/stability/data quality at 0.35/0.90, 0.25/0.90, 0.20/0.90, 0.10/0.90.
 
 The four visible slots use conservative, centralized, aggregate-then-cap modifiers for Direction/Confirmation weights, risk and exhaustion tolerance, market/rate/event sensitivity, execution gates, benchmark emphasis, and stability. Internal size context is narrower: it may affect only small bounded risk/market/stability sensitivity and never votes Direction, changes confirmation, or alters an action gate. No profile context may add action points, override Price State → Action Family, or create a second recommendation engine. General caps remain 0.85–1.15; justified special sensitivity caps remain 0.80–1.20.
 
@@ -275,9 +275,17 @@ duplicate active symbol from a provider-form ticker.
 
 ETFs remain isolated. They never receive stock profile slots, Company Traits, or a Lifecycle. ETF profile fields are `isETF`, `leveraged`, `direction` (`long` or `inverse`), `underlying`, and optional `underlyingTicker`. Ordinary long ETFs reuse the V1 technical/market model. Leveraged ETFs use stricter gates and higher risk, exhaustion, and market sensitivity. Inverse ETFs use inverted underlying direction only as bounded confirmation; their own Technical states remain the Direction source.
 
+## Accepted ordinary-stock Short V2 (2026-10-01)
+
+The current ordinary-stock Short path uses fixed workflow=3, direction=3, confirmation=0, risk=2, exhaustion=1, structure=6, entry=30, confirm=50, maxRisk=65, near=0.7, extension=3, exit=10, exhaustionGate=50, macro=0, reversal=false. All numerical policy/scales/groups stay in `decision-engine/config.js`. Fixed Direction and Confirmation group weights are not changed by stock identity. Profiles retain only bounded risk sensitivity and structural/benchmark background on this path; ETF/Mid/Long retain their existing modifiers.
+
+Inside Reduce/Beyond Reduce, stock Short requires Direction <=10 and downward Confirmation >=50 for reduction (Sell below -45, otherwise Trim), or upside exhaustion <=-50 with weakening acceleration for Trim; otherwise Hold is explicit. Confirmed defensive Sell requires confirmed swing support, price below pivotLow-0.25 ATR, baseline Direction <=-68 and baseline Confirmation >=52. The immediate current-area exit bypasses planning-width transformation.
+
+Stock Short uses canonical signal persistence and identity stability, without enabling the legacy action hysteresis. Final Confidence follows the final action and uses its corresponding confirmation. Width baseline/candidate diagnostics are recorded offline at EOD; no future labels or parameter search enters production. ATR% percentile windows use real valid observations, KDJ flags are true/false/unavailable, and unfinished bars are provisional indicator inputs but not confirmed-pivot observations.
+
 ## Stability and performance
 
-The engine uses hysteresis and material-change overrides. Its bounded stability/profile caches have a 300-entry limit. Hysteresis may only smooth actions within the current Price State family (Buy↔Accumulate, Trim↔Sell); it must never retain an action across Opportunity, Neutral, Reduce, or Breakdown family boundaries. Restarting may remove hysteresis history but must not make decisions incorrect because signal persistence is derived from existing technical history.
+The retained ETF/Mid/Long engine paths use family-internal hysteresis and material-change overrides. Ordinary-stock Short follows the identity/persistence path above. Its bounded stability/profile caches have a 300-entry limit. Hysteresis may only smooth actions within the current Price State family (Buy↔Accumulate, Trim↔Sell); it must never retain an action across Opportunity, Neutral, Reduce, or Breakdown family boundaries. Restarting may remove hysteresis history but must not make decisions incorrect because signal persistence is derived from existing technical history.
 
 Do not add unbounded recommendation history, duplicate Technical normalization/fetches, large deep clones, or heavy client chart libraries without a demonstrated need. Reuse normalized Technical/Market payloads once per refresh.
 
@@ -318,7 +326,7 @@ every decision must be correct after a restart even without either cache.
 - allowing Buy/Accumulate outside the exact Opportunity range
 - allowing Trim/Sell outside the exact Reduce range without Breakdown/Invalidation
 - Buy while current price is in a Reduce zone
-- Hold while current price is in a Reduce zone
+- Hold while current price is in a Reduce zone on the strict ETF/Mid/Long paths; ordinary-stock Short V2 has the accepted evidence-gated Hold rule above
 - overlapping Opportunity and Reduce zones, or a $0.01 fake neutral buffer
 - assuming Opportunity automatically means Buy
 - Current price between opportunity and reduce ranges but still Sell without breakdown
@@ -349,14 +357,16 @@ Run from the repository root:
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/technical-features.test.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/dashboard-regression.test.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/decision-ui.test.js
-/private/tmp/stock-dashboard-test-venv/bin/python3 -m unittest discover -s tests -p 'server_availability_test.py'
+/private/tmp/stock-dashboard-final-venv/bin/python3 -m unittest discover -s tests -p 'server_availability_test.py'
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/decision-audit.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/decision-shadow.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/fibonacci-audit.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node --expose-gc scripts/refresh-memory-audit.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/company-profile-audit.js
-/private/tmp/stock-dashboard-test-venv/bin/python3 -m unittest discover -s tests -p 'eod_history_test.py'
+/private/tmp/stock-dashboard-final-venv/bin/python3 -m unittest discover -s tests -p 'eod_history_test.py'
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/eod-history-node.test.js
+/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/final-model.test.js
+/private/tmp/stock-dashboard-final-venv/bin/python3 -m unittest discover -s tests -p 'service_resources_test.py'
 ```
 
 `decision-engine.test.js` includes joint price/action consistency, stateless-refresh, category-aware confluence, annual-review, ETF, and coverage checks. `company-profile.test.js` protects V2 vocabularies, metadata-only/ticker-independent classification, modifier caps, annual-review boundaries, and ETF isolation. `technical-features.test.js` protects canonical data completeness and independent Fibonacci provenance. `dashboard-regression.test.js` protects data/UI regressions. `decision-audit.js`, `decision-shadow.js`, `fibonacci-audit.js`, `refresh-memory-audit.js`, and `company-profile-audit.js` are bounded cache-only audits.

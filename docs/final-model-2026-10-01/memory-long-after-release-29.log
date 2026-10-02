@@ -1,0 +1,11 @@
+{"count": 29, "peak_rss_bytes": 447496192, "phases": {"continuous_refresh": {"peak_rss_bytes": 195952640, "samples": 385}, "eod_with_access": {"peak_rss_bytes": 447496192, "samples": 215}, "full_refresh": {"peak_rss_bytes": 182353920, "samples": 78}, "idle": {"peak_rss_bytes": 132726784, "samples": 7}, "startup": {"peak_rss_bytes": 129810432, "samples": 10}, "timeout_residual": {"peak_rss_bytes": 195952640, "samples": 16}}, "live_render_verified": false}
+ signal: term
+[2026-10-01 22:21:41 -0400] [19826] [INFO] Worker exiting (pid: 19826)
+[EOD HISTORY] started 2026-10-01 16:30 ET (isolated_memory_audit)
+[EOD HISTORY] full refresh complete
+[EOD HISTORY] 29 tickers / 87 horizon rows
+[EOD HISTORY] 0 unavailable
+[EOD HISTORY] database commit success
+[EOD HISTORY] db size 2.621 MB
+[EOD HISTORY] completed
+[2026-10-01 22:21:41 -0400] [19823] [INFO] Shutting down: Master

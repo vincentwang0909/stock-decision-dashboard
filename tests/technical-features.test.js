@@ -15,7 +15,7 @@ function dailyHistory(count = 420) {
     timestamps.push(date.toISOString().slice(0, 10));
     opens.push(index === count - 1 ? previous * 1.02 : close - 0.35);
     closes.push(close);
-    highs.push(close + 1.5);
+    highs.push(Math.max(close, opens.at(-1)) + 1.5);
     lows.push(close - 1.25);
     volumes.push(index === count - 1 ? 2_000_000 : 1_000_000 + (index % 7) * 10_000);
   }

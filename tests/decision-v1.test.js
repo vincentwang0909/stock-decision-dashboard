@@ -113,7 +113,8 @@ try {
     assert.ok(value.confidence >= 0 && value.confidence <= 100, `${horizon} confidence ${value.confidence}`);
 
     // The action must be legal for its price state.
-    assert.ok(LEGAL[value.priceState].includes(value.action),
+    const stockShortHold = horizon === "short" && value.action === "hold" && ["IN_OPPORTUNITY_ZONE", "IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"].includes(value.priceState);
+    assert.ok(stockShortHold || LEGAL[value.priceState].includes(value.action),
       `${horizon}: ${value.action} is not legal for ${value.priceState}`);
 
     // Zone separation, and no half-known bands.

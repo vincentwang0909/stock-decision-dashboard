@@ -1,0 +1,332 @@
+{
+  "summary": {
+    "generation": 1,
+    "started_at": "2026-10-02T03:51:55Z",
+    "completed": true,
+    "reason": "final_incremental_validation",
+    "requested_tickers": [
+      "NVDA",
+      "AMD",
+      "BABA",
+      "GOOGL",
+      "AMZN",
+      "AAPL",
+      "CRCL",
+      "MPT",
+      "META",
+      "MSFT",
+      "NFLX",
+      "PLTR",
+      "NOW",
+      "SOFI",
+      "XE",
+      "ZETA",
+      "SPCX",
+      "MU",
+      "ORCL",
+      "TEM",
+      "GEV",
+      "TQQQ",
+      "SPMO",
+      "SOXL",
+      "QQQ",
+      "UNH",
+      "TSLA",
+      "PDD",
+      "TSM"
+    ],
+    "batch_count": 15,
+    "success_count": 29,
+    "failed_count": 0,
+    "cache_fallback_count": 0,
+    "batches": [
+      {
+        "batch": 1,
+        "tickers": [
+          "NVDA",
+          "AMD"
+        ],
+        "success_count": 2,
+        "failed_count": 0,
+        "cache_fallback_count": 0,
+        "last_dashboard_refresh": "2026-10-02T03:51:57Z"
+      },
+      {
+        "batch": 2,
+        "tickers": [
+          "BABA",
+          "GOOGL"
+        ],
+        "success_count": 2,
+        "failed_count": 0,
+        "cache_fallback_count": 0,
+        "last_dashboard_refresh": "2026-10-02T03:51:59Z"
+      },
+      {
+        "batch": 3,
+        "tickers": [
+          "AMZN",
+          "AAPL"
+        ],
+        "success_count": 2,
+        "failed_count": 0,
+        "cache_fallback_count": 0,
+        "last_dashboard_refresh": "2026-10-02T03:52:00Z"
+      },
+      {
+        "batch": 4,
+        "tickers": [
+          "CRCL",
+          "MPT"
+        ],
+        "success_count": 2,
+        "failed_count": 0,
+        "cache_fallback_count": 0,
+        "last_dashboard_refresh": "2026-10-02T03:52:02Z"
+      },
+      {
+        "batch": 5,
+        "tickers": [
+          "META",
+          "MSFT"
+        ],
+        "success_count": 2,
+        "failed_count": 0,
+        "cache_fallback_count": 0,
+        "last_dashboard_refresh": "2026-10-02T03:52:03Z"
+      },
+      {
+        "batch": 6,
+        "tickers": [
+          "NFLX",
+          "PLTR"
+        ],
+        "success_count": 2,
+        "failed_count": 0,
+        "cache_fallback_count": 0,
+        "last_dashboard_refresh": "2026-10-02T03:52:04Z"
+      },
+      {
+        "batch": 7,
+        "tickers": [
+          "NOW",
+          "SOFI"
+        ],
+        "success_count": 2,
+        "failed_count": 0,
+        "cache_fallback_count": 0,
+        "last_dashboard_refresh": "2026-10-02T03:52:05Z"
+      },
+      {
+        "batch": 8,
+        "tickers": [
+          "XE",
+          "ZETA"
+        ],
+        "success_count": 2,
+        "failed_count": 0,
+        "cache_fallback_count": 0,
+        "last_dashboard_refresh": "2026-10-02T03:52:06Z"
+      },
+      {
+        "batch": 9,
+        "tickers": [
+          "SPCX",
+          "MU"
+        ],
+        "success_count": 2,
+        "failed_count": 0,
+        "cache_fallback_count": 0,
+        "last_dashboard_refresh": "2026-10-02T03:52:08Z"
+      },
+      {
+        "batch": 10,
+        "tickers": [
+          "ORCL",
+          "TEM"
+        ],
+        "success_count": 2,
+        "failed_count": 0,
+        "cache_fallback_count": 0,
+        "last_dashboard_refresh": "2026-10-02T03:52:09Z"
+      },
+      {
+        "batch": 11,
+        "tickers": [
+          "GEV",
+          "TQQQ"
+        ],
+        "success_count": 2,
+        "failed_count": 0,
+        "cache_fallback_count": 0,
+        "last_dashboard_refresh": "2026-10-02T03:52:11Z"
+      },
+      {
+        "batch": 12,
+        "tickers": [
+          "SPMO",
+          "SOXL"
+        ],
+        "success_count": 2,
+        "failed_count": 0,
+        "cache_fallback_count": 0,
+        "last_dashboard_refresh": "2026-10-02T03:52:12Z"
+      },
+      {
+        "batch": 13,
+        "tickers": [
+          "QQQ",
+          "UNH"
+        ],
+        "success_count": 2,
+        "failed_count": 0,
+        "cache_fallback_count": 0,
+        "last_dashboard_refresh": "2026-10-02T03:52:14Z"
+      },
+      {
+        "batch": 14,
+        "tickers": [
+          "TSLA",
+          "PDD"
+        ],
+        "success_count": 2,
+        "failed_count": 0,
+        "cache_fallback_count": 0,
+        "last_dashboard_refresh": "2026-10-02T03:52:16Z"
+      },
+      {
+        "batch": 15,
+        "tickers": [
+          "TSM"
+        ],
+        "success_count": 1,
+        "failed_count": 0,
+        "cache_fallback_count": 0,
+        "last_dashboard_refresh": "2026-10-02T03:52:17Z"
+      }
+    ],
+    "completed_at": "2026-10-02T03:52:17Z",
+    "live_success_tickers": [
+      "AAPL",
+      "AMD",
+      "AMZN",
+      "BABA",
+      "CRCL",
+      "GEV",
+      "GOOGL",
+      "META",
+      "MPT",
+      "MSFT",
+      "MU",
+      "NFLX",
+      "NOW",
+      "NVDA",
+      "ORCL",
+      "PDD",
+      "PLTR",
+      "QQQ",
+      "SOFI",
+      "SOXL",
+      "SPCX",
+      "SPMO",
+      "TEM",
+      "TQQQ",
+      "TSLA",
+      "TSM",
+      "UNH",
+      "XE",
+      "ZETA"
+    ],
+    "live_failed_tickers": []
+  },
+  "elapsed_seconds": 22.101,
+  "resource": {
+    "pid": 33389,
+    "rss_bytes": null,
+    "pss_bytes": null,
+    "threads": 14,
+    "cgroup": {
+      "memory.current": null,
+      "memory.peak": null,
+      "memory.max": null
+    },
+    "node_old_space_mb": 128,
+    "tasks": {
+      "quote-fetch": {
+        "workers": 2,
+        "capacity": 4,
+        "in_flight": 0,
+        "running": 0,
+        "queued": 0,
+        "submitted": 29,
+        "shared": 0,
+        "rejected": 0
+      },
+      "quote-controller": {
+        "workers": 2,
+        "capacity": 4,
+        "in_flight": 0,
+        "running": 0,
+        "queued": 0,
+        "submitted": 29,
+        "shared": 0,
+        "rejected": 0
+      },
+      "interval-fetch": {
+        "workers": 4,
+        "capacity": 8,
+        "in_flight": 0,
+        "running": 0,
+        "queued": 0,
+        "submitted": 58,
+        "shared": 0,
+        "rejected": 0
+      },
+      "market-source": {
+        "workers": 4,
+        "capacity": 16,
+        "in_flight": 0,
+        "running": 0,
+        "queued": 0,
+        "submitted": 12,
+        "shared": 0,
+        "rejected": 0
+      },
+      "auxiliary-fetch": {
+        "workers": 2,
+        "capacity": 4,
+        "in_flight": 0,
+        "running": 0,
+        "queued": 0,
+        "submitted": 1,
+        "shared": 0,
+        "rejected": 0
+      }
+    },
+    "caches": {
+      "quotes": {
+        "entries": 19,
+        "serialized_bytes": 8080543,
+        "entry_limit": 68,
+        "serialized_byte_limit": 8388608,
+        "byte_method": "JSON bytes, not Python object RSS"
+      },
+      "search": {
+        "entries": 0,
+        "serialized_bytes": 0,
+        "entry_limit": 128,
+        "serialized_byte_limit": 1048576,
+        "byte_method": "JSON bytes, not Python object RSS"
+      },
+      "news": {
+        "entries": 0,
+        "serialized_bytes": 0,
+        "entry_limit": 60,
+        "serialized_byte_limit": 4194304,
+        "byte_method": "JSON bytes, not Python object RSS"
+      }
+    }
+  },
+  "local_only": true,
+  "render_verified": false
+}

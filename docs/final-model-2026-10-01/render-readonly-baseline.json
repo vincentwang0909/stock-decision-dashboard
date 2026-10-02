@@ -1,0 +1,414 @@
+{
+  "read_only": true,
+  "production_publish_performed": false,
+  "public_receipts": {
+    "render-health.json": {
+      "background_market_refresh": {
+        "enabled": true,
+        "last_batches": [
+          {
+            "batch": 1,
+            "cache_fallback_count": 0,
+            "failed_count": 0,
+            "last_dashboard_refresh": "2026-10-02T00:00:06Z",
+            "success_count": 2,
+            "tickers": [
+              "NVDA",
+              "AMD"
+            ]
+          },
+          {
+            "batch": 2,
+            "cache_fallback_count": 0,
+            "failed_count": 0,
+            "last_dashboard_refresh": "2026-10-02T00:00:07Z",
+            "success_count": 2,
+            "tickers": [
+              "BABA",
+              "GOOGL"
+            ]
+          },
+          {
+            "batch": 3,
+            "cache_fallback_count": 0,
+            "failed_count": 0,
+            "last_dashboard_refresh": "2026-10-02T00:00:08Z",
+            "success_count": 2,
+            "tickers": [
+              "AMZN",
+              "AAPL"
+            ]
+          },
+          {
+            "batch": 4,
+            "cache_fallback_count": 0,
+            "failed_count": 0,
+            "last_dashboard_refresh": "2026-10-02T00:00:09Z",
+            "success_count": 2,
+            "tickers": [
+              "CRCL",
+              "MPT"
+            ]
+          },
+          {
+            "batch": 5,
+            "cache_fallback_count": 0,
+            "failed_count": 0,
+            "last_dashboard_refresh": "2026-10-02T00:00:10Z",
+            "success_count": 2,
+            "tickers": [
+              "META",
+              "MSFT"
+            ]
+          },
+          {
+            "batch": 6,
+            "cache_fallback_count": 0,
+            "failed_count": 0,
+            "last_dashboard_refresh": "2026-10-02T00:00:11Z",
+            "success_count": 2,
+            "tickers": [
+              "NFLX",
+              "PLTR"
+            ]
+          },
+          {
+            "batch": 7,
+            "cache_fallback_count": 0,
+            "failed_count": 0,
+            "last_dashboard_refresh": "2026-10-02T00:00:12Z",
+            "success_count": 2,
+            "tickers": [
+              "NOW",
+              "SOFI"
+            ]
+          },
+          {
+            "batch": 8,
+            "cache_fallback_count": 0,
+            "failed_count": 0,
+            "last_dashboard_refresh": "2026-10-02T00:00:13Z",
+            "success_count": 2,
+            "tickers": [
+              "XE",
+              "ZETA"
+            ]
+          },
+          {
+            "batch": 9,
+            "cache_fallback_count": 0,
+            "failed_count": 0,
+            "last_dashboard_refresh": "2026-10-02T00:00:14Z",
+            "success_count": 2,
+            "tickers": [
+              "SPCX",
+              "MU"
+            ]
+          },
+          {
+            "batch": 10,
+            "cache_fallback_count": 0,
+            "failed_count": 0,
+            "last_dashboard_refresh": "2026-10-02T00:00:15Z",
+            "success_count": 2,
+            "tickers": [
+              "ORCL",
+              "TEM"
+            ]
+          },
+          {
+            "batch": 11,
+            "cache_fallback_count": 0,
+            "failed_count": 0,
+            "last_dashboard_refresh": "2026-10-02T00:00:16Z",
+            "success_count": 2,
+            "tickers": [
+              "GEV",
+              "TQQQ"
+            ]
+          },
+          {
+            "batch": 12,
+            "cache_fallback_count": 0,
+            "failed_count": 0,
+            "last_dashboard_refresh": "2026-10-02T00:00:17Z",
+            "success_count": 2,
+            "tickers": [
+              "SPMO",
+              "SOXL"
+            ]
+          },
+          {
+            "batch": 13,
+            "cache_fallback_count": 0,
+            "failed_count": 0,
+            "last_dashboard_refresh": "2026-10-02T00:00:18Z",
+            "success_count": 2,
+            "tickers": [
+              "QQQ",
+              "UNH"
+            ]
+          },
+          {
+            "batch": 14,
+            "cache_fallback_count": 0,
+            "failed_count": 0,
+            "last_dashboard_refresh": "2026-10-02T00:00:19Z",
+            "success_count": 2,
+            "tickers": [
+              "TSLA",
+              "PDD"
+            ]
+          },
+          {
+            "batch": 15,
+            "cache_fallback_count": 0,
+            "failed_count": 0,
+            "last_dashboard_refresh": "2026-10-02T00:00:20Z",
+            "success_count": 1,
+            "tickers": [
+              "TSM"
+            ]
+          }
+        ],
+        "last_cache_fallback_count": 0,
+        "last_completed_at": "2026-10-02T00:00:20Z",
+        "last_error": null,
+        "last_failed_count": 0,
+        "last_reason": "scheduled_hourly",
+        "last_started_at": "2026-10-02T00:00:05Z",
+        "last_success_count": 29,
+        "next_run_at": "2026-10-02T01:00:05Z",
+        "running": false
+      },
+      "cwd": "/opt/render/project/src",
+      "market_cache_dir": "data/cache",
+      "market_cache_dir_exists": true,
+      "market_context_cache_exists": true,
+      "options_cache_count": 0,
+      "python_version": "3.14.3 (main, Jun 16 2026, 22:37:02) [GCC 12.2.0]",
+      "quotes_cache_count": 29,
+      "render_service": true,
+      "status": "ok",
+      "success": true,
+      "watchlist_db_dir": "/var/data",
+      "watchlist_db_dir_exists": true,
+      "watchlist_db_exists": true,
+      "watchlist_db_path": "/var/data/watchlist.db"
+    },
+    "render-watchlist.json": {
+      "items": [
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 1,
+          "market_type": "US",
+          "ticker": "NVDA"
+        },
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 3,
+          "market_type": "US",
+          "ticker": "AMD"
+        },
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 4,
+          "market_type": "US",
+          "ticker": "BABA"
+        },
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 5,
+          "market_type": "US",
+          "ticker": "GOOGL"
+        },
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 6,
+          "market_type": "US",
+          "ticker": "AMZN"
+        },
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 7,
+          "market_type": "US",
+          "ticker": "AAPL"
+        },
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 8,
+          "market_type": "US",
+          "ticker": "CRCL"
+        },
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 11,
+          "market_type": "US",
+          "ticker": "MPT"
+        },
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 12,
+          "market_type": "US",
+          "ticker": "META"
+        },
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 13,
+          "market_type": "US",
+          "ticker": "MSFT"
+        },
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 14,
+          "market_type": "US",
+          "ticker": "NFLX"
+        },
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 15,
+          "market_type": "US",
+          "ticker": "PLTR"
+        },
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 16,
+          "market_type": "US",
+          "ticker": "NOW"
+        },
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 17,
+          "market_type": "US",
+          "ticker": "SOFI"
+        },
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 19,
+          "market_type": "US",
+          "ticker": "XE"
+        },
+        {
+          "created_at": "2026-07-05T23:28:04Z",
+          "id": 20,
+          "market_type": "US",
+          "ticker": "ZETA"
+        },
+        {
+          "created_at": "2026-07-06T17:57:49Z",
+          "id": 26,
+          "market_type": "US",
+          "ticker": "SPCX"
+        },
+        {
+          "created_at": "2026-07-07T02:01:42Z",
+          "id": 37,
+          "market_type": "US",
+          "ticker": "MU"
+        },
+        {
+          "created_at": "2026-07-12T22:22:58Z",
+          "id": 43,
+          "market_type": "US",
+          "ticker": "ORCL"
+        },
+        {
+          "created_at": "2026-07-13T01:16:44Z",
+          "id": 44,
+          "market_type": "US",
+          "ticker": "TEM"
+        },
+        {
+          "created_at": "2026-07-13T01:16:50Z",
+          "id": 45,
+          "market_type": "US",
+          "ticker": "GEV"
+        },
+        {
+          "created_at": "2026-07-19T20:51:11Z",
+          "id": 47,
+          "market_type": "US",
+          "ticker": "TQQQ"
+        },
+        {
+          "created_at": "2026-07-19T20:51:15Z",
+          "id": 48,
+          "market_type": "US",
+          "ticker": "SPMO"
+        },
+        {
+          "created_at": "2026-07-19T20:51:23Z",
+          "id": 49,
+          "market_type": "US",
+          "ticker": "SOXL"
+        },
+        {
+          "created_at": "2026-07-23T00:17:13Z",
+          "id": 52,
+          "market_type": "US",
+          "ticker": "QQQ"
+        },
+        {
+          "created_at": "2026-08-19T16:45:23Z",
+          "id": 56,
+          "market_type": "US",
+          "ticker": "UNH"
+        },
+        {
+          "created_at": "2026-08-20T15:22:31Z",
+          "id": 59,
+          "market_type": "US",
+          "ticker": "TSLA"
+        },
+        {
+          "created_at": "2026-09-21T00:23:29Z",
+          "id": 65,
+          "market_type": "US",
+          "ticker": "PDD"
+        },
+        {
+          "created_at": "2026-09-22T17:58:03Z",
+          "id": 66,
+          "market_type": "US",
+          "ticker": "TSM"
+        }
+      ],
+      "success": true,
+      "updatedAt": "2026-10-02T01:12:31Z",
+      "watchlist": [
+        "NVDA",
+        "AMD",
+        "BABA",
+        "GOOGL",
+        "AMZN",
+        "AAPL",
+        "CRCL",
+        "MPT",
+        "META",
+        "MSFT",
+        "NFLX",
+        "PLTR",
+        "NOW",
+        "SOFI",
+        "XE",
+        "ZETA",
+        "SPCX",
+        "MU",
+        "ORCL",
+        "TEM",
+        "GEV",
+        "TQQQ",
+        "SPMO",
+        "SOXL",
+        "QQQ",
+        "UNH",
+        "TSLA",
+        "PDD",
+        "TSM"
+      ]
+    }
+  },
+  "static_config_sha256": "db4bdac741e32c6091fe4014d071e78a00e00bbe4f9c8f52f71a04559ea560fe",
+  "deployment_commit": "unavailable",
+  "authenticated_logs_metrics_plan": "unavailable"
+}
