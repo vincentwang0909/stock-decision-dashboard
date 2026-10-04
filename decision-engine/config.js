@@ -5,9 +5,18 @@
   const freeze = (value) => Object.freeze(value);
 
   engine.config = freeze({
-    version: "decision-engine-v2.1-validated",
+    version: "decision-engine-v2.1-indicators-v1",
+    indicators: freeze({
+      version: "structure-momentum-v1",
+      squeeze: freeze({ length: 20, bbMultiplier: 2, kcMultiplier: 1.5, regressionLength: 20, levelScale: 0.4, changeScale: 0.045, levelShare: 0.60 }),
+      structure: freeze({ pivotBars: freeze({ "4h": 3, "1d": 4, "1w": 2 }), atrPeriod: 14, lookback: 120, maxLevels: 12, maxEvents: 6, maxAge: 6, breakAtr: 0.25, retestAtr: 0.35, volumeFast: 5, volumeSlow: 10, volumeThreshold: 20, minimumTouches: 2, maxEngineLevels: 2, minimumIndependentCategories: 2, breakEvidence: 50, retestEvidence: 85, confirmationShare: 0.15 }),
+      bollingerRsi: freeze({ low: 35, high: 65, repairBars: 3, confirmationShare: 0.15, periods: freeze({ short: 14, medium: 14, long: 21 }) }),
+      integration: freeze({ enabled: true, squeezeShare: freeze({ short: 0.20, mid: 0.20, long: 0.10 }), accelerationShare: 0.20, structureEnabled: true, structureLevelsEnabled: false, structureRetentionGate: "raw-replay-return-retention-failed" }),
+      stability: freeze({ completedLongDaily: true }),
+      confidence: freeze({ tensionStart: 42, tensionOrigin: 38, tensionScale: 62, minimumTensionShare: 0.20 }),
+    }),
     shortV2: freeze({
-      enabled: true, scope: "ordinary_stocks", version: "stock-short-v2-fixed",
+      enabled: true, scope: "ordinary_stocks", version: "stock-short-v2-indicators-v1",
       policy: freeze({ workflow: 3, direction: 3, confirmation: 0, risk: 2, exhaustion: 1, structure: 6, entry: 30, confirm: 50, maxRisk: 65, near: 0.7, extension: 3, exit: 10, exhaustionGate: 50, macro: 0, reversal: false }),
       directionWeights: freeze([0.25, 0.20, 0.05, 0.25, 0.25]), confirmationWeights: freeze([0.35, 0.35, 0.20, 0.10]),
       groups: freeze({ ma: freeze([0.20, 0.45, 0.35]), macd: freeze([0.25, 0.45, 0.30]), early: freeze([0.50, 0.30, 0.20]), obv: freeze([0.55, 0.25, 0.20]), trendAgreement: freeze([0.45, 0.35, 0.20]), acceleration: freeze([0.55, 0.45]), risk: freeze([0.40, 0.40, 0.20]), macdChange: freeze([0.50, 0.30, 0.20]) }),
@@ -325,4 +334,5 @@
       inverse: freeze({ underlyingConfirmationImpact: 14, underlyingConflictImpact: 16 }),
     }),
   });
+  if (typeof module !== "undefined" && module.exports) module.exports = engine.config;
 }(globalThis));

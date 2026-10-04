@@ -7,7 +7,7 @@
 (function exposeCanonicalTechnicalFeatures(root) {
   "use strict";
 
-  const SCHEMA_VERSION = "technical-features-v4-validated";
+  const SCHEMA_VERSION = "technical-features-v5-structure-momentum";
   const AVAILABILITY_REASONS = Object.freeze([
     "available",
     "source_unavailable",
@@ -17,6 +17,7 @@
     "not_applicable",
     "market_session_incomplete",
     "invalid_source_data",
+    "completion_metadata_unavailable",
   ]);
   const RVOL_THRESHOLDS = Object.freeze([
     [0.6, "very_low"], [0.8, "low"], [1.2, "normal"], [1.5, "elevated"], [2.0, "high"], [Infinity, "extreme"],
@@ -131,8 +132,13 @@
       if (!(low <= Math.min(open, close) && Math.max(open, close) <= high)) { reject("ohlc_envelope"); continue; }
       if (volume < 0) { reject("negative_volume"); continue; }
       const bar = { open, high, low, close, volume, timestamp: typeof timestamps[index] === "number" ? new Date(stamp).toISOString() : timestamps[index] };
+      const segment = source.bar_segments?.[index];
+      const perBarCompletion = source.completed?.[index] ?? segment?.completed;
+      if (typeof perBarCompletion === "boolean") bar.completed = perBarCompletion;
+      const end = source.bar_end_timestamps?.[index] ?? segment?.end;
+      if (timestampMillis(end) != null) bar.end_timestamp = end;
       const completed = source.last_bar_completed ?? source.bar_segments?.at(-1)?.completed;
-      if (index === length - 1 && typeof completed === "boolean") bar.completed = completed;
+      if (index === length - 1 && typeof completed === "boolean") bar.completed = typeof perBarCompletion === "boolean" ? perBarCompletion && completed : completed;
       bars.push(bar);
     }
     Object.defineProperty(bars, "validation", { value: { source_rows: length, rejected_rows: length - bars.length, reasons }, enumerable: false });
@@ -189,7 +195,7 @@
     // stays unavailable rather than being treated as a completed weekly signal.
     if (calendar?.completed_week_keys) {
       const completed = new Set(calendar.completed_week_keys);
-      return result.filter((bar) => completed.has(bar.week_key)).map(({ last_day, week_key, ...bar }) => bar);
+      return result.filter((bar) => completed.has(bar.week_key)).map(({ last_day, week_key, ...bar }) => ({ ...bar, completed: true, end_timestamp: bar.end_timestamp || null }));
     }
     // Legacy/offline inputs without a session calendar use an explicit
     // conservative fallback. A current Friday still needs its session close.
@@ -276,6 +282,9 @@
       available_bars: availableBars,
       source: source || (interval === "4h" ? "provider_native_4h" : interval === "1w" ? "completed_weekly_from_daily" : "market_ohlcv"),
       last_bar_timestamp: last(bars)?.timestamp ?? null,
+      last_bar_completed: last(bars)?.completed ?? null,
+      last_bar_end: last(bars)?.end_timestamp ?? null,
+      input_state: last(bars)?.completed === false ? "provisional" : last(bars)?.completed === true ? "completed" : "completion_unknown",
       calculation_timestamp: calculatedAt,
       bar_count: availableBars,
     };
@@ -976,10 +985,165 @@
     };
   }
 
+  function indicatorConfig() {
+    return root.DecisionEngine?.config?.indicators || (typeof require !== "undefined" ? require("./decision-engine/config.js").indicators : null);
+  }
+
+  function regressionEndpoint(values) {
+    if (!values.length || values.some((value) => !Number.isFinite(value))) return null;
+    const n = values.length, xMean = (n - 1) / 2, yMean = mean(values);
+    let numerator = 0, denominator = 0;
+    values.forEach((value, index) => { numerator += (index - xMean) * (value - yMean); denominator += (index - xMean) ** 2; });
+    return yMean + (denominator ? numerator / denominator : 0) * xMean;
+  }
+
+  function confirmedBy(bar, calculatedAt) {
+    const end = timestampMillis(bar.end_timestamp), asOf = timestampMillis(calculatedAt);
+    return bar.completed === true && end != null && asOf != null && end <= asOf;
+  }
+
+  // LazyBear's corrected BB multiplier and SMA(True Range) KC convention.
+  // The regression is evaluated at the observed window endpoint, never ahead.
+  function squeezeFeature(bars, interval, calculatedAt) {
+    const cfg = indicatorConfig().squeeze, n = cfg.length, required = n + cfg.regressionLength - 1;
+    const args = { indicator: "squeeze_momentum", interval, period: n, lookback: required, bars, calculatedAt };
+    if (bars.length < required) return unavailableFeature(args);
+    const closes = bars.map((bar) => bar.close), basis = smaSeries(closes, n);
+    const ranges = bars.map((bar, i) => i ? Math.max(bar.high - bar.low, Math.abs(bar.high - bars[i - 1].close), Math.abs(bar.low - bars[i - 1].close)) : bar.high - bar.low);
+    const rangeMeans = smaSeries(ranges, n), detrended = [], momentum = [], states = [];
+    let lastRelease = null, releaseCount = 0, lastChannels = null;
+    bars.forEach((bar, i) => {
+      if (i < n - 1) { detrended.push(null); momentum.push(null); states.push(null); return; }
+      const window = bars.slice(i - n + 1, i + 1), deviation = standardDeviation(closes.slice(i - n + 1, i + 1));
+      const upper = basis[i] + cfg.bbMultiplier * deviation, lower = basis[i] - cfg.bbMultiplier * deviation;
+      const kcUpper = basis[i] + cfg.kcMultiplier * rangeMeans[i], kcLower = basis[i] - cfg.kcMultiplier * rangeMeans[i];
+      const state = lower > kcLower && upper < kcUpper ? "squeeze_on" : lower < kcLower && upper > kcUpper ? "squeeze_off" : "squeeze_neither";
+      states.push(state);
+      detrended.push(bar.close - (basis[i] + (Math.max(...window.map((x) => x.high)) + Math.min(...window.map((x) => x.low))) / 2) / 2);
+      momentum.push(i >= required - 1 ? regressionEndpoint(detrended.slice(i - cfg.regressionLength + 1, i + 1)) : null);
+      if (state === "squeeze_off" && states[i - 1] === "squeeze_on" && confirmedBy(bar, calculatedAt)) {
+        lastRelease = { timestamp: bar.end_timestamp || bar.timestamp, bar_timestamp: bar.timestamp, age_bars: bars.length - 1 - i, confirmed: true }; releaseCount += 1;
+      }
+      lastChannels = { bb_upper: upper, bb_middle: basis[i], bb_lower: lower, kc_upper: kcUpper, kc_middle: basis[i], kc_lower: kcLower };
+    });
+    const value = last(momentum), change = (age) => Number.isFinite(valueAgo(momentum, age)) ? value - valueAgo(momentum, age) : null;
+    const delta = change(1);
+    return { ...metadata(args), value, momentum: value, change_1: delta, change_3: change(3), change_5: change(5),
+      state: last(states), momentum_state: value >= 0 ? delta == null ? "positive" : delta >= 0 ? "positive_increasing" : "positive_decreasing" : delta == null ? "negative" : delta < 0 ? "negative_decreasing" : "negative_increasing",
+      release: lastRelease, release_count: releaseCount, release_now: confirmedBy(last(bars), calculatedAt) && last(states) === "squeeze_off" && valueAgo(states, 1) === "squeeze_on",
+      parameters: { bb_length: n, bb_multiplier: cfg.bbMultiplier, kc_length: n, kc_multiplier: cfg.kcMultiplier, kc_range_method: "sma_true_range", regression_length: cfg.regressionLength }, ...lastChannels };
+  }
+
+  function bollingerRsiFeature(bars, interval, horizon, rsi, bands, calculatedAt) {
+    const cfg = indicatorConfig().bollingerRsi, bb = indicatorConfig().squeeze;
+    const args = { indicator: "bollinger_rsi", interval, period: cfg.periods[horizon], lookback: Math.max(bb.length, cfg.periods[horizon] + 1), bars, calculatedAt };
+    if (rsi.availability !== "available" || bands.availability !== "available") return unavailableFeature({ ...args, unavailableReason: "dependency_unavailable" });
+    const series = rsi.series || [], closes = bars.map((bar) => bar.close), basis = smaSeries(closes, bb.length);
+    let extension = null, event = null, state = "inside_bands", highExtension = 0, lowExtension = 0;
+    for (let i = bb.length - 1; i < bars.length; i += 1) {
+      if (!Number.isFinite(series[i])) continue;
+      const deviation = standardDeviation(closes.slice(i - bb.length + 1, i + 1));
+      const upper = basis[i] + bb.bbMultiplier * deviation, lower = basis[i] - bb.bbMultiplier * deviation;
+      const high = closes[i] > upper && series[i] >= cfg.high, low = closes[i] < lower && series[i] <= cfg.low;
+      state = high ? "upper_extension" : low ? "lower_extension" : "inside_bands";
+      if (high || low) extension = { side: high ? "upper" : "lower", index: i, timestamp: bars[i].end_timestamp || bars[i].timestamp, repaired: false };
+      else if (extension && !extension.repaired && i - extension.index <= cfg.repairBars && Number.isFinite(series[i - 1]) && closes[i] >= lower && closes[i] <= upper) {
+        const repair = extension.side === "lower" ? series[i] > series[i - 1] : series[i] < series[i - 1];
+        if (repair && confirmedBy(bars[i], calculatedAt)) {
+          event = { state: extension.side === "lower" ? "lower_repair" : "upper_repair", timestamp: bars[i].end_timestamp, bar_timestamp: bars[i].timestamp, age_bars: bars.length - 1 - i, sign: extension.side === "lower" ? 1 : -1, confirmed: true };
+          extension.repaired = true;
+        }
+      }
+    }
+    if (event && event.age_bars <= cfg.repairBars && state === "inside_bands") state = event.state;
+    else if (event?.age_bars > cfg.repairBars) event = null;
+    highExtension = Math.max(0, Math.min(100, (rsi.value - cfg.high) * 100 / (100 - cfg.high)));
+    lowExtension = Math.max(0, Math.min(100, (cfg.low - rsi.value) * 100 / cfg.low));
+    return { ...metadata(args), state, rsi: rsi.value, rsi_period: rsi.period, percent_b: bands.percent_b, upper_band: bands.upper_band, middle_band: bands.middle_band, lower_band: bands.lower_band,
+      high_extension: highExtension, low_extension: lowExtension, repair: event, last_extension: extension ? { side: extension.side, timestamp: extension.timestamp, age_bars: bars.length - 1 - extension.index } : null,
+      parameters: { bb_length: bb.length, bb_multiplier: bb.bbMultiplier, rsi_period: cfg.periods[horizon], low: cfg.low, high: cfg.high, repair_bars: cfg.repairBars } };
+  }
+
+  function supportResistanceFeature(bars, interval, supportingBars, supportingInterval, calculatedAt) {
+    const cfg = indicatorConfig().structure, pivot = cfg.pivotBars[interval];
+    const args = { indicator: "support_resistance", interval, period: pivot, lookback: pivot * 2 + 1, bars, calculatedAt };
+    const asOf = timestampMillis(calculatedAt);
+    const completed = bars.filter((bar) => bar.completed === true && timestampMillis(bar.end_timestamp) != null && (asOf == null || timestampMillis(bar.end_timestamp) <= asOf));
+    if (completed.length < Math.max(pivot * 2 + 1, cfg.atrPeriod)) return unavailableFeature({ ...args, unavailableReason: bars.length && !completed.length ? "completion_metadata_unavailable" : "insufficient_history" });
+    const atr = atrSeries(completed, cfg.atrPeriod), fast = emaSeries(completed.map((bar) => bar.volume), cfg.volumeFast), slow = emaSeries(completed.map((bar) => bar.volume), cfg.volumeSlow);
+    const levels = [], events = [];
+    const appendEvent = (level, kind, sign, bar, index, age, volumeOscillator, confirmationInterval) => {
+      const event = { kind, sign, level_id: level.id, reference_price: level.price, reference_interval: interval, reference_known_at: level.known_at,
+        confirmation_interval: confirmationInterval, age_interval: confirmationInterval, timestamp: bar.end_timestamp, bar_timestamp: bar.timestamp, age_bars: age, confirmed: true,
+        volume_oscillator: volumeOscillator, volume_confirmed: Number.isFinite(volumeOscillator) ? volumeOscillator > cfg.volumeThreshold : null };
+      events.push(event); if (events.length > cfg.maxEvents) events.shift();
+      level.event = event; return event;
+    };
+    const observe = (bar, previous, index, scale, oscillator, confirmationInterval, age) => {
+      if (!(scale > 0)) return;
+      for (const level of levels) {
+        if (!level.active || timestampMillis(level.known_at) > timestampMillis(bar.timestamp)) continue;
+        const direction = level.original_role === "reduce" ? 1 : -1, buffer = cfg.breakAtr * scale;
+        if (!level.break_at) {
+          if (Math.abs(bar.close - level.price) <= cfg.retestAtr * scale) level.touches += 1;
+          if (direction * (bar.close - level.price) > buffer && direction * (previous.close - level.price) <= buffer) {
+            level.break_at = bar.end_timestamp; level.break_index = index; level.break_interval = confirmationInterval;
+            const ev = appendEvent(level, direction > 0 ? "breakout_up" : "breakdown_down", direction, bar, index, age, oscillator, confirmationInterval);
+            level.role = direction > 0 ? "support" : "reduce"; level.qualified = ev.volume_confirmed === true;
+          }
+        } else if (timestampMillis(bar.timestamp) >= timestampMillis(level.break_at)) {
+          if (direction * (bar.close - level.price) < -buffer) {
+            appendEvent(level, "failed_break", -direction, bar, index, age, oscillator, confirmationInterval); level.active = false; level.qualified = false;
+          } else if (Math.abs((direction > 0 ? bar.low : bar.high) - level.price) <= cfg.retestAtr * scale && direction * (bar.close - level.price) > buffer && !level.retested) {
+            appendEvent(level, direction > 0 ? "retest_up" : "retest_down", direction, bar, index, age, oscillator, confirmationInterval);
+            level.retested = true; level.qualified = true; level.touches += 1;
+          }
+        }
+      }
+    };
+    for (let i = 0; i < completed.length; i += 1) {
+      const oscillator = slow[i] > 0 && Number.isFinite(fast[i]) ? (fast[i] / slow[i] - 1) * 100 : null;
+      if (i) observe(completed[i], completed[i - 1], i, atr[i], oscillator, interval, completed.length - 1 - i);
+      const j = i - pivot;
+      if (j < pivot || j < completed.length - cfg.lookback) continue;
+      const window = completed.slice(j - pivot, j + pivot + 1);
+      for (const role of ["support", "reduce"]) {
+        const key = role === "support" ? "low" : "high", value = completed[j][key];
+        const isPivot = window.every((bar, k) => k === pivot || (role === "support" ? value <= bar[key] : value >= bar[key])) && window.some((bar) => bar[key] !== value);
+        if (!isPivot) continue;
+        // Equal-price plateaus identify one reference, not a stack of evidence.
+        if (levels.some((level) => level.active && level.original_role === role && Math.abs(level.price - value) <= Math.max(1e-8, value * 1e-8))) continue;
+        levels.push({ id: `${interval}:${completed[j].timestamp}:${role}`, price: value, original_role: role, role, pivot_at: completed[j].timestamp,
+          known_at: completed[i].end_timestamp, interval, active: true, touches: 1, qualified: false, break_at: null, retested: false });
+        if (levels.length > cfg.maxLevels) levels.shift();
+      }
+    }
+    // Only completed supporting bars after the last completed primary bar may
+    // confirm an earlier event against a reference already known at bar start.
+    const primaryEnd = timestampMillis(last(completed).end_timestamp);
+    const early = supportingBars.filter((bar) => bar.completed === true && timestampMillis(bar.timestamp) >= primaryEnd && timestampMillis(bar.end_timestamp) != null && (asOf == null || timestampMillis(bar.end_timestamp) <= asOf));
+    const supportingFast = emaSeries(supportingBars.map((bar) => bar.volume), cfg.volumeFast), supportingSlow = emaSeries(supportingBars.map((bar) => bar.volume), cfg.volumeSlow);
+    for (let i = 0; i < early.length; i += 1) {
+      const index = supportingBars.indexOf(early[i]), previous = supportingBars[index - 1];
+      if (!previous) continue;
+      const oscillator = supportingSlow[index] > 0 && Number.isFinite(supportingFast[index]) ? (supportingFast[index] / supportingSlow[index] - 1) * 100 : null;
+      observe(early[i], previous, completed.length + i, last(atr), oscillator, supportingInterval, early.length - 1 - i);
+    }
+    const compactLevel = (level) => ({ id: level.id, price: level.price, role: level.role, original_role: level.original_role, pivot_at: level.pivot_at, known_at: level.known_at, interval,
+      active: level.active, touches: level.touches, qualified: level.break_at ? level.qualified : level.touches >= cfg.minimumTouches, break_at: level.break_at, retested: level.retested,
+      last_event: level.event?.age_bars <= cfg.maxAge ? level.event : null });
+    const availableLevels = levels.filter((level) => level.active).map(compactLevel);
+    const activeEvents = events.filter((event) => event.age_bars <= cfg.maxAge && (event.kind === "failed_break" || availableLevels.some((level) => level.id === event.level_id)));
+    return { ...metadata(args), state: activeEvents.at(-1)?.kind || "structure_ready", parameters: { pivot_left: pivot, pivot_right: pivot, break_atr: cfg.breakAtr, retest_atr: cfg.retestAtr, volume_fast: cfg.volumeFast, volume_slow: cfg.volumeSlow, volume_threshold: cfg.volumeThreshold, event_max_age: cfg.maxAge },
+      confirmed_bars: completed.length, reference_interval: interval, supporting_interval: supportingInterval, levels: availableLevels,
+      support: [...availableLevels].reverse().find((level) => level.role === "support") || null, resistance: [...availableLevels].reverse().find((level) => level.role === "reduce") || null,
+      events: activeEvents, last_event: activeEvents.at(-1) || null, volume_oscillator: last(slow) > 0 && Number.isFinite(last(fast)) ? (last(fast) / last(slow) - 1) * 100 : null };
+  }
+
   function horizonFeatureSet(horizon, sources, currentPrice, relativeStrength, fibonacci, calculatedAt) {
     const config = HORIZON_CONFIG[horizon];
     const indicators = { ema: {}, sma: {}, rsi: {}, macd: {}, adx: {}, atr: {}, kdj: {}, bollinger: {}, obv: {} };
-    const use = (interval) => sources[interval] || [];
+    const use = (interval) => horizon === "long" && interval === "1d" && indicatorConfig().stability.completedLongDaily ? (sources[interval] || []).filter((bar) => bar.completed !== false) : sources[interval] || [];
     Object.entries(config.ema || {}).forEach(([interval, periods]) => periods.forEach((period) => { indicators.ema[`ema_${period}_${interval}`] = movingAverageFeature(use(interval), interval, period, "ema", currentPrice, calculatedAt); }));
     Object.entries(config.sma || {}).forEach(([interval, periods]) => periods.forEach((period) => { indicators.sma[`sma_${period}_${interval}`] = movingAverageFeature(use(interval), interval, period, "sma", currentPrice, calculatedAt); }));
     Object.entries(config.rsi || {}).forEach(([interval, periods]) => periods.forEach((period) => { indicators.rsi[`rsi_${period}_${interval}`] = rsiFeature(use(interval), interval, period, calculatedAt); }));
@@ -989,17 +1153,25 @@
     Object.entries(config.kdj || {}).forEach(([interval, period]) => { indicators.kdj[`kdj_${period}_${interval}`] = kdjFeature(use(interval), interval, period, calculatedAt); });
     Object.entries(config.bollinger || {}).forEach(([interval, params]) => { indicators.bollinger[`bollinger_${interval}`] = bollingerFeature(use(interval), interval, params, calculatedAt); });
     Object.entries(config.obv || {}).forEach(([interval, lookback]) => { indicators.obv[`obv_${interval}`] = obvFeature(use(interval), interval, lookback, calculatedAt); });
+    const primaryInterval = config.primary_intervals[0], primaryBars = use(primaryInterval);
+    const supportingInterval = horizon === "short" ? "1h" : horizon === "medium" ? "4h" : "1d";
+    const squeeze = squeezeFeature(primaryBars, primaryInterval, calculatedAt);
+    const comboPeriod = indicatorConfig().bollingerRsi.periods[horizon];
+    const combo = bollingerRsiFeature(primaryBars, primaryInterval, horizon, indicators.rsi[`rsi_${comboPeriod}_${primaryInterval}`] || {}, indicators.bollinger[`bollinger_${primaryInterval}`] || {}, calculatedAt);
+    const structure = supportResistanceFeature(primaryBars, primaryInterval, use(supportingInterval), supportingInterval, calculatedAt);
     const allMa = [...Object.values(indicators.ema), ...Object.values(indicators.sma)];
     const preferredMa = allMa.filter((feature) => feature.interval === (horizon === "short" ? "4h" : "1d"));
     const missing = Object.entries(indicators).filter(([, group]) => Object.keys(group).length && Object.values(group).every((feature) => feature.availability === "unavailable")).map(([key]) => key);
     return {
       horizon,
       horizon_label: config.label,
+      indicator_version: indicatorConfig().version,
+      trend_reference_price: horizon === "long" ? last(use("1d"))?.close ?? currentPrice : currentPrice,
       primary_intervals: config.primary_intervals,
       supporting_intervals: config.supporting_intervals,
-      trend: { moving_averages: { ...indicators.ema, ...indicators.sma }, ma_structure: movingAverageStructure(preferredMa), adx: indicators.adx },
-      momentum: { rsi: indicators.rsi, macd: indicators.macd, kdj: indicators.kdj },
-      volatility: { atr: indicators.atr, bollinger: indicators.bollinger },
+      trend: { moving_averages: { ...indicators.ema, ...indicators.sma }, ma_structure: movingAverageStructure(preferredMa), adx: indicators.adx, support_resistance: structure },
+      momentum: { rsi: indicators.rsi, macd: indicators.macd, kdj: indicators.kdj, squeeze },
+      volatility: { atr: indicators.atr, bollinger: indicators.bollinger, bollinger_rsi: combo },
       participation: { obv: indicators.obv },
       relative_strength: relativeStrengthFeatures(relativeStrength, horizon),
       fibonacci: fibonacci[horizon],
@@ -1037,11 +1209,13 @@
         available,
         unavailable_reason: unavailableReason,
         lookback: interval === "1d" ? (history.daily_history_metadata?.lookback || history.lookback || null) : interval === "1h" ? (hourlySource.lookback || null) : interval === "4h" ? (fourHourSource.lookback || null) : null,
-        requested_history: interval === "1h" ? (hourlySource.lookback || null) : interval === "1d" ? (history.daily_history_metadata?.lookback || history.lookback || null) : interval === "4h" ? (fourHourSource.lookback || null) : null,
+        requested_history: upstream.requested_history || (interval === "1h" ? (hourlySource.lookback || null) : interval === "1d" ? (history.daily_history_metadata?.lookback || history.lookback || null) : interval === "4h" ? (fourHourSource.lookback || null) : null),
         first_bar_timestamp: bars[0]?.timestamp ?? null,
         last_bar_timestamp: last(bars)?.timestamp ?? null,
         as_of: upstream.as_of || history.as_of || calculatedAt,
-        last_bar_completed: interval === "1w" ? true : upstream.last_bar_completed ?? upstream.bar_segments?.at(-1)?.completed ?? null,
+        last_bar_completed: available ? last(bars)?.completed ?? upstream.last_bar_completed ?? upstream.bar_segments?.at(-1)?.completed ?? null : null,
+        last_bar_end: last(bars)?.end_timestamp ?? null,
+        provider_as_of: upstream.provider_as_of ?? null,
         last_bar_duration_minutes: upstream.last_bar_duration_minutes ?? (interval === "4h" ? fourHourSource.bar_segments?.at(-1)?.duration_minutes ?? null : null),
         active_bar_usage: upstream.active_bar_usage || "legacy_completion_metadata_unavailable",
         adjustment_basis: upstream.adjustment_basis || "unverified",
@@ -1052,8 +1226,8 @@
         weekly_completion: interval === "1w" ? { source: history.session_calendar?.source || "legacy_calendar_unavailable", excluded_weeks: history.session_calendar?.excluded_weeks ?? null } : null,
         source: interval === "1w" ? "completed_weekly_from_daily" : upstream.source || "unverified_provider",
         bar_method: interval === "4h" ? (fourHourSource.bar_method || null) : null,
-        regular_hours_only: interval === "4h" ? Boolean(fourHourSource.regular_hours_only) : null,
-        timezone: interval === "4h" ? (fourHourSource.timezone || null) : null,
+        regular_hours_only: upstream.regular_hours_only ?? null,
+        timezone: upstream.timezone || null,
         session_validation: interval === "4h" ? (fourHourSource.session_validation || null) : null,
       };
     };
@@ -1079,7 +1253,7 @@
     };
   }
 
-  const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, _test: { smaSeries, normalizeBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, atrFeature, kdjFeature, macdFeature, adxFeature, bollingerFeature, obvFeature, pricePositionFeatures, canonicalVolumeFeature, canonicalFibonacciHorizon, canonicalFibonacciStructure } };
+  const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, _test: { squeezeFeature, bollingerRsiFeature, supportResistanceFeature, regressionEndpoint, smaSeries, normalizeBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, atrFeature, kdjFeature, macdFeature, adxFeature, bollingerFeature, obvFeature, pricePositionFeatures, canonicalVolumeFeature, canonicalFibonacciHorizon, canonicalFibonacciStructure } };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.CanonicalTechnicalFeatures = api;
 }(typeof globalThis !== "undefined" ? globalThis : window));

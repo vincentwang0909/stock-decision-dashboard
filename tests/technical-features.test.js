@@ -329,7 +329,7 @@ assert(mainSource.includes("VIX"));
 assert(mainSource.includes("Fear & Greed"));
 assert(mainSource.includes("US 10Y Yield"));
 assert(mainSource.includes("Earnings"));
-assert(serverSource.includes('TECHNICAL_INTRADAY_HISTORY_PERIOD = os.environ.get("TECHNICAL_INTRADAY_HISTORY_PERIOD", "120d")'));
+assert(serverSource.includes('TECHNICAL_INTRADAY_HISTORY_PERIOD = os.environ.get("TECHNICAL_INTRADAY_HISTORY_PERIOD", "365d")'));
 assert(serverSource.includes("interval=interval, limit=6000"));
 assert(serverSource.includes('interval="4h"'));
 assert(serverSource.includes('TECHNICAL_FOUR_HOUR_BAR_METHOD = "provider_native_v1"'));

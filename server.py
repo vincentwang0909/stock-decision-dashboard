@@ -85,7 +85,7 @@ MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TIC
 # be requested with an environment override, but `max` is too slow/unreliable
 # for a dashboard quote request and can make every row appear unavailable.
 TECHNICAL_DAILY_HISTORY_PERIOD = os.environ.get("TECHNICAL_DAILY_HISTORY_PERIOD", "10y")
-TECHNICAL_INTRADAY_HISTORY_PERIOD = os.environ.get("TECHNICAL_INTRADAY_HISTORY_PERIOD", "120d")
+TECHNICAL_INTRADAY_HISTORY_PERIOD = os.environ.get("TECHNICAL_INTRADAY_HISTORY_PERIOD", "365d")
 TECHNICAL_FOUR_HOUR_HISTORY_PERIOD = os.environ.get("TECHNICAL_FOUR_HOUR_HISTORY_PERIOD", "365d")
 TECHNICAL_DAILY_MAX_BARS = int(os.environ.get("TECHNICAL_DAILY_MAX_BARS", "2800"))
 TECHNICAL_INTRADAY_MAX_BARS = int(os.environ.get("TECHNICAL_INTRADAY_MAX_BARS", "6000"))
@@ -3858,6 +3858,30 @@ def load_yfinance_intraday_history_frame(instrument, symbol, period="60d", inter
     return pd.DataFrame()
 
 
+def load_incremental_hourly_history_frame(instrument, symbol):
+    """Extend genuine 1H history with checked overlap; never splice a rebase."""
+    cached = read_market_cache(symbol)
+    history = (((cached or {}).get("quote") or {}).get("history") or {}).get("intervals", {}).get("1h", {})
+    if history.get("lookback") == TECHNICAL_INTRADAY_HISTORY_PERIOD and history.get("source") == "yfinance" and history.get("adjustment_basis") == "provider_ohlc_auto_adjust_false":
+        try:
+            old = pd.DataFrame({col: history[key] for col, key in (("Open", "opens"), ("High", "highs"), ("Low", "lows"), ("Close", "closes"), ("Volume", "volumes"))}, index=pd.to_datetime(history["timestamps"], utc=True))
+            recent = load_yfinance_intraday_history_frame(instrument, symbol, period="1mo", interval="1h")
+            recent, audit = validate_frame(recent)
+            recent.index = recent.index.tz_convert("UTC")
+            overlap = old.index.intersection(recent.index)
+            completed = overlap[overlap < old.index[-1]]
+            if len(completed) and not audit["rejected_rows"]:
+                changed = any(abs(float(old.loc[stamp, col]) - float(recent.loc[stamp, col])) > max(1e-7, abs(float(old.loc[stamp, col])) * 1e-7) for stamp in completed for col in ("Open", "High", "Low", "Close", "Volume"))
+                if not changed:
+                    merged = pd.concat([old.loc[old.index < recent.index[0]], recent]).tail(TECHNICAL_INTRADAY_MAX_BARS)
+                    merged.index = merged.index.tz_convert(TECHNICAL_FOUR_HOUR_TIMEZONE)
+                    merged.attrs.update({"source": "yfinance", "adjustment_basis": "provider_ohlc_auto_adjust_false", "request": {"interval": "1h", "period": "1mo", "method": "incremental_validated_overlap", "seed_period": TECHNICAL_INTRADAY_HISTORY_PERIOD, "prepost": False}})
+                    return merged
+        except Exception:
+            pass
+    return load_yfinance_intraday_history_frame(instrument, symbol, period=TECHNICAL_INTRADAY_HISTORY_PERIOD, interval="1h")
+
+
 def load_yfinance_native_four_hour_history_frame(instrument, period=TECHNICAL_FOUR_HOUR_HISTORY_PERIOD):
     """Fetch only the provider-native 4H regular-session series.
 
@@ -4066,7 +4090,7 @@ def load_technical_intraday_history_frames(symbol):
         return generation, function(*args)
     try:
         hourly_future = INTERVAL_TASKS.submit((symbol, "1h"), tagged,
-            load_yfinance_intraday_history_frame, provider_ticker(symbol), symbol, TECHNICAL_INTRADAY_HISTORY_PERIOD, "1h")
+            load_incremental_hourly_history_frame, provider_ticker(symbol), symbol)
         four_hour_future = INTERVAL_TASKS.submit((symbol, "4h"), tagged,
             load_incremental_native_four_hour_history_frame, provider_ticker(symbol), symbol)
         deadline = time.monotonic() + TECHNICAL_INTRADAY_FETCH_TIMEOUT_SECONDS
@@ -4091,6 +4115,19 @@ def load_technical_intraday_history_frames(symbol):
 def _history_payload(frame, timestamp_format="%Y-%m-%d"):
     clean, audit = validate_frame(frame)
     intraday = "T" in timestamp_format
+    request_interval = getattr(frame, "attrs", {}).get("request", {}).get("interval") if frame is not None else None
+    if intraday and request_interval == "1h" and len(clean):
+        keep = []
+        for entry in clean.index:
+            stamp = entry.to_pydatetime()
+            schedule = exchange_session(stamp.date())
+            valid = bool(stamp.tzinfo and schedule and schedule["open"] <= stamp < schedule["close"] and (stamp - schedule["open"]).total_seconds() % 3600 == 0)
+            keep.append(valid)
+        rejected = len(keep) - sum(keep)
+        if rejected:
+            audit["rejected_rows"] += rejected
+            audit["reasons"]["invalid_hourly_session_bar"] = rejected
+            clean = clean.loc[keep].copy()
     limit = TECHNICAL_INTRADAY_MAX_BARS if intraday else TECHNICAL_DAILY_MAX_BARS
     clean = clean.tail(limit)
     as_of = datetime.now(timezone.utc)
@@ -4109,7 +4146,24 @@ def _history_payload(frame, timestamp_format="%Y-%m-%d"):
         "adjustment_basis": attrs.get("adjustment_basis", "unverified"), "currency": attrs.get("currency"),
         "request": attrs.get("request", {}), "first_bar_timestamp": str(clean.index[0]) if len(clean) else None,
         "last_bar_timestamp": str(clean.index[-1]) if len(clean) else None, "retention_limit_bars": limit,
+        "requested_history": attrs.get("request", {}).get("seed_period") or attrs.get("request", {}).get("period"),
+        "timezone": "America/New_York", "regular_hours_only": bool(intraday),
     }
+    result["completed"] = []
+    result["bar_end_timestamps"] = []
+    interval = attrs.get("request", {}).get("interval")
+    for entry in clean.index:
+        stamp = entry.to_pydatetime()
+        schedule = exchange_session(stamp.date())
+        end = None
+        if schedule and intraday and stamp.tzinfo and interval in {"1h", "4h"}:
+            if schedule["open"] <= stamp < schedule["close"]:
+                end = min(stamp + timedelta(hours=1 if interval == "1h" else 4), schedule["close"])
+        elif schedule and not intraday:
+            end = schedule["close"]
+        result["bar_end_timestamps"].append(end.isoformat() if end else None)
+        result["completed"].append(end <= as_of if end else None)
+    result["provider_as_of"] = attrs.get("provider_as_of")
     if not intraday and len(clean):
         result["session_calendar"] = completed_week_metadata(clean, as_of)
     if len(clean):
@@ -6374,8 +6428,8 @@ def api_health():
         "background_market_refresh": background_refresh,
         "cwd": os.getcwd(),
         "python_version": sys.version,
-        "feature_version": "technical-features-v4-validated",
-        "model_version": "decision-engine-v2.1-validated",
+        "feature_version": "technical-features-v5-structure-momentum",
+        "model_version": "decision-engine-v2.1-indicators-v1",
         "service_version": "2026-10-02-service-recovery",
         "resource_metrics_enabled": RESOURCE_METRICS_ENABLED,
         **({"resources": resource_snapshot()} if RESOURCE_METRICS_ENABLED else {}),

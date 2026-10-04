@@ -160,7 +160,7 @@ assert.doesNotMatch(main, /decision\.confidence}%/);
 assert.match(html, /profile-definitions\.js/);
 assert.match(html, /etf-profile\.js/);
 assert.match(html, /decision-presentation\.js/);
-assert.match(html, /20261001-final-model/);
+assert.match(html, /20261004-indicators/);
 for (const token of ["--action-strong-buy", "--action-buy", "--action-accumulate", "--action-hold", "--action-trim", "--action-sell", "--action-avoid", "--space-xs", "--radius-lg"]) assert.match(css, new RegExp(token), `UI token is missing: ${token}`);
 assert.match(css, /price-map-label\.top\.lane-1/);
 assert.match(css, /price-map-label\.bottom\.lane-2/);
@@ -171,3 +171,8 @@ assert.match(css, /market-compact-grid/);
 assert.doesNotMatch(presentation.priceMapModel.toString(), /fetch\(/, "presentation does not add API requests");
 
 console.log("dashboard-regression.test.js: dashboard data and score-removal assertions passed");
+
+assert.match(main, /technicalCard\("Bollinger＋RSI"/);
+assert.match(main, /technicalCard\("Squeeze Momentum"/);
+assert.equal(main.includes('technicalCard("RSI",'), false);
+assert.equal(main.includes('technicalCard("Bollinger",'), false);

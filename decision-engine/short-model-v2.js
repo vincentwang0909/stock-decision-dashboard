@@ -67,15 +67,16 @@
     const rvol = finite(technicalFeatures.volume?.relative_volume?.displayed_rvol ?? technicalFeatures.volume?.relative_volume?.rvol_20d);
     const reliability = rvol == null ? s.rvolMissingReliability : clamp(s.rvolReliabilityBase + (rvol - s.rvolReliabilityOrigin) * s.rvolReliabilityScale, s.rvolReliabilityFloor, 1);
     const adx = technical.directionComponents?.adx?.available ? technical.directionComponents.adx.score : null;
-    const acceleration = blend([mc.impulse, mc.change], g.acceleration);
-    const momentum = blend([mc.level, mc.impulse, mc.change], g.macd);
+    const acceleration = engine.technical.mixSqueeze(blend([mc.impulse, mc.change], g.acceleration), set.momentum?.squeeze, atr, "short", "acceleration");
+    const momentum = engine.technical.mixSqueeze(blend([mc.level, mc.impulse, mc.change], g.macd), set.momentum?.squeeze, atr, "short");
     const early = blend([earlyMa, ec.impulse, ec.change], g.early);
     const direction = clamp(blend([ma, momentum, adx, early, rs], config.directionWeights), -100, 100);
     const rsi = finite(raw.rsi?.value), percentB = finite(raw.bands?.percent_b);
     const stretchHigh = Math.max(rsi == null ? 0 : clamp((rsi - s.oscillatorHigh) / (100 - s.oscillatorHigh)), percentB == null ? 0 : clamp((percentB - s.stretchBollingerHigh) * 100));
     const stretchLow = Math.max(rsi == null ? 0 : clamp((s.oscillatorLow - rsi) / s.oscillatorLow), percentB == null ? 0 : clamp((s.stretchBollingerLow - percentB) * 100));
-    const high = clamp(Math.max(stretchHigh, rsi == null ? 0 : (rsi - s.stretchRsiHigh) * 100 / (100 - s.stretchRsiHigh)));
-    const low = clamp(Math.max(stretchLow, rsi == null ? 0 : (s.stretchRsiLow - rsi) * 100 / s.stretchRsiLow));
+    const combo = engine.config.indicators.integration.enabled && available(set.volatility?.bollinger_rsi) ? set.volatility.bollinger_rsi : {};
+    const high = clamp(Math.max(finite(combo.high_extension) || 0, stretchHigh, rsi == null ? 0 : (rsi - s.stretchRsiHigh) * 100 / (100 - s.stretchRsiHigh)));
+    const low = clamp(Math.max(finite(combo.low_extension) || 0, stretchLow, rsi == null ? 0 : (s.stretchRsiLow - rsi) * 100 / s.stretchRsiLow));
     const exhaustion = low * Math.max(0, acceleration) / 100 - high * Math.max(0, -acceleration) / 100;
     const riskParts = technical.riskComponents || {};
     const technicalRisk = clamp(clamp((riskParts.volatility || 0) * g.risk[0] + (riskParts.extension || 0) * g.risk[1] + (riskParts.eventShock || 0) * g.risk[2]) * clamp(profile.effectiveModifiers?.riskSensitivity || 1, s.profileRiskFloor, s.profileRiskCeiling));
@@ -83,11 +84,11 @@
     const event = days != null && days >= 0 && days <= s.eventDays ? days <= s.immediateEventDays ? s.immediateEventRisk : s.nearEventRisk : 0;
     const confirmFor = (sign) => {
       const agree = (value) => Number.isFinite(value) ? clamp(50 + sign * value * 0.5) : null;
-      const trendAgreement = blend([agree(ma), agree(momentum), agree(adx)], g.trendAgreement);
+      const trendAgreement = engine.technical.eventConfirmation(blend([agree(ma), agree(momentum), agree(adx)], g.trendAgreement), set.trend?.support_resistance, sign);
       return clamp(blend([agree(rs), obvTrend == null ? null : clamp(50 + sign * participation * 0.5 * reliability), agree(early), trendAgreement], config.confirmationWeights));
     };
     const pivotLow = finite(raw.fibonacci?.swing_low);
-    const structuralBreak = !!(["available", "stale_swing"].includes(raw.fibonacci?.status) && atr > 0 && pivotLow > 0 && price < pivotLow - s.breakBuffer * atr && technical.directionScore <= s.baselineBreakDirection && technical.confirmationScore >= s.baselineBreakConfirmation);
+    const structuralBreak = !!(["available", "stale_swing"].includes(raw.fibonacci?.status) && atr > 0 && pivotLow > 0 && price < pivotLow - s.breakBuffer * atr && (technical.baselineDirectionScore ?? technical.directionScore) <= s.baselineBreakDirection && (technical.baselineConfirmationScore ?? technical.confirmationScore) >= s.baselineBreakConfirmation);
     const original = engine.execution.buildLandscape({ price, horizon: "short", technical: { ...technical, useStructuralBreakdown: true, structuralBreakdown: { confirmed: structuralBreak } }, context: {
       risk: technical.riskScore, exhaustionScore: 0, marketModifiers: engine.market.forHorizon(market, "short", profile), profile, widthTransformEnabled: false,
       pairValidator: (pair) => validPlanningZone(expandedZone(pair, atr)),
@@ -103,7 +104,7 @@
     }
     return { price, atr, direction, upConfirmation: confirmFor(1), downConfirmation: confirmFor(-1), technicalRisk, risk: clamp(technicalRisk + event), exhaustion,
       event, days, quality: technical.dataQuality?.score || 0, pivotLow, structuralBreak,
-      baselineDirection: technical.directionScore, baselineConfirmation: technical.confirmationScore, zone,
+      baselineDirection: technical.baselineDirectionScore ?? technical.directionScore, baselineConfirmation: technical.baselineConfirmationScore ?? technical.confirmationScore, zone,
       evidence: { ma, momentum, adx, early, relativeStrength: rs, participation, acceleration, macd: mc, rsi, percentB, rvol, volatility: riskParts.volatility || 0, extension: riskParts.extension || 0, eventShock: riskParts.eventShock || 0 },
       missingEvidence: [ma == null && "4h_ma", !available(set.momentum?.macd?.macd_4h) && "4h_macd", atr == null && "4h_atr", obvTrend == null && "4h_obv", rs == null && "relative_strength"].filter(Boolean),
       regime: market.regime || "unavailable", landscapeQuality: original.landscapeQuality,
@@ -161,8 +162,11 @@
     const stability = technical.signalPersistence?.score || 0, weights = engine.config.confidence.weights;
     const components = { signalAgreement: round(agreement), actionStrength: round(strength), decisionStability: round(stability), dataQuality: result.quality };
     const base = agreement * weights.agreement + strength * weights.actionStrength + stability * weights.stability + result.quality * weights.dataQuality;
-    const penalties = { event: result.event * s.eventConfidencePenalty, excessRisk: Math.max(0, result.risk - s.excessRiskStart) * s.excessRiskPenalty };
-    const confidence = Math.round(clamp(base - penalties.event - penalties.excessRisk));
+    const penalties = { event: result.event * s.eventConfidencePenalty, excessRisk: Math.max(0, result.risk - s.excessRiskStart) * s.excessRiskPenalty, landscape: result.landscapeQuality?.penalty || 0 };
+    const tension = engine.config.indicators.confidence;
+    penalties.priceTension = ["NEAR_OPPORTUNITY_ZONE", "NEUTRAL_ZONE", "NEAR_REDUCE_ZONE"].includes(result.state) && Math.abs(result.direction) >= tension.tensionStart
+      ? engine.config.confidence.penalties.priceConflict * clamp((Math.abs(result.direction) - tension.tensionOrigin) / tension.tensionScale, tension.minimumTensionShare, 1) : 0;
+    const confidence = Math.round(clamp(base - penalties.event - penalties.excessRisk - penalties.landscape - penalties.priceTension));
     let ranges = result.zone.valid && result.state !== "INVALID_LANDSCAPE" ? { opportunityRange: result.zone.opportunityRange, reduceRange: result.zone.reduceRange, invalidation: result.zone.invalidation, currentPrice: round(price) } : { opportunityRange: null, reduceRange: null, invalidation: null, currentPrice: round(price) };
     if (result.structuralBreak) {
       const exit = { low: round(price - result.atr * s.exitHalfWidthAtr), high: round(price + result.atr * s.exitHalfWidthAtr) };
@@ -179,6 +183,11 @@
     if (evidence.participation > threshold) supporting.push({ code: "obv_and_volume_participation_are_confirming_accumulation", text: "OBV and volume participation are confirming accumulation." });
     if (evidence.ma < -threshold) limiting.push({ code: "primary_moving_average_structure_remains_bearish", text: "Primary moving-average structure remains bearish." });
     if (evidence.relativeStrength < -threshold) limiting.push({ code: "relative_strength_is_lagging_its_relevant_benchmarks", text: "Relative Strength is lagging its relevant benchmarks." });
+    const signalSet = technicalFeatures?.horizons?.short || {};
+    const sq = signalSet.momentum?.squeeze, structureEvent = signalSet.trend?.support_resistance?.last_event;
+    if (available(sq) && sq.momentum > 0 && sq.change_3 > 0) supporting.push({ code: "squeeze_momentum_supports_upside", text: "Squeeze momentum is positive and strengthening." });
+    if (available(sq) && sq.momentum < 0 && sq.change_3 < 0) limiting.push({ code: "squeeze_momentum_supports_downside", text: "Squeeze momentum is negative and strengthening." });
+    if (structureEvent?.confirmed) (structureEvent.sign > 0 ? supporting : limiting).push({ code: structureEvent.sign > 0 ? "confirmed_structure_supports_upside" : "confirmed_structure_limits_upside", text: structureEvent.sign > 0 ? "An already-known structure has a confirmed upward event." : "An already-known structure has a confirmed downward or failed event." });
     const actionFamily = result.structuralBreak ? "defensive" : positive(result.action) ? "opportunity" : negative(result.action) ? "reduce" : result.action === "avoid" ? "unavailable" : "neutral";
     const materialChangeReasons = [...(technical.materialSignals || []).filter((code) => code !== "major_support_breakdown"), ...(result.structuralBreak ? ["major_support_breakdown"] : []), ...(result.regime === "shock" ? ["market_shock"] : [])];
     return {
@@ -191,7 +200,7 @@
         priceState: result.state, actionFamily, priceStateFamily: engine.execution.actionFamilyForState(result.state), candidateAction: result.action, finalAction: result.action, decisionMode: result.mode, rewardRisk: round(result.rewardRisk), roomAtr: round(result.room), widthTransform: result.zone.widthTransform,
         confidenceComponents: { score: confidence, action: result.action, components, base: round(base), penalties, weights, profileConfidenceWeight: 0 },
         priceLandscapeInputs: { structureModel: "category_confluence_reused_stateless", selectedSupport: result.zone.support || null, selectedReduce: result.zone.resistance || null, neutralBuffer: round(result.zone.gap), candidateCounts: result.zone.counts || {}, policyStructure: engine.config.shortV2.policy.structure },
-        dataQuality: technical.dataQuality, missingEvidence: result.missingEvidence, landscapeQuality: result.landscapeQuality, guardrails: result.action === "avoid" ? [result.why] : [], materialChangeReasons, stability: { score: stability, finalAction: result.action, source: "canonical_signal_persistence", identity: true },
+        indicatorAvailability: { squeeze: technicalFeatures?.horizons?.short?.momentum?.squeeze?.availability || "unavailable", structure: technicalFeatures?.horizons?.short?.trend?.support_resistance?.availability || "unavailable", bollingerRsi: technicalFeatures?.horizons?.short?.volatility?.bollinger_rsi?.availability || "unavailable" }, dataQuality: technical.dataQuality, missingEvidence: result.missingEvidence, landscapeQuality: result.landscapeQuality, guardrails: result.action === "avoid" ? [result.why] : [], materialChangeReasons, stability: { score: stability, finalAction: result.action, source: "canonical_signal_persistence", identity: true },
       },
     };
   }

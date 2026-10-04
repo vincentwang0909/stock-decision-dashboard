@@ -38,6 +38,13 @@ data/watchlist.db
 data/cache/
 ```
 
+The three-indicator integration, horizon weights, causal completion rules,
+Price State constraints and replay results are documented in
+[the current indicator model](docs/indicator-model-2026-10-04.md). New Squeeze,
+break/retest and Bollinger+RSI features are shared by the UI and EOD engine.
+The separate expansion of structure-based price-zone candidates is disabled
+after its offline return-retention check failed.
+
 ## Render Deployment
 
 1. Push code to GitHub.

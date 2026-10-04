@@ -21,6 +21,38 @@
     return clamp((ranked[0] || 0) * weights.primary + (ranked[1] || 0) * weights.secondary + (ranked[2] || 0) * weights.tertiary, 0, 100);
   }
 
+  function squeezeEvidence(feature, atr, mode = "level") {
+    const cfg = engine.config.indicators;
+    if (!cfg.integration.enabled || !availability(feature) || !(atr > 0)) return null;
+    const change = finite(feature.change_3);
+    if (mode === "acceleration") return change == null ? null : signedTanh(change / atr, cfg.squeeze.changeScale);
+    const value = finite(feature.momentum);
+    if (value == null || change == null) return null;
+    return signedTanh(value / atr, cfg.squeeze.levelScale) * cfg.squeeze.levelShare + signedTanh(change / atr, cfg.squeeze.changeScale) * (1 - cfg.squeeze.levelShare);
+  }
+
+  function mixSqueeze(base, feature, atr, horizon, mode = "level") {
+    const extra = squeezeEvidence(feature, atr, mode);
+    if (!Number.isFinite(base) || extra == null) return base;
+    const share = mode === "acceleration" ? engine.config.indicators.integration.accelerationShare : engine.config.indicators.integration.squeezeShare[horizon];
+    return base * (1 - share) + extra * share;
+  }
+
+  function eventConfirmation(base, structure, direction) {
+    const cfg = engine.config.indicators, event = structure?.last_event;
+    if (!cfg.integration.enabled || !cfg.integration.structureEnabled || !availability(structure) || !event?.confirmed || !Number.isFinite(event.age_bars) || ![-1, 1].includes(event.sign) || typeof event.kind !== "string" || event.age_bars < 0 || event.age_bars > cfg.structure.maxAge) return base;
+    const strength = event.kind.includes("retest") ? cfg.structure.retestEvidence : cfg.structure.breakEvidence;
+    const evidence = event.sign * strength * (1 - event.age_bars / (cfg.structure.maxAge + 1));
+    return base * (1 - cfg.structure.confirmationShare) + clamp(50 + direction * evidence / 2, 0, 100) * cfg.structure.confirmationShare;
+  }
+
+  function compositeConfirmation(base, feature, direction) {
+    const cfg = engine.config.indicators, event = feature?.repair;
+    if (!cfg.integration.enabled || !base.available || !availability(feature) || !event?.confirmed || !Number.isFinite(event.age_bars) || ![-1, 1].includes(event.sign) || event.age_bars < 0 || event.age_bars > cfg.bollingerRsi.repairBars) return base;
+    const confirmation = direction === 0 ? 50 : sign(direction) === event.sign ? 100 : 0;
+    return { ...base, confirmation: base.confirmation * (1 - cfg.bollingerRsi.confirmationShare) + confirmation * cfg.bollingerRsi.confirmationShare };
+  }
+
   function horizonParts(features, horizon) {
     const config = engine.config.horizons[horizon];
     const set = features?.horizons?.[config.technicalKey] || {};
@@ -281,6 +313,19 @@
     add(parts.bands.lower_band, "bollinger", engine.config.componentScales.opportunity.structuralLevelWeight.bollinger, "Bollinger lower", "support", parts.primary);
     add(parts.bands.middle_band, "bollinger", engine.config.componentScales.opportunity.structuralLevelWeight.bollinger, "Bollinger middle", "both", parts.primary);
     add(parts.bands.upper_band, "bollinger", engine.config.componentScales.opportunity.structuralLevelWeight.bollinger, "Bollinger upper", "reduce", parts.primary);
+    const structure = parts.set.trend?.support_resistance, cfg = engine.config.indicators;
+    if (cfg.integration.enabled && cfg.integration.structureEnabled && cfg.integration.structureLevelsEnabled && availability(structure)) {
+      const trusted = (structure.levels || []).filter((item) => item.active && item.qualified).filter((item) => {
+        const categories = new Set(["swing", ...levels.filter((level) => Math.abs(level.price - item.price) <= parts.atr.value * engine.config.componentScales.opportunity.confluenceBandAtr).map((level) => level.category)]);
+        return categories.size >= cfg.structure.minimumIndependentCategories;
+      }).sort((a, b) => Number(b.retested) - Number(a.retested) || b.touches - a.touches || String(b.known_at).localeCompare(String(a.known_at))).slice(0, cfg.structure.maxEngineLevels);
+      for (const item of trusted) {
+        // Same reference / same category, including an existing Fib swing.
+        const matching = levels.filter((level) => level.type === "swing" && Math.abs(level.price - item.price) <= Math.max(1e-8, item.price * 1e-8));
+        if (matching.length) matching.forEach((level) => { level.role = item.role; });
+        else add(item.price, "swing", engine.config.componentScales.opportunity.structuralLevelWeight.swing, `Confirmed structure ${item.id}`, item.role, item.interval);
+      }
+    }
     return levels.filter((level, index, all) => !all.slice(0, index).some((prior) => prior.type === level.type && prior.label === level.label && Math.abs(prior.price - level.price) < 0.000001));
   }
 
@@ -413,8 +458,10 @@
     const parts = horizonParts(features, horizon);
     const profileModifiers = profile.effectiveModifiers || blankProfileModifiers();
     const atr = finite(parts.atr.value);
-    const ma = maStructureScore(parts.ma, parts.maStructure, price, atr);
-    const macd = macdStructureScore(parts.macd, atr);
+    const trendPrice = horizon === "long" && Number.isFinite(parts.set.trend_reference_price) ? parts.set.trend_reference_price : price;
+    const ma = maStructureScore(parts.ma, parts.maStructure, trendPrice, atr);
+    const originalMacd = macdStructureScore(parts.macd, atr);
+    const macd = { ...originalMacd, score: mixSqueeze(originalMacd.score, parts.set.momentum?.squeeze, atr, horizon), components: { ...originalMacd.components, squeeze: squeezeEvidence(parts.set.momentum?.squeeze, atr) } };
     const adx = adxDirectionScore(parts.adx);
     const earlyMa = maStructureScore(parts.earlyMa, {}, price, atr);
     const earlyMacd = macdStructureScore(parts.earlyMacd, atr);
@@ -425,17 +472,21 @@
       : { score: clamp((earlyMa.score || 0) * 0.55 + (earlyMacd.score || 0) * 0.45, -100, 100), available: earlyMa.available || earlyMacd.available, components: { ma: Math.round(earlyMa.score || 0), macd: Math.round(earlyMacd.score || 0) } };
     const directionWeights = normalizeWeights(parts.config.directionWeights, profileModifiers.directionWeights);
     const directionComponents = { ma, macd, adx, early };
+    const baselineDirectionScore = clamp(Object.entries(directionWeights).reduce((sum, [key, weight]) => sum + (key === "macd" ? originalMacd.score || 0 : directionComponents[key].score || 0) * weight, 0), -100, 100);
     const directionScore = clamp(Object.entries(directionWeights).reduce((sum, [key, weight]) => sum + (directionComponents[key].score || 0) * weight, 0), -100, 100);
 
     const relativeStrength = relativeStrengthEvidence(parts.relativeStrength, directionScore, profile);
     const participation = participationEvidence(parts.obv, parts.volume, directionScore);
-    const rsi = rsiConfirmation(parts.rsi, directionScore);
-    const adxConfirmationState = adxConfirmation(adx, directionScore);
+    const rsi = compositeConfirmation(rsiConfirmation(parts.rsi, directionScore), parts.set.volatility?.bollinger_rsi, directionScore);
+    const originalAdxConfirmation = adxConfirmation(adx, directionScore);
+    const adxConfirmationState = { ...originalAdxConfirmation, confirmation: originalAdxConfirmation.available ? eventConfirmation(originalAdxConfirmation.confirmation, parts.set.trend?.support_resistance, sign(directionScore)) : originalAdxConfirmation.confirmation };
     const momentum = { confirmation: directionalAgreement(directionScore, earlyMacd.score || 0), available: earlyMacd.available, components: earlyMacd.components || {} };
     const confirmationComponents = { relativeStrength, participation, rsi, adx: adxConfirmationState, momentum };
     const confirmationWeights = normalizeWeights(parts.config.confirmationWeights, profileModifiers.confirmationWeights);
     const confirmationScore = clamp(Object.entries(confirmationWeights).reduce((sum, [key, weight]) => sum + (confirmationComponents[key].confirmation || 0) * weight, 0), 0, 100);
-    const persistence = signalPersistence(ma, macd, adx, relativeStrength);
+    const baselineParts = { relativeStrength: relativeStrengthEvidence(parts.relativeStrength, baselineDirectionScore, profile), participation: participationEvidence(parts.obv, parts.volume, baselineDirectionScore), rsi: rsiConfirmation(parts.rsi, baselineDirectionScore), adx: adxConfirmation(adx, baselineDirectionScore), momentum: { confirmation: directionalAgreement(baselineDirectionScore, earlyMacd.score || 0) } };
+    const baselineConfirmationScore = clamp(Object.entries(confirmationWeights).reduce((sum, [key, weight]) => sum + (baselineParts[key].confirmation || 0) * weight, 0), 0, 100);
+    const persistence = signalPersistence(ma, originalMacd, adx, relativeStrength);
 
     const risk = riskState(parts, price, parts.ma);
     const opportunity = priceOpportunity(parts, price, atr);
@@ -444,14 +495,16 @@
     const signalAgreement = Math.round(mean(agreementScores) || 0);
     const supporting = rankReasons([
       ma.score > 22 ? { score: Math.abs(ma.score), text: "Primary moving-average structure is constructive." } : null,
-      macd.score > 22 ? { score: Math.abs(macd.score), text: "Primary MACD structure supports the current upside direction." } : null,
+      originalMacd.score > 22 ? { score: Math.abs(originalMacd.score), text: "Primary MACD structure supports the current upside direction." } : null,
+      availability(parts.set.momentum?.squeeze) && parts.set.momentum.squeeze.momentum > 0 && parts.set.momentum.squeeze.change_3 > 0 ? { score: Math.abs(macd.components.squeeze || 0) * engine.config.indicators.integration.squeezeShare[horizon], text: { code: "squeeze_momentum_supports_upside", text: "Squeeze momentum is positive and strengthening." } } : null,
       relativeStrength.score > 20 ? { score: Math.abs(relativeStrength.score), text: "Relative Strength is confirming versus the selected benchmarks." } : null,
       participation.score > 20 ? { score: Math.abs(participation.score), text: "OBV and volume participation are confirming accumulation." } : null,
       opportunity.score > 20 ? { score: Math.abs(opportunity.score), text: "Several technical structures form nearby support confluence." } : null,
     ], "supporting");
     const limiting = rankReasons([
       ma.score < -22 ? { score: Math.abs(ma.score), text: "Primary moving-average structure remains bearish." } : null,
-      macd.score < -22 ? { score: Math.abs(macd.score), text: "Primary MACD structure still confirms downside momentum." } : null,
+      originalMacd.score < -22 ? { score: Math.abs(originalMacd.score), text: "Primary MACD structure still confirms downside momentum." } : null,
+      availability(parts.set.momentum?.squeeze) && parts.set.momentum.squeeze.momentum < 0 && parts.set.momentum.squeeze.change_3 < 0 ? { score: Math.abs(macd.components.squeeze || 0) * engine.config.indicators.integration.squeezeShare[horizon], text: { code: "squeeze_momentum_supports_downside", text: "Squeeze momentum is negative and strengthening." } } : null,
       relativeStrength.score < -20 ? { score: Math.abs(relativeStrength.score), text: "Relative Strength is lagging its relevant benchmarks." } : null,
       participation.score < -20 ? { score: Math.abs(participation.score), text: "OBV or price-volume behavior indicates distribution." } : null,
       opportunity.score < -20 ? { score: Math.abs(opportunity.score), text: "Price is extended into layered resistance rather than support." } : null,
@@ -462,6 +515,7 @@
     if (directionScore <= engine.config.stability.material.majorBreakdown && (ma.score < -45 || opportunity.score < -30)) materialSignals.push("major_support_breakdown");
     if (directionScore >= engine.config.stability.material.majorBreakout && participation.score > 30) materialSignals.push("major_breakout");
     return {
+      baselineDirectionScore: Math.round(baselineDirectionScore), baselineConfirmationScore: Math.round(baselineConfirmationScore),
       directionScore: Math.round(directionScore), directionComponents,
       confirmationScore: Math.round(confirmationScore), confirmationComponents,
       riskScore: Math.round(risk.score), riskComponents: risk.components,
@@ -504,5 +558,5 @@
     return out;
   }
 
-  engine.technical = Object.freeze({ evaluate, structuralLevels, clusterLevels });
+  engine.technical = Object.freeze({ mixSqueeze, eventConfirmation, evaluate, structuralLevels, clusterLevels });
 }(globalThis));

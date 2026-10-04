@@ -23,7 +23,7 @@ for (const file of [
 const engine = globalThis.DecisionEngine;
 const HORIZONS = ["short", "mid", "long"];
 const RAW_SERIES_KEYS = new Set([
-  "timestamps", "opens", "highs", "lows", "closes", "volumes", "bars", "series", "macd_series", "signal_series", "histogram_series",
+  "completed", "bar_end_timestamps", "timestamps", "opens", "highs", "lows", "closes", "volumes", "bars", "series", "macd_series", "signal_series", "histogram_series",
 ]);
 const finite = (value) => value == null || value === "" ? null : Number.isFinite(Number(value)) ? Number(value) : null;
 const round = (value, digits = 6) => Number.isFinite(Number(value)) ? Number(Number(value).toFixed(digits)) : null;
@@ -73,6 +73,8 @@ function horizonFeature(features, horizon) {
   return compact({
     schema_version: features?.schema_version,
     calculated_at: features?.calculated_at,
+    indicator_version: engine.config.indicators.version,
+    trend_reference_price: set.trend_reference_price,
     horizon,
     availability: set.availability,
     primary_intervals: set.primary_intervals,
@@ -186,6 +188,7 @@ function recordFor({ marketDate, recordedAtEt, ticker, quote, classification, fe
     market_regime: value.market?.regime || value.debug?.marketRegime || null,
     market_context: compactMarket(market, value),
     technical_features: { ...horizonFeature(features, horizon), current_observation: observation, model_diagnostics: { model_version: engine.config.version, path_version: value.debug?.pathVersion || "legacy-v1", feature_version: features.schema_version,
+      indicator_policy: { version: engine.config.indicators.version, structure_levels_enabled: engine.config.indicators.integration.structureLevelsEnabled, structure_retention_gate: engine.config.indicators.integration.structureRetentionGate },
       confidence: compact(value.debug?.confidenceComponents), quality: compact(value.debug?.dataQuality), width_comparison: horizon === "short" ? shadow : null } },
     supporting_reasons: value.reasons?.supporting || [],
     limiting_reasons: value.reasons?.limiting || [],

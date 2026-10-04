@@ -56,6 +56,7 @@ Blueprint 现在固定 `EOD_HISTORY_NODE_MAX_OLD_SPACE_MB=128`、`EOD_HISTORY_NO
 - 当前真正用于决策的 Direction、Confirmation、Risk、Exhaustion。
 - 紧凑 Market context、supporting / limiting reasons、material-change 状态。
 - 紧凑 canonical technical feature snapshot：MA、RSI、MACD、ADX/DI、ATR、Bollinger、KDJ、OBV/RVOL、Relative Strength、Fibonacci provenance / selected structure、52W context。
+- 三指标版本还保存 Squeeze、Bollinger＋RSI 和有界的结构／突破／回踩摘要，包括结构首次可知时间、事件完成时间，以及结构区间扩展开关／保留检查结果。旧行不回写；新完成状态和结束时间的原始数组不会保存。
 - 一根当日 OHLCV/Quote 观测及其时间、币种、价格基础；模型/特征版本、缺失原因、最终动作对应的可信度构成。可选 ATR250 缺失不将有效当日证券降为整只 unavailable；核心证据不足的期限保留 partial/unavailable 与原因。
 - Short 额外保存冻结的正常 Reduce ×0.995 baseline/candidate 精简对照；`shadow_only=true`，当前生产开关为关闭。这个对照仅供以后离线评价，不进入 Dashboard、不搜索参数、不改旧历史行。
 - Stock 的 Primary Classification、Company Traits、Lifecycle、应用 modifiers，以及仅供离线分析的内部 `sizeClass`；或 ETF 的 leveraged、direction、underlying、ETF modifiers。`sizeClass` 不会成为 Company Trait 或 Dashboard UI 标签，旧历史行也不会被回写。

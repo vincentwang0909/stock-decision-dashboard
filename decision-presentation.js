@@ -8,6 +8,10 @@
   const actionTone = Object.freeze({ strong_buy: "strong-buy", buy: "buy", accumulate: "accumulate", hold: "hold", trim: "trim", sell: "sell", avoid: "avoid" });
   const REASONS = Object.freeze({
     market_context_is_unavailable_its_risk_regime_cannot_be_verified: { en: "Market context is unavailable; its risk regime cannot be verified.", zh: "市场上下文不可用，无法核实当前风险环境。" },
+    squeeze_momentum_supports_upside: { en: "Squeeze momentum is positive and strengthening.", zh: "Squeeze动量为正且正在增强。" },
+    squeeze_momentum_supports_downside: { en: "Squeeze momentum is negative and strengthening.", zh: "Squeeze负向动量正在增强。" },
+    confirmed_structure_supports_upside: { en: "An already-known structure has a confirmed upward event.", zh: "此前已知的结构出现已确认向上事件。" },
+    confirmed_structure_limits_upside: { en: "An already-known structure has a confirmed downward or failed event.", zh: "此前已知的结构出现已确认下行或失败事件。" },
     v2_wait: { en: "Evidence does not support a new action.", zh: "当前证据不足以支持新动作。" },
     v2_missing: { en: "Required technical evidence is unavailable.", zh: "核心技术证据不可用。" },
     v2_break: { en: "Price broke confirmed swing support with bearish confirmation.", zh: "价格跌破已确认波段支撑，原技术趋势与确认满足防御退出门槛。" },

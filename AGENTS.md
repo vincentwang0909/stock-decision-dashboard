@@ -16,6 +16,13 @@ This is a lightweight stock decision dashboard. It displays a shared watchlist, 
 - `tests/` contains deterministic regression, feature, engine, and server checks.
 - `index.html` loads browser modules in dependency order; `styles.css` provides the restrained dark theme.
 
+Keep current model specifications and compact, dated validation summaries in
+`docs/`. Write generated audit logs, raw replay rows, wide field inventories,
+temporary patches and browser screenshots to a temporary or external output
+directory. Historical reports are evidence of their named version, not live
+model inputs; preserve their referenced reproduction material when cleaning
+generated files.
+
 ## Decision Engine principles
 
 1. A final recommendation may use only Technical data, Market data, and Profile modifiers.
@@ -38,6 +45,48 @@ This is a lightweight stock decision dashboard. It displays a shared watchlist, 
 - Long (>6 months): Weekly / long-Daily structure.
 
 The technical roles are Direction, Confirmation, Risk, Price Opportunity, and Exhaustion. The Technical tab is the complete raw/interpreted technical-data view; the AI Decision tab presents only the final decision and its reasons.
+
+## Current indicator integration (2026-10-04)
+
+The detailed pipeline, formulas, base weights, replay evidence and limitations
+are in [the current indicator model](docs/indicator-model-2026-10-04.md).
+Numerical policy remains authoritative in `decision-engine/config.js`; do not
+copy parameters into a second implementation or treat a dated replay report
+as the current production configuration.
+
+- Canonical Technical includes Squeeze Momentum, confirmed support/resistance
+  breaks/retests/failures, and Bollinger+RSI. The UI and EOD recorder use these
+  same features. The merged Bollinger+RSI card preserves all original RSI and
+  Bollinger data for each horizon.
+- Squeeze belongs inside the existing momentum/acceleration group. Structure
+  events modify the existing confirmation group. Bollinger+RSI belongs to
+  confirmation/exhaustion; correlated inputs are contribution-capped rather
+  than counted as independent Direction votes. Preserve ordinary-stock Short
+  V2 outer weights, entry gates and its original defensive baseline.
+- A pivot's `known_at` is its right-hand confirmation close, distinct from
+  `pivot_at`. Only completed, as-of-valid bars may produce confirmed events.
+  Supporting 1H/4H/Daily bars may confirm already-known 4H/Daily/Weekly
+  references; never backdate a pivot, use future closes, or promote a
+  provisional release/repair into a confirmed event.
+- Native 1H/4H and Daily retain completion/end/freshness provenance. Weekly
+  is explicitly `completed_weekly_from_daily`, not provider-native Weekly.
+  Missing provider timestamps or completion metadata remain unavailable.
+  Long trend uses completed Weekly/long-Daily observations; live Quote still
+  determines current execution position and immediate risk/invalidations.
+- Structure-event confirmation is enabled, but the separate expansion of
+  support/resistance Price Landscape candidates is disabled by
+  `structureLevelsEnabled=false`: its raw-replay return-retention check
+  failed. Do not silently re-enable it or manufacture a new opportunity
+  centre from current price. New retention evidence is required to change
+  this gate. The existing Price State/action-family rules remain mandatory.
+- No additional previous-Action comparison/history cache or previous-range
+  input is introduced. Preserve canonical Short persistence and existing
+  family-internal ETF/Mid/Long stability. Final Confidence follows Final
+  Action and includes landscape quality and legitimate price/signal tension.
+- Offline audits and later return labels never enter production. Earlier
+  structure-event detection is not proof of earlier profitable entry.
+  Preserve compact new-feature/version/gate context in future EOD rows,
+  exclude raw completion/end arrays, and never rewrite old history rows.
 
 ## Price Landscape and execution semantics
 
@@ -299,7 +348,7 @@ every decision must be correct after a restart even without either cache.
 
 - Keep Decision Engine parameters centralized in `decision-engine/config.js`; do not scatter magic numbers.
 - UI reads final Decision Objects only and never derives an action itself.
-- Preserve complete canonical Technical data: Fibonacci, MA, RSI, MACD, ADX/DI, ATR, Bollinger, KDJ, OBV, Volume/RVOL, Relative Strength, and 52-week/history structure.
+- Preserve complete canonical Technical data: Fibonacci, MA, RSI, MACD, ADX/DI, ATR, Bollinger, KDJ, OBV, Volume/RVOL, Relative Strength, 52-week/history structure, Squeeze Momentum, support/resistance events, and Bollinger+RSI.
 - Missing data must remain unavailable; never fake neutral/bullish values.
 - Keep Chinese and English presentation strings synchronized, with a safe fallback for unknown reasons.
 - Delete dead legacy code rather than wrapping it for compatibility.
@@ -355,6 +404,8 @@ Run from the repository root:
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/decision-engine.test.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/company-profile.test.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/technical-features.test.js
+/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/indicator-modules.test.js
+/private/tmp/stock-dashboard-final-venv/bin/python3 -m unittest discover -s tests -p 'indicator_data_test.py'
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/dashboard-regression.test.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/decision-ui.test.js
 /private/tmp/stock-dashboard-final-venv/bin/python3 -m unittest discover -s tests -p 'server_availability_test.py'
@@ -372,3 +423,9 @@ Run from the repository root:
 `decision-engine.test.js` includes joint price/action consistency, stateless-refresh, category-aware confluence, annual-review, ETF, and coverage checks. `company-profile.test.js` protects V2 vocabularies, metadata-only/ticker-independent classification, modifier caps, annual-review boundaries, and ETF isolation. `technical-features.test.js` protects canonical data completeness and independent Fibonacci provenance. `dashboard-regression.test.js` protects data/UI regressions. `decision-audit.js`, `decision-shadow.js`, `fibonacci-audit.js`, `refresh-memory-audit.js`, and `company-profile-audit.js` are bounded cache-only audits.
 `eod_history_test.py` and `eod-history-node.test.js` protect the independent
 SQLite scheduler/write path and compact production-engine snapshot serializer.
+`indicator-modules.test.js` and `indicator_data_test.py` protect the new
+formulas, causal event times, provisional/missing inputs, native-history
+extension, unchanged defensive baseline, Long trend stability, and the closed
+structure-range retention gate. `indicator-replay.js` and
+`structure-event-audit.js` are offline raw-bar validation tools; keep their
+inputs/outputs outside production data and the repository.

@@ -1,0 +1,122 @@
+"use strict";
+const assert = require("node:assert/strict");
+const { buildTechnicalFeatures, _test: t } = require("../technical-features.js");
+for (const file of ["config", "company-profile-classifier", "technical-engine", "exhaustion-engine", "market-engine", "etf-profile", "company-profile", "planning-width", "execution-engine", "short-model-v2", "confidence-engine", "stability-engine", "decision-engine"]) require(`../decision-engine/${file}.js`);
+const engine = globalThis.DecisionEngine;
+function source(count = 80) {
+  const bars = [], date = new Date("2026-04-01T00:00:00Z");
+  while (bars.length < count) {
+    if (![0, 6].includes(date.getUTCDay())) for (const hour of [9, 13]) {
+      if (bars.length >= count) break;
+      const day = date.toISOString().slice(0, 10), close = 107 + Math.sin(bars.length / 4) * 0.4;
+      bars.push({ timestamp: `${day}T${String(hour).padStart(2, "0")}:30:00-04:00`, end_timestamp: `${day}T${hour === 9 ? "13:30" : "16:00"}:00-04:00`, completed: true, open: close, high: close + 1, low: close - 1, close, volume: 1000 });
+    }
+    date.setUTCDate(date.getUTCDate() + 1);
+  }
+  return bars;
+}
+const at = "2026-10-04T20:00:00Z";
+const constant = source(80).map((bar) => ({ ...bar, open: 100, high: 101, low: 99, close: 100 }));
+const sq = t.squeezeFeature(constant, "4h", at);
+assert.equal(sq.availability, "available");
+assert.equal(sq.momentum, 0);
+assert.equal(sq.change_3, 0);
+assert.equal(sq.state, "squeeze_on");
+assert.equal(sq.kc_upper, 103);
+assert.equal(sq.bb_upper, 100);
+assert.equal(t.squeezeFeature(constant.slice(0, 38), "4h", at).availability, "unavailable");
+assert.equal(t.squeezeFeature(constant.slice(0, 39), "4h", at).availability, "available");
+assert.equal(t.regressionEndpoint([3, 5, 7, 9]), 9);
+const rising = source(80).map((bar, i) => ({ ...bar, open: 100 + i, high: 101 + i, low: 99 + i, close: 100 + i }));
+assert(t.squeezeFeature(rising, "4h", at).momentum > 0);
+assert.equal(t.squeezeFeature(rising, "4h", at).release_now, false, "off is not a repeated release event");
+const releaseBars = constant.map((bar) => ({ ...bar }));
+releaseBars[79] = { ...releaseBars[79], open: 150, high: 151, low: 149, close: 150, completed: false };
+assert.equal(t.squeezeFeature(releaseBars, "4h", at).state, "squeeze_off");
+assert.equal(t.squeezeFeature(releaseBars, "4h", at).release_now, false, "provisional release is not a confirmed event");
+releaseBars[79].completed = true;
+assert.equal(t.squeezeFeature(releaseBars, "4h", at).release_now, true);
+
+const raw = source(80); raw[20].high = 120;
+raw[77] = { ...raw[77], open: 119, high: 124, low: 118, close: 123, volume: 100000 };
+raw[78] = { ...raw[78], open: 122, high: 123, low: 120.1, close: 122, volume: 5000 };
+raw[79] = { ...raw[79], open: 122, high: 123, low: 121, close: 122, volume: 5000 };
+const structure = t.supportResistanceFeature(raw, "4h", [], "1h", at);
+const pivot = structure.levels.find((level) => level.price === 120);
+assert(pivot && pivot.role === "support" && pivot.retested);
+assert.equal(pivot.known_at, raw[23].end_timestamp);
+assert(structure.events.some((event) => event.kind === "breakout_up"));
+assert(structure.events.some((event) => event.kind === "retest_up"));
+for (const event of structure.events) {
+  assert(Date.parse(event.reference_known_at) <= Date.parse(event.bar_timestamp));
+  assert(Date.parse(event.timestamp) <= Date.parse(at));
+}
+const unknown = raw.map(({ completed, end_timestamp, ...bar }) => bar);
+assert.equal(t.supportResistanceFeature(unknown, "4h", [], "1h", at).unavailable_reason, "completion_metadata_unavailable");
+const provisional = raw.map((bar) => ({ ...bar })); provisional[77].completed = false; provisional[78].completed = false; provisional[79].completed = false;
+assert(!t.supportResistanceFeature(provisional, "4h", [], "1h", at).events.some((event) => event.reference_price === 120));
+const failure = raw.map((bar) => ({ ...bar })); failure[79] = { ...failure[79], open: 119, high: 120, low: 117, close: 118 };
+const failed = t.supportResistanceFeature(failure, "4h", [], "1h", at);
+assert(failed.events.some((event) => event.kind === "failed_break"));
+assert(!failed.levels.some((level) => level.price === 120), "failed references cannot remain qualified supports");
+const unconfirmedVolume = raw.slice(0, 78).map((bar) => ({ ...bar, volume: 0 }));
+const zeroVolumeBreak = t.supportResistanceFeature(unconfirmedVolume, "4h", [], "1h", at);
+assert.equal(zeroVolumeBreak.events.find((event) => event.reference_price === 120)?.volume_confirmed, null);
+assert.equal(zeroVolumeBreak.levels.find((level) => level.price === 120)?.qualified, false, "zero volume cannot qualify a fresh role flip");
+const prefix = t.supportResistanceFeature(raw.slice(0, 23), "4h", [], "1h", at);
+assert(!prefix.levels.some((level) => level.price === 120), "pivot is unavailable before its right-hand confirmation");
+const primary = raw.slice(0, 77);
+const lastDay = new Date(Date.parse(primary.at(-1).end_timestamp)); lastDay.setUTCDate(lastDay.getUTCDate() + 1);
+while ([0, 6].includes(lastDay.getUTCDay())) lastDay.setUTCDate(lastDay.getUTCDate() + 1);
+const day = lastDay.toISOString().slice(0, 10);
+const early = [...primary.slice(-20).map((bar) => ({ ...bar })), { timestamp: `${day}T09:30:00-04:00`, end_timestamp: `${day}T10:30:00-04:00`, completed: true, open: 119, high: 124, low: 118, close: 123, volume: 100000 }];
+const earlyStructure = t.supportResistanceFeature(primary, "4h", early, "1h", at);
+assert(earlyStructure.events.some((event) => event.reference_price === 120 && event.reference_interval === "4h" && event.confirmation_interval === "1h"), "completed 1H can detect an existing 4H reference without waiting for a new pivot");
+
+function payload(bars) {
+  return { timestamps: bars.map((bar) => bar.timestamp), bar_end_timestamps: bars.map((bar) => bar.end_timestamp), completed: bars.map((bar) => bar.completed), ...Object.fromEntries(["open", "high", "low", "close", "volume"].map((key) => [`${key}s`, bars.map((bar) => bar[key])])), source: "test", interval: "4h" };
+}
+const normalized = t.normalizeBars(payload(raw));
+assert.equal(normalized[20].completed, true);
+assert.equal(normalized[20].end_timestamp, raw[20].end_timestamp);
+assert.equal(t.normalizeBars({ ...payload(provisional), last_bar_completed: true }).at(-1).completed, false, "explicit provisional bar wins over a global completed flag");
+const repairBars = constant.slice(0, 64).map((bar) => ({ ...bar }));
+repairBars[60].close = 85; repairBars[61].close = 98; repairBars[62].close = 99;
+const repairRsi = { availability: "available", value: 50, period: 14, series: repairBars.map((_, i) => i === 60 ? 20 : i === 61 ? 30 : i === 62 ? 40 : 50) };
+const repairBands = { availability: "available" };
+const comboRepair = t.bollingerRsiFeature(repairBars, "4h", "short", repairRsi, repairBands, at);
+assert.equal(comboRepair.repair?.bar_timestamp, repairBars[61].timestamp, "one repair is recorded at its first confirmation, not refreshed on every improving bar");
+assert.equal(comboRepair.repair?.age_bars, 2);
+assert.equal(t.bollingerRsiFeature(repairBars, "4h", "short", repairRsi, repairBands, repairBars[60].end_timestamp).repair, null, "future completed labels cannot produce an earlier confirmed repair");
+const feature = buildTechnicalFeatures({ history: { ...payload(source(420)), intervals: { "4h": payload(raw), "1h": payload(early) } }, currentPrice: 122, calculatedAt: at });
+assert.equal(feature.horizons.short.momentum.squeeze.availability, "available");
+assert.equal(feature.horizons.short.volatility.bollinger_rsi.availability, "available");
+assert.equal(feature.horizons.short.trend.support_resistance.availability, "available");
+const sqFeature = { availability: "available", momentum: 1, change_3: 0.1 };
+const value = engine.technical.mixSqueeze(20, sqFeature, 2, "short");
+assert(value > 20 && value < 36);
+assert.equal(engine.technical.mixSqueeze(20, { availability: "unavailable" }, 2, "short"), 20);
+assert.equal(engine.technical.mixSqueeze(20, sqFeature, 0, "short"), 20);
+const structureEvent = { availability: "available", last_event: { confirmed: true, kind: "retest_up", sign: 1, age_bars: 0 } };
+assert.equal(engine.technical.eventConfirmation(50, structureEvent, 1), 56.375);
+assert.equal(engine.technical.eventConfirmation(50, { availability: "unavailable" }, 1), 50);
+assert.equal(engine.technical.eventConfirmation(50, { ...structureEvent, last_event: { ...structureEvent.last_event, age_bars: 7 } }, 1), 50);
+const profile = { effectiveModifiers: { directionWeights: {}, confirmationWeights: {}, benchmarkWeights: { spy: 0.5, qqq: 0.5 } } };
+const longA = engine.technical.evaluate(feature, "long", 122, profile), longB = engine.technical.evaluate(feature, "long", 150, profile);
+assert.equal(longA.directionScore, longB.directionScore, "current quote may move price state without rewriting the completed Long trend");
+assert.equal(longA.baselineDirectionScore, longB.baselineDirectionScore);
+const altered = JSON.parse(JSON.stringify(feature));
+altered.horizons.short.momentum.squeeze = { ...sqFeature, momentum: -100, change_3: -20 };
+altered.horizons.short.trend.support_resistance = structureEvent;
+const originalShort = engine.technical.evaluate(feature, "short", 122, profile), alteredShort = engine.technical.evaluate(altered, "short", 122, profile);
+assert.equal(originalShort.baselineDirectionScore, alteredShort.baselineDirectionScore, "new momentum must not weaken the fixed defensive baseline");
+assert.equal(originalShort.baselineConfirmationScore, alteredShort.baselineConfirmationScore);
+assert.equal(engine.config.indicators.integration.structureLevelsEnabled, false, "failed structure-range retention gate remains closed");
+const confluencePrice = originalShort.executionContext.levels.find((level) => level.type === "moving_average")?.price;
+assert(Number.isFinite(confluencePrice));
+altered.horizons.short.trend.support_resistance.levels = [{ id: "test-known-reference", interval: "4h", active: true, qualified: true, retested: true, touches: 10, price: confluencePrice, role: "support", known_at: at }];
+assert.deepEqual(engine.technical.evaluate(altered, "short", 122, profile).executionContext.levels, originalShort.executionContext.levels, "confirmation events cannot silently expand the gated price candidate set");
+altered.horizons.medium.trend.adx.adx_14_1d = { availability: "unavailable", interval: "1d" };
+altered.horizons.medium.trend.support_resistance = structureEvent;
+assert.equal(engine.technical.evaluate(altered, "mid", 122, profile).confirmationComponents.adx.available, false, "structure cannot pretend missing ADX was available");
+console.log("Indicator modules: formula, warm-up, completion, causal pivot/break/retest/failure, 1H early event, fallback and Long trend assertions passed.");
