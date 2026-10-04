@@ -14,7 +14,8 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
 const ROOT = path.resolve(__dirname, "..");
-const runner = path.join(ROOT, "decision-v1", "emit-decision-v1.js");
+const runner = path.join(ROOT, "decision-api", "emit-decision.js");
+const modelConfig = require("../decision-engine/config.js");
 
 const HORIZONS = ["short", "mid", "long"];
 const ACTIONS = new Set(["strong_buy", "buy", "accumulate", "hold", "trim", "sell", "avoid"]);
@@ -76,7 +77,7 @@ function quote(ticker, price = 180) {
   };
 }
 
-const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "decision-v1-"));
+const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "decision-api-"));
 try {
   const nvda = quote("NVDA", 180);
   const unavailable = { ticker: "NOPE", price: null, quote_status: "unavailable", history: { timestamps: [], closes: [], availability: "unavailable" }, metadata: { quoteType: "EQUITY" } };
@@ -95,6 +96,7 @@ try {
   const nvdaDecision = output.decisions.NVDA;
   assert.ok(nvdaDecision, "NVDA must produce a decision");
   assert.equal(nvdaDecision.contractVersion, "decision.v1");
+  assert.equal(nvdaDecision.modelVersion, modelConfig.version, "the stable wire format serves the current unified engine");
   assert.equal(nvdaDecision.producer, "vincent-stock-decision-dashboard");
   assert.equal(nvdaDecision.ticker, "NVDA");
   assert.ok(Number.isFinite(nvdaDecision.currentPrice));

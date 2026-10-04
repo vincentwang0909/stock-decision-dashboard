@@ -1,10 +1,18 @@
 # 三指标接入后的完整模型与验证
 
-版本：`decision-engine-v2.1-indicators-v1`；技术特征：`technical-features-v5-structure-momentum`。参数统一放在 `decision-engine/config.js`。
+当前统一版本：`decision-engine-v2.2-unified`；技术特征：`technical-features-v5-structure-momentum`。参数统一放在 `decision-engine/config.js`。
+
+## 统一生产版本
+
+普通股票 Short、Mid、Long 和全部 ETF 周期同属 `decision-engine-v2.2-unified`。版本整合保留各周期原有公式、权重、Price State 约束、稳定性和 Confidence 行为，未将 Short 参数套用到 Mid／Long。
+
+`decision-engine.js` 仅做统一入口与独立策略分发：普通股票 Short 在 `short-model-v2.js`；股票 Mid／Long 和 ETF 各周期在 `horizon-model-v2.js`。旧普通股票 Short 回退开关已移除。每个输出的 `modelVersion` 和 `pathVersion` 都等于 `config.version`，`policyFamily` 区分 `stock_short`／`stock_mid`／`stock_long` 和对应 ETF 周期，策略名称不构成第二套引擎版本。
+
+`decision-api/emit-decision.js` 替代旧 `decision-v1/` 目录。外部 `decision.v1` JSON 格式和 API URL 保持兼容，它只描述数据格式；页面、API 和 EOD 均使用同一当前引擎。历史回执及已写入的 EOD 行保留原版本，不能改标或回写。旧模型仅供明确指定冻结源码的离线比较；生产不能再次加入 V1 开关。
 
 ## 当前启用范围
 
-三个模块均进入 canonical Technical，并共享于页面和 EOD。Squeeze 进入原有动量组；突破／回踩进入原有确认组；Bollinger＋RSI 合并展示并进入确认／衰竭角色。普通股票 Short 保留已接受的 V2 外层权重、入场阈值和防御性卖出基线；ETF／Mid／Long 保留各自路径。
+三个模块均进入 canonical Technical，并共享于页面和 EOD。Squeeze 进入原有动量组；突破／回踩进入原有确认组；Bollinger＋RSI 合并展示并进入确认／衰竭角色。普通股票 Short 保留已接受的 V2 外层权重、入场阈值和防御性卖出基线；ETF／Mid／Long 的原有规则迁入统一 V2 的独立策略，所有周期使用同一发布版本。
 
 **独立增加支撑阻力候选、翻转区间角色的扩展目前关闭。** 实际原始行情回放发现，这个候选虽然减少了切换，却降低了成本后入场观察收益，因此未通过保留检查。技术卡片仍完整展示结构、突破、回踩和失败事件；事件仍参与确认。当前价格结构沿用已有 Fibonacci、确认摆动、均线、Bollinger 和历史高低点类别，不把新事件变成自动追涨入口。
 
@@ -83,3 +91,13 @@ Opportunity 高点必须低于 Reduce 低点并有 ATR／周期／共振约束�
 ## 离线工具
 
 `scripts/provider-data-audit.py` 只读当前watchlist补取源数据；关闭后台调度器，最多2个并发请求。`scripts/indicator-replay.js` 比较基线和当前生产模块；`scripts/structure-event-audit.js` 检查收盘1H事件提前程度。所有原始行情、回放输入和报告应存到临时／外部目录，不加入Git或Dashboard数据源。
+
+## 2026-10-04 版本整合验证
+
+从修改前的当前源码冻结一份基线，比较 630 次合成刷新（含牛／熊／中性／修复、市场冲击、缺失、普通股票及三类 ETF，包含同一 ticker 连续刷新），再比较 22 只当前缓存证券，共 1,956 个周期决策。除统一版本与新增策略名称外，完整决策对象逐项一致：Action、Confidence、所有价格区间、技术状态、原因与稳定性均零差异。4 份外部 API 结果及 12 行 EOD 快照也一致；格式保持 `decision.v1`。这些对比验证组织调整保留行为。
+
+11 组 JavaScript 回归和 70 项 Python 检查通过。新增检查覆盖所有策略共用一个版本、旧 Short 开关失效、独立策略路由、真实浏览器脚本顺序与 Node 一致、API/EOD/Health 同版本，以及真实 API Node 子进程可从新目录启动。离线回放不再修改当前配置模拟旧 Short；历史中间版本须显式提供冻结源码，未提供则标记不可用。
+
+只读审计使用隔离数据库／缓存及生产 Flask 测试客户端得到的 22 只当前 watchlist 快照，所有数据商连接禁止。沙盒无法开启本机 HTTP 监听，四个 HTTP 审计工具通过外部离线输入适配读取同一完整快照；适配不进入项目或生产。Fibonacci、行动约束、无状态区间、同族稳定性及 Profile 审计通过，价格约束违规与重复计算差异均为零。
+
+同一快照的五次计算，整合前／后最终常驻堆分别约 59.72／59.73 MiB；堆增长均约 0.26 MiB，稳定性缓存 45 项、上限仍为 300。当前版本以 128 MiB 老生代／4 MiB 新生代流式处理 22 只历史缓存证券，输出 66 行（48 行 partial 决策、18 行因时点条件 unavailable；未补造缺失数据），一次 Node 进程峰值 RSS 约 91.69 MiB。此场景是历史缓存的离线操作检查，不能替代 Render 全服务容器峰值或当前交易日 EOD 验证。

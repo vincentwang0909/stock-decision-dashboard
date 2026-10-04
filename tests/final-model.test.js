@@ -1,7 +1,7 @@
 "use strict";
 const assert = require("node:assert/strict");
 const { _test } = require("../technical-features.js");
-for (const file of ["config", "company-profile-classifier", "technical-engine", "exhaustion-engine", "market-engine", "etf-profile", "company-profile", "planning-width", "execution-engine", "short-model-v2", "confidence-engine", "stability-engine", "decision-engine"]) require(`../decision-engine/${file}.js`);
+for (const file of ["config", "company-profile-classifier", "technical-engine", "exhaustion-engine", "market-engine", "etf-profile", "company-profile", "planning-width", "execution-engine", "short-model-v2", "confidence-engine", "stability-engine", "horizon-model-v2", "decision-engine"]) require(`../decision-engine/${file}.js`);
 const e = globalThis.DecisionEngine;
 const zone = { valid: true, support: { center: 100 }, resistance: { center: 110 }, opportunityRange: { low: 99, high: 101 }, reduceRange: { low: 108, high: 112 }, invalidation: 98, gap: 1 };
 const original = JSON.stringify(zone);

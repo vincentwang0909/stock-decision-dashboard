@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
-// This process deliberately loads the same browser/Node V1 modules used by
+// This process deliberately loads the same production modules used by
 // audits and the Dashboard.  It is a one-shot EOD serializer, not a second
 // recommendation implementation.  Its process lifetime bounds all temporary
 // canonical features and Confluence candidates.
@@ -17,7 +17,7 @@ const profiles = require(path.join(ROOT, "profile-definitions.js"));
 
 for (const file of [
   "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "etf-profile.js", "company-profile.js",
-  "planning-width.js", "execution-engine.js", "short-model-v2.js", "confidence-engine.js", "stability-engine.js", "decision-engine.js",
+  "planning-width.js", "execution-engine.js", "short-model-v2.js", "confidence-engine.js", "stability-engine.js", "horizon-model-v2.js", "decision-engine.js",
 ]) require(path.join(ROOT, "decision-engine", file));
 
 const engine = globalThis.DecisionEngine;
@@ -187,7 +187,7 @@ function recordFor({ marketDate, recordedAtEt, ticker, quote, classification, fe
     exhaustion: finite(value.states?.exhaustion?.score),
     market_regime: value.market?.regime || value.debug?.marketRegime || null,
     market_context: compactMarket(market, value),
-    technical_features: { ...horizonFeature(features, horizon), current_observation: observation, model_diagnostics: { model_version: engine.config.version, path_version: value.debug?.pathVersion || "legacy-v1", feature_version: features.schema_version,
+    technical_features: { ...horizonFeature(features, horizon), current_observation: observation, model_diagnostics: { model_version: engine.config.version, path_version: value.debug?.pathVersion || engine.config.version, policy_family: value.debug?.policyFamily || null, feature_version: features.schema_version,
       indicator_policy: { version: engine.config.indicators.version, structure_levels_enabled: engine.config.indicators.integration.structureLevelsEnabled, structure_retention_gate: engine.config.indicators.integration.structureRetentionGate },
       confidence: compact(value.debug?.confidenceComponents), quality: compact(value.debug?.dataQuality), width_comparison: horizon === "short" ? shadow : null } },
     supporting_reasons: value.reasons?.supporting || [],

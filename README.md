@@ -45,6 +45,19 @@ break/retest and Bollinger+RSI features are shared by the UI and EOD engine.
 The separate expansion of structure-based price-zone candidates is disabled
 after its offline return-retention check failed.
 
+All stock and ETF horizons are policies of the same unified V2 release.
+`decision-engine/decision-engine.js` is the shared entry; stock Short uses
+`short-model-v2.js`, and stock Mid/Long plus ETF horizons use
+`horizon-model-v2.js` with their preserved rules. No production V1 fallback
+remains. `decision-engine/config.js` supplies the single model version.
+
+`decision-api/emit-decision.js` serves the existing external `decision.v1`
+data format through this same engine. `/api/decision/<ticker>` and
+`/api/decisions?tickers=...` keep their URLs and payload shape. The format
+version is independent of `modelVersion`; the old `decision-v1/` directory
+has been removed. Dashboard, API, EOD and health metadata identify the same
+current model release.
+
 ## Render Deployment
 
 1. Push code to GitHub.

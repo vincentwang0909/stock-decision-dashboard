@@ -11,7 +11,7 @@ const profiles = require("../profile-definitions.js");
 
 for (const file of [
   "config.js", "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "etf-profile.js", "company-profile.js",
-  "planning-width.js", "execution-engine.js", "short-model-v2.js", "confidence-engine.js", "stability-engine.js", "decision-engine.js",
+  "planning-width.js", "execution-engine.js", "short-model-v2.js", "confidence-engine.js", "stability-engine.js", "horizon-model-v2.js", "decision-engine.js",
 ]) require(path.join(__dirname, "..", "decision-engine", file));
 
 const decisionEngine = globalThis.DecisionEngine;
@@ -139,7 +139,7 @@ function landscapeViolations(value, price) {
   const neutralState = state === "NEUTRAL_ZONE";
   const nearReduce = state === "NEAR_REDUCE_ZONE";
   const reduceState = ["IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"].includes(state);
-  const stockShortV2 = value.debug.pathVersion === decisionEngine.config.shortV2.version;
+  const stockShortV2 = value.debug.policyFamily === "stock_short";
   const allowedWait = stockShortV2 && action === "hold";
   const midpoint = validRange(reduce) ? (reduce.low + reduce.high) / 2 : null;
   return {

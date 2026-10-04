@@ -5,7 +5,9 @@
 // data contract Ryan's finance-monorepo consumes over HTTP.
 //
 // This is a SERIALIZER, not a second recommendation implementation. It loads
-// the same browser/Node V1 modules the Dashboard and the EOD recorder load,
+// the same production modules the Dashboard and the EOD recorder load,
+// including all unified V2 horizon policies. `decision.v1` versions the API payload
+// format; `modelVersion` identifies the current engine independently. It
 // calls the same `engine.decide`, and only reshapes the result. No scoring,
 // thresholds or price levels are computed here — per AGENTS.md, a final
 // recommendation may use only Technical, Market and Profile data, and that
@@ -25,7 +27,7 @@ const { finite, featureInputs, quoteFromItem } = require(path.join(ROOT, "decisi
 
 for (const file of [
   "config.js", "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "etf-profile.js", "company-profile.js",
-  "planning-width.js", "execution-engine.js", "short-model-v2.js", "confidence-engine.js", "stability-engine.js", "decision-engine.js",
+  "planning-width.js", "execution-engine.js", "short-model-v2.js", "confidence-engine.js", "stability-engine.js", "horizon-model-v2.js", "decision-engine.js",
 ]) require(path.join(ROOT, "decision-engine", file));
 
 const engine = globalThis.DecisionEngine;
@@ -154,7 +156,7 @@ function build(input) {
 
 function main() {
   const [inputPath, outputPath] = process.argv.slice(2);
-  if (!inputPath || !outputPath) throw new Error("Usage: emit-decision-v1.js <input.json> <output.json>");
+  if (!inputPath || !outputPath) throw new Error("Usage: emit-decision.js <input.json> <output.json>");
   const input = JSON.parse(fs.readFileSync(inputPath, "utf8"));
   fs.writeFileSync(outputPath, JSON.stringify(build(input)), "utf8");
 }

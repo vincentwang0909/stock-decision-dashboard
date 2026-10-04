@@ -1,7 +1,7 @@
 "use strict";
 const assert = require("node:assert/strict");
 const { buildTechnicalFeatures, _test: t } = require("../technical-features.js");
-for (const file of ["config", "company-profile-classifier", "technical-engine", "exhaustion-engine", "market-engine", "etf-profile", "company-profile", "planning-width", "execution-engine", "short-model-v2", "confidence-engine", "stability-engine", "decision-engine"]) require(`../decision-engine/${file}.js`);
+for (const file of ["config", "company-profile-classifier", "technical-engine", "exhaustion-engine", "market-engine", "etf-profile", "company-profile", "planning-width", "execution-engine", "short-model-v2", "confidence-engine", "stability-engine", "horizon-model-v2", "decision-engine"]) require(`../decision-engine/${file}.js`);
 const engine = globalThis.DecisionEngine;
 function source(count = 80) {
   const bars = [], date = new Date("2026-04-01T00:00:00Z");

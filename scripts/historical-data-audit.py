@@ -1,9 +1,9 @@
 """Offline checks of supplied snapshots; no fetches, mutations or future inputs."""
-import csv, json, hashlib, math, sys
+import csv, json, hashlib, math, sys, tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
 
-ROOT = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(__file__).resolve().parents[1] / "docs/final-model-2026-10-01"
+ROOT = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(tempfile.mkdtemp(prefix="stock-history-audit-"))
 SOURCE = Path(sys.argv[1]) if len(sys.argv) > 1 else Path('/Users/vincentwang/Documents/decision-history-all.csv')
 atr, kdj = {}, {}
 keys, horizons, prices = Counter(), Counter(), defaultdict(dict)
@@ -107,4 +107,5 @@ result = {
 }
 ROOT.mkdir(parents=True,exist_ok=True)
 (ROOT/'history-data-audit.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf8')
+print(f"Audit output: {ROOT}", file=sys.stderr)
 print(json.dumps(result,ensure_ascii=False,indent=2))

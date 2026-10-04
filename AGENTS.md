@@ -10,7 +10,8 @@ This is a lightweight stock decision dashboard. It displays a shared watchlist, 
 - `main.js` owns application state, data integration, and DOM rendering. It must never calculate a recommendation.
 - `technical-features.js` produces the canonical technical feature object used by both the Technical tab and the Decision Engine.
 - `decision-engine/company-profile-classifier.js` is the deterministic, metadata-only Company Profile V2.1 classifier. `profile-definitions.js` validates its canonical stock slots and holds the separate ETF definitions.
-- `decision-engine/` contains the fixed ordinary-stock Short V2 path in `short-model-v2.js` and the retained V1 ETF/Mid/Long paths. `planning-width.js` holds the independently gated normal-Short Reduce-width transform (0.995, disabled after its retention gate failed). `etf-profile.js` supplies ETF-specific behavior modifiers.
+- `decision-engine/` is one unified V2 production release. `decision-engine.js` is the shared entry; `short-model-v2.js` implements ordinary-stock Short, and `horizon-model-v2.js` implements independent stock Mid/Long and ETF horizon policies using their preserved rules. There is no production V1 switch or old ordinary-stock Short fallback. `planning-width.js` retains the gated Reduce-width transform (0.995, disabled after its retention gate failed); `etf-profile.js` supplies ETF modifiers.
+- `decision-api/emit-decision.js` serializes the unified current engine for the external `decision.v1` API contract. The neutral directory replaces `decision-v1/`. Preserve the wire contract and API URLs; `decision.v1` is a format version, not another engine. Dashboard, API and EOD use the same `config.version`; horizon `pathVersion` equals that release version and `policyFamily` names its stock/ETF horizon policy.
 - `decision-presentation.js` is a pure UI helper for execution labels, reason translation, and the native DOM/CSS Price Landscape model.
 - `scripts/` contains bounded, read-only audit/shadow tooling, not production history storage.
 - `tests/` contains deterministic regression, feature, engine, and server checks.
@@ -101,9 +102,9 @@ Technical structure still supplies zone calculations, but never expose a remote 
 
 `Price State` is the mandatory Action-Family input: `IN_OPPORTUNITY_ZONE`, `NEAR_OPPORTUNITY_ZONE`, `NEUTRAL_ZONE`, `NEAR_REDUCE_ZONE`, `IN_REDUCE_ZONE`, `BEYOND_REDUCE_ZONE`, `BREAKDOWN_ZONE`, or `INVALID_LANDSCAPE`.
 
-- For the retained ETF/Mid/Long paths, `IN_OPPORTUNITY_ZONE` permits only Strong Buy, Buy, or Accumulate. Ordinary-stock Short V2 permits Hold when its fixed entry evidence, event, shock, or risk gates fail; each reason remains explicit. Direction, Confirmation, Risk, Exhaustion, Market and Profile modifiers choose intensity inside that family. Opportunity itself never automatically creates Buy.
+- For the unified ETF/Mid/Long paths, `IN_OPPORTUNITY_ZONE` permits only Strong Buy, Buy, or Accumulate. Ordinary-stock Short V2 permits Hold when its fixed entry evidence, event, shock, or risk gates fail; each reason remains explicit. Direction, Confirmation, Risk, Exhaustion, Market and Profile modifiers choose intensity inside that family. Opportunity itself never automatically creates Buy.
 - `NEAR_OPPORTUNITY_ZONE`, `NEUTRAL_ZONE`, and `NEAR_REDUCE_ZONE` all produce Hold. Near zones are informational analysis states only; they can affect reasons and confidence but cannot trigger an early entry or reduction.
-- For the retained ETF/Mid/Long paths, `IN_REDUCE_ZONE` and `BEYOND_REDUCE_ZONE` permit only Trim or Sell. Hold and every positive Action are prohibited; if the model needs Hold, rebuild the final landscape rather than add an exception.
+- For the unified ETF/Mid/Long paths, `IN_REDUCE_ZONE` and `BEYOND_REDUCE_ZONE` permit only Trim or Sell. Hold and every positive Action are prohibited; if the model needs Hold, rebuild the final landscape rather than add an exception.
 - Breakdown / invalidation permits Sell or Avoid. Sell requires bearish confirmation or a structural/material breakdown; price being high alone cannot create Sell.
 - Near-zone tolerance is ATR-normalized but capped by the Neutral buffer, so it cannot consume the entire Neutral state.
 - When a breakdown occurs, the exit range must re-anchor near the executable current area.
@@ -136,7 +137,7 @@ stale landscape reuse. Action hysteresis remains separate and may only smooth
 actions inside the current Price State family.
 
 The single unified Price Structure Engine collects all available legitimate
-structure candidates, then ranks category-aware confluence zones. Current V1
+structure candidates, then ranks category-aware confluence zones. Current structure
 categories are Fibonacci (including Short Daily confirmation as the same
 category), confirmed swing, moving average, Bollinger, and 52-week/ATH
 historical structure. Add breakout/retest or volume-supported categories only
@@ -322,7 +323,7 @@ user-facing ticker and provider requests use that normalized symbol. Unsupported
 symbols follow the normal provider-error/unavailable path; never create a
 duplicate active symbol from a provider-form ticker.
 
-ETFs remain isolated. They never receive stock profile slots, Company Traits, or a Lifecycle. ETF profile fields are `isETF`, `leveraged`, `direction` (`long` or `inverse`), `underlying`, and optional `underlyingTicker`. Ordinary long ETFs reuse the V1 technical/market model. Leveraged ETFs use stricter gates and higher risk, exhaustion, and market sensitivity. Inverse ETFs use inverted underlying direction only as bounded confirmation; their own Technical states remain the Direction source.
+ETFs remain isolated policy families inside the same production release. They never receive stock profile slots, Company Traits, or a Lifecycle. ETF profile fields are `isETF`, `leveraged`, `direction` (`long` or `inverse`), `underlying`, and optional `underlyingTicker`. Ordinary long ETFs use the unified ETF technical/market policy with its preserved rules. Leveraged ETFs use stricter gates and higher risk, exhaustion, and market sensitivity. Inverse ETFs use inverted underlying direction only as bounded confirmation; their own Technical states remain the Direction source.
 
 ## Accepted ordinary-stock Short V2 (2026-10-01)
 
@@ -334,7 +335,7 @@ Stock Short uses canonical signal persistence and identity stability, without en
 
 ## Stability and performance
 
-The retained ETF/Mid/Long engine paths use family-internal hysteresis and material-change overrides. Ordinary-stock Short follows the identity/persistence path above. Its bounded stability/profile caches have a 300-entry limit. Hysteresis may only smooth actions within the current Price State family (Buy↔Accumulate, Trim↔Sell); it must never retain an action across Opportunity, Neutral, Reduce, or Breakdown family boundaries. Restarting may remove hysteresis history but must not make decisions incorrect because signal persistence is derived from existing technical history.
+The unified ETF/Mid/Long engine paths use family-internal hysteresis and material-change overrides. Ordinary-stock Short follows the identity/persistence path above. Its bounded stability/profile caches have a 300-entry limit. Hysteresis may only smooth actions within the current Price State family (Buy↔Accumulate, Trim↔Sell); it must never retain an action across Opportunity, Neutral, Reduce, or Breakdown family boundaries. Restarting may remove hysteresis history but must not make decisions incorrect because signal persistence is derived from existing technical history.
 
 Do not add unbounded recommendation history, duplicate Technical normalization/fetches, large deep clones, or heavy client chart libraries without a demonstrated need. Reuse normalized Technical/Market payloads once per refresh.
 
@@ -402,6 +403,8 @@ Run from the repository root:
 
 ```bash
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/decision-engine.test.js
+/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/unified-model.test.js
+/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/decision-api.test.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/company-profile.test.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/technical-features.test.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/indicator-modules.test.js
@@ -429,3 +432,5 @@ extension, unchanged defensive baseline, Long trend stability, and the closed
 structure-range retention gate. `indicator-replay.js` and
 `structure-event-audit.js` are offline raw-bar validation tools; keep their
 inputs/outputs outside production data and the repository.
+
+`unified-model.test.js` protects one production version across all policies, the removed V1 fallback, and browser/API module loading. `decision-api.test.js` protects the existing `decision.v1` wire shape with the current unified model version. Historical versions are read only by explicit offline comparison tools; never recreate a V1 switch in production.

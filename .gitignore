@@ -15,3 +15,10 @@ docs/final-model-*/replay-rows.jsonl
 docs/final-model-*/current-data/field-inventory.csv
 docs/final-model-*/previous-data/field-inventory.csv
 docs/final-model-*/离线复现材料.zip
+# Generated diagnostics belong outside the repository; keep compact evidence.
+docs/final-model-*/*.log
+docs/final-model-*/*.png
+docs/final-model-*/*.patch
+docs/final-model-*/memory-before-*.json
+docs/final-model-*/memory-long-*.json
+docs/final-model-*/memory-resource-only-*.json

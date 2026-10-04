@@ -1,4 +1,5 @@
 import importlib.util
+import re
 from pathlib import Path
 import threading
 import time
@@ -12,6 +13,32 @@ from datetime import date, datetime, timezone
 
 
 class ResourcesAndDataTests(unittest.TestCase):
+    def test_unified_model_health_and_real_api_serializer_keep_wire_contract(self):
+        import server
+        node = server.eod_history_node_executable()
+        if not node:
+            self.skipTest('Node is required for the production Decision API')
+        source = (Path(server.ROOT) / 'decision-engine' / 'config.js').read_text()
+        expected = re.search(r'^\s*version:\s*"([^"]+)"', source, re.MULTILINE).group(1)
+        self.assertEqual(server.DECISION_MODEL_VERSION, expected)
+        self.assertTrue(Path(server.DECISION_NODE_RUNNER).is_file())
+        self.assertEqual(Path(server.DECISION_NODE_RUNNER).parent.name, 'decision-api')
+        quote = {'ticker': 'MODEL', 'price': None, 'quote_status': 'unavailable',
+                 'history': {'timestamps': [], 'closes': [], 'availability': 'unavailable'},
+                 'metadata': {'quoteType': 'EQUITY'}}
+        with patch.object(server, 'CACHE', {}), \
+             patch.object(server, 'get_lightweight_market_context', return_value={}), \
+             patch.object(server, 'read_market_cache', return_value={'quote': quote}), \
+             patch.object(server, 'normalize_cached_market_quote', return_value=quote), \
+             patch.object(server, 'is_market_cache_fresh', return_value=True), \
+             patch.object(server, 'eod_history_node_executable', return_value=node):
+            response = server.app.test_client().get('/api/decision/model')
+            self.assertEqual(response.status_code, 200, response.get_json())
+            payload = response.get_json()
+            self.assertEqual(payload['contractVersion'], 'decision.v1')
+            self.assertEqual(payload['modelVersion'], expected)
+            self.assertEqual(set(payload['horizons']), {'short', 'mid', 'long'})
+
     def test_full_refresh_receipt_is_live_even_when_serialized_from_disk(self):
         import server
         payload={"success":True,"refresh_status":{"is_cache_only":True,"used_cache_count":2,"cache_only_tickers":["A","B"]}}

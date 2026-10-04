@@ -5,7 +5,7 @@
   const freeze = (value) => Object.freeze(value);
 
   engine.config = freeze({
-    version: "decision-engine-v2.1-indicators-v1",
+    version: "decision-engine-v2.2-unified",
     indicators: freeze({
       version: "structure-momentum-v1",
       squeeze: freeze({ length: 20, bbMultiplier: 2, kcMultiplier: 1.5, regressionLength: 20, levelScale: 0.4, changeScale: 0.045, levelShare: 0.60 }),
@@ -16,7 +16,7 @@
       confidence: freeze({ tensionStart: 42, tensionOrigin: 38, tensionScale: 62, minimumTensionShare: 0.20 }),
     }),
     shortV2: freeze({
-      enabled: true, scope: "ordinary_stocks", version: "stock-short-v2-indicators-v1",
+      scope: "ordinary_stocks",
       policy: freeze({ workflow: 3, direction: 3, confirmation: 0, risk: 2, exhaustion: 1, structure: 6, entry: 30, confirm: 50, maxRisk: 65, near: 0.7, extension: 3, exit: 10, exhaustionGate: 50, macro: 0, reversal: false }),
       directionWeights: freeze([0.25, 0.20, 0.05, 0.25, 0.25]), confirmationWeights: freeze([0.35, 0.35, 0.20, 0.10]),
       groups: freeze({ ma: freeze([0.20, 0.45, 0.35]), macd: freeze([0.25, 0.45, 0.30]), early: freeze([0.50, 0.30, 0.20]), obv: freeze([0.55, 0.25, 0.20]), trendAgreement: freeze([0.45, 0.35, 0.20]), acceleration: freeze([0.55, 0.45]), risk: freeze([0.40, 0.40, 0.20]), macdChange: freeze([0.50, 0.30, 0.20]) }),
@@ -203,7 +203,7 @@
           // instead of treating one YoY growth reading as dispositive.
           tieBreakOrder: freeze(["MarketLeader", "Cyclical", "HighGrowth", "MatureGrowth", "CashCow", "Defensive", "Turnaround", "EmergingGrowth"]),
           minimumEvidence: freeze({ MarketLeader: 3, HighGrowth: 3, MatureGrowth: 3, CashCow: 4, Defensive: 3, Cyclical: 3, Turnaround: 3, EmergingGrowth: 4 }),
-          // Evidence weights are intentionally separate from the V1 Decision
+          // Evidence weights are intentionally separate from the production Decision
           // Engine. They describe only slow-moving issuer metadata.
           points: freeze({
             leaderScale: 2, leaderMargin: 1, leaderLanguage: 2,

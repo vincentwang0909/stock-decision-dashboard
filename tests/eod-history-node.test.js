@@ -12,6 +12,7 @@ const { spawnSync } = require("node:child_process");
 
 const ROOT = path.resolve(__dirname, "..");
 const runner = path.join(ROOT, "历史记录", "生成决策快照.js");
+const modelConfig = require("../decision-engine/config.js");
 const RAW_KEYS = new Set(["timestamps", "opens", "highs", "lows", "closes", "volumes", "bars", "series", "macd_series", "signal_series", "histogram_series"]);
 
 function bars(count, start, increment, timestampStart = "2025-01-02") {
@@ -92,6 +93,13 @@ try {
   assert.equal(run.status, 0, run.stderr || run.stdout);
   const output = JSON.parse(fs.readFileSync(outputPath, "utf8"));
   assert.equal(output.records.length, 15, "every ticker must produce all three horizons");
+  for (const record of output.records) {
+    assert.equal(record.technical_features.model_diagnostics.model_version, modelConfig.version);
+    if (record.data_status !== "unavailable") {
+      assert.equal(record.technical_features.model_diagnostics.path_version, modelConfig.version);
+      assert.equal(record.technical_features.model_diagnostics.policy_family, `${record.asset_type === "ETF" ? "etf" : "stock"}_${record.horizon}`);
+    }
+  }
   const qqqShort = output.records.find((row) => row.ticker === "QQQ" && row.horizon === "short");
   const tqqqLong = output.records.find((row) => row.ticker === "TQQQ" && row.horizon === "long");
   const nopeMid = output.records.find((row) => row.ticker === "NOPE" && row.horizon === "mid");

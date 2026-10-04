@@ -10,7 +10,11 @@ function runtime(directory) {
   let stamp;
   class SnapshotDate extends Date { constructor(...args) { super(...(args.length ? args : [stamp])); } static now() { return Date.parse(stamp); } }
   const ctx = vm.createContext({ console, Date: SnapshotDate });
-  for (const file of ["decision-engine/config.js", "decision-engine/company-profile-classifier.js", "decision-engine/feature-inputs.js", "technical-features.js", ...["technical-engine", "exhaustion-engine", "market-engine", "etf-profile", "company-profile", "planning-width", "execution-engine", "short-model-v2", "confidence-engine", "stability-engine", "decision-engine"].map((name) => `decision-engine/${name}.js`)]) vm.runInContext(fs.readFileSync(path.join(directory, file), "utf8"), ctx, { filename: file });
+  for (const file of ["decision-engine/config.js", "decision-engine/company-profile-classifier.js", "decision-engine/feature-inputs.js", "technical-features.js", ...["technical-engine", "exhaustion-engine", "market-engine", "etf-profile", "company-profile", "planning-width", "execution-engine", "short-model-v2", "confidence-engine", "stability-engine", "horizon-model-v2", "decision-engine"].map((name) => `decision-engine/${name}.js`)]) {
+    const source = path.join(directory, file);
+    if (file.endsWith("/horizon-model-v2.js") && !fs.existsSync(source)) continue; // Frozen pre-unification research baseline.
+    vm.runInContext(fs.readFileSync(source, "utf8"), ctx, { filename: file });
+  }
   return { ctx, calculate(row) {
     stamp = row.input.metadata.asOf; ctx.DecisionEngine.stability.clear();
     const features = ctx.CanonicalTechnicalFeatures.buildTechnicalFeatures({ history: row.history, currentPrice: row.input.price, benchmarkContext: row.input.marketContext, calculatedAt: stamp });

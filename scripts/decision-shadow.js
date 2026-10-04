@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
-// Read-only audit helper for the V1 decision object. It uses the same cached
+// Read-only audit helper for the current decision object. It uses the same cached
 // market-data payload and canonical technical normalization as the dashboard;
 // it never requests a refresh or writes recommendation history.
 const path = require("node:path");
@@ -9,7 +9,7 @@ const { buildTechnicalFeatures } = require("../technical-features.js");
 
 for (const file of [
   "config.js", "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "etf-profile.js", "company-profile.js",
-  "planning-width.js", "execution-engine.js", "short-model-v2.js", "confidence-engine.js", "stability-engine.js", "decision-engine.js",
+  "planning-width.js", "execution-engine.js", "short-model-v2.js", "confidence-engine.js", "stability-engine.js", "horizon-model-v2.js", "decision-engine.js",
 ]) require(path.join(__dirname, "..", "decision-engine", file));
 
 const DEFAULT_TICKERS = ["META", "MSFT", "NVDA", "MU", "AMZN", "GOOGL"];
@@ -35,7 +35,7 @@ function strictPriceStateContract(value) {
   const action = value.action;
   const positive = ["strong_buy", "buy", "accumulate"].includes(action);
   const defensive = ["trim", "sell"].includes(action);
-  const stockShortV2 = value.debug?.pathVersion === globalThis.DecisionEngine.config.shortV2.version;
+  const stockShortV2 = value.debug?.policyFamily === "stock_short";
   if (state === "IN_OPPORTUNITY_ZONE") return { expected: stockShortV2 ? "positive_or_wait" : "positive", valid: positive || (stockShortV2 && action === "hold") };
   if (["NEAR_OPPORTUNITY_ZONE", "NEUTRAL_ZONE", "NEAR_REDUCE_ZONE"].includes(state)) return { expected: "hold", valid: action === "hold" };
   if (["IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"].includes(state)) return { expected: stockShortV2 ? "reduce_or_wait" : "reduce", valid: defensive || (stockShortV2 && action === "hold") };

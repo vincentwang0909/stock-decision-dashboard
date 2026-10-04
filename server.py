@@ -120,8 +120,10 @@ COMPANY_PROFILE_REVIEW_DAY = 31
 COMPANY_PROFILE_SCHEMA_VERSION = "2.1"
 COMPANY_PROFILE_REVIEW_ENABLED = os.environ.get("COMPANY_PROFILE_REVIEW_ENABLED", "true").strip().lower() not in {"0", "false", "no", "n"}
 COMPANY_PROFILE_REVIEW_STARTUP_DELAY_SECONDS = int(os.environ.get("COMPANY_PROFILE_REVIEW_STARTUP_DELAY_SECONDS", "45"))
-DECISION_V1_NODE_RUNNER = os.path.join(ROOT, "decision-v1", "emit-decision-v1.js")
-DECISION_V1_NODE_TIMEOUT_SECONDS = int(os.environ.get("DECISION_V1_NODE_TIMEOUT_SECONDS", "45"))
+DECISION_NODE_RUNNER = os.path.join(ROOT, "decision-api", "emit-decision.js")
+with open(os.path.join(ROOT, "decision-engine", "config.js"), encoding="utf-8") as model_config_file:
+    DECISION_MODEL_VERSION = re.search(r'^\s*version:\s*"([^"]+)"', model_config_file.read(), re.MULTILINE).group(1)
+DECISION_NODE_TIMEOUT_SECONDS = int(os.environ.get("DECISION_NODE_TIMEOUT_SECONDS", os.environ.get("DECISION_V1_NODE_TIMEOUT_SECONDS", "45")))
 CACHE = BoundedTTLCache(MARKET_DATA_MAX_TICKERS + 8, int(os.environ.get("QUOTE_RAM_CACHE_MAX_BYTES", str(8 * 1024 * 1024))))
 SEARCH_CACHE_SECONDS = 10 * 60
 SYMBOL_SEARCH_CACHE = BoundedTTLCache(128, 1024 * 1024)
@@ -270,7 +272,7 @@ def serialized_node_work(function):
             deadline = time.monotonic() + 30
             if not all(pool.drain(max(0, deadline - time.monotonic())) for pool in (QUOTE_TASKS, ROUTE_TASKS, INTERVAL_TASKS, MARKET_TASKS, AUXILIARY_TASKS)):
                 raise RuntimeError("Timed-out provider work is still running; defer the Node transaction and retry")
-            if function.__name__ in {"build_eod_decision_snapshot", "build_decision_v1_payload"}:
+            if function.__name__ in {"build_eod_decision_snapshot", "build_decision_payload"}:
                 # Long tails already live in the persistent quote cache. Do
                 # not keep their Python objects alongside the JS serializer.
                 CACHE.clear()
@@ -6309,7 +6311,7 @@ def api_symbol_search():
 
 
 @serialized_node_work
-def build_decision_v1_payload(tickers):
+def build_decision_payload(tickers):
     """Serialize cached quotes through the production Decision Engine.
 
     Deliberately reads the CACHE and never forces a live refresh: this serves
@@ -6321,12 +6323,12 @@ def build_decision_v1_payload(tickers):
     node = eod_history_node_executable()
     if not node:
         raise RuntimeError("Node.js is required because the production Decision Engine is JavaScript. Set EOD_DECISION_NODE_PATH if node is not on PATH.")
-    if not os.path.isfile(DECISION_V1_NODE_RUNNER):
-        raise RuntimeError(f"decision.v1 runner is missing: {DECISION_V1_NODE_RUNNER}")
+    if not os.path.isfile(DECISION_NODE_RUNNER):
+        raise RuntimeError(f"decision.v1 runner is missing: {DECISION_NODE_RUNNER}")
 
     market = get_lightweight_market_context(force=False, allow_live=False) or {}
     missing = []
-    temp_directory = tempfile.mkdtemp(prefix="decision-v1-")
+    temp_directory = tempfile.mkdtemp(prefix="decision-api-")
     try:
         manifest = []
         for index, ticker in enumerate(tickers):
@@ -6342,13 +6344,13 @@ def build_decision_v1_payload(tickers):
             manifest.append({"ticker": ticker, "path": quote_path})
             del quote, cached, entry
         input_path = os.path.join(temp_directory, "input.json")
-        output_path = os.path.join(temp_directory, "decision-v1.json")
+        output_path = os.path.join(temp_directory, "decisions.json")
         with open(input_path, "w", encoding="utf-8") as handle:
             json.dump({"format": "ticker-files-v1", "marketContext": market, "items": manifest}, handle, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
         completed = subprocess.run(
-            [node, f"--max-old-space-size={EOD_HISTORY_NODE_MAX_OLD_SPACE_MB}", f"--max-semi-space-size={EOD_HISTORY_NODE_MAX_SEMI_SPACE_MB}", DECISION_V1_NODE_RUNNER, input_path, output_path],
+            [node, f"--max-old-space-size={EOD_HISTORY_NODE_MAX_OLD_SPACE_MB}", f"--max-semi-space-size={EOD_HISTORY_NODE_MAX_SEMI_SPACE_MB}", DECISION_NODE_RUNNER, input_path, output_path],
             cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
-            timeout=DECISION_V1_NODE_TIMEOUT_SECONDS, check=False,
+            timeout=DECISION_NODE_TIMEOUT_SECONDS, check=False,
         )
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or "unknown Node error").strip()
@@ -6363,7 +6365,7 @@ def build_decision_v1_payload(tickers):
 
 
 @app.route("/api/decision/<path:ticker>")
-def api_decision_v1(ticker):
+def api_decision(ticker):
     """One ticker's decision.v1 payload: short, mid and long, independently.
 
     Returns 404 only when the ticker has no cached quote at all. A ticker the
@@ -6374,7 +6376,7 @@ def api_decision_v1(ticker):
     if not symbol:
         return jsonify({"success": False, "error": "ticker is required"}), 400
     try:
-        result = build_decision_v1_payload([symbol])
+        result = build_decision_payload([symbol])
     except Exception as error:
         return jsonify({"success": False, "error": str(error)[:600]}), 503
 
@@ -6388,7 +6390,7 @@ def api_decision_v1(ticker):
 
 
 @app.route("/api/decisions")
-def api_decision_v1_batch():
+def api_decisions():
     """Several tickers at once: /api/decisions?tickers=NVDA,META,MSFT"""
     raw = request.args.get("tickers") or ""
     symbols = [part.strip().upper() for part in raw.split(",") if part.strip()]
@@ -6397,7 +6399,7 @@ def api_decision_v1_batch():
     if len(symbols) > 25:
         return jsonify({"success": False, "error": "at most 25 tickers per request"}), 400
     try:
-        return jsonify(build_decision_v1_payload(symbols))
+        return jsonify(build_decision_payload(symbols))
     except Exception as error:
         return jsonify({"success": False, "error": str(error)[:600]}), 503
 
@@ -6429,7 +6431,7 @@ def api_health():
         "cwd": os.getcwd(),
         "python_version": sys.version,
         "feature_version": "technical-features-v5-structure-momentum",
-        "model_version": "decision-engine-v2.1-indicators-v1",
+        "model_version": DECISION_MODEL_VERSION,
         "service_version": "2026-10-02-service-recovery",
         "resource_metrics_enabled": RESOURCE_METRICS_ENABLED,
         **({"resources": resource_snapshot()} if RESOURCE_METRICS_ENABLED else {}),
