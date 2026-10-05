@@ -85,7 +85,10 @@ assert.equal(presentation.translateReason("Price is near the opportunity range b
 assert.equal(presentation.translateReason("Price is approaching the reduce range but has not entered the recommended reduce/exit zone.", "zh"), "当前价格接近减仓区，但尚未进入推荐减仓/退出区域。");
 assert.equal(presentation.translateReason("Price position alone cannot create a Sell without bearish structural evidence.", "zh"), "仅凭价格位置、缺乏空头结构证据时，不能形成卖出建议。");
 assert.equal(presentation.translateReason("Price has entered the reduce range without enough trend confirmation to justify holding full exposure.", "zh"), "价格已进入减仓区，但趋势确认不足以支持维持完整暴露。");
-assert.equal(presentation.translateReason("Unmapped provider wording.", "zh"), "Unmapped provider wording.");
+assert.equal(presentation.translateReason("Unmapped provider wording.", "zh"), "该决策原因暂未提供中文翻译。");
+assert.equal(presentation.translateReason("Unmapped provider wording.", "en"), "Unmapped provider wording.");
+assert.equal(presentation.translateReason({ code: "new_code", text: "已确认回踩守住。" }, "zh"), "已确认回踩守住。");
+assert.equal(presentation.translateReason("Current price is in the neutral space between actionable price zones.", "zh"), "当前价格位于可操作区间之间的中性区域。");
 assert.equal(presentation.reasonList(["a", "b", "c", "d", "e", "f"], "en", 5).length, 5);
 assert.match(presentation.positionGuidance("hold", "en"), /not enough evidence/i);
 assert.match(presentation.positionGuidance("avoid", "zh"), /不适合/);

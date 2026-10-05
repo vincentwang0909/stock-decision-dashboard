@@ -8,8 +8,8 @@
   const actionTone = Object.freeze({ strong_buy: "strong-buy", buy: "buy", accumulate: "accumulate", hold: "hold", trim: "trim", sell: "sell", avoid: "avoid" });
   const REASONS = Object.freeze({
     market_context_is_unavailable_its_risk_regime_cannot_be_verified: { en: "Market context is unavailable; its risk regime cannot be verified.", zh: "市场上下文不可用，无法核实当前风险环境。" },
-    squeeze_momentum_supports_upside: { en: "Squeeze momentum is positive and strengthening.", zh: "Squeeze动量为正且正在增强。" },
-    squeeze_momentum_supports_downside: { en: "Squeeze momentum is negative and strengthening.", zh: "Squeeze负向动量正在增强。" },
+    squeeze_momentum_supports_upside: { en: "Squeeze momentum is positive and strengthening.", zh: "挤压动量为正且正在增强。" },
+    squeeze_momentum_supports_downside: { en: "Squeeze momentum is negative and strengthening.", zh: "挤压指标的负向动量正在增强。" },
     confirmed_structure_supports_upside: { en: "An already-known structure has a confirmed upward event.", zh: "此前已知的结构出现已确认向上事件。" },
     confirmed_structure_limits_upside: { en: "An already-known structure has a confirmed downward or failed event.", zh: "此前已知的结构出现已确认下行或失败事件。" },
     v2_wait: { en: "Evidence does not support a new action.", zh: "当前证据不足以支持新动作。" },
@@ -65,6 +65,16 @@
     price_has_entered_the_reduce_range_without_enough_trend_confirmation_to_justify_holding_full_exposure: { en: "Price has entered the reduce range without enough trend confirmation to justify holding full exposure.", zh: "价格已进入减仓区，但趋势确认不足以支持维持完整暴露。" },
     price_position_alone_cannot_create_a_sell_without_bearish_structural_evidence: { en: "Price position alone cannot create a Sell without bearish structural evidence.", zh: "仅凭价格位置、缺乏空头结构证据时，不能形成卖出建议。" },
     bearish_structure_has_broken_down_the_exit_range_is_anchored_near_the_executable_current_area: { en: "Bearish structure has broken down; the exit range is anchored near the executable current area.", zh: "空头结构已破位，退出区已锚定在当前可执行价格附近。" },
+    technical_evidence_is_incomplete_so_the_opportunity_zone_supports_only_a_cautious_add_posture: { en: "Technical evidence is incomplete, so the opportunity zone supports only a cautious add posture.", zh: "技术证据不完整，机会区仅支持谨慎加仓。" },
+    downside_exhaustion_is_developing_at_a_valid_opportunity_zone: { en: "Downside exhaustion is developing at a valid opportunity zone.", zh: "有效机会区内正在形成下行衰竭迹象。" },
+    trend_remains_constructive_but_current_price_is_between_the_opportunity_and_reduce_zones: { en: "Trend remains constructive, but current price is between the opportunity and reduce zones.", zh: "趋势仍有支撑，但当前价格位于机会区与减仓区之间。" },
+    trend_is_weak_but_price_has_not_entered_a_reduce_zone_or_confirmed_a_breakdown: { en: "Trend is weak, but price has not entered a reduce zone or confirmed a breakdown.", zh: "趋势偏弱，但价格尚未进入减仓区，也未确认破位。" },
+    current_price_is_in_the_neutral_space_between_actionable_price_zones: { en: "Current price is in the neutral space between actionable price zones.", zh: "当前价格位于可操作区间之间的中性区域。" },
+    current_price_has_reached_the_reduce_zone_reduce_exposure_rather_than_add: { en: "Current price has reached the reduce zone; reduce exposure rather than add.", zh: "当前价格已到达减仓区，适合降低仓位，不宜加仓。" },
+    bearish_deterioration_is_confirmed_while_current_price_is_in_the_executable_reduce_zone: { en: "Bearish deterioration is confirmed while current price is in the executable reduce zone.", zh: "当前价格位于可执行减仓区，且空头恶化已获确认。" },
+    a_confirmed_breakdown_has_invalidated_the_prior_opportunity_structure_exit_is_anchored_near_the_current_executable_area: { en: "A confirmed breakdown has invalidated the prior opportunity structure; exit is anchored near the current executable area.", zh: "已确认破位使原机会结构失效，退出区位于当前可执行价格附近。" },
+    the_opportunity_structure_is_invalid_and_evidence_is_insufficient_for_a_precise_exit_recommendation: { en: "The opportunity structure is invalid and evidence is insufficient for a precise exit recommendation.", zh: "机会结构已失效，现有证据不足以形成精确退出建议。" },
+    price_landscape_quality_is_insufficient_for_an_actionable_recommendation: { en: "Price landscape quality is insufficient for an actionable recommendation.", zh: "价格区间结构质量不足，暂不能形成可执行建议。" },
   });
 
   function normalizeReason(reason) {
@@ -74,7 +84,10 @@
   }
   function translateReason(reason, language = "en") {
     const value = normalizeReason(reason);
-    return REASONS[value.code]?.[language === "zh" ? "zh" : "en"] || value.text || value.code || "—";
+    const translated = REASONS[value.code] || REASONS[normalizeReason(value.text).code];
+    if (translated) return translated[language === "zh" ? "zh" : "en"];
+    if (language === "zh") return /[\u3400-\u9fff]/.test(value.text) ? value.text : value.text || value.code ? "该决策原因暂未提供中文翻译。" : "—";
+    return value.text || value.code || "—";
   }
   function reasonList(items, language = "en", maximum = 5) { return (Array.isArray(items) ? items : []).slice(0, maximum).map((item) => translateReason(item, language)); }
 

@@ -35,7 +35,10 @@ const I18N = {
   en: {
     appTitle: "Stock Decision Dashboard", stocks: "Stocks", search: "Search symbol or name", add: "Add selected", refresh: "Refresh now", refreshing: "Refreshing…", lastRefresh: "Last refresh", autoRefresh: "Auto refresh every 30 min at :10 / :40 (ET)",
     shared: "Shared Watchlist: everyone viewing this Dashboard sees the same stock list.", syncFailed: "Shared list sync failed. Showing cached data.", localServerRequired: "This dashboard must be opened through the local server. Run python3 server.py, then open",
-    all: "All", ticker: "Ticker", type: "Stock type", dayMove: "Day move", short: "Short", mid: "Mid", long: "Long",
+    all: "All", us: "US", growth: "Growth", speculative: "Speculative", dividend: "Dividend", value: "Value",
+    openMenu: "Open menu", language: "Language", sortStocks: "Sort stocks", filterStocks: "Filter stocks by market",
+    sortTicker: "Sort by ticker", sortType: "Sort by stock type", sortChange: "Sort by day move",
+    ticker: "Ticker", type: "Stock type", dayMove: "Day move", short: "Short", mid: "Mid", long: "Long",
     aiDecision: "AI Decision", technical: "Technical", market: "Market Data", price: "Price", dataTime: "Data time", updated: "Updated", unavailable: "—",
     recommendation: "Action", confidence: "Confidence", invalidation: "Invalidation", currentPrice: "Current Price",
     recommendationConfidence: "Recommendation Confidence", confidenceHelp: "Recommendation Confidence measures the consistency and stability of support for this action. It is not a probability of future price appreciation.",
@@ -58,7 +61,10 @@ const I18N = {
   zh: {
     appTitle: "股票决策仪表盘", stocks: "股票", search: "搜索代码或名称", add: "添加所选", refresh: "立即刷新", refreshing: "刷新中…", lastRefresh: "上次刷新", autoRefresh: "每半小时自动刷新：10／40 分（美东时间）",
     shared: "共享自选列表：所有查看此仪表盘的用户看到相同的股票列表。", syncFailed: "共享列表同步失败，正在显示缓存数据。", localServerRequired: "此仪表盘必须通过本地服务打开。请运行 python3 server.py，然后访问",
-    all: "全部", ticker: "代码", type: "股票类型", dayMove: "当日涨跌", short: "短期", mid: "中期", long: "长期",
+    all: "全部", us: "美股", growth: "成长型", speculative: "投机型", dividend: "分红型", value: "价值型",
+    openMenu: "打开菜单", language: "语言", sortStocks: "股票排序", filterStocks: "股票筛选",
+    sortTicker: "按代码排序", sortType: "按股票类型排序", sortChange: "按当日涨跌排序",
+    ticker: "代码", type: "股票类型", dayMove: "当日涨跌", short: "短期", mid: "中期", long: "长期",
     aiDecision: "AI 决策", technical: "技术面", market: "市场数据", price: "价格", dataTime: "数据时间", updated: "更新时间", unavailable: "—",
     recommendation: "操作", confidence: "置信度", invalidation: "失效价", currentPrice: "当前价格",
     recommendationConfidence: "推荐可信度", confidenceHelp: "推荐可信度表示当前数据对该操作建议的支持一致性和稳定程度，不代表未来上涨概率。", recommendedBuyAddRange: "推荐买入／加仓区", potentialAddRange: "潜在加仓区", reevaluationRange: "重新评估区", potentialReduceRange: "潜在减仓区", recommendedReduceRange: "推荐减仓区", recommendedExitRange: "推荐退出区", riskInvalidation: "风险／失效位", avoidNoEntry: "回避／不建立新仓", currentPrice: "当前价格", withinRange: "当前位于区间内", distanceToRange: "距离",
@@ -104,6 +110,11 @@ const state = {
 
 const $ = (selector) => document.querySelector(selector);
 const t = (key) => I18N[state.language][key] || I18N.en[key] || key;
+const uiLabel = (value) => window.DashboardI18n.label(value, state.language);
+const uiText = (value) => window.DashboardI18n.text(value, state.language);
+const profileLabel = (value) => window.DashboardI18n.profile(value, state.language);
+const intervalLabel = (value) => window.DashboardI18n.interval(value, state.language);
+const dayLabel = (days) => `${days}${state.language === "zh" ? " 日" : "D"}`;
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 const finite = (value) => (typeof value !== "number" && typeof value !== "string") || (typeof value === "string" && !value.trim())
   ? null : Number.isFinite(Number(value)) ? Number(value) : null;
@@ -270,9 +281,14 @@ function decisionFor(row, horizon) {
   return row.decision?.horizons?.[horizon] || null;
 }
 
+function decisionActionLabel(decision) {
+  return window.DecisionEngine.config.actionLabels[decision?.action]?.[state.language]
+    || (state.language === "en" ? decision?.actionLabel : null) || t("unavailable");
+}
+
 function actionChip(row, horizon) {
   const decision = decisionFor(row, horizon);
-  const label = row.ready && decision ? decision.actionLabel : t("unavailable");
+  const label = row.ready && decision ? decisionActionLabel(decision) : t("unavailable");
   return `<span class="stock-mini-chip ${actionTone(decision?.action)}"><b>${t(horizon)}</b><span>${escapeHtml(label)}</span></span>`;
 }
 
@@ -303,7 +319,7 @@ function renderStockList() {
     <article class="stock-item${row.ticker === state.selectedTicker ? " active" : ""}" data-open-ticker="${escapeHtml(row.ticker)}" role="button" tabindex="0">
       <div class="stock-item-header">
         <div class="stock-copy">
-          <div class="stock-symbol-row"><strong class="stock-symbol">${escapeHtml(row.ticker)}</strong>${row.classification.category ? `<span class="stock-profile-pill">${escapeHtml(row.classification.category)}</span>` : ""}</div>
+          <div class="stock-symbol-row"><strong class="stock-symbol">${escapeHtml(row.ticker)}</strong>${row.classification.category ? `<span class="stock-profile-pill">${escapeHtml(profileLabel(row.classification.category))}</span>` : ""}</div>
           <div class="stock-company">${escapeHtml(row.companyName)}</div>
           <div class="stock-price-row"><strong>${formatPrice(row.price, row.currency)}</strong><span class="stock-day-move ${row.changePercent >= 0 ? "buy" : "sell"}">${t("dayMove")} ${formatPct(row.changePercent)}</span></div>
         </div>
@@ -354,7 +370,7 @@ function horizonCoreCard(row, horizon) {
   return `
     <article class="decision-core-card ${actionTone(decision.action)}${active}" data-decision-horizon="${horizon}" role="button" tabindex="0" aria-pressed="${horizon === state.decisionHorizon}">
       <span>${t(horizon)} · ${horizonLabel(horizon)}</span>
-      <strong>${escapeHtml(decision.actionLabel)}</strong>
+      <strong>${escapeHtml(decisionActionLabel(decision))}</strong>
       <div class="decision-confidence"><span>${t("recommendationConfidence")} <button type="button" class="decision-confidence-help" title="${escapeHtml(t("confidenceHelp"))}" aria-label="${escapeHtml(t("confidenceHelp"))}">i</button></span><b>${escapeHtml(decision.confidence)} / 100</b></div>
       <div class="decision-card-execution">${executionFields(row, decision)}</div>
     </article>
@@ -362,26 +378,11 @@ function horizonCoreCard(row, horizon) {
 }
 
 function technicalLine(label, value, note = "") {
-  return `<div class="detail-line-row"><div><div class="detail-line-label">${escapeHtml(label)}</div>${note ? `<div class="detail-line-note">${escapeHtml(note)}</div>` : ""}</div><div class="detail-line-side"><strong>${escapeHtml(value)}</strong></div></div>`;
+  return `<div class="detail-line-row"><div><div class="detail-line-label">${escapeHtml(uiLabel(label))}</div>${note ? `<div class="detail-line-note">${escapeHtml(note)}</div>` : ""}</div><div class="detail-line-side"><strong>${escapeHtml(value)}</strong></div></div>`;
 }
 
 function technicalState(value) {
-  if (!value || value === "unavailable") return t("unavailable");
-  const reasons = {
-    source_unavailable: ["Source unavailable", "来源不可用"], insufficient_history: ["Insufficient history", "历史不足"],
-    calculation_error: ["Calculation error", "计算错误"], dependency_unavailable: ["Required input unavailable", "必要输入不可用"],
-    not_applicable: ["Not applicable", "不适用"], market_session_incomplete: ["Session unfinished", "交易时段未完成"],
-    invalid_source_data: ["Invalid source data", "源数据无效"], previous_refresh_generation: ["Earlier refresh generation", "来自较早刷新代际"],
-  };
-  Object.assign(reasons, {
-    squeeze_on: ["Squeeze on", "波动压缩"], squeeze_off: ["Squeeze off", "波动释放状态"], squeeze_neither: ["Neither", "过渡状态"],
-    positive_increasing: ["Positive, strengthening", "正向动量增强"], positive_decreasing: ["Positive, weakening", "正向动量减弱"], negative_decreasing: ["Negative, strengthening", "负向动量增强"], negative_increasing: ["Negative, repairing", "负向动量修复"],
-    upper_extension: ["Upper extension", "上沿延伸"], lower_extension: ["Lower extension", "下沿延伸"], upper_repair: ["Upper repair", "上沿回落"], lower_repair: ["Lower repair", "下沿修复"], inside_bands: ["Inside bands", "轨道内"],
-    breakout_up: ["Confirmed upward break", "已确认向上突破"], breakdown_down: ["Confirmed downward break", "已确认向下突破"], retest_up: ["Upward break retested", "向上突破回踩守住"], retest_down: ["Downward break retested", "向下突破反抽受阻"], failed_break: ["Failed break", "突破失败"], structure_ready: ["Confirmed structure available", "已确认结构可用"],
-    provisional: ["Provisional", "暂定输入"], completed: ["Completed", "已完成"], completion_unknown: ["Completion unknown", "完成状态未知"], completion_metadata_unavailable: ["Completion metadata unavailable", "缺少K线完成信息"],
-  });
-  if (reasons[value]) return reasons[value][state.language === "zh" ? 1 : 0];
-  return String(value).replace(/_/g, " ");
+  return window.DashboardI18n.state(value, state.language);
 }
 
 function technicalNumber(value, digits = 2, { signed = true } = {}) {
@@ -411,7 +412,7 @@ function atrPercentileDisplay(atr, window) {
 
 function technicalCard(title, stateLabel, detail, rows = [], details = [], availability = null) {
   const availabilityNote = technicalAvailability(availability);
-  return `<article class="decision-list-card technical-indicator-card"><div class="decision-list-title">${escapeHtml(title)}</div><div class="technical-indicator-state">${escapeHtml(technicalState(stateLabel))}</div>${detail ? `<div class="detail-line-note">${escapeHtml(detail)}</div>` : ""}${availabilityNote ? `<div class="detail-line-note">${escapeHtml(availabilityNote)}</div>` : ""}<div class="detail-line-list">${rows.join("") || technicalLine(title, t("unavailable"))}</div>${details.length ? `<div class="detail-disclosure"><div class="detail-line-list">${details.join("")}</div></div>` : ""}</article>`;
+  return `<article class="decision-list-card technical-indicator-card"><div class="decision-list-title">${escapeHtml(uiLabel(title))}</div><div class="technical-indicator-state">${escapeHtml(technicalState(stateLabel))}</div>${detail ? `<div class="detail-line-note">${escapeHtml(uiLabel(detail))}</div>` : ""}${availabilityNote ? `<div class="detail-line-note">${escapeHtml(availabilityNote)}</div>` : ""}<div class="detail-line-list">${rows.join("") || technicalLine(title, t("unavailable"))}</div>${details.length ? `<div class="detail-disclosure"><div class="detail-line-list">${details.join("")}</div></div>` : ""}</article>`;
 }
 
 function compactNumber(value) {
@@ -462,17 +463,17 @@ function technicalBlock(row, horizon) {
     .sort((left, right) => String(left.interval).localeCompare(String(right.interval)));
   const rs = featureSet.relative_strength || {};
   const maRows = movingAverages.map((item) => technicalLine(
-    `${String(item.indicator || "MA").toUpperCase()} ${item.period} · ${item.interval}`,
+    `${String(item.indicator || "MA").toUpperCase()} ${item.period} · ${intervalLabel(item.interval)}`,
     formatPrice(item.value, row.currency),
     item.availability === "available" ? `${technicalState(item.price_state)} · ${technicalState(item.slope?.state)}` : technicalAvailability(item) || t("unavailable"),
   ));
   const rsiRows = rsiFeatures.map((item) => technicalLine(
-    `${String(item.interval || "").toUpperCase()} RSI ${item.period ?? "—"}`,
+    `${intervalLabel(item.interval)} RSI ${item.period ?? "—"}`,
     indicatorValue(item, "value", (value) => value.toFixed(1)),
     `${technicalState(item.state)} · ${technicalState(item.slope?.state)} · ${technicalState(item.divergence)} · ${tl("Overbought / oversold", "超买／超卖")} ${technicalBoolean(item.overbought)} / ${technicalBoolean(item.oversold)} · ${technicalAvailability(item.slope)}`,
   ));
   const secondaryMacdRows = macdFeatures.filter((item) => item !== macd).map((item) => technicalLine(
-    `${String(item.interval || "").toUpperCase()} MACD / Signal / Histogram`,
+    `${intervalLabel(item.interval)} ${tl("MACD / Signal / Histogram", "MACD／信号线／柱状图")}`,
     `${technicalNumber(item.macd_line, 3)} / ${technicalNumber(item.signal_line, 3)} / ${technicalNumber(item.histogram, 3)}`,
     `${technicalState(item.state)} · ${technicalState(item.crossover_state)}`,
   ));
@@ -481,7 +482,7 @@ function technicalBlock(row, horizon) {
     technicalLine(tl("Break / retest buffer", "突破／回踩缓冲"), `${structure.parameters?.break_atr ?? "—"} / ${structure.parameters?.retest_atr ?? "—"} ATR`),
     technicalLine(tl("Volume EMA / threshold", "成交量EMA／阈值"), `${structure.parameters?.volume_fast ?? "—"} / ${structure.parameters?.volume_slow ?? "—"} · ${structure.parameters?.volume_threshold ?? "—"}%`),
     ...(structure.levels || []).map((level) => technicalLine(`${level.role === "support" ? tl("Support", "支撑") : tl("Resistance", "阻力")} · ${formatPrice(level.price, row.currency)}`, `${tl("Pivot", "高低点")} ${level.pivot_at}`, `${tl("Known", "首次可知")} ${level.known_at} · ${tl("Touches", "触及")} ${level.touches} · ${tl("Qualified / retested", "有效／已回踩")} ${technicalBoolean(level.qualified)} / ${technicalBoolean(level.retested)}`)),
-    ...(structure.events || []).map((event) => technicalLine(technicalState(event.kind), `${formatPrice(event.reference_price, row.currency)} · ${event.timestamp}`, `${tl("Age", "距今K线数")} ${event.age_bars} ${event.age_interval} · ${tl("Volume confirmed", "放量确认")} ${technicalBoolean(event.volume_confirmed)}`)),
+    ...(structure.events || []).map((event) => technicalLine(technicalState(event.kind), `${formatPrice(event.reference_price, row.currency)} · ${event.timestamp}`, `${tl("Age", "距今K线数")} ${event.age_bars} ${intervalLabel(event.age_interval)} · ${tl("Volume confirmed", "放量确认")} ${technicalBoolean(event.volume_confirmed)}`)),
     technicalLine(tl("Input completion", "输入完成状态"), technicalState(structure.input_state)),
     technicalLine(tl("Last bar / calculation", "最近K线／计算时间"), `${structure.last_bar_timestamp || "—"} / ${structure.calculation_timestamp || "—"}`),
   ];
@@ -495,19 +496,19 @@ function technicalBlock(row, horizon) {
   return `
     <section class="detail-section-card technical-horizon-section">
       <div class="detail-section-head"><h3>${t(horizon)} · ${horizonLabel(horizon)}</h3></div>
-      <div class="detail-line-note">${t("dataStatus")}: ${escapeHtml(technicalState(featureSet.availability))} · ${interval.toUpperCase()} ${t("primaryInterval")} · ${t("supportingIntervals")}</div>
+      <div class="detail-line-note">${t("dataStatus")}: ${escapeHtml(technicalState(featureSet.availability))} · ${intervalLabel(interval)} ${t("primaryInterval")} · ${t("supportingIntervals")}</div>
       <div class="technical-overview-strip">${overview.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div>
       <div class="technical-family-grid">
         ${technicalCard("Moving averages", featureSet.trend?.ma_structure?.alignment, "Each value names its MA type, period and candle interval.", maRows, [technicalLine("Alignment", technicalState(featureSet.trend?.ma_structure?.alignment)), technicalLine("Compression / expansion", technicalState(featureSet.trend?.ma_structure?.compression_state))])}
-        ${technicalCard("Bollinger＋RSI", combo.state, `${interval.toUpperCase()} · BB ${bands.period || 20}/2 · RSI ${combo.rsi_period || (horizon === "long" ? 21 : 14)}`, [...rsiRows, technicalLine("%B", indicatorValue(bands, "percent_b", (value) => value.toFixed(2))), technicalLine("Bandwidth", indicatorValue(bands, "bandwidth_pct", (value) => percentValue(value, 2))), technicalLine("Upper / middle / lower", `${formatPrice(bands.upper_band, row.currency)} / ${formatPrice(bands.middle_band, row.currency)} / ${formatPrice(bands.lower_band, row.currency)}`)], [technicalLine("Primary slope", technicalState(rsi.slope?.state), technicalAvailability(rsi.slope)), technicalLine("Primary divergence", technicalState(rsi.divergence)), technicalLine("Bandwidth percentile", indicatorValue(bands, "bandwidth_percentile", (value) => percentValue(value, 1)), technicalAvailability(bands.bandwidth_percentile_availability)), technicalLine("Squeeze / expanded state", technicalState(bands.squeeze_state), technicalAvailability(bands.squeeze_state_availability)), technicalLine("Price position", technicalState(bands.price_position)), technicalLine(tl("Combination state", "组合状态"), technicalState(combo.state)), technicalLine(tl("High / low extension", "高位／低位延伸"), `${technicalNumber(combo.high_extension, 1, { signed: false })} / ${technicalNumber(combo.low_extension, 1, { signed: false })}`), technicalLine(tl("RSI extension thresholds / repair window", "RSI延伸阈值／修复窗口"), `${combo.parameters?.low ?? "—"} / ${combo.parameters?.high ?? "—"} · ${combo.parameters?.repair_bars ?? "—"}`), technicalLine(tl("Repair event / age", "修复事件／距今K线数"), combo.repair ? `${technicalState(combo.repair.state)} · ${combo.repair.age_bars} · ${combo.repair.timestamp}` : t("unavailable")), technicalLine(tl("Input completion", "输入完成状态"), technicalState(combo.input_state))], combo)}
-        ${technicalCard("Squeeze Momentum", squeeze.state, `${interval.toUpperCase()} · BB20/2 · KC20/1.5 · Linear regression 20`, [technicalLine(tl("Momentum", "动量"), technicalNumber(squeeze.momentum, 3)), technicalLine(tl("Momentum state", "动量状态"), technicalState(squeeze.momentum_state)), ...[1, 3, 5].map((n) => technicalLine(tl(`${n}-bar change`, `${n}根K线变化`), technicalNumber(squeeze[`change_${n}`], 3))), technicalLine(tl("Last confirmed release", "最近确认释放"), squeeze.release ? `${squeeze.release.timestamp} · ${squeeze.release.age_bars}` : t("unavailable"))], [technicalLine(tl("BB upper / middle / lower", "BB上／中／下轨"), `${formatPrice(squeeze.bb_upper, row.currency)} / ${formatPrice(squeeze.bb_middle, row.currency)} / ${formatPrice(squeeze.bb_lower, row.currency)}`), technicalLine(tl("KC upper / middle / lower", "KC上／中／下轨"), `${formatPrice(squeeze.kc_upper, row.currency)} / ${formatPrice(squeeze.kc_middle, row.currency)} / ${formatPrice(squeeze.kc_lower, row.currency)}`), technicalLine(tl("KC range method", "KC范围算法"), "SMA(True Range)"), technicalLine(tl("Confirmed releases / observed bars", "确认释放次数／已有K线数"), `${squeeze.release_count ?? "—"} / ${squeeze.available_bars ?? "—"}`), technicalLine(tl("Input completion", "输入完成状态"), technicalState(squeeze.input_state)), technicalLine(tl("Last bar / calculation", "最近K线／计算时间"), `${squeeze.last_bar_timestamp || "—"} / ${squeeze.calculation_timestamp || "—"}`)], squeeze)}
-        ${technicalCard(tl("Support / resistance · breaks / retests", "支撑阻力 · 突破与回踩"), structure.state, `${interval.toUpperCase()} · ${tl("confirmed structure", "已确认结构")} · ${structure.supporting_interval || "—"} ${tl("event support", "辅助事件")}`, [technicalLine(tl("Support / resistance", "支撑／阻力"), `${formatPrice(structure.support?.price, row.currency)} / ${formatPrice(structure.resistance?.price, row.currency)}`), technicalLine(tl("Volume oscillator", "成交量振荡器"), percentValue(structure.volume_oscillator)), technicalLine(tl("Latest confirmed event", "最近确认事件"), technicalState(structure.last_event?.kind)), technicalLine(tl("Event reference / confirmation", "事件参考／确认周期"), structure.last_event ? `${structure.last_event.reference_interval} / ${structure.last_event.confirmation_interval}` : t("unavailable"))], structureDetails, structure)}
-        ${technicalCard("MACD", macd.state, `${interval.toUpperCase()} · MACD ${macd.period || "12/26/9"}`, [technicalLine("MACD line", technicalNumber(macd.macd_line, 3)), technicalLine("Signal line", technicalNumber(macd.signal_line, 3)), technicalLine("Histogram", technicalNumber(macd.histogram, 3))], [technicalLine("Histogram 1-bar Δ", technicalNumber(macd.histogram_change_1, 3)), technicalLine("Histogram 3-bar Δ", technicalNumber(macd.histogram_change_3, 3)), technicalLine("Histogram 5-bar Δ", technicalNumber(macd.histogram_change_5, 3)), technicalLine("Zero line", technicalState(macd.above_or_below_zero)), technicalLine("Improving / deteriorating", technicalState(macd.improving_or_deteriorating)), technicalLine("Crossover", technicalState(macd.crossover_state)), technicalLine("Histogram slope", technicalState(macd.histogram_slope?.state), technicalAvailability(macd.histogram_slope)), ...secondaryMacdRows], macd)}
-        ${technicalCard("ADX / DI", adx.trend_strength, `${interval.toUpperCase()} · ADX ${adx.period || 14}`, [technicalLine("ADX", indicatorValue(adx, "adx", (value) => value.toFixed(1))), technicalLine("+DI / −DI", `${indicatorValue(adx, "plus_di", (value) => value.toFixed(1))} / ${indicatorValue(adx, "minus_di", (value) => value.toFixed(1))}`)], [technicalLine("Trend strength", technicalState(adx.trend_strength)), technicalLine("Directional bias", technicalState(adx.directional_bias)), technicalLine("ADX slope", technicalState(adx.slope?.state), technicalAvailability(adx.slope))], adx)}
-        ${technicalCard("ATR", atr.volatility_regime, `${interval.toUpperCase()} · ATR ${atr.period || 14}`, [technicalLine("Raw ATR", indicatorValue(atr, "value", (value) => formatPrice(value, row.currency))), technicalLine("ATR %", indicatorValue(atr, "atr_pct", (value) => percentValue(value, 2)))], [technicalLine("ATR percentile", indicatorValue(atr, "atr_percentile_pct", (value) => percentValue(value, 1)), technicalAvailability(atr.atr_percentile)), ...[60, 120, 250].map((window) => technicalLine(`${window}-bar percentile`, atrPercentileDisplay(atr, window))), technicalLine("Volatility regime", technicalState(atr.volatility_regime), technicalAvailability(atr.volatility_regime_availability)), technicalLine("Expanding / contracting", technicalState(atr.expansion_state)), technicalLine("ATR slope", technicalState(atr.slope?.state), technicalAvailability(atr.slope))], atr)}
-        ${Object.keys(featureSet.momentum?.kdj || {}).length ? technicalCard("KDJ", kdj.crossover_state, `${interval.toUpperCase()} · KDJ ${kdj.period || 9}`, [technicalLine("K / D / J", `${indicatorValue(kdj, "k", (value) => value.toFixed(1))} / ${indicatorValue(kdj, "d", (value) => value.toFixed(1))} / ${indicatorValue(kdj, "j", (value) => value.toFixed(1))}`)], [technicalLine("Crossover", technicalState(kdj.crossover_state)), technicalLine("Direction", technicalState(kdj.direction)), technicalLine("K / D / J slope", `${technicalState(kdj.k_slope?.state)} / ${technicalState(kdj.d_slope?.state)} / ${technicalState(kdj.j_slope?.state)}`), technicalLine("Overbought / oversold", `${technicalBoolean(kdj.overbought)} / ${technicalBoolean(kdj.oversold)}`)], kdj) : ""}
-        ${technicalCard("Relative Strength", rs.state, `1D · ${rs.primary_lookback_days || t("unavailable")}D primary lookback`, [technicalLine("Stock return", formatPct(rs.primary?.stock_return)), technicalLine("vs SPY", formatPct(rs.primary?.vs_spy)), technicalLine("vs QQQ", formatPct(rs.primary?.vs_qqq))], [technicalLine("Stock return · 20 / 60 / 120D", `${formatPct(rs.returns?.stock_20d)} / ${formatPct(rs.returns?.stock_60d)} / ${formatPct(rs.returns?.stock_120d)}`), technicalLine("vs SPY · 20 / 60 / 120D", `${formatPct(rs.vs_spy?.d20)} / ${formatPct(rs.vs_spy?.d60)} / ${formatPct(rs.vs_spy?.d120)}`), technicalLine("vs QQQ · 20 / 60 / 120D", `${formatPct(rs.vs_qqq?.d20)} / ${formatPct(rs.vs_qqq?.d60)} / ${formatPct(rs.vs_qqq?.d120)}`), technicalLine("Consistency", technicalState(rs.consistency?.state || rs.consistency_state))], rs)}
-        ${technicalCard("OBV", obv.trend, `${interval.toUpperCase()} OBV`, [technicalLine("Raw OBV", compactNumber(obv.raw_value)), technicalLine("Trend", technicalState(obv.trend)), technicalLine("Divergence", technicalState(obv.divergence)), technicalLine("Price-volume confirmation", technicalState(obv.price_obv_confirmation))], [technicalLine("OBV slope", technicalState(obv.slope?.state), technicalAvailability(obv.slope))], obv)}
+        ${technicalCard("Bollinger＋RSI", combo.state, `${intervalLabel(interval)} · BB ${bands.period || 20}/2 · RSI ${combo.rsi_period || (horizon === "long" ? 21 : 14)}`, [...rsiRows, technicalLine("%B", indicatorValue(bands, "percent_b", (value) => value.toFixed(2))), technicalLine("Bandwidth", indicatorValue(bands, "bandwidth_pct", (value) => percentValue(value, 2))), technicalLine("Upper / middle / lower", `${formatPrice(bands.upper_band, row.currency)} / ${formatPrice(bands.middle_band, row.currency)} / ${formatPrice(bands.lower_band, row.currency)}`)], [technicalLine("Primary slope", technicalState(rsi.slope?.state), technicalAvailability(rsi.slope)), technicalLine("Primary divergence", technicalState(rsi.divergence)), technicalLine("Bandwidth percentile", indicatorValue(bands, "bandwidth_percentile", (value) => percentValue(value, 1)), technicalAvailability(bands.bandwidth_percentile_availability)), technicalLine("Squeeze / expanded state", technicalState(bands.squeeze_state), technicalAvailability(bands.squeeze_state_availability)), technicalLine("Price position", technicalState(bands.price_position)), technicalLine(tl("Combination state", "组合状态"), technicalState(combo.state)), technicalLine(tl("High / low extension", "高位／低位延伸"), `${technicalNumber(combo.high_extension, 1, { signed: false })} / ${technicalNumber(combo.low_extension, 1, { signed: false })}`), technicalLine(tl("RSI extension thresholds / repair window", "RSI延伸阈值／修复窗口"), `${combo.parameters?.low ?? "—"} / ${combo.parameters?.high ?? "—"} · ${combo.parameters?.repair_bars ?? "—"}`), technicalLine(tl("Repair event / age", "修复事件／距今K线数"), combo.repair ? `${technicalState(combo.repair.state)} · ${combo.repair.age_bars} · ${combo.repair.timestamp}` : t("unavailable")), technicalLine(tl("Input completion", "输入完成状态"), technicalState(combo.input_state))], combo)}
+        ${technicalCard("Squeeze Momentum", squeeze.state, `${intervalLabel(interval)} · BB20/2 · KC20/1.5 · ${tl("Linear regression", "线性回归")} 20`, [technicalLine(tl("Momentum", "动量"), technicalNumber(squeeze.momentum, 3)), technicalLine(tl("Momentum state", "动量状态"), technicalState(squeeze.momentum_state)), ...[1, 3, 5].map((n) => technicalLine(tl(`${n}-bar change`, `${n}根K线变化`), technicalNumber(squeeze[`change_${n}`], 3))), technicalLine(tl("Last confirmed release", "最近确认释放"), squeeze.release ? `${squeeze.release.timestamp} · ${squeeze.release.age_bars}` : t("unavailable"))], [technicalLine(tl("BB upper / middle / lower", "BB上／中／下轨"), `${formatPrice(squeeze.bb_upper, row.currency)} / ${formatPrice(squeeze.bb_middle, row.currency)} / ${formatPrice(squeeze.bb_lower, row.currency)}`), technicalLine(tl("KC upper / middle / lower", "KC上／中／下轨"), `${formatPrice(squeeze.kc_upper, row.currency)} / ${formatPrice(squeeze.kc_middle, row.currency)} / ${formatPrice(squeeze.kc_lower, row.currency)}`), technicalLine(tl("KC range method", "KC范围算法"), tl("SMA(True Range)", "真实波幅的简单移动平均")), technicalLine(tl("Confirmed releases / observed bars", "确认释放次数／已有K线数"), `${squeeze.release_count ?? "—"} / ${squeeze.available_bars ?? "—"}`), technicalLine(tl("Input completion", "输入完成状态"), technicalState(squeeze.input_state)), technicalLine(tl("Last bar / calculation", "最近K线／计算时间"), `${squeeze.last_bar_timestamp || "—"} / ${squeeze.calculation_timestamp || "—"}`)], squeeze)}
+        ${technicalCard(tl("Support / resistance · breaks / retests", "支撑阻力 · 突破与回踩"), structure.state, `${intervalLabel(interval)} · ${tl("confirmed structure", "已确认结构")} · ${intervalLabel(structure.supporting_interval)} ${tl("event support", "辅助事件")}`, [technicalLine(tl("Support / resistance", "支撑／阻力"), `${formatPrice(structure.support?.price, row.currency)} / ${formatPrice(structure.resistance?.price, row.currency)}`), technicalLine(tl("Volume oscillator", "成交量振荡器"), percentValue(structure.volume_oscillator)), technicalLine(tl("Latest confirmed event", "最近确认事件"), technicalState(structure.last_event?.kind)), technicalLine(tl("Event reference / confirmation", "事件参考／确认周期"), structure.last_event ? `${intervalLabel(structure.last_event.reference_interval)} / ${intervalLabel(structure.last_event.confirmation_interval)}` : t("unavailable"))], structureDetails, structure)}
+        ${technicalCard("MACD", macd.state, `${intervalLabel(interval)} · MACD ${macd.period || "12/26/9"}`, [technicalLine("MACD line", technicalNumber(macd.macd_line, 3)), technicalLine("Signal line", technicalNumber(macd.signal_line, 3)), technicalLine("Histogram", technicalNumber(macd.histogram, 3))], [technicalLine("Histogram 1-bar Δ", technicalNumber(macd.histogram_change_1, 3)), technicalLine("Histogram 3-bar Δ", technicalNumber(macd.histogram_change_3, 3)), technicalLine("Histogram 5-bar Δ", technicalNumber(macd.histogram_change_5, 3)), technicalLine("Zero line", technicalState(macd.above_or_below_zero)), technicalLine("Improving / deteriorating", technicalState(macd.improving_or_deteriorating)), technicalLine("Crossover", technicalState(macd.crossover_state)), technicalLine("Histogram slope", technicalState(macd.histogram_slope?.state), technicalAvailability(macd.histogram_slope)), ...secondaryMacdRows], macd)}
+        ${technicalCard("ADX / DI", adx.trend_strength, `${intervalLabel(interval)} · ADX ${adx.period || 14}`, [technicalLine("ADX", indicatorValue(adx, "adx", (value) => value.toFixed(1))), technicalLine("+DI / −DI", `${indicatorValue(adx, "plus_di", (value) => value.toFixed(1))} / ${indicatorValue(adx, "minus_di", (value) => value.toFixed(1))}`)], [technicalLine("Trend strength", technicalState(adx.trend_strength)), technicalLine("Directional bias", technicalState(adx.directional_bias)), technicalLine("ADX slope", technicalState(adx.slope?.state), technicalAvailability(adx.slope))], adx)}
+        ${technicalCard("ATR", atr.volatility_regime, `${intervalLabel(interval)} · ATR ${atr.period || 14}`, [technicalLine("Raw ATR", indicatorValue(atr, "value", (value) => formatPrice(value, row.currency))), technicalLine("ATR %", indicatorValue(atr, "atr_pct", (value) => percentValue(value, 2)))], [technicalLine("ATR percentile", indicatorValue(atr, "atr_percentile_pct", (value) => percentValue(value, 1)), technicalAvailability(atr.atr_percentile)), ...[60, 120, 250].map((window) => technicalLine(`${window}-bar percentile`, atrPercentileDisplay(atr, window))), technicalLine("Volatility regime", technicalState(atr.volatility_regime), technicalAvailability(atr.volatility_regime_availability)), technicalLine("Expanding / contracting", technicalState(atr.expansion_state)), technicalLine("ATR slope", technicalState(atr.slope?.state), technicalAvailability(atr.slope))], atr)}
+        ${Object.keys(featureSet.momentum?.kdj || {}).length ? technicalCard("KDJ", kdj.crossover_state, `${intervalLabel(interval)} · KDJ ${kdj.period || 9}`, [technicalLine("K / D / J", `${indicatorValue(kdj, "k", (value) => value.toFixed(1))} / ${indicatorValue(kdj, "d", (value) => value.toFixed(1))} / ${indicatorValue(kdj, "j", (value) => value.toFixed(1))}`)], [technicalLine("Crossover", technicalState(kdj.crossover_state)), technicalLine("Direction", technicalState(kdj.direction)), technicalLine("K / D / J slope", `${technicalState(kdj.k_slope?.state)} / ${technicalState(kdj.d_slope?.state)} / ${technicalState(kdj.j_slope?.state)}`), technicalLine("Overbought / oversold", `${technicalBoolean(kdj.overbought)} / ${technicalBoolean(kdj.oversold)}`)], kdj) : ""}
+        ${technicalCard("Relative Strength", rs.state, `${intervalLabel("1d")} · ${rs.primary_lookback_days || t("unavailable")} ${tl("days primary lookback", "日主回看窗口")}`, [technicalLine("Stock return", formatPct(rs.primary?.stock_return)), technicalLine("vs SPY", formatPct(rs.primary?.vs_spy)), technicalLine("vs QQQ", formatPct(rs.primary?.vs_qqq))], [technicalLine("Stock return · 20 / 60 / 120D", `${formatPct(rs.returns?.stock_20d)} / ${formatPct(rs.returns?.stock_60d)} / ${formatPct(rs.returns?.stock_120d)}`), technicalLine("vs SPY · 20 / 60 / 120D", `${formatPct(rs.vs_spy?.d20)} / ${formatPct(rs.vs_spy?.d60)} / ${formatPct(rs.vs_spy?.d120)}`), technicalLine("vs QQQ · 20 / 60 / 120D", `${formatPct(rs.vs_qqq?.d20)} / ${formatPct(rs.vs_qqq?.d60)} / ${formatPct(rs.vs_qqq?.d120)}`), technicalLine("Consistency", technicalState(rs.consistency?.state || rs.consistency_state))], rs)}
+        ${technicalCard("OBV", obv.trend, `${intervalLabel(interval)} OBV`, [technicalLine("Raw OBV", compactNumber(obv.raw_value)), technicalLine("Trend", technicalState(obv.trend)), technicalLine("Divergence", technicalState(obv.divergence)), technicalLine("Price-volume confirmation", technicalState(obv.price_obv_confirmation))], [technicalLine("OBV slope", technicalState(obv.slope?.state), technicalAvailability(obv.slope))], obv)}
       </div>
     </section>
   `;
@@ -528,19 +529,19 @@ function fibonacciLevelTable(levels, row, type) {
 
 function fibonacciHorizonCard(row, title, fib) {
   if (!fib || !["available", "stale_swing"].includes(fib.status)) {
-    return technicalCard(title, fib?.status === "no_valid_swing" ? "No valid swing identified" : "Insufficient Fibonacci data", fib?.explanation || "", []);
+    return technicalCard(title, fib?.status === "no_valid_swing" ? "no_valid_swing" : "insufficient_history", uiText(fib?.explanation || ""), []);
   }
-  const direction = fib.swing_direction === "up_swing" ? "Up swing" : "Down swing";
-  const source = String(fib.source_timeframe || "—").toUpperCase();
-  const fallback = fib.fallback_used ? `${t("yes")}${fib.fallback_reason ? ` · ${fib.fallback_reason}` : ""}` : t("no");
-  return `<article class="technical-indicator-card fibonacci-card"><div class="decision-list-title">${escapeHtml(title)}</div><div class="technical-indicator-state">${escapeHtml(direction)}</div><div class="detail-line-note">${escapeHtml(`${source} · ${fib.data_window || "—"} · ${fib.pivot_method || "—"}`)}</div><div class="fibonacci-summary-grid">${[
+  const direction = technicalState(fib.swing_direction);
+  const source = intervalLabel(fib.source_timeframe);
+  const fallback = fib.fallback_used ? `${t("yes")}${fib.fallback_reason ? ` · ${uiText(fib.fallback_reason)}` : ""}` : t("no");
+  return `<article class="technical-indicator-card fibonacci-card"><div class="decision-list-title">${escapeHtml(title)}</div><div class="technical-indicator-state">${escapeHtml(direction)}</div><div class="detail-line-note">${escapeHtml(`${source} · ${uiText(fib.data_window || "—")} · ${uiText(fib.pivot_method || "—")}`)}</div><div class="fibonacci-summary-grid">${[
     [t("swingHigh"), `${fib.swing_high_date || "—"} · ${formatPrice(fib.swing_high, row.currency)}`],
     [t("swingLow"), `${fib.swing_low_date || "—"} · ${formatPrice(fib.swing_low, row.currency)}`],
     [t("swingRange"), `${formatPrice(fib.swing_range, row.currency)} · ${percentValue(fib.swing_range_pct)}`],
-    [t("currentPosition"), fib.current_position_label || t("unavailable")],
+    [t("currentPosition"), uiText(fib.current_position_label) || t("unavailable")],
     [t("nearestBelow"), fib.nearest_level_below ? `${fib.nearest_level_below.label} · ${formatPrice(fib.nearest_level_below.price, row.currency)}` : t("unavailable")],
     [t("nearestAbove"), fib.nearest_level_above ? `${fib.nearest_level_above.label} · ${formatPrice(fib.nearest_level_above.price, row.currency)}` : t("unavailable")],
-  ].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div>${fibonacciLevelTable(fib.retracement_levels, row, t("retracement"))}${fibonacciLevelTable(fib.extension_levels, row, t("extension"))}<details class="technical-advanced"><summary>${t("advancedSwingMetadata")}</summary><div class="detail-line-list">${technicalLine(t("sourceTimeframe"), source)}${technicalLine(t("lookbackBars"), `${fib.lookback_bars ?? t("unavailable")} / ${fib.source_bar_count ?? t("unavailable")}`)}${technicalLine(t("fallbackUsed"), fallback)}${fib.fallback_used && fib.fallback_reason ? technicalLine(t("fallbackReason"), fib.fallback_reason) : ""}${technicalLine("Anchor start", `${fib.swing_start_date || "—"} · ${formatPrice(fib.swing_direction === "up_swing" ? fib.swing_low : fib.swing_high, row.currency)}`)}${technicalLine("Anchor end", `${fib.swing_end_date || "—"} · ${formatPrice(fib.swing_direction === "up_swing" ? fib.swing_high : fib.swing_low, row.currency)}`)}${technicalLine("Pivot confirmation", fib.pivot_confirmation || fib.pivot_method || t("unavailable"))}${technicalLine("Pivot count · high / low", `${fib.pivot_high_count ?? t("unavailable")} / ${fib.pivot_low_count ?? t("unavailable")}`)}${technicalLine("Bars since swing end", Number.isFinite(fib.bars_since_swing_end) ? String(fib.bars_since_swing_end) : t("unavailable"))}</div></details></article>`;
+  ].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div>${fibonacciLevelTable(fib.retracement_levels, row, t("retracement"))}${fibonacciLevelTable(fib.extension_levels, row, t("extension"))}<details class="technical-advanced"><summary>${t("advancedSwingMetadata")}</summary><div class="detail-line-list">${technicalLine(t("sourceTimeframe"), source)}${technicalLine(t("lookbackBars"), `${fib.lookback_bars ?? t("unavailable")} / ${fib.source_bar_count ?? t("unavailable")}`)}${technicalLine(t("fallbackUsed"), fallback)}${fib.fallback_used && fib.fallback_reason ? technicalLine(t("fallbackReason"), uiText(fib.fallback_reason)) : ""}${technicalLine("Anchor start", `${fib.swing_start_date || "—"} · ${formatPrice(fib.swing_direction === "up_swing" ? fib.swing_low : fib.swing_high, row.currency)}`)}${technicalLine("Anchor end", `${fib.swing_end_date || "—"} · ${formatPrice(fib.swing_direction === "up_swing" ? fib.swing_high : fib.swing_low, row.currency)}`)}${technicalLine("Pivot confirmation", uiText(fib.pivot_confirmation || fib.pivot_method || t("unavailable")))}${technicalLine("Pivot count · high / low", `${fib.pivot_high_count ?? t("unavailable")} / ${fib.pivot_low_count ?? t("unavailable")}`)}${technicalLine("Bars since swing end", Number.isFinite(fib.bars_since_swing_end) ? String(fib.bars_since_swing_end) : t("unavailable"))}</div></details></article>`;
 }
 
 function renderFibonacciStructure(row) {
@@ -561,7 +562,7 @@ function renderTechnicalFoundation(row) {
   const shortObv = row.technicalFeatures?.horizons?.short?.participation?.obv?.obv_4h || {};
   const midObv = row.technicalFeatures?.horizons?.medium?.participation?.obv?.obv_1d || {};
   const longObv = row.technicalFeatures?.horizons?.long?.participation?.obv?.obv_1w || {};
-  const content = `<div class="technical-family-grid">${technicalCard("52-Week and history", position.availability, "Daily OHLCV history", [technicalLine("52W high / distance", `${formatPrice(position.high_52w, row.currency)} / ${formatPct(position.distance_to_52w_high_pct)}`, position.high_52w_date || ""), technicalLine("52W low / distance", `${formatPrice(position.low_52w, row.currency)} / ${formatPct(position.distance_to_52w_low_pct)}`, position.low_52w_date || ""), technicalLine("52W position", percentValue(position.position_52w_pct)), technicalLine("All-time high / distance", `${formatPrice(position.all_time_high, row.currency)} / ${formatPct(position.distance_to_ath_pct)}`, position.all_time_high_date || "")], [technicalLine("History coverage", position.all_time_history_coverage || t("unavailable")), technicalLine("History bars / start", `${position.all_time_history_bar_count ?? t("unavailable")} / ${position.all_time_history_start || t("unavailable")}`)], position)}${technicalCard("Volume / RVOL / OBV", rvol.state || volume.availability, "1D current volume, moving averages, RVOL and OBV context", [technicalLine("Current volume", compactNumber(volume.current_volume)), technicalLine("Average volume", `5D ${compactNumber(averages.avg_5d)} · 20D ${compactNumber(averages.avg_20d)} · 60D ${compactNumber(averages.avg_60d)}`), technicalLine("Relative volume", `RVOL5 ${rvolValue(rvol.rvol_5d)} · RVOL20 ${rvolValue(rvol.rvol_20d)} · RVOL60 ${rvolValue(rvol.rvol_60d)}`), technicalLine("OBV raw / trend", `${compactNumber(obv.raw_value)} / ${technicalState(obv.trend)}`)], [technicalLine("Average volume · 120D / 250D", `${compactNumber(averages.avg_120d)} / ${compactNumber(averages.avg_250d)}`), technicalLine("Turnover · current / 5D / 20D / 60D", `${percentValue(turnover.turnover_current)} / ${percentValue(turnover.turnover_5d_avg)} / ${percentValue(turnover.turnover_20d_avg)} / ${percentValue(turnover.turnover_60d_avg)}`), technicalLine("OBV trend · 5D / 20D / 60D", `${technicalState(obv.trends?.d5?.trend)} / ${technicalState(obv.trends?.d20?.trend)} / ${technicalState(obv.trends?.d60?.trend)}`), technicalLine("OBV divergence", technicalState(obv.divergence || obv.trends?.d20?.divergence)), technicalLine("Price-volume confirmation", technicalState(obv.price_obv_confirmation || obv.trends?.d20?.price_obv_confirmation)), technicalLine("Volume structure", `${technicalState(volume.trend?.volume_trend)} · ${technicalState(volume.accumulation_distribution)}`), technicalLine("Horizon OBV · 4H / 1D / 1W", `${technicalState(shortObv.trend)} / ${technicalState(midObv.trend)} / ${technicalState(longObv.trend)}`)], volume)}</div>`;
+  const content = `<div class="technical-family-grid">${technicalCard("52-Week and history", position.availability, "Daily OHLCV history", [technicalLine("52W high / distance", `${formatPrice(position.high_52w, row.currency)} / ${formatPct(position.distance_to_52w_high_pct)}`, position.high_52w_date || ""), technicalLine("52W low / distance", `${formatPrice(position.low_52w, row.currency)} / ${formatPct(position.distance_to_52w_low_pct)}`, position.low_52w_date || ""), technicalLine("52W position", percentValue(position.position_52w_pct)), technicalLine("All-time high / distance", `${formatPrice(position.all_time_high, row.currency)} / ${formatPct(position.distance_to_ath_pct)}`, position.all_time_high_date || "")], [technicalLine("History coverage", technicalState(position.all_time_history_coverage)), technicalLine("History bars / start", `${position.all_time_history_bar_count ?? t("unavailable")} / ${position.all_time_history_start || t("unavailable")}`)], position)}${technicalCard("Volume / RVOL / OBV", rvol.state || volume.availability, "1D current volume, moving averages, RVOL and OBV context", [technicalLine("Current volume", compactNumber(volume.current_volume)), technicalLine("Average volume", `${dayLabel(5)} ${compactNumber(averages.avg_5d)} · ${dayLabel(20)} ${compactNumber(averages.avg_20d)} · ${dayLabel(60)} ${compactNumber(averages.avg_60d)}`), technicalLine("Relative volume", `RVOL5 ${rvolValue(rvol.rvol_5d)} · RVOL20 ${rvolValue(rvol.rvol_20d)} · RVOL60 ${rvolValue(rvol.rvol_60d)}`), technicalLine("OBV raw / trend", `${compactNumber(obv.raw_value)} / ${technicalState(obv.trend)}`)], [technicalLine("Average volume · 120D / 250D", `${compactNumber(averages.avg_120d)} / ${compactNumber(averages.avg_250d)}`), technicalLine("Turnover · current / 5D / 20D / 60D", `${percentValue(turnover.turnover_current)} / ${percentValue(turnover.turnover_5d_avg)} / ${percentValue(turnover.turnover_20d_avg)} / ${percentValue(turnover.turnover_60d_avg)}`), technicalLine("OBV trend · 5D / 20D / 60D", `${technicalState(obv.trends?.d5?.trend)} / ${technicalState(obv.trends?.d20?.trend)} / ${technicalState(obv.trends?.d60?.trend)}`), technicalLine("OBV divergence", technicalState(obv.divergence || obv.trends?.d20?.divergence)), technicalLine("Price-volume confirmation", technicalState(obv.price_obv_confirmation || obv.trends?.d20?.price_obv_confirmation)), technicalLine("Volume structure", `${technicalState(volume.trend?.volume_trend)} · ${technicalState(volume.accumulation_distribution)}`), technicalLine("Horizon OBV · 4H / 1D / 1W", `${technicalState(shortObv.trend)} / ${technicalState(midObv.trend)} / ${technicalState(longObv.trend)}`)], volume)}</div>`;
   return technicalAccordion("foundation", t("historicalVolume"), "", content, state.technicalSections.foundation);
 }
 
@@ -574,23 +575,23 @@ function renderTechnicalPanel(row) {
 }
 
 function marketLine(label, value, note = "") {
-  return `<div class="detail-line-row"><div><div class="detail-line-label">${escapeHtml(label)}</div>${note ? `<div class="detail-line-note">${escapeHtml(note)}</div>` : ""}</div><div class="detail-line-side"><strong>${escapeHtml(value)}</strong></div></div>`;
+  return technicalLine(label, value, note);
 }
 
 function renderMarketPanel(row) {
   const market = state.snapshot?.marketContext || state.snapshot?.market_context || {};
   const engine = marketCore(market);
   const earnings = decisionFor(row, "short")?.market?.earnings || {};
-  const priceTrend = (item) => item?.value == null ? t("unavailable") : `${formatPrice(item.value)} · ${item.trend || t("unavailable")}`;
+  const priceTrend = (item) => item?.value == null ? t("unavailable") : `${formatPrice(item.value)} · ${technicalState(item.trend)}`;
   const vixChange = (value) => Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${Number(value).toFixed(2)}` : t("unavailable");
-  const indexHistory = (item) => `5D ${formatPct(item?.change_5d_pct)} · 20D ${formatPct(item?.change_20d_pct)} · 60D ${formatPct(item?.change_60d_pct)} · 120D ${formatPct(item?.change_120d_pct)}`;
+  const indexHistory = (item) => `${dayLabel(5)} ${formatPct(item?.change_5d_pct)} · ${dayLabel(20)} ${formatPct(item?.change_20d_pct)} · ${dayLabel(60)} ${formatPct(item?.change_60d_pct)} · ${dayLabel(120)} ${formatPct(item?.change_120d_pct)}`;
   return `
     <section class="detail-tab-section market-tab-panel">
-      <section class="detail-section-card market-status-card"><div class="detail-section-head"><h3>${t("marketStatus")}</h3></div><div class="market-status-primary"><div><span>${t("regime")}</span><strong>${escapeHtml(engine.regime || engine.summary || t("unavailable"))}</strong></div><div><span>${t("earningsProximity")}</span><strong>${escapeHtml(earnings.date ? `${formatDate(earnings.date)}${Number.isFinite(earnings.daysToEarnings) ? ` · ${earnings.daysToEarnings}d` : ""}` : t("unavailable"))}</strong></div></div></section>
+      <section class="detail-section-card market-status-card"><div class="detail-section-head"><h3>${t("marketStatus")}</h3></div><div class="market-status-primary"><div><span>${t("regime")}</span><strong>${escapeHtml(technicalState(engine.regime))}</strong></div><div><span>${t("earningsProximity")}</span><strong>${escapeHtml(earnings.date ? `${formatDate(earnings.date)}${Number.isFinite(earnings.daysToEarnings) ? ` · ${earnings.daysToEarnings} ${t("days")}` : ""}` : t("unavailable"))}</strong></div></div></section>
       <div class="market-compact-grid">
-        <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>VIX</h3></div><div class="detail-line-list">${marketLine(t("current"), Number.isFinite(finite(engine.vix?.value)) ? finite(engine.vix.value).toFixed(2) : t("unavailable"), engine.vix?.impact || "")}${marketLine(t("change5d"), vixChange(engine.vix?.change_5d))}${marketLine(t("change20d"), vixChange(engine.vix?.change_20d))}${marketLine(t("trend"), engine.vix?.trend || t("unavailable"))}</div></section>
+        <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>VIX</h3></div><div class="detail-line-list">${marketLine(t("current"), Number.isFinite(finite(engine.vix?.value)) ? finite(engine.vix.value).toFixed(2) : t("unavailable"), uiText(engine.vix?.impact || ""))}${marketLine(t("change5d"), vixChange(engine.vix?.change_5d))}${marketLine(t("change20d"), vixChange(engine.vix?.change_20d))}${marketLine(t("trend"), technicalState(engine.vix?.trend))}</div></section>
         <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>SPY / QQQ</h3></div><div class="detail-line-list">${marketLine("SPY", priceTrend(engine.equity_trend?.spy), indexHistory(engine.equity_trend?.spy))}${marketLine("QQQ", priceTrend(engine.equity_trend?.qqq), indexHistory(engine.equity_trend?.qqq))}</div></section>
-        <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>Fear &amp; Greed / US 10Y Yield</h3></div><div class="detail-line-list">${marketLine("Fear & Greed", engine.fear_greed?.label || engine.fearGreed?.label || t("unavailable"), engine.fear_greed?.value == null ? "" : `${Math.round(engine.fear_greed.value)}/100`)}${marketLine("US 10Y Yield", engine.ten_year_yield?.value == null ? t("unavailable") : `${Number(engine.ten_year_yield.value).toFixed(2)}%`, `5D ${engine.ten_year_yield?.change_5d_bps ?? t("unavailable")} bps · 20D ${engine.ten_year_yield?.change_20d_bps ?? t("unavailable")} bps`)}</div></section>
+        <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>${escapeHtml(uiLabel("Fear & Greed / US 10Y Yield"))}</h3></div><div class="detail-line-list">${marketLine("Fear & Greed", technicalState(engine.fear_greed?.label || engine.fearGreed?.label), engine.fear_greed?.value == null ? "" : `${Math.round(engine.fear_greed.value)}/100`)}${marketLine("US 10Y Yield", engine.ten_year_yield?.value == null ? t("unavailable") : `${Number(engine.ten_year_yield.value).toFixed(2)}%`, `${dayLabel(5)} ${engine.ten_year_yield?.change_5d_bps ?? t("unavailable")} ${state.language === "zh" ? "基点" : "bps"} · ${dayLabel(20)} ${engine.ten_year_yield?.change_20d_bps ?? t("unavailable")} ${state.language === "zh" ? "基点" : "bps"}`)}</div></section>
       </div>
     </section>
   `;
@@ -611,7 +612,7 @@ function profileFromRow(row) {
 
 function tagPills(tags, className = "") {
   const values = [...new Set((Array.isArray(tags) ? tags : []).filter(Boolean))];
-  return values.map((tag) => `<span class="profile-tag ${className}">${escapeHtml(tag)}</span>`).join("");
+  return values.map((tag) => `<span class="profile-tag ${className}">${escapeHtml(profileLabel(tag))}</span>`).join("");
 }
 
 function renderProfileHeader(row) {
@@ -630,10 +631,10 @@ function renderProfileHeader(row) {
     [t("lifecycle"), groups.lifecycle || "-"],
   ];
   const stockSummary = !profile.isETF
-    ? `<div class="profile-summary-strip">${stockProfileSlots.map(([label, value]) => `<div class="profile-summary-item"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join("")}</div>`
+    ? `<div class="profile-summary-strip">${stockProfileSlots.map(([label, value]) => `<div class="profile-summary-item"><span>${escapeHtml(label)}</span><b>${escapeHtml(profileLabel(value))}</b></div>`).join("")}</div>`
     : "";
   const etfSummary = profile.isETF
-    ? `<div class="profile-summary-strip profile-summary-etf"><div class="profile-summary-item"><span>${t("leveraged")}</span><b>${profile.leveraged ? t("yes") : t("no")}</b></div><div class="profile-summary-item"><span>${t("direction")}</span><b>${profile.direction === "inverse" ? t("inverseDirection") : t("longDirection")}</b></div>${profile.underlying ? `<div class="profile-summary-item"><span>${t("underlying")}</span><b>${escapeHtml(profile.underlying)}</b></div>` : ""}</div>`
+    ? `<div class="profile-summary-strip profile-summary-etf"><div class="profile-summary-item"><span>${t("leveraged")}</span><b>${profile.leveraged ? t("yes") : t("no")}</b></div><div class="profile-summary-item"><span>${t("direction")}</span><b>${profile.direction === "inverse" ? t("inverseDirection") : t("longDirection")}</b></div>${profile.underlying ? `<div class="profile-summary-item"><span>${t("underlying")}</span><b>${escapeHtml(profileLabel(profile.underlying))}</b></div>` : ""}</div>`
     : "";
   const profileSummary = stockSummary || etfSummary;
   return `<section class="decision-hero"><div class="decision-hero-main"><div class="decision-code">${escapeHtml(row.ticker)}</div><div class="decision-company">${escapeHtml(row.companyName)}</div><div class="detail-consensus-mini"><span>${t("price")} ${formatPrice(row.price, row.currency)}</span><span class="daily-change ${row.changePercent >= 0 ? "positive" : "negative"}">${t("dayMove")} ${formatPct(row.changePercent)}</span></div></div>${profileSummary || profileMeta ? `<div class="decision-profile-header">${profileSummary}${profileMeta ? `<div class="profile-review-line">${profileMeta}</div>` : ""}</div>` : ""}</section>`;
@@ -678,13 +679,13 @@ function renderMarketRiskRegime(row) {
   const decision = decisionFor(row, "short");
   const market = decision?.market || {};
   const vix = market.vix || {};
-  const indexMetric = (index) => index?.trend || t("unavailable");
+  const indexMetric = (index) => technicalState(index?.trend);
   const vixDelta = (value) => Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${Number(value).toFixed(2)}` : t("unavailable");
-  const yieldText = market.yield?.value == null ? t("unavailable") : `${Number(market.yield.value).toFixed(2)}% · ${market.yield.label || t("unavailable")}`;
-  const article = (label, value, help) => `<article><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(help)}</small></article>`;
+  const yieldText = market.yield?.value == null ? t("unavailable") : `${Number(market.yield.value).toFixed(2)}% · ${technicalState(market.yield.label)}`;
+  const article = (label, value, help) => `<article><span>${escapeHtml(uiLabel(label))}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(help)}</small></article>`;
   const basis = window.DecisionPresentation?.reasonList?.(market.reasons, state.language, 3) || [];
   const basisMarkup = basis.length ? `<div class="market-regime-basis"><span>${t("marketBasis")}</span><p>${basis.map((reason) => escapeHtml(reason)).join(" · ")}</p></div>` : "";
-  return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("marketRiskRegime")}</h3></div>${decision ? `<div class="market-regime-grid">${article(t("regime"), market.label || t("unavailable"), t("marketRegimeHelp"))}${article(t("marketImpact"), marketImpact(decision), t("marketImpactHelp"))}${article("SPY", indexMetric(market.spy), t("benchmarkNeutralHelp"))}${article("QQQ", indexMetric(market.qqq), t("benchmarkNeutralHelp"))}${article("VIX", Number.isFinite(vix.value) ? `${vix.value.toFixed(2)} · 5D ${vixDelta(vix.change5d)} · 20D ${vixDelta(vix.change20d)}` : t("unavailable"), t("vixHelp"))}${article("Fear & Greed", `${market.fearGreed?.label || t("unavailable")}${Number.isFinite(market.fearGreed?.value) ? ` · ${Math.round(market.fearGreed.value)}/100` : ""}`, t("fearGreedHelp"))}${article("US 10Y", yieldText, t("yieldHelp"))}${article(t("earningsProximity"), earningsText(market.earnings), t("earningsHelp"))}</div>${basisMarkup}` : `<p class="decision-no-data">${t("noDecision")}</p>`}</section>`;
+  return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("marketRiskRegime")}</h3></div>${decision ? `<div class="market-regime-grid">${article(t("regime"), technicalState(market.regime || market.label), t("marketRegimeHelp"))}${article(t("marketImpact"), marketImpact(decision), t("marketImpactHelp"))}${article("SPY", indexMetric(market.spy), t("benchmarkNeutralHelp"))}${article("QQQ", indexMetric(market.qqq), t("benchmarkNeutralHelp"))}${article("VIX", Number.isFinite(vix.value) ? `${vix.value.toFixed(2)} · ${dayLabel(5)} ${vixDelta(vix.change5d)} · ${dayLabel(20)} ${vixDelta(vix.change20d)}` : t("unavailable"), t("vixHelp"))}${article("Fear & Greed", `${technicalState(market.fearGreed?.label)}${Number.isFinite(market.fearGreed?.value) ? ` · ${Math.round(market.fearGreed.value)}/100` : ""}`, t("fearGreedHelp"))}${article("US 10Y", yieldText, t("yieldHelp"))}${article(t("earningsProximity"), earningsText(market.earnings), t("earningsHelp"))}</div>${basisMarkup}` : `<p class="decision-no-data">${t("noDecision")}</p>`}</section>`;
 }
 
 function renderDecisionPanel(row) {
@@ -715,9 +716,12 @@ function renderDetailModal() {
 }
 
 function applyLanguage() {
+  document.documentElement.lang = state.language === "zh" ? "zh-CN" : "en";
+  document.title = t("appTitle");
   $("#appTitle").textContent = t("appTitle");
   $("#stocksTitle").textContent = t("stocks");
   $("#sharedWatchlistHint").textContent = t("shared");
+  $("#watchlistSyncWarning").textContent = t("syncFailed");
   $("#tickerInputLabel").textContent = t("search");
   $("#tickerInput").placeholder = t("search");
   $("#addStockButton").textContent = t("add");
@@ -733,7 +737,14 @@ function applyLanguage() {
   $("#sortTickerLabel").textContent = t("ticker");
   $("#sortTypeLabel").textContent = t("type");
   $("#sortChangeLabel").textContent = t("dayMove");
-  document.querySelectorAll(".lang-btn").forEach((button) => button.classList.toggle("active", button.dataset.lang === state.language));
+  document.querySelectorAll(".lang-btn").forEach((button) => {
+    button.classList.toggle("active", button.dataset.lang === state.language);
+    button.textContent = button.dataset.lang === "en" ? (state.language === "zh" ? "英文" : "English") : "中文";
+  });
+  document.querySelectorAll(".filter-btn").forEach((button) => { button.textContent = t(button.dataset.marketFilter); });
+  for (const [selector, key] of [[".brand .icon-btn", "openMenu"], [".lang-switch", "language"], [".sort-rail", "sortStocks"], [".filter-rail", "filterStocks"], ["#stockList", "stocks"], ["[data-sort-key='ticker']", "sortTicker"], ["[data-sort-key='type']", "sortType"], ["[data-sort-key='change']", "sortChange"]]) {
+    $(selector)?.setAttribute("aria-label", t(key));
+  }
 }
 
 function render() {
@@ -1033,7 +1044,13 @@ function bindEvents() {
     render();
   }));
   document.querySelectorAll(".filter-btn").forEach((button) => button.addEventListener("click", () => { state.marketFilter = button.dataset.marketFilter || "all"; render(); }));
-  document.querySelectorAll(".lang-btn").forEach((button) => button.addEventListener("click", () => { state.language = button.dataset.lang === "zh" ? "zh" : "en"; localStorage.setItem(LANGUAGE_CACHE_KEY, state.language); if (state.snapshot) applySnapshot(state.snapshot, { persist: false }); else render(); }));
+  document.querySelectorAll(".lang-btn").forEach((button) => button.addEventListener("click", () => {
+    state.language = button.dataset.lang === "zh" ? "zh" : "en";
+    localStorage.setItem(LANGUAGE_CACHE_KEY, state.language);
+    // Language changes only presentation; keep the applied features, actions,
+    // confidence and price ranges intact until the next data refresh.
+    render();
+  }));
   $("#detailModal").addEventListener("click", (event) => {
     if (event.target.closest(".detail-close") || event.target.matches(".detail-backdrop")) { state.modalOpen = false; render(); return; }
     const tab = event.target.closest("[data-detail-tab]");

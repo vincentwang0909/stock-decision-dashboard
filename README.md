@@ -38,6 +38,12 @@ data/watchlist.db
 data/cache/
 ```
 
+Chinese mode localizes indicator labels/states, profile categories, market
+states and Fibonacci explanations through the presentation-only
+`ui-translations.js` catalog. Stock symbols, issuer names and standard
+indicator abbreviations remain identifiable. Switching languages only
+rerenders the applied decision; it does not refetch or recalculate it.
+
 Automatic refresh runs **every 30 minutes at :10 and :40 in America/New_York**,
 including 09:10, 09:40 and 10:10 ET. The browser and server use the same schedule; manual
 refreshes do not shift it. Optional quote/company enrichment has a bounded

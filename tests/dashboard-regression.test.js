@@ -82,8 +82,8 @@ assert.match(executionEngine, /NEAR_OPPORTUNITY_ZONE", "NEUTRAL_ZONE", "NEAR_RED
 assert.match(executionEngine, /state === "IN_OPPORTUNITY_ZONE"/);
 assert.match(executionEngine, /\["IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"\]/);
 for (const action of ["strong_buy", "buy", "accumulate", "hold", "trim", "sell", "avoid"]) assert.ok(presentation.actionTone[action], `Homepage action tone missing: ${action}`);
-assert.match(main, /decision\.actionLabel/);
-assert.match(main, /row\.ready && decision \? decision\.actionLabel : t\("unavailable"\)/);
+assert.match(main, /decision\??\.actionLabel/);
+assert.match(main, /row\.ready && decision \? decisionActionLabel\(decision\) : t\("unavailable"\)/);
 assert.match(featureInputs, /stock_vs_spy_\$\{days\}d/);
 assert.match(featureInputs, /stock_vs_qqq_\$\{days\}d/);
 assert.match(main, /EMA 9|item\.indicator/);

@@ -13,6 +13,7 @@ This is a lightweight stock decision dashboard. It displays a shared watchlist, 
 - `decision-engine/` is one unified V2 production release. `decision-engine.js` is the shared entry; `short-model-v2.js` implements ordinary-stock Short, and `horizon-model-v2.js` implements independent stock Mid/Long and ETF horizon policies using their preserved rules. There is no production V1 switch or old ordinary-stock Short fallback. `planning-width.js` retains the gated Reduce-width transform (0.995, disabled after its retention gate failed); `etf-profile.js` supplies ETF modifiers.
 - `decision-api/emit-decision.js` serializes the unified current engine for the external `decision.v1` API contract. The neutral directory replaces `decision-v1/`. Preserve the wire contract and API URLs; `decision.v1` is a format version, not another engine. Dashboard, API and EOD use the same `config.version`; horizon `pathVersion` equals that release version and `policyFamily` names its stock/ETF horizon policy.
 - `decision-presentation.js` is a pure UI helper for execution labels, reason translation, and the native DOM/CSS Price Landscape model.
+- `ui-translations.js` is the presentation-only English/Chinese catalog for indicator labels/states, profile names and structured technical explanations. Translate at render time; never mutate canonical feature codes, profile slots or engine inputs. Language changes rerender only, without refetching or recalculating Decision/Confidence/Price Landscape. Unknown states/reasons use an explicit localized fallback and must not imply a neutral signal.
 - `scripts/` contains bounded, read-only audit/shadow tooling, not production history storage.
 - `tests/` contains deterministic regression, feature, engine, and server checks.
 - `index.html` loads browser modules in dependency order; `styles.css` provides the restrained dark theme.
@@ -429,6 +430,7 @@ Run from the repository root:
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/dashboard-regression.test.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/dashboard-network.test.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/dashboard-schedule.test.js
+/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/dashboard-language.test.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/decision-ui.test.js
 /private/tmp/stock-dashboard-final-venv/bin/python3 -m unittest discover -s tests -p 'server_availability_test.py'
 /private/tmp/stock-dashboard-final-venv/bin/python3 -m unittest discover -s tests -p 'refresh_price_test.py'
