@@ -38,6 +38,15 @@ data/watchlist.db
 data/cache/
 ```
 
+Automatic refresh runs at **:40 every hour in America/New_York**, including
+09:40 and 10:40 ET. The browser and server use the same schedule; manual
+refreshes do not shift it. Optional quote/company enrichment has a bounded
+wait alongside intraday history. If no valid prices are returned, the browser
+keeps its previous successful snapshot and Last Refresh and shows a notice.
+Without a `MARKET_CACHE_DIR` override, quote cache lives beside
+`WATCHLIST_DB_PATH`; a persistent Render database therefore uses persistent
+cache too. The EOD recorder still runs at 16:30 ET.
+
 The three-indicator integration, horizon weights, causal completion rules,
 Price State constraints and replay results are documented in
 [the current indicator model](docs/indicator-model-2026-10-04.md). New Squeeze,

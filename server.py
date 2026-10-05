@@ -80,7 +80,8 @@ MARKET_DATA_MAX_TICKERS = int(os.environ.get("MARKET_DATA_MAX_TICKERS", "60"))
 MARKET_DATA_MAX_WORKERS = int(os.environ.get("MARKET_DATA_MAX_WORKERS", "2"))
 MARKET_DATA_MAX_LIVE_TICKERS = int(os.environ.get("MARKET_DATA_MAX_LIVE_TICKERS", "2"))
 MARKET_DATA_ROUTE_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_ROUTE_TIMEOUT_SECONDS", "18"))
-MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS", "8"))
+MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS = int(os.environ.get("MARKET_DATA_PER_TICKER_TIMEOUT_SECONDS", "16"))
+QUOTE_METADATA_TIMEOUT_SECONDS = float(os.environ.get("QUOTE_METADATA_TIMEOUT_SECONDS", "3"))
 # Keep the live refresh inside the route's per-ticker budget. More history can
 # be requested with an environment override, but `max` is too slow/unreliable
 # for a dashboard quote request and can make every row appear unavailable.
@@ -102,7 +103,8 @@ OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECO
 OPTIONS_SNAPSHOT_VERSION = 2
 BACKGROUND_MARKET_REFRESH_ENABLED = os.environ.get("BACKGROUND_MARKET_REFRESH_ENABLED", "true").strip().lower() not in {"0", "false", "no", "n"}
 BACKGROUND_MARKET_REFRESH_STARTUP_DELAY_SECONDS = int(os.environ.get("BACKGROUND_MARKET_REFRESH_STARTUP_DELAY_SECONDS", "15"))
-BACKGROUND_MARKET_REFRESH_AFTER_HOUR_SECONDS = int(os.environ.get("BACKGROUND_MARKET_REFRESH_AFTER_HOUR_SECONDS", "5"))
+DASHBOARD_REFRESH_TIMEZONE = ZoneInfo("America/New_York")
+DASHBOARD_REFRESH_MINUTE = 40
 BACKGROUND_MARKET_REFRESH_ON_START = os.environ.get("BACKGROUND_MARKET_REFRESH_ON_START", "true").strip().lower() not in {"0", "false", "no", "n"}
 EOD_HISTORY_ENABLED = os.environ.get("EOD_HISTORY_ENABLED", "true").strip().lower() not in {"0", "false", "no", "n"}
 EOD_HISTORY_STARTUP_DELAY_SECONDS = int(os.environ.get("EOD_HISTORY_STARTUP_DELAY_SECONDS", "30"))
@@ -133,7 +135,7 @@ COMPANY_NEWS_CACHE_LOCK = threading.Lock()
 MARKET_CONTEXT_CACHE = {"value": None, "expiresAt": 0}
 FEAR_GREED_CACHE = {"value": None, "expiresAt": 0}
 WATCHLIST_DB_PATH = os.environ.get("WATCHLIST_DB_PATH", "data/watchlist.db")
-MARKET_CACHE_DIR = os.environ.get("MARKET_CACHE_DIR", os.path.join("data", "cache"))
+MARKET_CACHE_DIR = os.environ.get("MARKET_CACHE_DIR", os.path.join(os.path.dirname(WATCHLIST_DB_PATH) or "data", "cache"))
 MARKET_EVENTS_FILE = os.environ.get("MARKET_EVENTS_FILE", os.path.join(ROOT, "market_events.json"))
 WATCHLIST_LOCK = threading.Lock()
 COMPANY_PROFILE_LOCK = threading.Lock()
@@ -4183,21 +4185,35 @@ def _history_payload(frame, timestamp_format="%Y-%m-%d"):
     return result
 
 
+def fetch_quote_metadata(symbol):
+    """Optional enrichment; its bounded worker never publishes a late quote."""
+    instrument = provider_ticker(symbol)
+    try:
+        info = instrument.info or {}
+    except Exception:
+        info = {}
+    try:
+        fast_info = dict(instrument.fast_info or {})
+    except Exception:
+        fast_info = {}
+    fallback_fields = ("shortName", "longName", "sector", "industry", "longBusinessSummary",
+                       "quoteType", "earningsTimestamp", "earningsTimestampStart", "earningsTimestampEnd")
+    snapshot, summary = {}, {}
+    fallback_attempted = any(info.get(field) is None for field in fallback_fields)
+    if fallback_attempted:
+        info, snapshot, summary = merge_yahoo_fallback_info(symbol, info)
+    return info, fast_info, snapshot, summary, fallback_attempted
+
+
 def fetch_us_quote_with_yfinance(ticker, include_options=False):
     symbol = resolve_market_symbol(ticker)
     instrument = provider_ticker(symbol)
-    quote_fetch_started = time.monotonic()
     history = load_incremental_daily_history(instrument, symbol, ticker)
     if history is None or history.empty:
         raise ValueError(f"No yfinance history for {ticker}")
     history, _validation = validate_us_daily_frame(history)
     if history.empty:
         raise ValueError(f"No clean yfinance history for {ticker}")
-
-    # Technical intervals start before slower quote-profile enrichment. 1H and
-    # provider-native 4H are fetched concurrently; a missing native 4H source
-    # remains unavailable and is never reconstructed from 1H or daily bars.
-    hourly_history, (native_four_hour_frame, native_four_hour_metadata, native_four_hour_failure) = load_technical_intraday_history_frames(symbol)
 
     cached = read_market_cache(ticker)
     cached_quote = (cached or {}).get("quote") or {}
@@ -4209,31 +4225,39 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
     known_earnings = parse_iso_datetime(cached_metadata.get("earningsDate"))
     event_metadata_current = known_earnings and known_earnings.date() >= now_et.date()
     reuse_metadata = stable_profile and not review_due and event_metadata_current and history.attrs.get("source") == "yfinance"
+    info = {**cached_metadata, "longBusinessSummary": cached_metadata.get("businessSummary"),
+            "shortName": cached_quote.get("shortName"), "longName": cached_quote.get("longName")}
+    fast_info, quote_snapshot, quote_summary = {}, {}, {}
+    quote_summary_attempted = False
+    metadata_status = "cached" if cached_metadata else "unavailable"
+    metadata_future = None
     if reuse_metadata:
-        info = {**cached_metadata, "longBusinessSummary": cached_metadata.get("businessSummary"),
-                "shortName": cached_quote.get("shortName"), "longName": cached_quote.get("longName")}
         try:
             info.update(instrument.history_metadata or {})
         except Exception:
             pass
-        fast_info = {}
     else:
         try:
-            info = instrument.info or {}
-        except Exception:
-            info = {}
-        try:
-            fast_info = dict(instrument.fast_info or {})
-        except Exception:
-            fast_info = {}
+            generation = getattr(TASK_CONTEXT, "refresh_generation", None) or current_refresh_generation()
+            def tagged_metadata():
+                return generation, fetch_quote_metadata(symbol)
+            metadata_future = AUXILIARY_TASKS.submit((symbol, "quote_metadata"), tagged_metadata)
+        except TaskBudgetExceeded:
+            pass
 
-    fallback_fields = ["shortName", "longName", "sector", "industry", "longBusinessSummary", "quoteType", "earningsTimestamp", "earningsTimestampStart", "earningsTimestampEnd"]
-    quote_snapshot = {}
-    quote_summary = {}
-    quote_summary_attempted = False
-    if not reuse_metadata and any(info.get(field) is None for field in fallback_fields):
-        quote_summary_attempted = True
-        info, quote_snapshot, quote_summary = merge_yahoo_fallback_info(symbol, info)
+    # Optional metadata runs alongside real 1H/native 4H history, instead of
+    # adding its multi-request latency to the price-critical path. Missing
+    # enrichment remains unavailable/cached; it cannot discard valid OHLCV.
+    hourly_history, (native_four_hour_frame, native_four_hour_metadata, native_four_hour_failure) = load_technical_intraday_history_frames(symbol)
+    if metadata_future is not None:
+        try:
+            fetched_generation, enrichment = metadata_future.result(timeout=QUOTE_METADATA_TIMEOUT_SECONDS)
+            if fetched_generation == generation:
+                fresh_info, fast_info, quote_snapshot, quote_summary, quote_summary_attempted = enrichment
+                info.update({key: value for key, value in fresh_info.items() if value is not None})
+                metadata_status = "available" if fresh_info or fast_info else metadata_status
+        except Exception:
+            pass
 
     for source_frame in (history, hourly_history, native_four_hour_frame):
         if source_frame is not None:
@@ -4342,6 +4366,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
             "priceBasis": "provider_regular_quote" if regular_market_price is not None else daily_payload.get("adjustment_basis"),
             "historyBasisAlignment": "unverified_cross_endpoint" if regular_market_price is not None else "same_history_source",
             "asOf": daily_payload.get("as_of"),
+            "quoteMetadataStatus": metadata_status,
             "sector": info.get("sector"),
             "industry": info.get("industry"),
             "businessSummary": info.get("longBusinessSummary") or info.get("shortBusinessSummary"),
@@ -5289,8 +5314,7 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
         if isinstance(quote, dict) and quote.get("price") is not None
     )
     cache_age_minutes = round((max(cache_age_samples) / 60), 2) if cache_age_samples else None
-    last_refresh_dt = parse_iso_datetime(last_dashboard_refresh) if last_dashboard_refresh else None
-    next_refresh_dt = (last_refresh_dt + timedelta(minutes=60)) if last_refresh_dt else None
+    next_refresh_dt = next_dashboard_refresh_utc()
     for ticker, quote in quotes.items():
         if isinstance(quote, dict):
             quote["data_quality"] = {
@@ -5325,6 +5349,8 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
         "missing_from_request": missing_from_request,
         "refresh_status": {
             "refresh_interval_minutes": 60,
+            "refresh_minute": DASHBOARD_REFRESH_MINUTE,
+            "refresh_timezone": "America/New_York",
             "request_started_at": request_started_at,
             "request_completed_at": request_completed_at,
             "last_successful_live_refresh_at": last_successful_live_refresh_at,
@@ -5369,12 +5395,15 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
     }
 
 
-def next_top_of_hour_utc(now=None):
-    current = now or datetime.now(timezone.utc)
-    next_run = current.replace(minute=0, second=0, microsecond=0)
+def next_dashboard_refresh_utc(now=None):
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    eastern = current.astimezone(DASHBOARD_REFRESH_TIMEZONE)
+    # Move in UTC elapsed time through skipped/repeated Eastern DST hours.
+    next_run = current - timedelta(minutes=eastern.minute, seconds=eastern.second,
+                                   microseconds=eastern.microsecond) + timedelta(minutes=DASHBOARD_REFRESH_MINUTE)
     if next_run <= current:
         next_run += timedelta(hours=1)
-    return next_run + timedelta(seconds=max(0, BACKGROUND_MARKET_REFRESH_AFTER_HOUR_SECONDS))
+    return next_run
 
 
 def chunk_tickers_for_live_refresh(tickers):
@@ -5406,6 +5435,7 @@ def _refresh_market_cache_for_tickers(tickers, reason="scheduled_hourly"):
     total_cache_fallback = 0
     live_success_tickers = set()
     live_failed_tickers = set()
+    quote_errors = {}
 
     with BACKGROUND_REFRESH_LOCK:
         BACKGROUND_REFRESH_STATE.update({
@@ -5426,6 +5456,9 @@ def _refresh_market_cache_for_tickers(tickers, reason="scheduled_hourly"):
                 refresh_market_context=(batch_index == 1),
             )
             status = payload.get("refresh_status") or {}
+            for failure in payload.get("failed") or []:
+                if failure.get("ticker") and not failure.get("used_cache"):
+                    quote_errors[failure["ticker"]] = str(failure.get("error") or "Quote unavailable")[:300]
             live_success_tickers.update(status.get("live_success_tickers") or [])
             live_failed_tickers.update(status.get("live_failed_tickers") or [])
             success_count = int(status.get("success_count") or 0)
@@ -5441,6 +5474,7 @@ def _refresh_market_cache_for_tickers(tickers, reason="scheduled_hourly"):
                 "failed_count": failed_count,
                 "cache_fallback_count": cache_fallback_count,
                 "last_dashboard_refresh": status.get("last_dashboard_refresh"),
+                "errors": {ticker: quote_errors[ticker] for ticker in batch if ticker in quote_errors},
             })
     except Exception as exc:
         traceback.print_exc()
@@ -5468,6 +5502,7 @@ def _refresh_market_cache_for_tickers(tickers, reason="scheduled_hourly"):
         }
 
     completed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    refresh_error = "No usable quotes returned by the provider" if tickers and not total_success else None
     with BACKGROUND_REFRESH_LOCK:
         BACKGROUND_REFRESH_STATE.update({
             "running": False,
@@ -5475,7 +5510,7 @@ def _refresh_market_cache_for_tickers(tickers, reason="scheduled_hourly"):
             "last_success_count": total_success,
             "last_failed_count": total_failed,
             "last_cache_fallback_count": total_cache_fallback,
-            "last_error": None,
+            "last_error": refresh_error,
             "last_batches": batch_summaries,
             "last_reason": reason,
         })
@@ -5494,6 +5529,8 @@ def _refresh_market_cache_for_tickers(tickers, reason="scheduled_hourly"):
         "completed_at": completed_at,
         "live_success_tickers": sorted(live_success_tickers),
         "live_failed_tickers": sorted(live_failed_tickers),
+        "quote_errors": quote_errors,
+        "error": refresh_error,
     }
     LAST_FULL_REFRESH_SUMMARY = summary
     TASK_CONTEXT.refresh_generation = None
@@ -5534,7 +5571,7 @@ def background_market_refresh_loop():
     if BACKGROUND_MARKET_REFRESH_ON_START and watchlist_market_cache_needs_refresh():
         refresh_market_cache_for_watchlist(reason="startup_cache_warm")
     while True:
-        next_run = next_top_of_hour_utc()
+        next_run = next_dashboard_refresh_utc()
         with BACKGROUND_REFRESH_LOCK:
             BACKGROUND_REFRESH_STATE["next_run_at"] = next_run.strftime("%Y-%m-%dT%H:%M:%SZ")
         delay = max(1, (next_run - datetime.now(timezone.utc)).total_seconds())
@@ -5550,7 +5587,7 @@ def start_background_market_refresh_scheduler():
         if BACKGROUND_REFRESH_THREAD_STARTED:
             return False
         BACKGROUND_REFRESH_THREAD_STARTED = True
-        BACKGROUND_REFRESH_STATE["next_run_at"] = next_top_of_hour_utc().strftime("%Y-%m-%dT%H:%M:%SZ")
+        BACKGROUND_REFRESH_STATE["next_run_at"] = next_dashboard_refresh_utc().strftime("%Y-%m-%dT%H:%M:%SZ")
     thread = threading.Thread(
         target=background_market_refresh_loop,
         name="market-cache-hourly-refresh",
@@ -5973,7 +6010,8 @@ def iter_market_snapshot_json(tickers, live=False, auto_refresh=False):
         if index:
             yield ','
         cached = read_market_cache(ticker)
-        quote = normalize_cached_market_quote(ticker, cached, stale=not is_market_cache_fresh(cached)) if cached else build_unavailable_quote(ticker, "No cached quote available")
+        error = (full_summary or {}).get("quote_errors", {}).get(ticker) or "No cached quote available"
+        quote = normalize_cached_market_quote(ticker, cached, stale=not is_market_cache_fresh(cached)) if cached else build_unavailable_quote(ticker, error)
         yield encoder.encode(ticker) + ':'
         yield from encoder.iterencode(quote)
         del quote, cached
@@ -6432,7 +6470,7 @@ def api_health():
         "python_version": sys.version,
         "feature_version": "technical-features-v5-structure-momentum",
         "model_version": DECISION_MODEL_VERSION,
-        "service_version": "2026-10-02-service-recovery",
+        "service_version": "2026-10-04-price-refresh-40",
         "resource_metrics_enabled": RESOURCE_METRICS_ENABLED,
         **({"resources": resource_snapshot()} if RESOURCE_METRICS_ENABLED else {}),
         "render_service": bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID") or os.environ.get("RENDER_EXTERNAL_URL")),

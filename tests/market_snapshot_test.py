@@ -111,6 +111,19 @@ class MarketSnapshotTests(unittest.TestCase):
         self.assertFalse(module.preload_app)
         self.assertTrue(module.control_socket_disable)
 
+    def test_compact_unavailable_quote_keeps_actual_provider_error(self):
+        summary = {'completed': True, 'generation': 23, 'success_count': 0,
+                   'quote_errors': {'A': 'Provider timed out'}, 'live_failed_tickers': ['A']}
+        with patch.object(server, '_refresh_market_cache_for_tickers', return_value=summary), \
+             patch.object(server, 'read_market_cache', return_value=None):
+            response = server.app.test_client().get('/api/market-data?format=compact&force=true&tickers=A')
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertFalse(body['success'])
+        self.assertIsNone(body['quotes']['A']['price'])
+        self.assertEqual(body['quotes']['A']['error'], 'Provider timed out')
+        response.close()
+
     def test_response_closed_before_first_read_releases_spool(self):
         spool = tempfile.TemporaryFile(mode='w+b')
         spool.write(b'{}'); spool.seek(0)

@@ -13,15 +13,26 @@ const context = vm.createContext({
   WATCHLIST_REQUEST_TIMEOUT_MS: 20, SNAPSHOT_REQUEST_TIMEOUT_MS: 20, LIVE_REFRESH_TIMEOUT_MS: 60,
   API_URL: "/api/market-data", state: { watchlist: ["A"], snapshot: oldSnapshot, refreshGeneration: 0, refreshPromise: null, lastRefreshAt: oldSnapshot.fetchedAt },
   applyLanguage() {}, render() {}, async afterBrowserPaint() {}, persistLastRefresh() {},
-  hasUsableSnapshot: (snapshot) => Boolean(snapshot.quotes?.A?.price),
   snapshotRefreshTime: (snapshot) => snapshot.fetchedAt,
 });
 let applications = 0, requests = [];
 context.applySnapshot = (snapshot) => { applications++; context.state.snapshot = snapshot; };
-vm.runInContext(helper + "\n" + refresh, context);
+const usable = main.slice(main.indexOf("function hasUsableSnapshot"), main.indexOf("function afterBrowserPaint"));
+const finite = main.slice(main.indexOf("const finite ="), main.indexOf("function formatPrice("));
+vm.runInContext(finite + "\n" + usable + "\n" + helper + "\n" + refresh, context);
 const response = (payload, status = 200) => ({ ok: status < 400, status, async json() { return payload; } });
 
 (async () => {
+  for (const price of [null, "", " ", undefined, NaN, Infinity, 0, -1, true, false, [], [1], {}]) {
+    assert.equal(context.hasUsableSnapshot({ success: true, quotes: { A: { price } } }), false);
+  }
+  assert.equal(context.hasUsableSnapshot({ success: true, quotes: { DORMANT: { price: 999 } } }), false);
+  context.fetch = async () => response({ success: false, quotes: { A: { price: null } }, fetchedAt: "2026-10-04T23:45:00Z" });
+  await context.runFullRefresh({ source: "manual" });
+  assert.equal(context.state.refreshError, "quotesUnavailable");
+  assert.equal(context.state.snapshot, oldSnapshot);
+  assert.equal(context.state.lastRefreshAt, oldSnapshot.fetchedAt);
+  assert.equal(applications, 0, "empty provider results cannot replace valid prices or freshness");
   context.fetch = () => new Promise(() => {});
   await assert.rejects(context.fetchDashboardJson("/api/watchlist", { timeoutMs: 8 }), { name: "TimeoutError" });
   context.fetch = async () => ({ ok: true, status: 200, json: () => new Promise(() => {}) });
@@ -55,5 +66,11 @@ const response = (payload, status = 200) => ({ ok: status < 400, status, async j
   assert.equal(context.state.serviceUpdating, false);
   assert.equal(context.state.refreshError, null);
   assert.equal(applications, 1);
+  requests = [];
+  await context.runFullRefresh({ source: "auto" });
+  const autoParams = new URLSearchParams(requests[0].split("?")[1]);
+  assert.equal(autoParams.get("force"), "true");
+  assert.equal(autoParams.get("full_refresh"), "true");
+  assert.equal(autoParams.get("auto_refresh"), "true");
   console.log("Dashboard network: hung headers/body, truncated JSON, busy retry, failure preservation and recovery passed.");
 })().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -18,6 +18,7 @@ const SNAPSHOT_REQUEST_TIMEOUT_MS = 90 * 1000;
 // 60 tickers / 2 per batch, including bounded provider timeouts and output.
 const LIVE_REFRESH_TIMEOUT_MS = 10 * 60 * 1000;
 const REFRESH_MS = 60 * 60 * 1000;
+const AUTO_REFRESH_MINUTE = 40;
 const EASTERN_REFRESH_FORMATTER = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York",
   year: "numeric",
@@ -31,7 +32,7 @@ const EASTERN_REFRESH_FORMATTER = new Intl.DateTimeFormat("en-CA", {
 const DEFAULT_WATCHLIST = ["NVDA", "TSLA", "AMD", "BABA", "GOOGL", "AMZN", "AAPL", "META", "MSFT", "QQQ"];
 const I18N = {
   en: {
-    appTitle: "Stock Decision Dashboard", stocks: "Stocks", search: "Search symbol or name", add: "Add selected", refresh: "Refresh now", refreshing: "Refreshing…", lastRefresh: "Last refresh",
+    appTitle: "Stock Decision Dashboard", stocks: "Stocks", search: "Search symbol or name", add: "Add selected", refresh: "Refresh now", refreshing: "Refreshing…", lastRefresh: "Last refresh", autoRefresh: "Auto refresh at :40 every hour (ET)",
     shared: "Shared Watchlist: everyone viewing this Dashboard sees the same stock list.", syncFailed: "Shared list sync failed. Showing cached data.", localServerRequired: "This dashboard must be opened through the local server. Run python3 server.py, then open",
     all: "All", ticker: "Ticker", type: "Stock type", dayMove: "Day move", short: "Short", mid: "Mid", long: "Long",
     aiDecision: "AI Decision", technical: "Technical", market: "Market Data", price: "Price", dataTime: "Data time", updated: "Updated", unavailable: "—",
@@ -49,10 +50,11 @@ const I18N = {
     refreshTimeout: "The service did not respond in time. Please retry shortly.",
     refreshInterrupted: "The market response was interrupted. Please retry.",
     refreshFailed: "Market data could not be loaded. Please retry shortly.",
+    quotesUnavailable: "Prices are temporarily unavailable. The last successful data and refresh time have been kept, if available.",
     serviceUpdating: "The service is updating data. Waiting for the complete snapshot…",
   },
   zh: {
-    appTitle: "股票决策仪表盘", stocks: "股票", search: "搜索代码或名称", add: "添加所选", refresh: "立即刷新", refreshing: "刷新中…", lastRefresh: "上次刷新",
+    appTitle: "股票决策仪表盘", stocks: "股票", search: "搜索代码或名称", add: "添加所选", refresh: "立即刷新", refreshing: "刷新中…", lastRefresh: "上次刷新", autoRefresh: "每小时 40 分自动刷新（美东时间）",
     shared: "共享自选列表：所有查看此仪表盘的用户看到相同的股票列表。", syncFailed: "共享列表同步失败，正在显示缓存数据。", localServerRequired: "此仪表盘必须通过本地服务打开。请运行 python3 server.py，然后访问",
     all: "全部", ticker: "代码", type: "股票类型", dayMove: "当日涨跌", short: "短期", mid: "中期", long: "长期",
     aiDecision: "AI 决策", technical: "技术面", market: "市场数据", price: "价格", dataTime: "数据时间", updated: "更新时间", unavailable: "—",
@@ -67,6 +69,7 @@ const I18N = {
     refreshTimeout: "服务响应超时，请稍后重试。",
     refreshInterrupted: "行情响应中断，请重试。",
     refreshFailed: "暂时无法加载行情，请稍后重试。",
+    quotesUnavailable: "行情价格暂时不可用；如有上次成功数据，已保留其数据和刷新时间。",
     serviceUpdating: "服务正在更新数据，等待完整行情…",
   },
 };
@@ -99,7 +102,8 @@ const state = {
 const $ = (selector) => document.querySelector(selector);
 const t = (key) => I18N[state.language][key] || I18N.en[key] || key;
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
-const finite = (value) => value == null || value === "" ? null : Number.isFinite(Number(value)) ? Number(value) : null;
+const finite = (value) => (typeof value !== "number" && typeof value !== "string") || (typeof value === "string" && !value.trim())
+  ? null : Number.isFinite(Number(value)) ? Number(value) : null;
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
 const normalizeTicker = (value) => String(value || "").trim().toUpperCase().replace(/\s+/g, "");
 const uniqueTickers = (values) => [...new Set(values.map(normalizeTicker).filter(Boolean))];
@@ -182,8 +186,9 @@ function showFileRuntimeInstruction() {
 }
 
 function hasUsableSnapshot(snapshot) {
-  if (snapshot?.success === true) return true;
-  return Object.values(snapshot?.quotes || {}).some((quote) => Number.isFinite(Number(quote?.price)));
+  // A null/blank price must not become zero or mark an empty provider result
+  // successful. Keep the last good snapshot and its freshness on failure.
+  return state.watchlist.some((ticker) => finite(snapshot?.quotes?.[ticker]?.price) > 0);
 }
 
 function afterBrowserPaint() {
@@ -718,6 +723,7 @@ function applyLanguage() {
   manualRefresh.disabled = state.refreshing;
   manualRefresh.setAttribute("aria-busy", String(state.refreshing));
   $("#lastRefreshLabel").textContent = `${t("lastRefresh")}: ${formatRefreshTime(state.lastRefreshAt)}`;
+  $("#autoRefreshLabel").textContent = t("autoRefresh");
   const refreshNotice = $("#marketRefreshWarning");
   refreshNotice.hidden = !state.refreshError && !state.serviceUpdating;
   refreshNotice.textContent = state.refreshError ? t(state.refreshError) : state.serviceUpdating ? t("serviceUpdating") : "";
@@ -840,6 +846,26 @@ function refreshUsesLiveData(source) {
   return source === "manual" || source === "auto";
 }
 
+let autoRefreshTimer = null;
+
+function nextAutoRefreshAt(now = new Date()) {
+  const minute = Number(EASTERN_REFRESH_FORMATTER.formatToParts(now).find((part) => part.type === "minute").value);
+  const elapsed = minute * 60 * 1000 + now.getUTCSeconds() * 1000 + now.getUTCMilliseconds();
+  const delay = (AUTO_REFRESH_MINUTE * 60 * 1000 - elapsed + REFRESH_MS) % REFRESH_MS;
+  // Advance in elapsed time so skipped/repeated ET hours across DST work too.
+  return new Date(now.getTime() + (delay || REFRESH_MS));
+}
+
+function scheduleAutoRefresh() {
+  if (autoRefreshTimer !== null) clearTimeout(autoRefreshTimer);
+  const nextRun = nextAutoRefreshAt();
+  autoRefreshTimer = setTimeout(() => {
+    autoRefreshTimer = null;
+    scheduleAutoRefresh();
+    if (Date.now() >= nextRun.getTime()) runFullRefresh({ source: "auto" });
+  }, nextRun.getTime() - Date.now());
+}
+
 async function runFullRefresh({ source = "initial" } = {}) {
   if (!state.watchlist.length) return null;
   // Manual and scheduled refreshes intentionally share this exact transaction
@@ -872,7 +898,11 @@ async function runFullRefresh({ source = "initial" } = {}) {
         timeoutMs: refreshUsesLiveData(source) ? LIVE_REFRESH_TIMEOUT_MS : SNAPSHOT_REQUEST_TIMEOUT_MS,
         retryBusy: true,
       });
-      if (!hasUsableSnapshot(snapshot)) throw new Error("market request returned no usable dashboard snapshot");
+      if (!hasUsableSnapshot(snapshot)) {
+        const error = new Error("market request returned no usable dashboard prices");
+        error.name = "QuoteUnavailableError";
+        throw error;
+      }
       if (refreshId !== state.refreshGeneration) return null;
 
       state.refreshPhase = "recalculating";
@@ -900,6 +930,7 @@ async function runFullRefresh({ source = "initial" } = {}) {
     } catch (error) {
       console.error("Market refresh failed", error);
       state.refreshError = error.name === "TimeoutError" || error.name === "AbortError" ? "refreshTimeout"
+        : error.name === "QuoteUnavailableError" ? "quotesUnavailable"
         : error instanceof SyntaxError ? "refreshInterrupted" : "refreshFailed";
       if (!state.snapshot) {
         state.refreshPhase = "recalculating";
@@ -1018,7 +1049,7 @@ async function start() {
   await loadWatchlist();
   try {
     const cached = JSON.parse(localStorage.getItem(SNAPSHOT_CACHE_KEY) || "null");
-    if (cached?.quotes) {
+    if (hasUsableSnapshot(cached)) {
       applySnapshot(cached, { persist: false });
       const cachedRefreshTime = snapshotRefreshTime(cached);
       if (cachedRefreshTime) {
@@ -1026,11 +1057,14 @@ async function start() {
         persistLastRefresh(cachedRefreshTime);
       }
       state.lastAppliedAt = new Date().toISOString();
+    } else {
+      state.lastRefreshAt = null;
+      localStorage.removeItem(LAST_REFRESH_CACHE_KEY);
     }
   } catch { /* cache is optional */ }
   render();
   runFullRefresh({ source: "initial" });
-  setInterval(() => runFullRefresh({ source: "auto" }), REFRESH_MS);
+  scheduleAutoRefresh();
 }
 
 // Deliberately computes a compact view on demand; no debug payload is retained

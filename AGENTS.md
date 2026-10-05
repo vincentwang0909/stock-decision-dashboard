@@ -176,6 +176,15 @@ vice versa). A failed automatic refresh leaves the prior successful Dashboard
 and Last Refresh unchanged, releases the loading state, and does not stop the
 next hourly attempt.
 
+Both browser and server hourly refresh schedules use minute **40** in
+`America/New_York` (09:40, 10:40, etc.), independent of page-open time and
+manual refreshes. Calculate the next future wall-clock slot, including DST;
+never use a page-anchored one-hour interval. Empty/null prices cannot mark a
+refresh successful or advance Last Refresh. Optional quote/profile metadata
+has a bounded wait alongside intraday history and cannot discard valid Daily
+price data. Market cache defaults beside the watchlist database so a Render
+persistent watchlist also keeps quote cache on its persistent disk.
+
 A browser-triggered live refresh is a **full requested-watchlist** server
 transaction, not one provider-limited request. The server may use small
 provider-safe batches, but it must force-refresh every requested ticker before
@@ -410,8 +419,11 @@ Run from the repository root:
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/indicator-modules.test.js
 /private/tmp/stock-dashboard-final-venv/bin/python3 -m unittest discover -s tests -p 'indicator_data_test.py'
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/dashboard-regression.test.js
+/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/dashboard-network.test.js
+/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/dashboard-schedule.test.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/decision-ui.test.js
 /private/tmp/stock-dashboard-final-venv/bin/python3 -m unittest discover -s tests -p 'server_availability_test.py'
+/private/tmp/stock-dashboard-final-venv/bin/python3 -m unittest discover -s tests -p 'refresh_price_test.py'
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/decision-audit.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/decision-shadow.js
 /Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/fibonacci-audit.js
@@ -434,3 +446,8 @@ structure-range retention gate. `indicator-replay.js` and
 inputs/outputs outside production data and the repository.
 
 `unified-model.test.js` protects one production version across all policies, the removed V1 fallback, and browser/API module loading. `decision-api.test.js` protects the existing `decision.v1` wire shape with the current unified model version. Historical versions are read only by explicit offline comparison tools; never recreate a V1 switch in production.
+
+`dashboard-network.test.js`, `dashboard-schedule.test.js`, and
+`refresh_price_test.py` protect empty-price rejection, failure recovery,
+shared Manual/Auto refreshes, fixed ET :40 slots (including both DST
+transitions), bounded metadata enrichment and valid price/history retention.
