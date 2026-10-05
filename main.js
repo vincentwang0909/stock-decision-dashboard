@@ -17,7 +17,8 @@ const WATCHLIST_REQUEST_TIMEOUT_MS = 15 * 1000;
 const SNAPSHOT_REQUEST_TIMEOUT_MS = 90 * 1000;
 // 60 tickers / 2 per batch, including bounded provider timeouts and output.
 const LIVE_REFRESH_TIMEOUT_MS = 10 * 60 * 1000;
-const REFRESH_MS = 60 * 60 * 1000;
+const REFRESH_MS = 30 * 60 * 1000;
+// Preserve the :40 anchor; a 30-minute period also produces each :10 slot.
 const AUTO_REFRESH_MINUTE = 40;
 const EASTERN_REFRESH_FORMATTER = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York",
@@ -32,7 +33,7 @@ const EASTERN_REFRESH_FORMATTER = new Intl.DateTimeFormat("en-CA", {
 const DEFAULT_WATCHLIST = ["NVDA", "TSLA", "AMD", "BABA", "GOOGL", "AMZN", "AAPL", "META", "MSFT", "QQQ"];
 const I18N = {
   en: {
-    appTitle: "Stock Decision Dashboard", stocks: "Stocks", search: "Search symbol or name", add: "Add selected", refresh: "Refresh now", refreshing: "Refreshing…", lastRefresh: "Last refresh", autoRefresh: "Auto refresh at :40 every hour (ET)",
+    appTitle: "Stock Decision Dashboard", stocks: "Stocks", search: "Search symbol or name", add: "Add selected", refresh: "Refresh now", refreshing: "Refreshing…", lastRefresh: "Last refresh", autoRefresh: "Auto refresh every 30 min at :10 / :40 (ET)",
     shared: "Shared Watchlist: everyone viewing this Dashboard sees the same stock list.", syncFailed: "Shared list sync failed. Showing cached data.", localServerRequired: "This dashboard must be opened through the local server. Run python3 server.py, then open",
     all: "All", ticker: "Ticker", type: "Stock type", dayMove: "Day move", short: "Short", mid: "Mid", long: "Long",
     aiDecision: "AI Decision", technical: "Technical", market: "Market Data", price: "Price", dataTime: "Data time", updated: "Updated", unavailable: "—",
@@ -55,7 +56,7 @@ const I18N = {
     serviceUpdating: "The service is updating data. Waiting for the complete snapshot…",
   },
   zh: {
-    appTitle: "股票决策仪表盘", stocks: "股票", search: "搜索代码或名称", add: "添加所选", refresh: "立即刷新", refreshing: "刷新中…", lastRefresh: "上次刷新", autoRefresh: "每小时 40 分自动刷新（美东时间）",
+    appTitle: "股票决策仪表盘", stocks: "股票", search: "搜索代码或名称", add: "添加所选", refresh: "立即刷新", refreshing: "刷新中…", lastRefresh: "上次刷新", autoRefresh: "每半小时自动刷新：10／40 分（美东时间）",
     shared: "共享自选列表：所有查看此仪表盘的用户看到相同的股票列表。", syncFailed: "共享列表同步失败，正在显示缓存数据。", localServerRequired: "此仪表盘必须通过本地服务打开。请运行 python3 server.py，然后访问",
     all: "全部", ticker: "代码", type: "股票类型", dayMove: "当日涨跌", short: "短期", mid: "中期", long: "长期",
     aiDecision: "AI 决策", technical: "技术面", market: "市场数据", price: "价格", dataTime: "数据时间", updated: "更新时间", unavailable: "—",
@@ -895,7 +896,7 @@ async function runFullRefresh({ source = "initial" } = {}) {
     let applied = false;
     try {
       const params = new URLSearchParams({ tickers: state.watchlist.join(","), format: "compact" });
-      // Both user-triggered and hourly automatic refreshes request the same
+      // Both user-triggered and scheduled automatic refreshes request the same
       // force-live server path. Initial cache hydration and watchlist edits can
       // still use this full pipeline without forcing a provider refresh.
       if (refreshUsesLiveData(source)) {

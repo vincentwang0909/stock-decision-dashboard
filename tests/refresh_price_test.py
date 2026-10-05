@@ -1,4 +1,4 @@
-"""Valid OHLCV survives unavailable enrichment; browser/server hourly slots agree."""
+"""Valid OHLCV survives unavailable enrichment; browser/server half-hour slots agree."""
 import os
 for key in ('BACKGROUND_MARKET_REFRESH_ENABLED', 'EOD_HISTORY_ENABLED', 'COMPANY_PROFILE_REVIEW_ENABLED'):
     os.environ[key] = 'false'
@@ -41,14 +41,21 @@ class RefreshPriceTests(unittest.TestCase):
         old = datetime(2000, 1, 3).date()
         self.assertEqual(validation.session(old, calendar=calendar), validation.session(old))
 
-    def test_server_schedule_uses_fixed_et_40_including_dst(self):
+    def test_server_schedule_uses_fixed_et_10_and_40_including_dst(self):
         cases = [
+            ('2026-10-04T13:00:00+00:00', '2026-10-04T13:10:00+00:00'),
+            ('2026-10-04T13:09:59.999+00:00', '2026-10-04T13:10:00+00:00'),
+            ('2026-10-04T13:10:00+00:00', '2026-10-04T13:40:00+00:00'),
             ('2026-10-04T13:39:59.999+00:00', '2026-10-04T13:40:00+00:00'),
-            ('2026-10-04T13:40:00+00:00', '2026-10-04T14:40:00+00:00'),
-            ('2026-10-04T13:45:00+00:00', '2026-10-04T14:40:00+00:00'),
+            ('2026-10-04T13:40:00+00:00', '2026-10-04T14:10:00+00:00'),
+            ('2026-10-04T13:45:00+00:00', '2026-10-04T14:10:00+00:00'),
+            ('2026-10-05T03:59:59.999+00:00', '2026-10-05T04:10:00+00:00'),
             ('2026-01-04T14:39:00+00:00', '2026-01-04T14:40:00+00:00'),
-            ('2026-11-01T05:50:00+00:00', '2026-11-01T06:40:00+00:00'),
-            ('2026-03-08T06:50:00+00:00', '2026-03-08T07:40:00+00:00'),
+            ('2026-11-01T05:40:00+00:00', '2026-11-01T06:10:00+00:00'),
+            ('2026-11-01T05:50:00+00:00', '2026-11-01T06:10:00+00:00'),
+            ('2026-11-01T06:10:00+00:00', '2026-11-01T06:40:00+00:00'),
+            ('2026-03-08T06:40:00+00:00', '2026-03-08T07:10:00+00:00'),
+            ('2026-03-08T06:50:00+00:00', '2026-03-08T07:10:00+00:00'),
         ]
         for current, expected in cases:
             with self.subTest(current=current):
@@ -122,6 +129,8 @@ class RefreshPriceTests(unittest.TestCase):
         self.assertEqual(result['refresh_status']['next_auto_refresh_at'], '2026-10-04T13:40:00Z')
         self.assertEqual(result['refresh_status']['refresh_timezone'], 'America/New_York')
         self.assertEqual(result['refresh_status']['refresh_minute'], 40)
+        self.assertEqual(result['refresh_status']['refresh_minutes'], [10, 40])
+        self.assertEqual(result['refresh_status']['refresh_interval_minutes'], 30)
 
 
 if __name__ == '__main__': unittest.main()

@@ -166,7 +166,7 @@ latest snapshot obtained
 → Refreshing state ends and Last Refresh is updated
 ```
 
-Manual and hourly automatic refreshes must call the same full refresh
+Manual and half-hour automatic refreshes must call the same full refresh
 transaction. Both send the existing `force=true` live-data request; Auto
 Refresh must never be cache-only while Manual Refresh is live/forced. Manual
 and automatic refreshes share one in-flight promise, and a monotonic refresh
@@ -174,12 +174,12 @@ generation prevents a stale response from applying over a newer snapshot.
 This also prevents an automatic timer from overlapping a manual refresh (and
 vice versa). A failed automatic refresh leaves the prior successful Dashboard
 and Last Refresh unchanged, releases the loading state, and does not stop the
-next hourly attempt.
+next half-hour attempt.
 
-Both browser and server hourly refresh schedules use minute **40** in
-`America/New_York` (09:40, 10:40, etc.), independent of page-open time and
+Both browser and server refresh schedules run every **30 minutes**, at minutes
+**10 and 40** in `America/New_York` (09:10, 09:40, 10:10, etc.), independent of page-open time and
 manual refreshes. Calculate the next future wall-clock slot, including DST;
-never use a page-anchored one-hour interval. Empty/null prices cannot mark a
+never use a page-anchored interval. Empty/null prices cannot mark a
 refresh successful or advance Last Refresh. Optional quote/profile metadata
 has a bounded wait alongside intraday history and cannot discard valid Daily
 price data. Market cache defaults beside the watchlist database so a Render
@@ -257,7 +257,7 @@ trading date. Weekends and exchange holidays/no valid session are skipped;
 never copy yesterday's cache as today's EOD data. A ticker whose own latest
 Daily bar is stale is persisted as an explicit unavailable row, not an old
 Decision. The EOD run shares the full
-refresh lock with hourly provider refresh, so it cannot mix cache generations;
+refresh lock with scheduled provider refresh, so it cannot mix cache generations;
 the scheduler may safely catch up only for the current date after 4:30 PM and
 still must pass this session validation. Scheduler/API failure leaves no
 partial success: all rows and the success state are committed together or
@@ -281,7 +281,7 @@ Every horizon Fibonacci object has independent derivation/source identifiers. Eq
 
 The canonical **current active universe** is exactly the symbols in the
 shared/current `watchlist` table. It is the only source for Dashboard cards,
-current market-data requests, hourly refresh, profile migration, annual
+current market-data requests, scheduled refresh, profile migration, annual
 profile review, and Company Profile audits. A `company_profiles` row, quote
 cache file, browser snapshot/localStorage entry, legacy watchlist artifact, or
 EOD history row is evidence about a symbol only; none may create or resurrect
@@ -457,5 +457,5 @@ inputs/outputs outside production data and the repository.
 
 `dashboard-network.test.js`, `dashboard-schedule.test.js`, and
 `refresh_price_test.py` protect empty-price rejection, failure recovery,
-shared Manual/Auto refreshes, fixed ET :40 slots (including both DST
+shared Manual/Auto refreshes, fixed ET :10 / :40 slots (including both DST
 transitions), bounded metadata enrichment and valid price/history retention.

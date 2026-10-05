@@ -20,12 +20,19 @@ const constants = main.slice(main.indexOf("const REFRESH_MS"), main.indexOf("con
 const scheduler = main.slice(main.indexOf("let autoRefreshTimer"), main.indexOf("async function runFullRefresh"));
 vm.runInContext(constants + "\n" + scheduler, context);
 for (const [input, expected] of [
+  ["2026-10-04T13:00:00.000Z", "2026-10-04T13:10:00.000Z"],
+  ["2026-10-04T13:09:59.999Z", "2026-10-04T13:10:00.000Z"],
+  ["2026-10-04T13:10:00.000Z", "2026-10-04T13:40:00.000Z"],
   ["2026-10-04T13:39:59.999Z", "2026-10-04T13:40:00.000Z"],
-  ["2026-10-04T13:40:00.000Z", "2026-10-04T14:40:00.000Z"],
-  ["2026-10-04T13:45:00.000Z", "2026-10-04T14:40:00.000Z"],
+  ["2026-10-04T13:40:00.000Z", "2026-10-04T14:10:00.000Z"],
+  ["2026-10-04T13:45:00.000Z", "2026-10-04T14:10:00.000Z"],
+  ["2026-10-05T03:59:59.999Z", "2026-10-05T04:10:00.000Z"],
   ["2026-01-04T14:39:00.000Z", "2026-01-04T14:40:00.000Z"],
-  ["2026-11-01T05:50:00.000Z", "2026-11-01T06:40:00.000Z"],
-  ["2026-03-08T06:50:00.000Z", "2026-03-08T07:40:00.000Z"],
+  ["2026-11-01T05:40:00.000Z", "2026-11-01T06:10:00.000Z"],
+  ["2026-11-01T05:50:00.000Z", "2026-11-01T06:10:00.000Z"],
+  ["2026-11-01T06:10:00.000Z", "2026-11-01T06:40:00.000Z"],
+  ["2026-03-08T06:40:00.000Z", "2026-03-08T07:10:00.000Z"],
+  ["2026-03-08T06:50:00.000Z", "2026-03-08T07:10:00.000Z"],
 ]) assert.equal(context.nextAutoRefreshAt(new Date(input)).toISOString(), expected, input);
 context.scheduleAutoRefresh();
 assert.equal([...timers.values()][0].delay, 1);
@@ -35,10 +42,10 @@ function fire() { const [id, timer] = [...timers.entries()][0]; timers.delete(id
 now += 1;
 fire();
 assert.equal(requests, 1);
-assert.equal([...timers.values()][0].delay, 60 * 60 * 1000);
+assert.equal([...timers.values()][0].delay, 30 * 60 * 1000);
 now += 3 * 60 * 60 * 1000 + 5 * 60 * 1000;
 fire();
 assert.equal(requests, 2, "a sleeping tab resumes with one refresh, without replaying missed slots");
-assert.equal([...timers.values()][0].delay, 55 * 60 * 1000);
-assert.equal(timers.size, 1, "an unsuccessful refresh still schedules the next :40 slot");
-console.log("Dashboard schedule: ET :40, exact boundary, both DST changes, delayed tab and single timer passed.");
+assert.equal([...timers.values()][0].delay, 25 * 60 * 1000);
+assert.equal(timers.size, 1, "an unsuccessful refresh still schedules the next :10 / :40 slot");
+console.log("Dashboard schedule: ET :10 / :40, exact boundaries, both DST changes, delayed tab and single timer passed.");

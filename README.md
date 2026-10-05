@@ -38,8 +38,8 @@ data/watchlist.db
 data/cache/
 ```
 
-Automatic refresh runs at **:40 every hour in America/New_York**, including
-09:40 and 10:40 ET. The browser and server use the same schedule; manual
+Automatic refresh runs **every 30 minutes at :10 and :40 in America/New_York**,
+including 09:10, 09:40 and 10:10 ET. The browser and server use the same schedule; manual
 refreshes do not shift it. Optional quote/company enrichment has a bounded
 wait alongside intraday history. If no valid prices are returned, the browser
 keeps its previous successful snapshot and Last Refresh and shows a notice.
@@ -133,7 +133,7 @@ GET /api/market-data?tickers=NVDA,MSFT&force=true
 GET /api/debug/quote/NVDA
 ```
 
-`/api/market-data` is cache-first for initial/cache hydration. Manual and hourly
+`/api/market-data` is cache-first for initial/cache hydration. Manual and scheduled
 automatic Dashboard refreshes use the shared full-refresh transaction with
 `force=true&full_refresh=true`, which refreshes the complete requested watchlist
 before the response is applied. The `_refresh` query string only bypasses browser

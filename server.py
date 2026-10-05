@@ -104,7 +104,11 @@ OPTIONS_SNAPSHOT_VERSION = 2
 BACKGROUND_MARKET_REFRESH_ENABLED = os.environ.get("BACKGROUND_MARKET_REFRESH_ENABLED", "true").strip().lower() not in {"0", "false", "no", "n"}
 BACKGROUND_MARKET_REFRESH_STARTUP_DELAY_SECONDS = int(os.environ.get("BACKGROUND_MARKET_REFRESH_STARTUP_DELAY_SECONDS", "15"))
 DASHBOARD_REFRESH_TIMEZONE = ZoneInfo("America/New_York")
+DASHBOARD_REFRESH_INTERVAL_MINUTES = 30
+# Keep :40 as the existing anchor; the half-hour period also schedules :10.
 DASHBOARD_REFRESH_MINUTE = 40
+DASHBOARD_REFRESH_MINUTES = tuple(range(DASHBOARD_REFRESH_MINUTE % DASHBOARD_REFRESH_INTERVAL_MINUTES,
+                                        60, DASHBOARD_REFRESH_INTERVAL_MINUTES))
 BACKGROUND_MARKET_REFRESH_ON_START = os.environ.get("BACKGROUND_MARKET_REFRESH_ON_START", "true").strip().lower() not in {"0", "false", "no", "n"}
 EOD_HISTORY_ENABLED = os.environ.get("EOD_HISTORY_ENABLED", "true").strip().lower() not in {"0", "false", "no", "n"}
 EOD_HISTORY_STARTUP_DELAY_SECONDS = int(os.environ.get("EOD_HISTORY_STARTUP_DELAY_SECONDS", "30"))
@@ -5359,8 +5363,9 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
         "processed_tickers": processed_tickers,
         "missing_from_request": missing_from_request,
         "refresh_status": {
-            "refresh_interval_minutes": 60,
+            "refresh_interval_minutes": DASHBOARD_REFRESH_INTERVAL_MINUTES,
             "refresh_minute": DASHBOARD_REFRESH_MINUTE,
+            "refresh_minutes": list(DASHBOARD_REFRESH_MINUTES),
             "refresh_timezone": "America/New_York",
             "request_started_at": request_started_at,
             "request_completed_at": request_completed_at,
@@ -5410,11 +5415,10 @@ def next_dashboard_refresh_utc(now=None):
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     eastern = current.astimezone(DASHBOARD_REFRESH_TIMEZONE)
     # Move in UTC elapsed time through skipped/repeated Eastern DST hours.
-    next_run = current - timedelta(minutes=eastern.minute, seconds=eastern.second,
-                                   microseconds=eastern.microsecond) + timedelta(minutes=DASHBOARD_REFRESH_MINUTE)
-    if next_run <= current:
-        next_run += timedelta(hours=1)
-    return next_run
+    elapsed = timedelta(minutes=eastern.minute, seconds=eastern.second, microseconds=eastern.microsecond)
+    interval = timedelta(minutes=DASHBOARD_REFRESH_INTERVAL_MINUTES)
+    delay = (timedelta(minutes=DASHBOARD_REFRESH_MINUTE) - elapsed) % interval
+    return current + (delay or interval)
 
 
 def chunk_tickers_for_live_refresh(tickers):
@@ -5422,11 +5426,11 @@ def chunk_tickers_for_live_refresh(tickers):
     return [tickers[index:index + batch_size] for index in range(0, len(tickers), batch_size)]
 
 
-def _refresh_market_cache_for_tickers(tickers, reason="scheduled_hourly"):
+def _refresh_market_cache_for_tickers(tickers, reason="scheduled_auto"):
     """Force-refresh every requested ticker in provider-safe batches.
 
     This is deliberately the one server-side live-refresh primitive used by
-    hourly work, EOD capture, and browser-triggered full refreshes. A batch is
+    scheduled work, EOD capture, and browser-triggered full refreshes. A batch is
     only a provider/resource boundary; it is never a reason to omit later
     watchlist tickers from the completed dashboard snapshot.
     """
@@ -5548,15 +5552,15 @@ def _refresh_market_cache_for_tickers(tickers, reason="scheduled_hourly"):
     return summary
 
 
-def _refresh_market_cache_for_watchlist(reason="scheduled_hourly"):
+def _refresh_market_cache_for_watchlist(reason="scheduled_auto"):
     tickers = active_watchlist_tickers()
     return _refresh_market_cache_for_tickers(tickers, reason=reason)
 
 
-def refresh_market_cache_for_watchlist(reason="scheduled_hourly"):
+def refresh_market_cache_for_watchlist(reason="scheduled_auto"):
     """Run one complete live watchlist refresh without overlapping EOD writes.
 
-    The same lock is shared by hourly refresh and the EOD recorder so an EOD
+    The same lock is shared by scheduled refresh and the EOD recorder so an EOD
     snapshot cannot accidentally mix cache generations from two provider runs.
     """
     with FULL_REFRESH_RUN_LOCK:
@@ -5587,7 +5591,7 @@ def background_market_refresh_loop():
             BACKGROUND_REFRESH_STATE["next_run_at"] = next_run.strftime("%Y-%m-%dT%H:%M:%SZ")
         delay = max(1, (next_run - datetime.now(timezone.utc)).total_seconds())
         time.sleep(delay)
-        refresh_market_cache_for_watchlist(reason="scheduled_hourly")
+        refresh_market_cache_for_watchlist(reason="scheduled_auto")
 
 
 def start_background_market_refresh_scheduler():
@@ -5601,7 +5605,7 @@ def start_background_market_refresh_scheduler():
         BACKGROUND_REFRESH_STATE["next_run_at"] = next_dashboard_refresh_utc().strftime("%Y-%m-%dT%H:%M:%SZ")
     thread = threading.Thread(
         target=background_market_refresh_loop,
-        name="market-cache-hourly-refresh",
+        name="market-cache-auto-refresh",
         daemon=True,
     )
     thread.start()
@@ -6162,7 +6166,7 @@ def api_market_data():
             "quotes": {},
             "failed": [],
             "refresh_status": {
-                "refresh_interval_minutes": 60,
+                "refresh_interval_minutes": DASHBOARD_REFRESH_INTERVAL_MINUTES,
                 "total_tickers": 0,
                 "success_count": 0,
                 "failed_count": 0,
@@ -6481,7 +6485,7 @@ def api_health():
         "python_version": sys.version,
         "feature_version": "technical-features-v5-structure-momentum",
         "model_version": DECISION_MODEL_VERSION,
-        "service_version": "2026-10-04-calendar-refresh-recovery",
+        "service_version": "2026-10-05-half-hour-refresh",
         "resource_metrics_enabled": RESOURCE_METRICS_ENABLED,
         **({"resources": resource_snapshot()} if RESOURCE_METRICS_ENABLED else {}),
         "render_service": bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID") or os.environ.get("RENDER_EXTERNAL_URL")),
