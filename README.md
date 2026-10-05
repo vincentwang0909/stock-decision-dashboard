@@ -47,6 +47,12 @@ Without a `MARKET_CACHE_DIR` override, quote cache lives beside
 `WATCHLIST_DB_PATH`; a persistent Render database therefore uses persistent
 cache too. The EOD recorder still runs at 16:30 ET.
 
+Multi-year history normalization reuses one calendar for its frame and a
+temporary session lookup, preserving the same holiday/half-day and completion
+rules. A first visit waits for an already-running full refresh with the live
+deadline (extended once on an explicit busy response), displays watchlist
+placeholders while warming, and identifies partial price availability.
+
 The three-indicator integration, horizon weights, causal completion rules,
 Price State constraints and replay results are documented in
 [the current indicator model](docs/indicator-model-2026-10-04.md). New Squeeze,

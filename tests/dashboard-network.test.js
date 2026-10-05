@@ -16,7 +16,11 @@ const context = vm.createContext({
   snapshotRefreshTime: (snapshot) => snapshot.fetchedAt,
 });
 let applications = 0, requests = [];
-context.applySnapshot = (snapshot) => { applications++; context.state.snapshot = snapshot; };
+context.applySnapshot = (snapshot) => {
+  applications++;
+  context.state.snapshot = snapshot;
+  context.state.rows = context.state.watchlist.map((ticker) => ({ price: snapshot.quotes?.[ticker]?.price ?? null }));
+};
 const usable = main.slice(main.indexOf("function hasUsableSnapshot"), main.indexOf("function afterBrowserPaint"));
 const finite = main.slice(main.indexOf("const finite ="), main.indexOf("function formatPrice("));
 vm.runInContext(finite + "\n" + usable + "\n" + helper + "\n" + refresh, context);
@@ -37,6 +41,19 @@ const response = (payload, status = 200) => ({ ok: status < 400, status, async j
   await assert.rejects(context.fetchDashboardJson("/api/watchlist", { timeoutMs: 8 }), { name: "TimeoutError" });
   context.fetch = async () => ({ ok: true, status: 200, json: () => new Promise(() => {}) });
   await assert.rejects(context.fetchDashboardJson("/api/market-data", { timeoutMs: 8 }), { name: "TimeoutError" });
+
+  let coldBusy = true;
+  context.fetch = async () => {
+    if (coldBusy) { coldBusy = false; return response({ error_code: "refresh_in_progress" }, 503); }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    return response(nextSnapshot);
+  };
+  assert.equal(await context.fetchDashboardJson("/api/market-data", { timeoutMs: 8, retryBusy: true, busyTimeoutMs: 80 }), nextSnapshot,
+    "first visits wait for the actual live refresh, beyond the shorter cache deadline");
+  context.fetch = async () => response({ error_code: "refresh_in_progress" }, 503);
+  await assert.rejects(context.fetchDashboardJson("/api/market-data", { timeoutMs: 8, retryBusy: true, busyTimeoutMs: 25 }), { name: "TimeoutError" },
+    "repeated busy responses cannot keep extending the deadline");
+  context.fetch = async () => ({ ok: true, status: 200, json: () => new Promise(() => {}) });
   await context.runFullRefresh({ source: "auto" });
   assert.equal(context.state.refreshError, "refreshTimeout");
   assert.equal(context.state.refreshing, false);
@@ -72,5 +89,9 @@ const response = (payload, status = 200) => ({ ok: status < 400, status, async j
   assert.equal(autoParams.get("force"), "true");
   assert.equal(autoParams.get("full_refresh"), "true");
   assert.equal(autoParams.get("auto_refresh"), "true");
+  context.state.watchlist = ["A", "B"];
+  await context.runFullRefresh({ source: "manual" });
+  assert.equal(context.state.refreshError, "partialQuotesUnavailable");
+  assert.equal(context.state.snapshot, nextSnapshot, "valid partial prices remain usable with an explicit notice");
   console.log("Dashboard network: hung headers/body, truncated JSON, busy retry, failure preservation and recovery passed.");
 })().catch((error) => { console.error(error); process.exitCode = 1; });

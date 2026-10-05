@@ -15,8 +15,11 @@ def exchange_calendar(year):
     return calendars.get_calendar('XNYS', start=f'{year - 12}-01-01', end=f'{year + 1}-12-31')
 
 
-def session(date):
-    calendar = exchange_calendar(date.year)
+def session(date, calendar=None):
+    # A history frame already knows its latest year. Reuse that one calendar
+    # for every date it covers instead of rebuilding one per historical year.
+    if calendar is None or date < calendar.first_session.date() or date > calendar.last_session.date():
+        calendar = exchange_calendar(date.year)
     key = date.isoformat()
     if not calendar.is_session(key):
         return None
@@ -32,10 +35,12 @@ def validate_frame(frame):
     indices = []
     previous = None
     required = ('Open', 'High', 'Low', 'Close', 'Volume')
-    if not isinstance(frame.index, pd.DatetimeIndex) or any(key not in frame for key in required):
-        reason = 'invalid_timestamp_index' if not isinstance(frame.index, pd.DatetimeIndex) else 'missing_ohlcv_column'
+    duplicate_fields = set(frame.columns[frame.columns.duplicated()]).intersection(required)
+    if not isinstance(frame.index, pd.DatetimeIndex) or any(key not in frame for key in required) or duplicate_fields:
+        reason = 'invalid_timestamp_index' if not isinstance(frame.index, pd.DatetimeIndex) else 'duplicate_ohlcv_column' if duplicate_fields else 'missing_ohlcv_column'
         return frame.iloc[0:0].copy(), {'source_rows': len(frame), 'rejected_rows': len(frame), 'reasons': {reason: len(frame)}}
-    for index, (stamp, row) in enumerate(frame.iterrows()):
+    for index, entry in enumerate(frame[list(required)].itertuples(index=True, name=None)):
+        stamp = entry[0]
         if pd.isna(stamp) or (previous is not None and stamp <= previous):
             reasons['duplicate_or_unordered_timestamp'] += 1
             continue
@@ -43,9 +48,9 @@ def validate_frame(frame):
         # must not make a later duplicate timestamp look like a fresh sample.
         previous = stamp
         values = []
-        for key in required:
+        for raw in entry[1:]:
             try:
-                value = float(row[key])
+                value = float(raw)
             except (ValueError, TypeError):
                 value = float('nan')
             values.append(value)
@@ -82,12 +87,12 @@ def completed_week_metadata(frame, as_of=None):
     end = last + timedelta(days=6 - last.weekday())
     schedule = calendar.schedule.loc[start.isoformat():end.isoformat()]
     weeks = {}
-    for stamp, row in schedule.iterrows():
+    for stamp, close in schedule[['close']].itertuples(index=True, name=None):
         date = stamp.date()
         key = (date - timedelta(days=date.weekday())).isoformat()
-        entry = weeks.setdefault(key, {'dates': [], 'close': row['close'].to_pydatetime()})
+        entry = weeks.setdefault(key, {'dates': [], 'close': close.to_pydatetime()})
         entry['dates'].append(date)
-        entry['close'] = row['close'].to_pydatetime()
+        entry['close'] = close.to_pydatetime()
     complete = [key for key, value in weeks.items() if value['close'] <= now and all(date in dates for date in value['dates'])]
     return {'source': 'exchange_calendars:XNYS', 'as_of': now.isoformat(), 'completed_week_keys': complete,
             'excluded_weeks': len(weeks) - len(complete), 'method': 'all_expected_sessions_present_and_final_session_closed'}

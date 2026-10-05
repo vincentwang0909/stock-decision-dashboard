@@ -54,7 +54,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 from 历史记录 import 历史记录数据库 as eod_history_db
 from server_resources import BoundedTaskPool, BoundedTTLCache, ApplyToken, TaskBudgetExceeded, memory_snapshot
-from market_data_validation import validate_frame, validate_us_daily_frame, completed_week_metadata, session as exchange_session
+from market_data_validation import validate_frame, validate_us_daily_frame, completed_week_metadata, exchange_calendar, session as exchange_session
 
 ENV_FILE = os.path.join(ROOT, ".env")
 if os.path.exists(ENV_FILE):
@@ -4004,6 +4004,7 @@ def validate_native_four_hour_history_frame(frame, as_of=None):
 
     valid_indices = []
     now = as_of or datetime.now(timezone.utc)
+    calendar = exchange_calendar(frame.index[-1].year)
     for day, entries in sorted(day_rows.items()):
         times = [time_value for time_value, _stamp in entries]
         if day in invalid_days or len(set(times)) != len(times):
@@ -4011,7 +4012,7 @@ def validate_native_four_hour_history_frame(frame, as_of=None):
             if len(result["invalid_session_examples"]) < 5:
                 result["invalid_session_examples"].append({"date": day, "times": times, "reason": "invalid_or_duplicate_session_bar"})
             continue
-        calendar_session = exchange_session(datetime.fromisoformat(day).date())
+        calendar_session = exchange_session(datetime.fromisoformat(day).date(), calendar=calendar)
         if calendar_session is None:
             result["invalid_session_days"] += 1
             if len(result["invalid_session_examples"]) < 5:
@@ -4119,12 +4120,22 @@ def load_technical_intraday_history_frames(symbol):
 def _history_payload(frame, timestamp_format="%Y-%m-%d"):
     clean, audit = validate_frame(frame)
     intraday = "T" in timestamp_format
+    calendar = exchange_calendar(clean.index[-1].year) if len(clean) else None
+    # This lookup exists only while normalizing this frame. Intraday bars on
+    # the same session share its official close; nothing is retained as quote
+    # or recommendation history after the calculation.
+    schedules = {}
+    def schedule_for(stamp):
+        day = stamp.date()
+        if day not in schedules:
+            schedules[day] = exchange_session(day, calendar=calendar)
+        return schedules[day]
     request_interval = getattr(frame, "attrs", {}).get("request", {}).get("interval") if frame is not None else None
     if intraday and request_interval == "1h" and len(clean):
         keep = []
         for entry in clean.index:
             stamp = entry.to_pydatetime()
-            schedule = exchange_session(stamp.date())
+            schedule = schedule_for(stamp)
             valid = bool(stamp.tzinfo and schedule and schedule["open"] <= stamp < schedule["close"] and (stamp - schedule["open"]).total_seconds() % 3600 == 0)
             keep.append(valid)
         rejected = len(keep) - sum(keep)
@@ -4158,7 +4169,7 @@ def _history_payload(frame, timestamp_format="%Y-%m-%d"):
     interval = attrs.get("request", {}).get("interval")
     for entry in clean.index:
         stamp = entry.to_pydatetime()
-        schedule = exchange_session(stamp.date())
+        schedule = schedule_for(stamp)
         end = None
         if schedule and intraday and stamp.tzinfo and interval in {"1h", "4h"}:
             if schedule["open"] <= stamp < schedule["close"]:
@@ -4172,7 +4183,7 @@ def _history_payload(frame, timestamp_format="%Y-%m-%d"):
         result["session_calendar"] = completed_week_metadata(clean, as_of)
     if len(clean):
         stamp = clean.index[-1].to_pydatetime()
-        schedule = exchange_session(stamp.date())
+        schedule = schedule_for(stamp)
         interval = attrs.get("request", {}).get("interval")
         if schedule:
             if intraday and stamp.tzinfo and interval in {"1h", "4h"}:
@@ -6470,7 +6481,7 @@ def api_health():
         "python_version": sys.version,
         "feature_version": "technical-features-v5-structure-momentum",
         "model_version": DECISION_MODEL_VERSION,
-        "service_version": "2026-10-04-price-refresh-40",
+        "service_version": "2026-10-04-calendar-refresh-recovery",
         "resource_metrics_enabled": RESOURCE_METRICS_ENABLED,
         **({"resources": resource_snapshot()} if RESOURCE_METRICS_ENABLED else {}),
         "render_service": bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID") or os.environ.get("RENDER_EXTERNAL_URL")),

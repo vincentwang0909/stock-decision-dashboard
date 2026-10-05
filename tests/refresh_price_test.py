@@ -8,9 +8,39 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 import pandas as pd
 import server
+import market_data_validation as validation
 
 
 class RefreshPriceTests(unittest.TestCase):
+    def test_duplicate_ohlcv_columns_are_unavailable_instead_of_crashing_fast_iteration(self):
+        raw = pd.DataFrame([[100, 101, 99, 100, 100, 1000]],
+                           columns=['Open', 'High', 'Low', 'Close', 'Close', 'Volume'],
+                           index=pd.to_datetime(['2026-10-02']))
+        clean, audit = validation.validate_frame(raw)
+        self.assertTrue(clean.empty)
+        self.assertEqual(audit['reasons'], {'duplicate_ohlcv_column': 1})
+
+    def test_ten_year_frame_reuses_one_calendar_across_tickers(self):
+        index = pd.bdate_range('2016-10-03', '2026-10-02')
+        raw = pd.DataFrame({'Open': 100., 'High': 101., 'Low': 99., 'Close': 100., 'Volume': 1000.}, index=index)
+        raw.attrs['request'] = {'interval': '1d', 'period': '10y'}
+        validation.exchange_calendar.cache_clear()
+        self.addCleanup(validation.exchange_calendar.cache_clear)
+        for _ in range(2):
+            payload = server._history_payload(raw)
+            self.assertEqual(len(payload['completed']), len(raw))
+            self.assertEqual(payload['closes'], [100.] * len(raw))
+        self.assertEqual(validation.exchange_calendar.cache_info().misses, 1,
+                         'one shared calendar, instead of rebuilding all eleven years for every ticker')
+
+    def test_shared_calendar_preserves_holidays_half_days_and_older_date_fallback(self):
+        calendar = validation.exchange_calendar(2026)
+        self.assertIsNone(validation.session(datetime(2026, 4, 3).date(), calendar=calendar))
+        half_day = validation.session(datetime(2026, 11, 27).date(), calendar=calendar)
+        self.assertEqual(half_day['close'].isoformat(), '2026-11-27T18:00:00+00:00')
+        old = datetime(2000, 1, 3).date()
+        self.assertEqual(validation.session(old, calendar=calendar), validation.session(old))
+
     def test_server_schedule_uses_fixed_et_40_including_dst(self):
         cases = [
             ('2026-10-04T13:39:59.999+00:00', '2026-10-04T13:40:00+00:00'),

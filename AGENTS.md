@@ -185,6 +185,14 @@ has a bounded wait alongside intraday history and cannot discard valid Daily
 price data. Market cache defaults beside the watchlist database so a Render
 persistent watchlist also keeps quote cache on its persistent disk.
 
+Normalize multi-year bars with one shared exchange calendar for the frame,
+and a date-to-session lookup scoped to that calculation. Do not rebuild a
+calendar for each historical year or retain an unbounded session/history
+cache. A first visit that receives explicit `refresh_in_progress` may extend
+its cache-request deadline once to the bounded live-refresh deadline; repeated
+busy responses cannot extend it indefinitely. Render unavailable watchlist
+rows while warming and explicitly disclose partial price availability.
+
 A browser-triggered live refresh is a **full requested-watchlist** server
 transaction, not one provider-limited request. The server may use small
 provider-safe batches, but it must force-refresh every requested ticker before

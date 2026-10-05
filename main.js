@@ -51,6 +51,7 @@ const I18N = {
     refreshInterrupted: "The market response was interrupted. Please retry.",
     refreshFailed: "Market data could not be loaded. Please retry shortly.",
     quotesUnavailable: "Prices are temporarily unavailable. The last successful data and refresh time have been kept, if available.",
+    partialQuotesUnavailable: "Some prices are temporarily unavailable. Available market data is shown below.",
     serviceUpdating: "The service is updating data. Waiting for the complete snapshot…",
   },
   zh: {
@@ -70,6 +71,7 @@ const I18N = {
     refreshInterrupted: "行情响应中断，请重试。",
     refreshFailed: "暂时无法加载行情，请稍后重试。",
     quotesUnavailable: "行情价格暂时不可用；如有上次成功数据，已保留其数据和刷新时间。",
+    partialQuotesUnavailable: "部分股票暂未取得有效行情，下方已显示当前可用数据。",
     serviceUpdating: "服务正在更新数据，等待完整行情…",
   },
 };
@@ -794,22 +796,33 @@ function applySnapshot(snapshot, { persist = true, renderSnapshot = true } = {})
   if (renderSnapshot) render();
 }
 
-async function fetchDashboardJson(url, { timeoutMs = WATCHLIST_REQUEST_TIMEOUT_MS, retryBusy = false } = {}) {
+async function fetchDashboardJson(url, { timeoutMs = WATCHLIST_REQUEST_TIMEOUT_MS, retryBusy = false, busyTimeoutMs = timeoutMs } = {}) {
   const controller = new AbortController();
-  let timer;
+  let timer, rejectDeadline;
+  let extendedForBusyRefresh = false;
   const deadline = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      const error = new Error("dashboard request deadline exceeded");
-      error.name = "TimeoutError";
-      reject(error);
-      controller.abort();
-    }, timeoutMs);
+    rejectDeadline = reject;
   });
+  const onTimeout = () => {
+    const error = new Error("dashboard request deadline exceeded");
+    error.name = "TimeoutError";
+    rejectDeadline(error);
+    controller.abort();
+  };
+  timer = setTimeout(onTimeout, timeoutMs);
   try {
     while (true) {
       const response = await Promise.race([fetch(url, { signal: controller.signal }), deadline]);
       const payload = await Promise.race([response.json(), deadline]);
       if (retryBusy && response.status === 503 && payload?.error_code === "refresh_in_progress") {
+        // First visits can arrive during startup's full-watchlist refresh.
+        // Use its live deadline once, rather than failing after the shorter
+        // cache deadline. Repeated busy receipts cannot extend it forever.
+        if (!extendedForBusyRefresh && busyTimeoutMs > timeoutMs) {
+          clearTimeout(timer);
+          timer = setTimeout(onTimeout, busyTimeoutMs);
+          extendedForBusyRefresh = true;
+        }
         state.serviceUpdating = true;
         applyLanguage();
         // Retry the same full-watchlist request; never apply a partial batch.
@@ -897,6 +910,7 @@ async function runFullRefresh({ source = "initial" } = {}) {
       const snapshot = await fetchDashboardJson(`${API_URL}?${params.toString()}`, {
         timeoutMs: refreshUsesLiveData(source) ? LIVE_REFRESH_TIMEOUT_MS : SNAPSHOT_REQUEST_TIMEOUT_MS,
         retryBusy: true,
+        busyTimeoutMs: LIVE_REFRESH_TIMEOUT_MS,
       });
       if (!hasUsableSnapshot(snapshot)) {
         const error = new Error("market request returned no usable dashboard prices");
@@ -925,6 +939,7 @@ async function runFullRefresh({ source = "initial" } = {}) {
         persistLastRefresh(refreshTime);
       }
       state.lastAppliedAt = new Date().toISOString();
+      state.refreshError = state.rows.some((row) => !(row.price > 0)) ? "partialQuotesUnavailable" : null;
       applied = true;
       return snapshot;
     } catch (error) {
@@ -1062,6 +1077,11 @@ async function start() {
       localStorage.removeItem(LAST_REFRESH_CACHE_KEY);
     }
   } catch { /* cache is optional */ }
+  if (!state.rows.length) {
+    // Show the authoritative watchlist while the first full snapshot warms.
+    // These rows have unavailable prices and never carry a recommendation.
+    state.rows = state.watchlist.map((ticker) => buildRow(ticker, {}, {}, { deferDecision: true }));
+  }
   render();
   runFullRefresh({ source: "initial" });
   scheduleAutoRefresh();
