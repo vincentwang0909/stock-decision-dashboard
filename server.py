@@ -54,7 +54,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 from 历史记录 import 历史记录数据库 as eod_history_db
 from server_resources import BoundedTaskPool, BoundedTTLCache, ApplyToken, TaskBudgetExceeded, memory_snapshot
-from market_data_validation import validate_frame, validate_us_daily_frame, completed_week_metadata, exchange_calendar, session as exchange_session
+from market_data_validation import validate_frame, validate_us_daily_frame, completed_week_metadata, exchange_calendar, session as exchange_session, reconcile_intraday_volume, daily_history_freshness, SOURCE_VALIDATION_VERSION
 
 ENV_FILE = os.path.join(ROOT, ".env")
 if os.path.exists(ENV_FILE):
@@ -129,6 +129,8 @@ COMPANY_PROFILE_REVIEW_STARTUP_DELAY_SECONDS = int(os.environ.get("COMPANY_PROFI
 DECISION_NODE_RUNNER = os.path.join(ROOT, "decision-api", "emit-decision.js")
 with open(os.path.join(ROOT, "decision-engine", "config.js"), encoding="utf-8") as model_config_file:
     DECISION_MODEL_VERSION = re.search(r'^\s*version:\s*"([^"]+)"', model_config_file.read(), re.MULTILINE).group(1)
+with open(os.path.join(ROOT, "technical-features.js"), encoding="utf-8") as features_file:
+    TECHNICAL_FEATURE_VERSION = re.search(r'const SCHEMA_VERSION = "([^"]+)"', features_file.read()).group(1)
 DECISION_NODE_TIMEOUT_SECONDS = int(os.environ.get("DECISION_NODE_TIMEOUT_SECONDS", os.environ.get("DECISION_V1_NODE_TIMEOUT_SECONDS", "45")))
 CACHE = BoundedTTLCache(MARKET_DATA_MAX_TICKERS + 8, int(os.environ.get("QUOTE_RAM_CACHE_MAX_BYTES", str(8 * 1024 * 1024))))
 SEARCH_CACHE_SECONDS = 10 * 60
@@ -3870,7 +3872,7 @@ def load_incremental_hourly_history_frame(instrument, symbol):
     """Extend genuine 1H history with checked overlap; never splice a rebase."""
     cached = read_market_cache(symbol)
     history = (((cached or {}).get("quote") or {}).get("history") or {}).get("intervals", {}).get("1h", {})
-    if history.get("lookback") == TECHNICAL_INTRADAY_HISTORY_PERIOD and history.get("source") == "yfinance" and history.get("adjustment_basis") == "provider_ohlc_auto_adjust_false":
+    if history.get("source_validation_version") == SOURCE_VALIDATION_VERSION and history.get("lookback") == TECHNICAL_INTRADAY_HISTORY_PERIOD and history.get("source") == "yfinance" and history.get("adjustment_basis") == "provider_ohlc_auto_adjust_false":
         try:
             old = pd.DataFrame({col: history[key] for col, key in (("Open", "opens"), ("High", "highs"), ("Low", "lows"), ("Close", "closes"), ("Volume", "volumes"))}, index=pd.to_datetime(history["timestamps"], utc=True))
             recent = load_yfinance_intraday_history_frame(instrument, symbol, period="1mo", interval="1h")
@@ -3923,7 +3925,7 @@ def load_yfinance_native_four_hour_history_frame(instrument, period=TECHNICAL_FO
 def load_incremental_native_four_hour_history_frame(instrument, symbol):
     cached = read_market_cache(symbol)
     history = ((((cached or {}).get("quote") or {}).get("history") or {}).get("intervals") or {}).get("4h") or {}
-    if history.get("lookback") == TECHNICAL_FOUR_HOUR_HISTORY_PERIOD and history.get("bar_method") == TECHNICAL_FOUR_HOUR_BAR_METHOD and history.get("source") == "yfinance" and history.get("available"):
+    if history.get("source_validation_version") == SOURCE_VALIDATION_VERSION and history.get("lookback") == TECHNICAL_FOUR_HOUR_HISTORY_PERIOD and history.get("bar_method") == TECHNICAL_FOUR_HOUR_BAR_METHOD and history.get("source") == "yfinance" and history.get("available"):
         try:
             old = pd.DataFrame({column: history[key] for column, key in (("Open", "opens"), ("High", "highs"), ("Low", "lows"), ("Close", "closes"), ("Volume", "volumes"))}, index=pd.to_datetime(history["timestamps"], utc=True))
             recent, metadata, failure = load_yfinance_native_four_hour_history_frame(instrument, period="1mo")
@@ -4185,6 +4187,7 @@ def _history_payload(frame, timestamp_format="%Y-%m-%d"):
     result["provider_as_of"] = attrs.get("provider_as_of")
     if not intraday and len(clean):
         result["session_calendar"] = completed_week_metadata(clean, as_of)
+        result["freshness"] = daily_history_freshness(result, as_of)
     if len(clean):
         stamp = clean.index[-1].to_pydatetime()
         schedule = schedule_for(stamp)
@@ -4295,6 +4298,12 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         "lookback": TECHNICAL_DAILY_HISTORY_PERIOD,
         "last_bar_timestamp": daily_payload["timestamps"][-1] if daily_payload["timestamps"] else None,
     })
+    interval_payloads = {"1h": hourly_payload, "4h": four_hour_payload}
+    volume_checks = reconcile_intraday_volume(daily_payload, interval_payloads)
+    for interval, source in interval_payloads.items():
+        source["source_validation_version"] = SOURCE_VALIDATION_VERSION
+        source["volume_validation"] = volume_checks[interval]
+    daily_payload["source_validation_version"] = SOURCE_VALIDATION_VERSION
 
     latest_row = history.iloc[-1]
     previous_row = history.iloc[-2] if len(history) > 1 else latest_row
@@ -4631,6 +4640,17 @@ def normalize_cached_market_quote(ticker, cached, stale=False):
             "balanceSheet", "valuation", "growth",
         ):
             metadata.pop(key, None)
+    history = normalized.get("history")
+    if isinstance(history, dict) and history.get("timestamps"):
+        history["freshness"] = daily_history_freshness(history)
+    if isinstance(history, dict) and history.get("source_validation_version") != SOURCE_VALIDATION_VERSION:
+        # Quarantine old conflicting volume immediately, before the next live
+        # refresh reseeds history from the provider. Keep real price bars.
+        intervals = history.get("intervals") or {}
+        checks = reconcile_intraday_volume(history, intervals)
+        for interval, source in intervals.items():
+            source["volume_validation"] = checks[interval]
+        history["source_validation_version"] = SOURCE_VALIDATION_VERSION
     normalized.pop("optionsMarket", None)
     return normalized
 
@@ -6010,32 +6030,97 @@ class RefreshInProgress(RuntimeError):
     pass
 
 
-def iter_market_snapshot_json(tickers, live=False, auto_refresh=False):
+def iter_market_snapshot_json(tickers, live=False, auto_refresh=False, compact=True):
     """Caller holds the refresh lock; retain at most one full quote."""
     full_summary = _refresh_market_cache_for_tickers(tickers, reason="api_full_refresh") if live else None
     payload = build_market_data_payload(tickers, cache_only=True, refresh_market_context=False, summary_only=True)
+    # The summary pass already decorates quotes with the persistent profiles.
+    # Retain only that compact context while streaming one raw quote at a time;
+    # re-reading raw cache files must not silently reclassify the company.
+    profiles = {
+        ticker: quote["metadata"]["classification"]
+        for ticker, quote in (payload.get("quotes") or {}).items()
+        if isinstance(quote, dict) and isinstance(quote.get("metadata"), dict)
+        and isinstance(quote["metadata"].get("classification"), dict)
+    }
+    summary_context = {
+        ticker: {key: quote[key] for key in ("data_quality", "source_attempts", "companyNews") if key in quote}
+        for ticker, quote in (payload.get("quotes") or {}).items() if isinstance(quote, dict)
+    }
     payload.pop("data", None)
     payload.pop("quotes", None)
-    payload["items"] = [{key: value for key, value in item.items() if key != "analysis"} for item in payload.get("items", [])]
+    items = [{key: value for key, value in item.items() if key != "analysis"} for item in payload.get("items", [])]
+    payload["items"] = items
     if full_summary:
         apply_full_refresh_status(payload, full_summary, tickers, auto_refresh)
     encoder = json.JSONEncoder(ensure_ascii=False, allow_nan=False, separators=(",", ":"))
-    yield '{"quotes":{'
-    for index, ticker in enumerate(tickers):
-        if index:
-            yield ','
+    def quote_for(ticker):
         cached = read_market_cache(ticker)
         error = (full_summary or {}).get("quote_errors", {}).get(ticker) or "No cached quote available"
         quote = normalize_cached_market_quote(ticker, cached, stale=not is_market_cache_fresh(cached)) if cached else build_unavailable_quote(ticker, error)
-        yield encoder.encode(ticker) + ':'
-        yield from encoder.iterencode(quote)
-        del quote, cached
-    yield '},'
-    encoded = encoder.iterencode(payload)
-    # Drop only the opening brace; retain the final closing brace.
-    first = next(encoded)
-    yield first[1:]
-    yield from encoded
+        if ticker in profiles:
+            quote.setdefault("metadata", {})["classification"] = profiles[ticker]
+        quote.update(summary_context.get(ticker, {}))
+        return quote
+
+    # Freeze each quote once. Legacy aliases replay the same serialized bytes;
+    # re-normalizing could change freshness/cache age or read a later generation.
+    # Only compact offsets stay in RAM; all alias contents live in a temp file.
+    aliases = None if compact else tempfile.TemporaryFile(mode="w+", encoding="utf-8")
+    offsets = {}
+    def replay_quote(ticker):
+        offset, remaining = offsets[ticker]
+        aliases.seek(offset)
+        while remaining:
+            part = aliases.read(min(remaining, SNAPSHOT_CHUNK_BYTES))
+            if not part:
+                raise RuntimeError("Incomplete frozen quote")
+            remaining -= len(part)
+            yield part
+    try:
+        yield '{"quotes":{'
+        for index, ticker in enumerate(tickers):
+            if index:
+                yield ','
+            quote = quote_for(ticker)
+            yield encoder.encode(ticker) + ':'
+            start = aliases.tell() if aliases else None
+            length = 0
+            for part in encoder.iterencode(quote):
+                if aliases:
+                    aliases.write(part)
+                    length += len(part)
+                yield part
+            if aliases:
+                offsets[ticker] = (start, length)
+            del quote
+        yield '},'
+        if aliases:
+            aliases.flush()
+            yield '"data":{'
+            for index, ticker in enumerate(tickers):
+                if index:
+                    yield ','
+                yield encoder.encode(ticker) + ':'
+                yield from replay_quote(ticker)
+            yield '},"items":['
+            payload.pop("items", None)
+            for index, item in enumerate(items):
+                if index:
+                    yield ','
+                item_json = encoder.encode(item)
+                yield item_json[:-1] + ',"analysis":'
+                yield from replay_quote(item["ticker"])
+                yield '}'
+            yield '],'
+        encoded = encoder.iterencode(payload)
+        # Drop only the opening brace; retain the final closing brace.
+        first = next(encoded)
+        yield first[1:]
+        yield from encoded
+    finally:
+        if aliases:
+            aliases.close()
 
 
 def buffered_snapshot_bytes(parts):
@@ -6050,7 +6135,7 @@ def buffered_snapshot_bytes(parts):
         yield bytes(pending)
 
 
-def prepare_market_snapshot(tickers, live=False, auto_refresh=False, compressed=False):
+def prepare_market_snapshot(tickers, live=False, auto_refresh=False, compressed=False, compact=True):
     """Finish strict JSON before HTTP headers, with bounded RAM and no slow-client lock.
 
     A busy request must not occupy the other web thread waiting on EOD or a
@@ -6064,7 +6149,7 @@ def prepare_market_snapshot(tickers, live=False, auto_refresh=False, compressed=
         spool = tempfile.TemporaryFile(mode="w+b")
         target = gzip.GzipFile(fileobj=spool, mode="wb", compresslevel=1, mtime=0) if compressed else spool
         try:
-            for chunk in buffered_snapshot_bytes(iter_market_snapshot_json(tickers, live, auto_refresh)):
+            for chunk in buffered_snapshot_bytes(iter_market_snapshot_json(tickers, live, auto_refresh, compact=compact)):
                 target.write(chunk)
         finally:
             if compressed:
@@ -6114,43 +6199,19 @@ def api_market_data():
             cache_only = False
         if auto_refresh:
             cache_only = False
-        if str(request.args.get("format", "")).lower() == "compact":
-            compressed = request.accept_encodings.quality("gzip") > 0
-            spool, size = prepare_market_snapshot(tickers, live=force or auto_refresh or full_refresh, auto_refresh=auto_refresh, compressed=compressed)
-            response = Response(stream_snapshot_file(spool), mimetype="application/json")
-            response.content_length = size
-            response.headers["Vary"] = "Accept-Encoding"
-            if compressed:
-                response.headers["Content-Encoding"] = "gzip"
-            response.call_on_close(spool.close)
-            return response
-        if not FULL_REFRESH_RUN_LOCK.acquire(blocking=False):
-            raise RefreshInProgress("A full refresh or EOD transaction is in progress")
-        try:
-            if full_refresh or force or auto_refresh:
-                # Every batch completes before reading this generation. A
-                # second web request returns busy rather than blocking the
-                # thread needed by health checks and first-time page visits.
-                full_summary = _refresh_market_cache_for_tickers(tickers, reason="api_full_refresh")
-                payload = build_market_data_payload(
-                    tickers,
-                    force=False,
-                    auto_refresh=False,
-                    cache_only=True,
-                    refresh_market_context=False,
-                )
-                apply_full_refresh_status(payload, full_summary, tickers, auto_refresh)
-            else:
-                payload = build_market_data_payload(
-                    tickers,
-                    force=force,
-                    auto_refresh=auto_refresh,
-                    cache_only=cache_only,
-                )
-        finally:
-            FULL_REFRESH_RUN_LOCK.release()
-        status_code = 200 if payload.get("success") or payload.get("items") else 503
-        return jsonify(payload), status_code
+        compact = str(request.args.get("format", "")).lower() == "compact"
+        compressed = request.accept_encodings.quality("gzip") > 0
+        spool, size = prepare_market_snapshot(
+            tickers, live=force or auto_refresh or full_refresh or not cache_only,
+            auto_refresh=auto_refresh, compressed=compressed, compact=compact,
+        )
+        response = Response(stream_snapshot_file(spool), mimetype="application/json", status=200 if compact or tickers else 503)
+        response.content_length = size
+        response.headers["Vary"] = "Accept-Encoding"
+        if compressed:
+            response.headers["Content-Encoding"] = "gzip"
+        response.call_on_close(spool.close)
+        return response
     except RefreshInProgress as exc:
         response = jsonify({"success": False, "error_code": "refresh_in_progress", "error": str(exc)})
         response.status_code = 503
@@ -6483,9 +6544,10 @@ def api_health():
         "background_market_refresh": background_refresh,
         "cwd": os.getcwd(),
         "python_version": sys.version,
-        "feature_version": "technical-features-v5-structure-momentum",
+        "feature_version": TECHNICAL_FEATURE_VERSION,
         "model_version": DECISION_MODEL_VERSION,
-        "service_version": "2026-10-05-half-hour-refresh",
+        "eod_history_enabled": EOD_HISTORY_ENABLED,
+        "service_version": "2026-10-09-data-trust",
         "resource_metrics_enabled": RESOURCE_METRICS_ENABLED,
         **({"resources": resource_snapshot()} if RESOURCE_METRICS_ENABLED else {}),
         "render_service": bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID") or os.environ.get("RENDER_EXTERNAL_URL")),

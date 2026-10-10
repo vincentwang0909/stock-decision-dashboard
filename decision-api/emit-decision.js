@@ -53,10 +53,10 @@ function horizonPayload(decision, horizon, quote) {
   const value = decision?.horizons?.[horizon];
   if (!value) {
     return {
-      action: "avoid",
+      action: "hold",
       confidence: 0,
       priceState: "INVALID_LANDSCAPE",
-      executionIntent: "avoid",
+      executionIntent: "hold",
       opportunityRange: null,
       reduceRange: null,
       invalidation: null,
@@ -82,7 +82,9 @@ function horizonPayload(decision, horizon, quote) {
     reduceRange: usable ? band(landscape.reduceRange) : null,
     invalidation: usable ? finite(landscape.invalidation) : null,
     currentPrice: finite(landscape.currentPrice ?? quote?.price),
-    reasons: (value.reasons?.supporting || []).slice(0, 5),
+    reasons: (["strong_buy", "buy", "accumulate"].includes(value.action)
+      ? [...(value.reasons?.supporting || []), ...(value.reasons?.limiting || [])]
+      : [...(value.reasons?.limiting || []), ...(value.reasons?.supporting || [])]).slice(0, 5),
     dataQuality: finite(value.debug?.dataQuality?.score),
   };
 }

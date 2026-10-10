@@ -8,6 +8,82 @@ from zoneinfo import ZoneInfo
 
 ET = ZoneInfo('America/New_York')
 
+# Intraday regular-session volume may omit auctions and other daily volume.
+# It must not substantially exceed the same completed Daily session. This
+# one-sided ingestion check is not an indicator threshold or a repair ratio.
+VOLUME_OVERCOUNT_TOLERANCE = 1.05
+SOURCE_VALIDATION_VERSION = 1
+
+
+def reconcile_intraday_volume(daily, intervals):
+    """Compare only complete, contiguous sessions; retain no raw bar history."""
+    daily_rows = {}
+    for index, day in enumerate(daily.get('timestamps') or []):
+        try:
+            volume = float(daily['volumes'][index])
+            end = datetime.fromisoformat(daily['bar_end_timestamps'][index])
+            if end.tzinfo is None:
+                continue
+            if daily['completed'][index] is True and math.isfinite(volume) and volume > 0:
+                daily_rows[str(day)[:10]] = (volume, end)
+        except (KeyError, IndexError, TypeError, ValueError):
+            continue
+    results = {}
+    for interval, source in intervals.items():
+        groups = {}
+        for index, raw_stamp in enumerate(source.get('timestamps') or []):
+            try:
+                stamp = datetime.fromisoformat(raw_stamp)
+                end = datetime.fromisoformat(source['bar_end_timestamps'][index])
+                if stamp.tzinfo is None or end.tzinfo is None:
+                    continue
+                stamp, end = stamp.astimezone(ET), end.astimezone(ET)
+                volume = float(source['volumes'][index])
+                if source['completed'][index] is True and math.isfinite(volume) and volume >= 0:
+                    groups.setdefault(stamp.date().isoformat(), []).append((stamp, end, volume))
+            except (KeyError, IndexError, TypeError, ValueError):
+                continue
+        checked, mismatches = 0, []
+        for day, bars in groups.items():
+            if day not in daily_rows:
+                continue
+            daily_volume, close = daily_rows[day]
+            bars.sort(key=lambda row: row[0])
+            # A missing opening or middle bar is incomplete coverage, not a
+            # zero-volume bar. Do not compare it as a complete session.
+            if bars[0][0].strftime('%H:%M') != '09:30' or bars[-1][1] != close:
+                continue
+            if any(left[1] != right[0] for left, right in zip(bars, bars[1:])):
+                continue
+            checked += 1
+            total = sum(row[2] for row in bars)
+            if total > daily_volume * VOLUME_OVERCOUNT_TOLERANCE:
+                mismatches.append({'date': day, 'daily_volume': daily_volume,
+                                   'intraday_volume': total, 'ratio': round(total / daily_volume, 4)})
+        results[interval] = {'version': SOURCE_VALIDATION_VERSION,
+                             'status': 'conflict' if mismatches else 'passed' if checked else 'not_checked',
+                             'checked_sessions': checked, 'conflicting_sessions': len(mismatches),
+                             'conflicting_dates': [row['date'] for row in mismatches],
+                             'examples': mismatches[-5:], 'overcount_tolerance': VOLUME_OVERCOUNT_TOLERANCE,
+                             'method': 'complete_regular_session_volume_upper_bound',
+                             'unavailable_reason': 'source_data_conflict' if mismatches else None}
+    return results
+
+
+def daily_history_freshness(history, as_of=None):
+    now = as_of or datetime.now(timezone.utc)
+    timestamps = history.get('timestamps') or []
+    if not timestamps:
+        return {'state': 'unavailable', 'latest_date': None, 'expected_completed_date': None}
+    calendar = exchange_calendar(now.astimezone(ET).year)
+    schedule = calendar.schedule.loc[:now.astimezone(ET).date().isoformat()]
+    closed = schedule.loc[schedule['close'] <= now]
+    expected = closed.index[-1].date().isoformat() if len(closed) else None
+    latest = str(timestamps[-1])[:10]
+    return {'state': 'stale' if expected and latest < expected else 'current',
+            'latest_date': latest, 'expected_completed_date': expected,
+            'checked_at': now.isoformat(), 'calendar_source': 'exchange_calendars:XNYS'}
+
 
 @lru_cache(maxsize=2)
 def exchange_calendar(year):

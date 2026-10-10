@@ -43,7 +43,8 @@
     const penalty = Object.values(penalties).reduce((sum, value) => sum + value, 0);
     const preProfileScale = clamp(Math.round(base - penalty), 0, 100);
     const confidenceScale = Number.isFinite(profile.effectiveModifiers?.confidenceScale) ? profile.effectiveModifiers.confidenceScale : 1;
-    const confidence = clamp(Math.round(preProfileScale * confidenceScale), 0, 100);
+    const maximum = finalDecision?.actionFamily === "unavailable" ? config.unavailableMaximum : 100;
+    const confidence = clamp(Math.round(preProfileScale * confidenceScale), 0, maximum);
     return { score: confidence, components, weights: config.weights, profileConfidenceWeight: 0, penalties: Object.fromEntries(Object.entries(penalties).map(([key, value]) => [key, Math.round(value)])), base: Math.round(base), preProfileScale, confidenceScale, action, priceState, actionFamily: finalDecision?.actionFamily || null, landscapeQuality: landscapeQuality?.state || null };
   }
 

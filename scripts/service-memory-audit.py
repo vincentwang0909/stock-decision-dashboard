@@ -214,6 +214,16 @@ def main():
             outputs['refresh'] = get('/api/market-data?force=true&full_refresh=true&format=compact')
             # Keep compact results, not a second complete response between runs.
             outputs['refresh']['body'] = outputs['refresh']['body'].get('refresh_status')
+            phase = 'standard_snapshot'
+            standard = get('/api/market-data?cache_only=1')
+            standard_body = standard['body']
+            outputs['standard'] = {key: standard[key] for key in ('status', 'bytes', 'seconds')}
+            outputs['standard'].update(
+                quote_count=len(standard_body.get('quotes') or {}),
+                aliases_equal=standard_body.get('quotes') == standard_body.get('data'),
+                item_count=len(standard_body.get('items') or []),
+            )
+            del standard, standard_body
             phase = 'continuous_refresh'
             outputs['repeated'] = []
             for _ in range(0 if args.live_provider else max(0,min(30,args.repeats))):

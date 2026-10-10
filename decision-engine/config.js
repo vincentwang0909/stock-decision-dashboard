@@ -5,7 +5,7 @@
   const freeze = (value) => Object.freeze(value);
 
   engine.config = freeze({
-    version: "decision-engine-v2.2-unified",
+    version: "decision-engine-v2.3-data-guarded",
     indicators: freeze({
       version: "structure-momentum-v1",
       squeeze: freeze({ length: 20, bbMultiplier: 2, kcMultiplier: 1.5, regressionLength: 20, levelScale: 0.4, changeScale: 0.045, levelShare: 0.60 }),
@@ -34,7 +34,7 @@
         opportunityScoreScale: 35, opportunityRoomLabelAtr: 0.50 }),
     }),
     shortReduceWidth: freeze({ enabled: false, factor: 0.995, version: "short-reduce-0995", gate: "current-baseline-retention-replay" }),
-    actions: freeze(["strong_buy", "buy", "accumulate", "hold", "trim", "sell", "avoid"]),
+    actions: freeze(["strong_buy", "buy", "accumulate", "hold", "trim", "sell"]),
     actionLabels: freeze({
       strong_buy: freeze({ en: "Strong Buy", zh: "强力买入" }),
       buy: freeze({ en: "Buy", zh: "买入" }),
@@ -42,7 +42,6 @@
       hold: freeze({ en: "Hold", zh: "持有" }),
       trim: freeze({ en: "Trim", zh: "减仓" }),
       sell: freeze({ en: "Sell", zh: "卖出" }),
-      avoid: freeze({ en: "Avoid", zh: "回避" }),
     }),
     horizons: freeze({
       short: freeze({
@@ -126,7 +125,7 @@
     actionPolicy: freeze({
       minimumDataQuality: 38,
       territories: freeze({ strongBuy: 80, buy: 55, accumulate: 25, holdFloor: -20, trim: -25, sell: -55 }),
-      gates: freeze({ strongBuy: freeze({ direction: 62, confirmation: 76, priceOpportunity: 24, riskMaximum: 42, bullishExhaustionMaximum: 28, confidence: 78 }), buy: freeze({ direction: 30, confirmation: 57, riskMaximum: 64 }), accumulate: freeze({ riskMaximum: 76 }), sell: freeze({ direction: -55, confirmation: 58 }), bearishContrarianAccumulate: freeze({ exhaustion: 58, priceOpportunity: 36, dataQuality: 55 }), neutralAvoidRisk: 84, extremeRisk: 88, confidenceMinimum: freeze({ strong_buy: 78, buy: 48, accumulate: 38 }) }),
+      gates: freeze({ strongBuy: freeze({ direction: 62, confirmation: 76, priceOpportunity: 24, riskMaximum: 42, bullishExhaustionMaximum: 28, confidence: 78 }), buy: freeze({ direction: 30, confirmation: 57, riskMaximum: 64 }), accumulate: freeze({ riskMaximum: 76 }), sell: freeze({ direction: -55, confirmation: 58 }), bearishContrarianAccumulate: freeze({ exhaustion: 58, priceOpportunity: 36, dataQuality: 55 }), extremeRisk: 88, confidenceMinimum: freeze({ strong_buy: 78, buy: 48, accumulate: 38 }) }),
     }),
     execution: freeze({
       invalidationAtrBuffer: 0.55,
@@ -179,11 +178,12 @@
     }),
     stability: freeze({
       cacheLimit: 300, materialEdgeDelta: 26,
-      stayBands: freeze({ strong_buy: freeze([68, 101]), buy: freeze([35, 101]), accumulate: freeze([6, 101]), hold: freeze([-30, 34]), trim: freeze([-64, -8]), sell: freeze([-101, -35]), avoid: freeze([-101, 30]) }),
+      stayBands: freeze({ strong_buy: freeze([68, 101]), buy: freeze([35, 101]), accumulate: freeze([6, 101]), hold: freeze([-30, 34]), trim: freeze([-64, -8]), sell: freeze([-101, -35]) }),
       material: freeze({ atrShock: 82, majorBreakdown: -68, majorBreakout: 68 }),
       noHistory: freeze({ ma: 0.36, macd: 0.30, adx: 0.18, relativeStrength: 0.16, minimum: 42, maximum: 76, unavailable: 45 }),
     }),
     confidence: freeze({
+      unavailableMaximum: 35,
       weights: freeze({ agreement: 0.35 / 0.90, actionStrength: 0.25 / 0.90, stability: 0.20 / 0.90, dataQuality: 0.10 / 0.90 }),
       profileConfidenceWeight: 0,
       penalties: freeze({ marketConflict: 18, exhaustionConflict: 16, eventUncertainty: 12, internalConflict: 18, priceConflict: 14, invalidLandscape: 18 }),

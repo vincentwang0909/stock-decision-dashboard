@@ -92,6 +92,14 @@ const feature = buildTechnicalFeatures({ history: { ...payload(source(420)), int
 assert.equal(feature.horizons.short.momentum.squeeze.availability, "available");
 assert.equal(feature.horizons.short.volatility.bollinger_rsi.availability, "available");
 assert.equal(feature.horizons.short.trend.support_resistance.availability, "available");
+const conflictedSource = { ...payload(raw), volume_validation: { status: "conflict", conflicting_dates: [raw[20].timestamp.slice(0, 10)] } };
+const markedBars = t.normalizeBars(conflictedSource);
+assert.equal(markedBars[20].volume_available, false);
+assert.equal(markedBars[77].volume_available, undefined, "quarantine by session, not every price bar");
+const recoveredStructure = t.supportResistanceFeature(markedBars, "4h", [], "1h", at);
+assert.equal(recoveredStructure.events.find((event) => event.reference_price === 120 && event.kind === "breakout_up")?.volume_confirmed, true, "volume EMA can recover only after a clean full seed window");
+const recentConflict = t.normalizeBars({ ...payload(raw), volume_validation: { status: "conflict", conflicting_dates: [raw[77].timestamp.slice(0, 10)] } });
+assert.equal(t.supportResistanceFeature(recentConflict, "4h", [], "1h", at).events.find((event) => event.reference_price === 120 && event.kind === "breakout_up")?.volume_confirmed, null, "price break survives but untrusted volume cannot confirm it");
 const sqFeature = { availability: "available", momentum: 1, change_3: 0.1 };
 const value = engine.technical.mixSqueeze(20, sqFeature, 2, "short");
 assert(value > 20 && value < 36);

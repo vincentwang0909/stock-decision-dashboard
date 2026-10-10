@@ -8,7 +8,7 @@
   const range = (low, high) => Number.isFinite(low) && Number.isFinite(high) && low > 0 && low < high && roundPrice(low) > 0 && roundPrice(low) < roundPrice(high)
     ? { low: roundPrice(low), high: roundPrice(high) } : null;
   const positiveAction = (action) => ["strong_buy", "buy", "accumulate"].includes(action);
-  const executionIntent = (action) => ({ strong_buy: "enter", buy: "enter", accumulate: "add", hold: "hold", trim: "reduce", sell: "exit", avoid: "avoid" }[action] || "avoid");
+  const executionIntent = (action) => ({ strong_buy: "enter", buy: "enter", accumulate: "add", hold: "hold", trim: "reduce", sell: "exit" }[action] || "hold");
 
   // Granular states are kept for debug/presentation, but each resolves to one
   // user-facing Action Family. No later reconciliation may cross that family.
@@ -20,8 +20,8 @@
     opportunity: Object.freeze(["strong_buy", "buy", "accumulate"]),
     neutral: Object.freeze(["hold"]),
     reduce: Object.freeze(["trim", "sell"]),
-    defensive: Object.freeze(["sell", "avoid"]),
-    unavailable: Object.freeze(["avoid"]),
+    defensive: Object.freeze(["sell"]),
+    unavailable: Object.freeze(["hold"]),
   });
 
   function actionFamilyForState(state) {
@@ -199,6 +199,7 @@
       debug: { priceLandscapeInputs: { reason, candidateCounts: { opportunity: 0, reduce: 0 } }, guardrails: ["invalid_price_landscape"] },
     });
     if (!Number.isFinite(price) || !Number.isFinite(atr) || atr <= 0 || !engine.config.horizons[horizon]) return invalid("price_or_atr_unavailable");
+    if (technical.dataQuality?.dailyFreshness?.state === "stale" || technical.dataQuality?.missingCore?.includes("source_data_conflict")) return invalid("untrusted_source_history");
 
     const supportClusters = clustersFor(raw, "supportClusters", raw.support);
     let resistanceClusters = clustersFor(raw, "resistanceClusters", raw.resistance);
@@ -273,7 +274,17 @@
     const breakdown = confirmedBreakdown(technical) || priceState === "BREAKDOWN_ZONE";
     const reasons = { supporting: [], limiting: [] };
     const guardrails = [];
-    let action = "avoid";
+    let action = "hold";
+
+    // Untrustworthy inputs are an unavailable decision, even when old price
+    // structures place the live quote inside an otherwise actionable zone.
+    // Select this family before stability; never retain an old Buy or Sell.
+    if (dataQuality < policy.minimumDataQuality) {
+      reasons.limiting.push(technical.dataQuality?.dailyFreshness?.state === "stale"
+        ? "Daily price history is stale; wait for a current validated snapshot."
+        : "Required technical evidence is unavailable; wait for validated data.");
+      return { action: "hold", priceState, actionFamily: "unavailable", breakdown: false, bearishEvidence: false, reasons, guardrails: ["insufficient_data_wait"] };
+    }
 
     if (actionFamily === "opportunity") {
       const opportunityGate = gates.strongBuy.priceOpportunity * (profile.effectiveModifiers?.strongBuyOpportunity || 1);
@@ -290,7 +301,6 @@
         && risk <= gates.buy.riskMaximum && exhaustionScore > -55;
       action = strongBuy ? "strong_buy" : buy ? "buy" : "accumulate";
       if (marketModifiers.regime === "shock" && edge >= policy.territories.strongBuy) guardrails.push("market_shock_blocks_strong_buy");
-      if (action === "accumulate" && dataQuality < policy.minimumDataQuality) reasons.limiting.push("Technical evidence is incomplete, so the opportunity zone supports only a cautious add posture.");
       if (action === "accumulate" && direction <= -25 && exhaustionScore >= gates.bearishContrarianAccumulate.exhaustion) reasons.supporting.push("Downside exhaustion is developing at a valid opportunity zone.");
     } else if (actionFamily === "neutral") {
       action = "hold";
@@ -304,12 +314,12 @@
       if (action === "trim") reasons.limiting.push("Current price has reached the reduce zone; reduce exposure rather than add.");
       else reasons.limiting.push("Bearish deterioration is confirmed while current price is in the executable reduce zone.");
     } else if (actionFamily === "defensive") {
-      action = dataQuality >= policy.minimumDataQuality && (breakdown || bearishEvidence({ technical, risk, exhaustionScore })) ? "sell" : "avoid";
+      action = breakdown || bearishEvidence({ technical, risk, exhaustionScore }) ? "sell" : "hold";
       reasons.limiting.push(action === "sell"
         ? "A confirmed breakdown has invalidated the prior opportunity structure; exit is anchored near the current executable area."
         : "The opportunity structure is invalid and evidence is insufficient for a precise exit recommendation.");
     } else {
-      action = "avoid";
+      action = "hold";
       reasons.limiting.push("Price landscape quality is insufficient for an actionable recommendation.");
       guardrails.push("invalid_price_landscape");
     }
@@ -317,7 +327,6 @@
   }
 
   function invalidationFor({ action, technical, landscape }) {
-    if (action === "avoid") return { value: null, inputs: {} };
     const ranges = landscape?.priceLandscape || {};
     const levels = technical.executionContext?.levels || [];
     const atr = Number(technical.atr);
@@ -331,7 +340,7 @@
     return { value, inputs: { source: "reduce_recovery_structure", level: level ? { price: roundPrice(level.price), label: level.label } : null, atrBuffer: roundPrice(atr * engine.config.execution.invalidationAtrBuffer) } };
   }
 
-  function build({ price, horizon, action = "avoid", technical = {}, landscape = null, context = {} } = {}) {
+  function build({ price, horizon, action = "hold", technical = {}, landscape = null, context = {} } = {}) {
     const base = landscape || buildLandscape({ price, horizon, technical, context });
     const invalidation = invalidationFor({ action, technical, landscape: base });
     return {

@@ -14,6 +14,8 @@
     confirmed_structure_limits_upside: { en: "An already-known structure has a confirmed downward or failed event.", zh: "此前已知的结构出现已确认下行或失败事件。" },
     v2_wait: { en: "Evidence does not support a new action.", zh: "当前证据不足以支持新动作。" },
     v2_missing: { en: "Required technical evidence is unavailable.", zh: "核心技术证据不可用。" },
+    daily_price_history_is_stale_wait_for_a_current_validated_snapshot: { en: "Daily price history is stale; wait for a current validated snapshot.", zh: "日线历史已过期，等待当前有效数据后再判断。" },
+    required_technical_evidence_is_unavailable_wait_for_validated_data: { en: "Required technical evidence is unavailable; wait for validated data.", zh: "核心技术证据不可用，等待有效数据后再判断。" },
     v2_break: { en: "Price broke confirmed swing support with bearish confirmation.", zh: "价格跌破已确认波段支撑，原技术趋势与确认满足防御退出门槛。" },
     v2_structure_missing: { en: "Independent structures cannot form valid separated ranges.", zh: "独立结构不能构成有效、分离的规划区间。" },
     v2_entry: { en: "Trend and participation support entry inside structural support.", zh: "价格位于机会区间，趋势及量价参与支持入场。" },

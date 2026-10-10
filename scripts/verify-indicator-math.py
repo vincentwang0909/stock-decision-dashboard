@@ -87,7 +87,10 @@ def main():
         j=3*k-2*d
         for field,expected in [('k',k),('d',d),('j',j),('overbought',j>=80),('oversold',j<=20)]:check(case,'kdj_'+field,actual['kdj'][field],expected)
         obv=sum((v[i] if c[i]>c[i-1] else -v[i] if c[i]<c[i-1] else 0) for i in range(1,len(c)))
-        check(case,'obv',actual['obv']['raw_value'],obv)
+        conflict = (source.get('volume_validation') or {}).get('status') == 'conflict'
+        check(case,'obv',actual['obv'].get('raw_value'),None if conflict else obv)
+        if conflict:
+            check(case,'obv_quarantine',actual['obv'].get('unavailable_reason') == 'source_data_conflict',True)
         # Preserve the project's documented rolling-mean ADX/DI variant.
         dm_plus,dm_minus=[],[]
         for i in range(1,len(c)):

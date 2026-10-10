@@ -31,7 +31,7 @@ generated files.
 2. Fundamental, valuation, options, and news data must never enter a recommendation.
 3. Short, Mid, and Long are fully independent; never average or vote across them.
 4. There is no overall action.
-5. The only actions are `strong_buy`, `buy`, `accumulate`, `hold`, `trim`, `sell`, and `avoid`.
+5. The only live actions are `strong_buy`, `buy`, `accumulate`, `hold`, `trim`, and `sell`. Avoid was removed at the user's request on 2026-10-09. Insufficient or untrusted data/structure produces explicit waiting Hold, never a fabricated Sell/exit plan. Preserve old history rows unchanged.
 6. Recommendation Confidence is support consistency and stability, not a probability.
 7. Traits modify model behavior; they never add fixed points.
 8. Exhaustion is a contrarian modifier, not an automatic reversal rule.
@@ -52,6 +52,9 @@ The technical roles are Direction, Confirmation, Risk, Price Opportunity, and Ex
 
 The detailed pipeline, formulas, base weights, replay evidence and limitations
 are in [the current indicator model](docs/indicator-model-2026-10-04.md).
+The 2026-10-09 data-trust repair and its validation limits are documented in
+[the data repair summary](docs/data-quality-repair-2026-10-09.md). This adds
+source-quality guards, not new SMC or entry/Sell policies.
 Numerical policy remains authoritative in `decision-engine/config.js`; do not
 copy parameters into a second implementation or treat a dated replay report
 as the current production configuration.
@@ -92,21 +95,22 @@ as the current production configuration.
 
 ## Price Landscape and execution semantics
 
-`enter`, `add`, `hold`, `reduce`, `exit`, and `avoid` are the only execution intents. Decision UI may expose only:
+`enter`, `add`, `hold`, `reduce`, and `exit` are the only live execution intents. Decision UI may expose only:
 
 - `opportunityRange`
 - `currentPrice`
 - `reduceRange`
 - `invalidation`
 
-Technical structure still supplies zone calculations, but never expose a remote support/resistance level as a predictive decision output. A positive action is permitted only inside the opportunity range; proximity alone is Hold. Hold occupies the Neutral space and both Near zones. Trim/Sell is permitted only inside or beyond the Reduce range unless a confirmed breakdown/invalidation path applies. A structural Sell uses an executable current-area exit after breakdown; it never waits for a distant rebound. Avoid is not Sell and must not produce a fake exit plan.
+Technical structure still supplies zone calculations, but never expose a remote support/resistance level as a predictive decision output. A positive action is permitted only inside the opportunity range; proximity alone is Hold. Hold occupies the Neutral space and both Near zones. Trim/Sell is permitted only inside or beyond the Reduce range unless a confirmed breakdown/invalidation path applies. A structural Sell uses an executable current-area exit after breakdown; it never waits for a distant rebound. An unavailable decision is waiting Hold and must not produce a fake exit plan.
 
 `Price State` is the mandatory Action-Family input: `IN_OPPORTUNITY_ZONE`, `NEAR_OPPORTUNITY_ZONE`, `NEUTRAL_ZONE`, `NEAR_REDUCE_ZONE`, `IN_REDUCE_ZONE`, `BEYOND_REDUCE_ZONE`, `BREAKDOWN_ZONE`, or `INVALID_LANDSCAPE`.
 
 - For the unified ETF/Mid/Long paths, `IN_OPPORTUNITY_ZONE` permits only Strong Buy, Buy, or Accumulate. Ordinary-stock Short V2 permits Hold when its fixed entry evidence, event, shock, or risk gates fail; each reason remains explicit. Direction, Confirmation, Risk, Exhaustion, Market and Profile modifiers choose intensity inside that family. Opportunity itself never automatically creates Buy.
 - `NEAR_OPPORTUNITY_ZONE`, `NEUTRAL_ZONE`, and `NEAR_REDUCE_ZONE` all produce Hold. Near zones are informational analysis states only; they can affect reasons and confidence but cannot trigger an early entry or reduction.
 - For the unified ETF/Mid/Long paths, `IN_REDUCE_ZONE` and `BEYOND_REDUCE_ZONE` permit only Trim or Sell. Hold and every positive Action are prohibited; if the model needs Hold, rebuild the final landscape rather than add an exception.
-- Breakdown / invalidation permits Sell or Avoid. Sell requires bearish confirmation or a structural/material breakdown; price being high alone cannot create Sell.
+- Data trust is checked before all actionable families: stale Daily history, conflicting primary-interval volume, or insufficient required evidence produces waiting Hold. Invalid landscape also produces waiting Hold. Unavailable Confidence is capped by `config.confidence.unavailableMaximum`; stability cannot retain an old actionable recommendation over this guard.
+- Breakdown / invalidation permits Sell only with adequate data and bearish confirmation or a structural/material breakdown; price being high alone cannot create Sell.
 - Near-zone tolerance is ATR-normalized but capped by the Neutral buffer, so it cannot consume the entire Neutral state.
 - When a breakdown occurs, the exit range must re-anchor near the executable current area.
 

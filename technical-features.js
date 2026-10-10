@@ -7,7 +7,7 @@
 (function exposeCanonicalTechnicalFeatures(root) {
   "use strict";
 
-  const SCHEMA_VERSION = "technical-features-v5-structure-momentum";
+  const SCHEMA_VERSION = "technical-features-v6-data-trust";
   const AVAILABILITY_REASONS = Object.freeze([
     "available",
     "source_unavailable",
@@ -18,6 +18,7 @@
     "market_session_incomplete",
     "invalid_source_data",
     "completion_metadata_unavailable",
+    "source_data_conflict",
   ]);
   const RVOL_THRESHOLDS = Object.freeze([
     [0.6, "very_low"], [0.8, "low"], [1.2, "normal"], [1.5, "elevated"], [2.0, "high"], [Infinity, "extreme"],
@@ -132,6 +133,10 @@
       if (!(low <= Math.min(open, close) && Math.max(open, close) <= high)) { reject("ohlc_envelope"); continue; }
       if (volume < 0) { reject("negative_volume"); continue; }
       const bar = { open, high, low, close, volume, timestamp: typeof timestamps[index] === "number" ? new Date(stamp).toISOString() : timestamps[index] };
+      if (source.volume_validation?.status === "conflict") {
+        const dates = source.volume_validation.conflicting_dates;
+        if (!Array.isArray(dates) || dates.includes(bar.timestamp.slice(0, 10))) bar.volume_available = false;
+      }
       const segment = source.bar_segments?.[index];
       const perBarCompletion = source.completed?.[index] ?? segment?.completed;
       if (typeof perBarCompletion === "boolean") bar.completed = perBarCompletion;
@@ -230,6 +235,21 @@
 
   function smaSeries(values, period) {
     return values.map((_, index) => index + 1 < period ? null : mean(values.slice(index - period + 1, index + 1)));
+  }
+
+  function validatedVolumeEma(bars, period) {
+    // A conflicted observation cannot seed an EMA. Restart from the next
+    // contiguous valid segment and require the normal full warm-up period.
+    // This leaves price-event timestamps unchanged and never fills volume.
+    const result = Array(bars.length).fill(null);
+    let start = 0;
+    for (let index = 0; index <= bars.length; index += 1) {
+      if (index < bars.length && bars[index].volume_available !== false) continue;
+      const values = emaSeries(bars.slice(start, index).map((bar) => bar.volume), period);
+      values.forEach((value, offset) => { result[start + offset] = value; });
+      start = index + 1;
+    }
+    return result;
   }
 
   function rsiSeries(values, period) {
@@ -586,6 +606,7 @@
   }
 
   function obvFeature(bars, interval, lookback, calculatedAt) {
+    if (bars.some((bar) => bar.volume_available === false)) return unavailableFeature({ indicator: "obv", interval, period: null, lookback, bars, calculatedAt, unavailableReason: "source_data_conflict" });
     if (bars.length < lookback + 1 || bars.some((bar) => !Number.isFinite(bar.volume))) return unavailableFeature({ indicator: "obv", interval, period: null, lookback, bars, calculatedAt });
     const series = [0];
     for (let index = 1; index < bars.length; index += 1) series.push(series[index - 1] + (bars[index].close > bars[index - 1].close ? bars[index].volume : bars[index].close < bars[index - 1].close ? -bars[index].volume : 0));
@@ -1070,7 +1091,7 @@
     const asOf = timestampMillis(calculatedAt);
     const completed = bars.filter((bar) => bar.completed === true && timestampMillis(bar.end_timestamp) != null && (asOf == null || timestampMillis(bar.end_timestamp) <= asOf));
     if (completed.length < Math.max(pivot * 2 + 1, cfg.atrPeriod)) return unavailableFeature({ ...args, unavailableReason: bars.length && !completed.length ? "completion_metadata_unavailable" : "insufficient_history" });
-    const atr = atrSeries(completed, cfg.atrPeriod), fast = emaSeries(completed.map((bar) => bar.volume), cfg.volumeFast), slow = emaSeries(completed.map((bar) => bar.volume), cfg.volumeSlow);
+    const atr = atrSeries(completed, cfg.atrPeriod), fast = validatedVolumeEma(completed, cfg.volumeFast), slow = validatedVolumeEma(completed, cfg.volumeSlow);
     const levels = [], events = [];
     const appendEvent = (level, kind, sign, bar, index, age, volumeOscillator, confirmationInterval) => {
       const event = { kind, sign, level_id: level.id, reference_price: level.price, reference_interval: interval, reference_known_at: level.known_at,
@@ -1122,7 +1143,7 @@
     // confirm an earlier event against a reference already known at bar start.
     const primaryEnd = timestampMillis(last(completed).end_timestamp);
     const early = supportingBars.filter((bar) => bar.completed === true && timestampMillis(bar.timestamp) >= primaryEnd && timestampMillis(bar.end_timestamp) != null && (asOf == null || timestampMillis(bar.end_timestamp) <= asOf));
-    const supportingFast = emaSeries(supportingBars.map((bar) => bar.volume), cfg.volumeFast), supportingSlow = emaSeries(supportingBars.map((bar) => bar.volume), cfg.volumeSlow);
+    const supportingFast = validatedVolumeEma(supportingBars, cfg.volumeFast), supportingSlow = validatedVolumeEma(supportingBars, cfg.volumeSlow);
     for (let i = 0; i < early.length; i += 1) {
       const index = supportingBars.indexOf(early[i]), previous = supportingBars[index - 1];
       if (!previous) continue;
@@ -1216,6 +1237,8 @@
         last_bar_completed: available ? last(bars)?.completed ?? upstream.last_bar_completed ?? upstream.bar_segments?.at(-1)?.completed ?? null : null,
         last_bar_end: last(bars)?.end_timestamp ?? null,
         provider_as_of: upstream.provider_as_of ?? null,
+        volume_validation: upstream.volume_validation || null,
+        freshness: history.freshness || null,
         last_bar_duration_minutes: upstream.last_bar_duration_minutes ?? (interval === "4h" ? fourHourSource.bar_segments?.at(-1)?.duration_minutes ?? null : null),
         active_bar_usage: upstream.active_bar_usage || "legacy_completion_metadata_unavailable",
         adjustment_basis: upstream.adjustment_basis || "unverified",
@@ -1245,6 +1268,8 @@
       fibonacci: { short: fibonacci.short, medium: fibonacci.medium, long: fibonacci.long },
       fibonacci_structure: fibonacci.structure,
       data_quality: {
+        daily_freshness: history.freshness || null,
+        volume_conflicts: Object.entries(sources).filter(([, bars]) => bars.some((bar) => bar.volume_available === false)).map(([interval]) => interval),
         daily_history: daily.length >= 252 ? "available" : daily.length ? "partial" : "unavailable",
         intraday_history: hourly.length ? "available" : "unavailable",
         all_time_history: daily.length ? "available_history" : "unavailable",

@@ -167,10 +167,10 @@ assert.equal(holdExecution.executionIntent, "hold");
 assert(holdExecution.priceLandscape.opportunityRange.high < 100);
 assert(holdExecution.priceLandscape.reduceRange.low > 100);
 assert(Number.isFinite(holdExecution.priceLandscape.invalidation));
-const avoidExecution = engine.execution.build({ price: 100, horizon: "short", action: "avoid", technical: { atr: 2, executionContext: { support: null, resistance: null, levels: [] } } });
-assert.equal(avoidExecution.executionIntent, "avoid");
-assert.equal(avoidExecution.priceLandscape.reduceRange, null);
-assert.equal(avoidExecution.priceLandscape.invalidation, null);
+const unavailableExecution = engine.execution.build({ price: 100, horizon: "short", action: "hold", technical: { atr: 2, executionContext: { support: null, resistance: null, levels: [] } } });
+assert.equal(unavailableExecution.executionIntent, "hold");
+assert.equal(unavailableExecution.priceLandscape.reduceRange, null);
+assert.equal(unavailableExecution.priceLandscape.invalidation, null);
 
 const trimExecution = engine.execution.build({ price: 108, horizon: "short", action: "trim", exhaustionScore: -20, technical: { atr: 2, executionContext: { support: { center: 96, members: [], confluence: 2 }, resistance: { center: 109, members: [], confluence: 3 }, levels: [] } } });
 assert.equal(trimExecution.actionFamily, "reduce", "Trim is valid only in the reduce family");

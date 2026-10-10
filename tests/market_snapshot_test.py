@@ -33,6 +33,17 @@ class MarketSnapshotTests(unittest.TestCase):
         self.assertTrue(all(0 < len(chunk) <= server.SNAPSHOT_CHUNK_BYTES for chunk in chunks))
         self.assertEqual(b''.join(chunks).decode('utf-8'), text)
 
+    def test_compact_preserves_persistent_profile_from_summary_pass(self):
+        profile = {'primaryClassification': 'Banking', 'riskTrait': 'InterestRateSensitive',
+                   'lifecycle': 'MatureLeader', 'profileSchemaVersion': '2.1'}
+        payload = {'success': True, 'quotes': {'A': {'metadata': {'classification': profile}}},
+                   'items': [], 'refresh_status': {}}
+        with patch.object(server, 'build_market_data_payload', return_value=payload):
+            body = json.loads(''.join(server.iter_market_snapshot_json(['A', 'B'])))
+        self.assertEqual(body['quotes']['A']['metadata']['classification'], profile)
+        self.assertNotIn('classification', body['quotes']['B'].get('metadata', {}))
+        self.assertEqual(len(body['quotes']['A']['history']['closes']), 3000)
+
     def test_full_watchlist_json_and_gzip_are_identical(self):
         client = server.app.test_client()
         plain = client.get('/api/market-data?format=compact&tickers=A,B,C')
@@ -47,6 +58,17 @@ class MarketSnapshotTests(unittest.TestCase):
         self.assertLess(len(zipped.data), len(plain.data))
         plain.close(); zipped.close()
 
+    def test_standard_contract_keeps_aliases_and_item_analysis_without_full_payload(self):
+        response = server.app.test_client().get('/api/market-data?tickers=A,B,C', headers={'Accept-Encoding': 'gzip'})
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(gzip.decompress(response.data))
+        self.assertEqual(body['quotes'], body['data'])
+        self.assertEqual([item['ticker'] for item in body['items']], ['A', 'B', 'C'])
+        for item in body['items']:
+            self.assertEqual(item['analysis'], body['quotes'][item['ticker']])
+        self.assertTrue(all(call.kwargs['summary_only'] for call in server.build_market_data_payload.call_args_list))
+        response.close()
+
     def test_slow_reader_has_no_refresh_lock_and_disconnect_closes_file(self):
         spool, _size = server.prepare_market_snapshot(['A', 'B', 'C'])
         stream = server.stream_snapshot_file(spool)
@@ -60,6 +82,18 @@ class MarketSnapshotTests(unittest.TestCase):
         self.assertEqual(acquired, [True])
         stream.close()
         self.assertTrue(spool.closed)
+
+    def test_standard_aliases_freeze_dynamic_metadata_and_unicode_once(self):
+        calls = []
+        def dynamic(ticker, cached, **kwargs):
+            calls.append(ticker)
+            return {**cached['quote'], 'cache_age_seconds': len(calls), 'name': '中文公司'}
+        with patch.object(server, 'normalize_cached_market_quote', side_effect=dynamic):
+            body = json.loads(''.join(server.iter_market_snapshot_json(['A', 'B', 'C'], compact=False)))
+        self.assertEqual(calls, ['A', 'B', 'C'])
+        self.assertEqual(body['quotes'], body['data'])
+        for item in body['items']:
+            self.assertEqual(item['analysis'], body['quotes'][item['ticker']])
 
     def test_bad_serialization_returns_complete_error_and_closes_file(self):
         spool = tempfile.TemporaryFile(mode='w+b')

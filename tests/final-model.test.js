@@ -27,7 +27,7 @@ assert.equal(e.shortV2.evaluate({ ...prepared, price: 110 }).action, "hold", "st
 assert.equal(e.shortV2.evaluate({ ...prepared, price: 110, direction: -50, downConfirmation: 80 }).action, "sell");
 assert.equal(e.shortV2.evaluate({ ...prepared, price: 110, direction: 8, downConfirmation: 60 }).action, "trim");
 assert.equal(e.shortV2.evaluate({ ...prepared, structuralBreak: true }, { widthTransformEnabled: true }).zone.widthTransform.reason, "defensive_exit_bypass");
-assert.equal(e.shortV2.evaluate({ ...prepared, quality: 59, structuralBreak: true }).action, "avoid");
+assert.equal(e.shortV2.evaluate({ ...prepared, quality: 59, structuralBreak: true }).action, "hold");
 assert.equal(e.shortV2.evaluate({ ...prepared, price: 105 }).state, "NEUTRAL_ZONE");
 assert.equal(e.config.shortV2.scales.baselineBreakDirection, -68);
 assert.equal(e.config.shortV2.scales.baselineBreakConfirmation, 52);

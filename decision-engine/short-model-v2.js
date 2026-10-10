@@ -114,9 +114,9 @@
     const p = prepared, policy = engine.config.shortV2.policy, s = engine.config.shortV2.scales;
     const zone = engine.planningWidth.transform(p.zone, { enabled: widthTransformEnabled, horizon: "short", breakdown: p.structuralBreak });
     let action = "hold", state = "INVALID_LANDSCAPE", why = "v2_wait", mode = "wait", room = null, rewardRisk = null;
-    if (!p.atr || p.quality < s.qualityMinimum) { action = "avoid"; why = "v2_missing"; }
+    if (!p.atr || p.quality < s.qualityMinimum) { action = "hold"; why = "v2_missing"; }
     else if (p.structuralBreak) { action = "sell"; state = "BREAKDOWN_ZONE"; why = "v2_break"; mode = "defense"; }
-    else if (!zone.valid) { action = "avoid"; why = "v2_structure_missing"; }
+    else if (!zone.valid) { action = "hold"; why = "v2_structure_missing"; }
     else {
       const o = zone.opportunityRange, r = zone.reduceRange;
       const toSupport = Math.max(o.low - p.price, p.price - o.high, 0) / p.atr;
@@ -166,9 +166,9 @@
     const tension = engine.config.indicators.confidence;
     penalties.priceTension = ["NEAR_OPPORTUNITY_ZONE", "NEUTRAL_ZONE", "NEAR_REDUCE_ZONE"].includes(result.state) && Math.abs(result.direction) >= tension.tensionStart
       ? engine.config.confidence.penalties.priceConflict * clamp((Math.abs(result.direction) - tension.tensionOrigin) / tension.tensionScale, tension.minimumTensionShare, 1) : 0;
-    const confidence = Math.round(clamp(base - penalties.event - penalties.excessRisk - penalties.landscape - penalties.priceTension));
+    const confidence = Math.min(["v2_missing", "v2_structure_missing"].includes(result.why) ? engine.config.confidence.unavailableMaximum : 100, Math.round(clamp(base - penalties.event - penalties.excessRisk - penalties.landscape - penalties.priceTension)));
     let ranges = result.zone.valid && result.state !== "INVALID_LANDSCAPE" ? { opportunityRange: result.zone.opportunityRange, reduceRange: result.zone.reduceRange, invalidation: result.zone.invalidation, currentPrice: round(price) } : { opportunityRange: null, reduceRange: null, invalidation: null, currentPrice: round(price) };
-    if (result.structuralBreak) {
+    if (result.action === "sell" && result.structuralBreak) {
       const exit = { low: round(price - result.atr * s.exitHalfWidthAtr), high: round(price + result.atr * s.exitHalfWidthAtr) };
       ranges = { ...ranges, opportunityRange: ranges.opportunityRange?.high < exit.low ? ranges.opportunityRange : null, reduceRange: engine.planningWidth.validRange(exit) ? exit : null, invalidation: round(result.pivotLow + result.atr * s.breakBuffer) };
     } else if (negative(result.action) && result.zone.valid) {
@@ -188,7 +188,8 @@
     if (available(sq) && sq.momentum > 0 && sq.change_3 > 0) supporting.push({ code: "squeeze_momentum_supports_upside", text: "Squeeze momentum is positive and strengthening." });
     if (available(sq) && sq.momentum < 0 && sq.change_3 < 0) limiting.push({ code: "squeeze_momentum_supports_downside", text: "Squeeze momentum is negative and strengthening." });
     if (structureEvent?.confirmed) (structureEvent.sign > 0 ? supporting : limiting).push({ code: structureEvent.sign > 0 ? "confirmed_structure_supports_upside" : "confirmed_structure_limits_upside", text: structureEvent.sign > 0 ? "An already-known structure has a confirmed upward event." : "An already-known structure has a confirmed downward or failed event." });
-    const actionFamily = result.structuralBreak ? "defensive" : positive(result.action) ? "opportunity" : negative(result.action) ? "reduce" : result.action === "avoid" ? "unavailable" : "neutral";
+    const unavailable = ["v2_missing", "v2_structure_missing"].includes(result.why);
+    const actionFamily = unavailable ? "unavailable" : result.structuralBreak ? "defensive" : positive(result.action) ? "opportunity" : negative(result.action) ? "reduce" : "neutral";
     const materialChangeReasons = [...(technical.materialSignals || []).filter((code) => code !== "major_support_breakdown"), ...(result.structuralBreak ? ["major_support_breakdown"] : []), ...(result.regime === "shock" ? ["market_shock"] : [])];
     return {
       horizon: "short", action: result.action, actionLabel: engine.actionLabel(result.action, language), confidence, executionIntent: engine.execution.executionIntent(result.action), priceLandscape: ranges,
@@ -200,7 +201,7 @@
         priceState: result.state, actionFamily, priceStateFamily: engine.execution.actionFamilyForState(result.state), candidateAction: result.action, finalAction: result.action, decisionMode: result.mode, rewardRisk: round(result.rewardRisk), roomAtr: round(result.room), widthTransform: result.zone.widthTransform,
         confidenceComponents: { score: confidence, action: result.action, components, base: round(base), penalties, weights, profileConfidenceWeight: 0 },
         priceLandscapeInputs: { structureModel: "category_confluence_reused_stateless", selectedSupport: result.zone.support || null, selectedReduce: result.zone.resistance || null, neutralBuffer: round(result.zone.gap), candidateCounts: result.zone.counts || {}, policyStructure: engine.config.shortV2.policy.structure },
-        indicatorAvailability: { squeeze: technicalFeatures?.horizons?.short?.momentum?.squeeze?.availability || "unavailable", structure: technicalFeatures?.horizons?.short?.trend?.support_resistance?.availability || "unavailable", bollingerRsi: technicalFeatures?.horizons?.short?.volatility?.bollinger_rsi?.availability || "unavailable" }, dataQuality: technical.dataQuality, missingEvidence: result.missingEvidence, landscapeQuality: result.landscapeQuality, guardrails: result.action === "avoid" ? [result.why] : [], materialChangeReasons, stability: { score: stability, finalAction: result.action, source: "canonical_signal_persistence", identity: true },
+        indicatorAvailability: { squeeze: technicalFeatures?.horizons?.short?.momentum?.squeeze?.availability || "unavailable", structure: technicalFeatures?.horizons?.short?.trend?.support_resistance?.availability || "unavailable", bollingerRsi: technicalFeatures?.horizons?.short?.volatility?.bollinger_rsi?.availability || "unavailable" }, dataQuality: technical.dataQuality, missingEvidence: result.missingEvidence, landscapeQuality: result.landscapeQuality, guardrails: unavailable ? [result.why] : [], materialChangeReasons, stability: { score: stability, finalAction: result.action, source: "canonical_signal_persistence", identity: true },
       },
     };
   }

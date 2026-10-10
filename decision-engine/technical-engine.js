@@ -78,6 +78,8 @@
       obv: first(set.participation?.obv, `obv_${primary}`),
       relativeStrength: set.relative_strength || { availability: "unavailable" },
       volume: features?.volume || { availability: "unavailable" },
+      dailyFreshness: features?.data_quality?.daily_freshness || null,
+      primaryVolumeConflict: (features?.data_quality?.volume_conflicts || []).includes(primary),
       position: features?.price_position || { availability: "unavailable" },
       fibonacci: features?.fibonacci_structure?.[config.fibonacciKey] || { status: "unavailable", retracement_levels: {}, extension_levels: {} },
       maStructure: set.trend?.ma_structure || {},
@@ -414,7 +416,10 @@
     const structure = parts.fibonacci.status === "available" || parts.fibonacci.status === "stale_swing" ? 100 : 45;
     const volume = availability(parts.volume) ? 100 : 0;
     const missingCore = [...coreDirection, ...coreConfirmation].flatMap((value, index) => value ? [] : [["ma", "macd", "adx", "early", "relative_strength", "participation", "rsi", "adx_confirmation"][index]]);
-    return { score: Math.round(technical * 0.76 + structure * 0.14 + volume * 0.10), missingCore, optionalWindowsDoNotPenalizeCore: true, components: { primaryDirection: coreDirection, confirmation: coreConfirmation, fibonacci: structure, volume } };
+    const stale = parts.dailyFreshness?.state === "stale";
+    if (stale) missingCore.push("stale_daily_history");
+    if (parts.primaryVolumeConflict) missingCore.push("source_data_conflict");
+    return { score: stale || parts.primaryVolumeConflict ? 0 : Math.round(technical * 0.76 + structure * 0.14 + volume * 0.10), missingCore, dailyFreshness: parts.dailyFreshness, optionalWindowsDoNotPenalizeCore: true, components: { primaryDirection: coreDirection, confirmation: coreConfirmation, fibonacci: structure, volume } };
   }
 
   function signalPersistence(ma, macd, adx, relativeStrength) {

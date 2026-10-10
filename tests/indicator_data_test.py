@@ -35,6 +35,7 @@ class IndicatorDataTests(unittest.TestCase):
         old=frame(date='2026-09-24',hours=(9,10,11))
         with patch.object(server,'datetime',FrozenDate):payload=server._history_payload(old,timestamp_format='%Y-%m-%dT%H:%M:%S%z')
         payload['lookback']=server.TECHNICAL_INTRADAY_HISTORY_PERIOD
+        payload['source_validation_version']=server.SOURCE_VALIDATION_VERSION
         cached={'quote':{'history':{'intervals':{'1h':payload}}}}
         recent=old.iloc[1:].copy()
         with patch.object(server,'read_market_cache',return_value=cached),patch.object(server,'load_yfinance_intraday_history_frame',return_value=recent) as fetch:
@@ -46,6 +47,7 @@ class IndicatorDataTests(unittest.TestCase):
         old=frame(date='2026-09-24',hours=(9,10,11))
         with patch.object(server,'datetime',FrozenDate):payload=server._history_payload(old,timestamp_format='%Y-%m-%dT%H:%M:%S%z')
         payload['lookback']=server.TECHNICAL_INTRADAY_HISTORY_PERIOD
+        payload['source_validation_version']=server.SOURCE_VALIDATION_VERSION
         recent=old.iloc[1:].astype(float).copy();recent.iloc[0,recent.columns.get_loc('Close')]=100.5
         cached={'quote':{'history':{'intervals':{'1h':payload}}}}
         with patch.object(server,'read_market_cache',return_value=cached),patch.object(server,'load_yfinance_intraday_history_frame',side_effect=[recent,old]) as fetch:

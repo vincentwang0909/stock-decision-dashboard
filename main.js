@@ -282,6 +282,7 @@ function decisionFor(row, horizon) {
 }
 
 function decisionActionLabel(decision) {
+  if (decision?.action === "hold" && decision?.debug?.actionFamily === "unavailable") return state.language === "zh" ? "等待 · 数据／结构不足" : "Hold · Await data / structure";
   return window.DecisionEngine.config.actionLabels[decision?.action]?.[state.language]
     || (state.language === "en" ? decision?.actionLabel : null) || t("unavailable");
 }
@@ -571,7 +572,14 @@ function renderTechnicalPanel(row) {
   const source = row.technicalFeatures.source_intervals?.[primaryIntervalFor(state.technicalHorizon)] || {};
   const completion = source.last_bar_completed === false ? (state.language === "zh" ? "最新 K 线未完成；当前指标为盘中值，确认波段仅使用完成 K 线。" : "Latest bar is unfinished; current indicators are provisional and confirmed pivots use completed bars.") : source.last_bar_completed === true ? (state.language === "zh" ? "最新 K 线已完成。" : "Latest bar is completed.") : (state.language === "zh" ? "历史快照未记录 K 线完成状态。" : "Bar completion was not recorded in this snapshot.");
   const duration = Number.isFinite(source.last_bar_duration_minutes) ? ` · ${source.last_bar_duration_minutes} ${state.language === "zh" ? "分钟" : "minutes"}` : "";
-  return `<section class="detail-tab-section technical-tab-panel">${renderFibonacciStructure(row)}${renderTechnicalFoundation(row)}<section class="technical-overview-section"><div class="detail-section-head"><h3>${t("technicalOverview")}</h3></div>${technicalTabSelector("technical-horizon", state.technicalHorizon)}<p class="detail-line-note">${escapeHtml(completion + duration)}</p>${technicalBlock(row, state.technicalHorizon)}</section></section>`;
+  const tl = (en, zh) => state.language === "zh" ? zh : en;
+  const freshness = source.freshness || row.technicalFeatures.data_quality?.daily_freshness;
+  const freshState = freshness?.state === "stale" ? tl("Stale: decisions wait for current data.", "已过期：等待有效新数据后再决策。") : freshness?.state === "current" ? tl("Current Daily coverage.", "日线覆盖至应有交易日。") : tl("Daily freshness unavailable.", "日线时效核验不可用。");
+  const freshNote = freshness ? `${tl("Latest Daily / expected completed session", "最新日线／应有已收盘交易日")} ${freshness.latest_date || "—"} / ${freshness.expected_completed_date || "—"} · ${freshState}` : tl("Daily freshness was not recorded.", "未记录日线时效核验。");
+  const validation = source.volume_validation;
+  const volumeNote = validation?.status === "conflict" ? tl(`Volume conflict in ${validation.conflicting_sessions} sessions: OBV and volume confirmation unavailable; historical prices retained.`, `${validation.conflicting_sessions} 个交易日的成交量跨周期冲突：OBV 与放量确认不可用，保留原始价格。`) : validation?.status === "passed" ? tl(`Volume upper-bound check passed for ${validation.checked_sessions} complete sessions.`, `已核验 ${validation.checked_sessions} 个完整交易日的成交量上限。`) : tl("Complete-session volume comparison unavailable.", "完整交易日成交量对照暂不可用。");
+  const provenance = `${tl("Fetched / provider history cutoff", "获取时间／供应商历史截止时间")} ${source.as_of || "—"} / ${source.provider_as_of || tl("Not provided", "未提供")}`;
+  return `<section class="detail-tab-section technical-tab-panel">${renderFibonacciStructure(row)}${renderTechnicalFoundation(row)}<section class="technical-overview-section"><div class="detail-section-head"><h3>${t("technicalOverview")}</h3></div>${technicalTabSelector("technical-horizon", state.technicalHorizon)}<p class="detail-line-note">${escapeHtml(completion + duration)}</p><p class="detail-line-note">${escapeHtml(freshNote)}</p><p class="detail-line-note">${escapeHtml(volumeNote)}</p><p class="detail-line-note">${escapeHtml(provenance)}</p>${technicalBlock(row, state.technicalHorizon)}</section></section>`;
 }
 
 function marketLine(label, value, note = "") {
@@ -680,12 +688,19 @@ function renderMarketRiskRegime(row) {
   const market = decision?.market || {};
   const vix = market.vix || {};
   const indexMetric = (index) => technicalState(index?.trend);
+  const tl = (en, zh) => state.language === "zh" ? zh : en;
+  const indexHelp = (index) => {
+    if (index?.trend === "rising") return tl("The benchmark trend is rising under the market rules.", "在当前市场规则下，基准指数趋势上升。");
+    if (index?.trend === "falling") return tl("The benchmark trend is falling under the market rules.", "在当前市场规则下，基准指数趋势下降。");
+    if (index?.trend === "neutral") return t("benchmarkNeutralHelp");
+    return tl("The benchmark trend is unavailable or unrecognized.", "基准指数趋势不可用或尚未识别。");
+  };
   const vixDelta = (value) => Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${Number(value).toFixed(2)}` : t("unavailable");
   const yieldText = market.yield?.value == null ? t("unavailable") : `${Number(market.yield.value).toFixed(2)}% · ${technicalState(market.yield.label)}`;
   const article = (label, value, help) => `<article><span>${escapeHtml(uiLabel(label))}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(help)}</small></article>`;
   const basis = window.DecisionPresentation?.reasonList?.(market.reasons, state.language, 3) || [];
   const basisMarkup = basis.length ? `<div class="market-regime-basis"><span>${t("marketBasis")}</span><p>${basis.map((reason) => escapeHtml(reason)).join(" · ")}</p></div>` : "";
-  return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("marketRiskRegime")}</h3></div>${decision ? `<div class="market-regime-grid">${article(t("regime"), technicalState(market.regime || market.label), t("marketRegimeHelp"))}${article(t("marketImpact"), marketImpact(decision), t("marketImpactHelp"))}${article("SPY", indexMetric(market.spy), t("benchmarkNeutralHelp"))}${article("QQQ", indexMetric(market.qqq), t("benchmarkNeutralHelp"))}${article("VIX", Number.isFinite(vix.value) ? `${vix.value.toFixed(2)} · ${dayLabel(5)} ${vixDelta(vix.change5d)} · ${dayLabel(20)} ${vixDelta(vix.change20d)}` : t("unavailable"), t("vixHelp"))}${article("Fear & Greed", `${technicalState(market.fearGreed?.label)}${Number.isFinite(market.fearGreed?.value) ? ` · ${Math.round(market.fearGreed.value)}/100` : ""}`, t("fearGreedHelp"))}${article("US 10Y", yieldText, t("yieldHelp"))}${article(t("earningsProximity"), earningsText(market.earnings), t("earningsHelp"))}</div>${basisMarkup}` : `<p class="decision-no-data">${t("noDecision")}</p>`}</section>`;
+  return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("marketRiskRegime")}</h3></div>${decision ? `<div class="market-regime-grid">${article(t("regime"), technicalState(market.regime || market.label), t("marketRegimeHelp"))}${article(t("marketImpact"), marketImpact(decision), t("marketImpactHelp"))}${article("SPY", indexMetric(market.spy), indexHelp(market.spy))}${article("QQQ", indexMetric(market.qqq), indexHelp(market.qqq))}${article("VIX", Number.isFinite(vix.value) ? `${vix.value.toFixed(2)} · ${dayLabel(5)} ${vixDelta(vix.change5d)} · ${dayLabel(20)} ${vixDelta(vix.change20d)}` : t("unavailable"), t("vixHelp"))}${article("Fear & Greed", `${technicalState(market.fearGreed?.label)}${Number.isFinite(market.fearGreed?.value) ? ` · ${Math.round(market.fearGreed.value)}/100` : ""}`, t("fearGreedHelp"))}${article("US 10Y", yieldText, t("yieldHelp"))}${article(t("earningsProximity"), earningsText(market.earnings), t("earningsHelp"))}</div>${basisMarkup}` : `<p class="decision-no-data">${t("noDecision")}</p>`}</section>`;
 }
 
 function renderDecisionPanel(row) {

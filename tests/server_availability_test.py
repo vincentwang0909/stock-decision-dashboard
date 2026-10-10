@@ -228,14 +228,14 @@ class ServerAvailabilityTests(unittest.TestCase):
         refresh.assert_called_once_with(["AAPL", "TSM", "NVDA"], reason="api_full_refresh")
         payload_builder.assert_called_once_with(
             ["AAPL", "TSM", "NVDA"],
-            force=False,
-            auto_refresh=False,
             cache_only=True,
             refresh_market_context=False,
+            summary_only=True,
         )
         self.assertTrue(body["refresh_status"]["is_full_watchlist_refresh"])
         self.assertTrue(body["refresh_status"]["full_refresh_completed"])
         self.assertEqual(body["refresh_status"]["full_refresh_requested_tickers"], ["AAPL", "TSM", "NVDA"])
+        response.close()
 
     def test_force_auto_refresh_bypasses_a_fresh_quote_cache(self):
         cached = {"cache_age_seconds": 1, "quote": {"price": 100.0, "history": {}}}
@@ -680,7 +680,9 @@ class CompanyProfilePersistenceTests(unittest.TestCase):
         with patch.object(server, "load_shared_watchlist", return_value=["AAPL"]), patch.object(server, "build_market_data_payload", return_value=payload) as build:
             response = server.app.test_client().get("/api/market-data?tickers=AAPL,OLD_SYMBOL")
         self.assertEqual(response.status_code, 200)
-        build.assert_called_once_with(["AAPL"], force=False, auto_refresh=False, cache_only=True)
+        build.assert_called_once_with(["AAPL"], cache_only=True, refresh_market_context=False, summary_only=True)
+        self.assertEqual(list(response.get_json()['quotes']), ['AAPL'])
+        response.close()
 
 
 if __name__ == "__main__":

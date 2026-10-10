@@ -140,7 +140,7 @@ function landscapeViolations(value, price) {
   const nearReduce = state === "NEAR_REDUCE_ZONE";
   const reduceState = ["IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"].includes(state);
   const stockShortV2 = value.debug.policyFamily === "stock_short";
-  const allowedWait = stockShortV2 && action === "hold";
+  const allowedWait = action === "hold" && (stockShortV2 || value.debug.actionFamily === "unavailable");
   const midpoint = validRange(reduce) ? (reduce.low + reduce.high) / 2 : null;
   return {
     positiveActionOutsideOpportunity: positive && !opportunityState,
@@ -155,7 +155,7 @@ function landscapeViolations(value, price) {
     invertedRange: [opportunity, reduce].some((range) => range && Number.isFinite(range.low) && Number.isFinite(range.high) && range.low > range.high),
     invalidRange: [opportunity, reduce].some((range) => range && !validRange(range)),
     hysteresisFamilyViolation: Boolean(value.debug.stability?.heldPrevious && !value.debug.stability?.allowedActions?.includes(value.action)),
-    priceStateActionMismatch: opportunityState ? !positive && !allowedWait : (nearOpportunity || neutralState || nearReduce) ? action !== "hold" : reduceState ? !negative && !allowedWait : state === "BREAKDOWN_ZONE" ? !["sell", "avoid"].includes(action) : action !== "avoid",
+    priceStateActionMismatch: opportunityState ? !positive && !allowedWait : (nearOpportunity || neutralState || nearReduce) ? action !== "hold" : reduceState ? !negative && !allowedWait : state === "BREAKDOWN_ZONE" ? action !== "sell" && !allowedWait : action !== "hold",
   };
 }
 

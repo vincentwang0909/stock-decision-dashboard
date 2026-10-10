@@ -18,8 +18,8 @@ const runner = path.join(ROOT, "decision-api", "emit-decision.js");
 const modelConfig = require("../decision-engine/config.js");
 
 const HORIZONS = ["short", "mid", "long"];
-const ACTIONS = new Set(["strong_buy", "buy", "accumulate", "hold", "trim", "sell", "avoid"]);
-const INTENTS = new Set(["enter", "add", "hold", "reduce", "exit", "avoid"]);
+const ACTIONS = new Set(["strong_buy", "buy", "accumulate", "hold", "trim", "sell"]);
+const INTENTS = new Set(["enter", "add", "hold", "reduce", "exit"]);
 const PRICE_STATES = new Set([
   "IN_OPPORTUNITY_ZONE", "NEAR_OPPORTUNITY_ZONE", "NEUTRAL_ZONE", "NEAR_REDUCE_ZONE",
   "IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE", "BREAKDOWN_ZONE", "INVALID_LANDSCAPE",
@@ -32,8 +32,8 @@ const LEGAL = {
   NEAR_REDUCE_ZONE: ["hold"],
   IN_REDUCE_ZONE: ["trim", "sell"],
   BEYOND_REDUCE_ZONE: ["trim", "sell"],
-  BREAKDOWN_ZONE: ["sell", "avoid"],
-  INVALID_LANDSCAPE: ["hold", "avoid"],
+  BREAKDOWN_ZONE: ["sell", "hold"],
+  INVALID_LANDSCAPE: ["hold"],
 };
 
 function bars(count, start, increment, timestampStart = "2025-01-02") {
