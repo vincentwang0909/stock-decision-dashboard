@@ -1,58 +1,32 @@
-# Dashboard 数据修复与验证 · 2026-10-09 ET
+# 数据可信度修复 · 2026-10-09
 
-已发布数据版本：`decision-engine-v2.3-data-guarded`；Technical schema：`technical-features-v6-data-trust`。首次修复提交 `906a0a4f6cf0eb771691572d60926cd6be191be4`，替换此前的 `2d1124b9b87b1eaeef7f76b61153c46cb8c7424d`。发布与验证通过不代表供应商全部历史数据已获独立认证。
+本次版本为 `decision-engine-v2.3-data-guarded`，Technical schema 为 `technical-features-v6-data-trust`。数值政策以 `decision-engine/config.js` 为唯一来源。本次修改输入可信度与等待语义，不新增 SMC 或修改交易策略。
 
-## 修复行为
+## 数据与决策行为
 
-- 日线时效以 XNYS 交易日历、实际收盘时间及 America/New_York 为依据。报价更新而日线滞后时明确等待；周末、假日、半日交易和 DST 不以自然日误判。重新读取缓存时重新核验时效。
-- 1H／原生 4H 的旧缓存必须先完成新的全量种子验证，之后才允许经过重叠检查的增量续接。历史修订仍触发回补；不把重复增量数据或修订后的价格／成交量拼接到旧基准。
-- 比较完整、连续、已完成的常规交易时段：1H／4H 的日内成交量总和超过同日 Daily 的 1.05 倍即标记跨端点冲突。该单边检查容许 Daily 包含更多竞价成交量，不能反过来要求两者相等。缺口、未完成、无时区或缺少结束时间的会话不算通过。
-- 保留原始 OHLCV，不按比例修正成交量。只隔离明确冲突日期的量数据；累计 OBV 因历史基准受污染而不可用。结构事件的成交量 EMA 在下一个连续有效段重新预热；价格事件的首次可知时间不改变。当前保守策略下，主周期历史存在此类冲突会让该 horizon 等待，直到源数据解决；不让正常 Daily 的其他 horizon 自动跟随 Short 等待。
-- 数据不足、过期、主周期成交量冲突或结构不足均显示 Hold／等待。生产不再生成 Avoid；不以无数据创建 Sell 或退出区间。Confidence 在最终等待结果之后上限 35，参数只定义于 config。历史记录及旧 wire 数据不改写。
-- 标准与 compact 接口均采用有界序列化。标准接口的 quotes、data、items.analysis 从同一份冻结结果重放，保证时间和缓存年龄完全一致；临时文件在响应关闭或失败时释放。保留 API URL、`decision.v1` 格式与原始 Technical 字段。
-- compact 流程保留服务端持久化画像，避免重新读取原始缓存时丢失已保存的公司分类。SPY／QQQ 风险背景按实际趋势描述；未知值明确不可用，不再一律显示横盘。
-- Technical 页面显示最新 Daily／应有已完成交易日、量数据核验结果及获取时间；供应商未提供历史截止时间时明确“未提供”。等待 Action 明确标识数据／结构不足。静态模块版本同步更新以避免浏览器混用旧模块。
+- 使用交易所日历、已完成的交易日和 America/New_York 核验 Daily 时效，覆盖周末、假日、半日交易及 DST。当前报价更新不能让过期历史自动变成有效输入。
+- 旧 1H／原生 4H 缓存先重新验证全量种子，之后仅允许经重叠检查的增量续接；历史修订触发回补。保留实际来源、调整基准、完成状态及首次可知时间。
+- 对连续、已完成的常规交易时段做成交量单边上限检查。日内总量明显高于 Daily 时保留原始数据并标记跨端点冲突，不缩放或补造成交量。缺口、未完成及缺少时区的会话不算通过；竞价成交量可能让 Daily 更高，因此不要求两端相等。
+- 明确冲突日期的量数据不能进入 OBV 或放量确认。累计 OBV 基准受污染时不可用；结构事件的量 EMA 可在下一段连续有效数据重新预热，不改变价格事件的因果时间。
+- 过期 Daily、主周期量数据冲突或不足的必需技术证据生成 Hold／等待，不能生成操作或虚假退出计划。数据或结构不足的最终 Confidence 使用集中配置的上限；稳定性不能保留上一轮操作。
+- 生产仅生成 Strong Buy、Buy、Accumulate、Hold、Trim、Sell。旧历史不改写；旧展示兼容不意味着继续生成 Avoid。各 horizon 保持独立。
 
-## 来源与核验范围
+## 接口与展示
 
-只取当时线上请求清单中的当前 29 只标的；不由历史记录、缓存残留或旧画像扩充 universe。读取来源为 [线上 Dashboard](https://stock-decision-dashboard.onrender.com) 的 compact／单标的标准接口、只读 Render 服务日志与指标，以及 Yahoo/yfinance 1.5.2 的行情历史。记录时间为 2026-10-10 UTC，等价于 2026-10-09 ET 晚间。
+标准及 compact 接口有界序列化；标准 quotes、data、items.analysis 重放同一冻结结果。临时序列化资源在成功、失败及断开连接时释放，刷新锁不受慢读取者拖延。API 地址及 `decision.v1` 格式保持不变。
 
-独立行情请求 87 组：29 × Daily 10y、1H 365d、原生 4H 365d，最大并发 2。全部返回非空有效 OHLCV，行级拒绝数为 0，全部 Daily 最新日为 2026-10-09。原生 4H 元数据为 4h。yfinance 的 `history_metadata` 在 Daily 调用后可另取 1H/5d 信息，因此本次审计中 Daily 的该元数据不能作为 Daily 原生时间截止证据；以实际返回 frame、请求参数和 session provenance 核验，不伪造 provider cutoff。
+compact 保留已保存的公司画像，不从重新读取的原始缓存重新猜测分类。缺少证据的画像字段保持 null；ETF 继续采用独立定义。
 
-累计 19,489 个完整会话的跨周期检查发现 14 只标的有历史量数据冲突：NVDA、AMD、GOOGL、AMZN、MPT、MSFT、NFLX、NOW、SPCX、MU、ORCL、TQQQ、QQQ、UNH。此次重新获取的近期量数据与旧缓存的异常有改善，但这些旧日期的跨端点矛盾仍存在，不能宣布全历史正确，也不能断言 Daily 或 intraday 哪一端一定错。需要供应商修订或独立成交量来源，当前实现隔离并等待。
+Technical 展示日线时效、成交量核验与来源时间；供应商没有提供截止时间时明确不可用。市场背景描述与实际趋势一致。未就绪的 Decision panel 显示等待数据提示，不能把 null Decision 传给价格区间图，也不在 UI 推导任何 Action。
 
-XE 仅有 117 根 Daily，SPCX 仅有 83 根；较长窗口不可用属于真实历史不足，禁止补造 250 日指标。上线后已核验全部 25 只股票的持久化 V2.1 画像，22 只完整，CRCL／MPT／UNH 的部分字段证据不足，保持 null。4 只 ETF 使用独立 ETF 定义，不需要股票画像槽位。
+## 验证与限制
 
-## 验证结果
+验证覆盖行情完整性、独立公式复算、各 horizon 门禁、兼容接口一致性、刷新与双语、启动阶段弹窗及桌面／手机交互。复算只能证明同一源 bars 的计算一致，不能证明供应商数据为市场真值；通过发布验收也不是长期压力测试保证。
 
-| 检查 | 结果 | 适用范围 |
-| --- | --- | --- |
-| Python 回归 | 91 项，1 项环境相关跳过，其余通过 | server、日历、数据、接口、资源与隔离的历史记录测试 |
-| JavaScript 回归 | 14 套通过 | Technical、各 horizon、不可用门禁、API、双语与刷新 |
-| 独立公式复算 | 87 组、5,628 项全部通过，容差 relative 1e-9 / absolute floor 1e-9 | 同一组源 bars 的独立 Python 公式；不是独立行情真值认证 |
-| 标准接口 | 29 quotes、29 items、兼容别名完全相等、HTTP 200 | 冻结样本，本地 Gunicorn；线上追加验收见下节 |
-| 整服务峰值内存 | 540,770,304 → 266,223,616 bytes，约 516 → 254 MiB | 同 29 样本、macOS 模拟，同时包含服务进程及隔离的 Node 记录流程 |
-| 标准接口峰值内存 | 441,483,264 → 174,473,216 bytes，约 421 → 166 MiB | 不是 Render cgroup；线上 512 MiB 条件需部署后实测 |
-| 实际浏览器 | 桌面 1440×1000／手机 390×844，通过 | NVDA 过期等待、QQQ 量数据冲突、中英文、打开技术面、关闭弹窗、手动刷新；冻结 3 标的样本 |
+历史成交量跨端点矛盾仍需要供应商修订或独立来源解决，当前实现隔离并等待。上市时间短的标的保持真实窗口不足，不补造长期指标。完整来源凭据与运行验证记录独立保存，不包含在公开代码仓库中。
 
-浏览器验证使用 Playwright 1.62.1／隔离的 headless Chrome，原因 `Browser plugin not available`。页面身份、非空内容、无框架错误覆盖层、交互及截图均通过，无相关应用异常。已有 favicon.ico 404 为站点小图标缺失，不影响数据、计算或交互；保留该证据。没有验证所有设备或线上新版本。
+## 下一批设计
 
-原始行情、完整字段清单、公式逐项结果、内存采样、截图及可检查 notebook 都在外部临时目录 `/private/tmp/dashboard-fix-20261009/`，不写入 Git 或生产历史。核心证据：`full-provider-audit.json`、`full-reconciliation.json`、`independent-math.json`、`memory-before.json`、`memory-after-frozen.json`、`browser-qa.json`、`data-quality-receipt.ipynb`。测试及模拟使用独立临时数据库，生产 EOD 继续停止。
+已确认的策略意图包括普通股票右侧为主、风险／回撤优先、有界公司修饰可影响 Action、确认结构转空或重要失效才 Sell，以及 QQQ／SPMO Long 的左侧 Buy 例外和杠杆／反向 ETF 的严格确认。这些尚未在本批实现。
 
-## 已执行的线上验收
-
-2026-10-10 02:43:37 UTC（10 月 9 日 ET）配置发布 `dep-db4qc9t9fdbs73ahdjkg` 为 live。曾发现环境启动参数覆盖本地 `preload_app=False`；仅合并 `GUNICORN_CMD_ARGS=""` 与 `RESOURCE_METRICS_ENABLED=true` 后，日志确认 workers=1／threads=2／timeout=120／preload=False。端口由已保存的 gunicorn.conf.py 绑定。明确保留 `EOD_HISTORY_ENABLED=false`；健康检查不打开历史数据库。
-
-一次真实完整刷新于 02:44:52–02:46:07 UTC 完成，HTTP 响应约 79 秒：15 批／29 只成功，0 失败、0 延后、0 缓存回退。全部 Daily 覆盖 2026-10-09，全部原生 4H 截至 2026-10-09 13:30 ET；1H／4H 全部取得版本 1 的源种子。容器在此流程峰值 332,804,096 bytes（约 317 MiB），限制 536,870,912 bytes。
-
-Decision API 以 10／10／9 三批只读请求返回全部 29 × 3 = 87 个独立 horizon 结果，无 serializer 错误，无 Avoid。14 只主周期历史量冲突的 Short 均为 Hold、quality=0、confidence≤35、无虚假区间；其他 horizon 独立计算。包含 Node API 后容器峰值 396,017,664 bytes（约 378 MiB）。这是这次实时流程的峰值，不是长期压力测试保证。另保存 `online-full-refresh-after.json`、`online-profile-audit.json`、`online-decision-verification.json`、`health-after-full-refresh.json` 与 `health-after-api.json`。
-
-标准 29 只接口在新启动配置下实际返回 HTTP 200（约 6.1 秒），29 quotes／29 items，quotes=data=items.analysis 严格相等；gzip 约 14.8 MB，解码约 67.5 MB。验收前后容器峰值保持约 378 MiB，无新实例重启。证据 `standard-live-verification.json`、`health-after-standard.json`。未开启生产 EOD 来做压力测试。
-
-真实浏览器发现启动阶段列表已显示、行情尚未返回时打开弹窗会将 null Decision 传给 Price Landscape helper。新增缺失 Decision 的渲染门禁，显示明确未就绪提示，并在数据完成后自然恢复；不在 UI 推导 Hold 或其他 Action。回归测试覆盖整个 Decision panel，延迟冻结数据的实际浏览器复现与修复验证通过。此修复作为后续小提交发布，不修改 engine 版本或策略。
-
-## 下一批设计边界
-
-用户已接受：普通股票右侧为主、早期转强可分批；风险／回撤优先；公司 tag 结合实际 ATR 及有界修饰可影响 Action；确认结构转空或重要结构失效才 Sell，单个指标或一次 CHoCH 先 Hold。QQQ／SPMO 的 Long 左侧也允许 Buy，Strong Buy 仍要求严格右侧确认；杠杆及反向 ETF 必须更严格确认。SOXL 为做多半导体的杠杆 ETF，SQQQ 为反向杠杆 ETF。以上是已确认的下一批设计意图，尚未作为新策略上线。
-
-本次未新增 CHoCH／Sweep／FVG、未调整 Opportunity／Reduce 宽度与中心、未放开失败的 structureLevelsEnabled 门禁、未改 Short 固定 Direction／Confirmation 权重、未实现新的 Sell 或 ETF 左侧政策、未开启生产记录。下一步先在已验证输入上确定结构因果定义、回撤与延续两类可执行 Opportunity、ATR 风险空间和独立 horizon 规则，再验证和修改策略。
+本次未新增 CHoCH／Sweep／FVG，未调整 Opportunity／Reduce 中心或宽度，未放开失败的结构候选门禁，未改变普通股票 Short 的固定权重，未开启生产历史记录。
