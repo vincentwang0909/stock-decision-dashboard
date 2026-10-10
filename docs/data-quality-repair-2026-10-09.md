@@ -1,6 +1,6 @@
 # Dashboard 数据修复与验证 · 2026-10-09 ET
 
-本地候选版本：`decision-engine-v2.3-data-guarded`；Technical schema：`technical-features-v6-data-trust`。本次验证时 Render 仍运行提交 `2d1124b9b87b1eaeef7f76b61153c46cb8c7424d`。本地通过不代表已上线，也不代表供应商全部历史数据已获独立认证。
+已发布数据版本：`decision-engine-v2.3-data-guarded`；Technical schema：`technical-features-v6-data-trust`。首次修复提交 `906a0a4f6cf0eb771691572d60926cd6be191be4`，替换此前的 `2d1124b9b87b1eaeef7f76b61153c46cb8c7424d`。发布与验证通过不代表供应商全部历史数据已获独立认证。
 
 ## 修复行为
 
@@ -21,7 +21,7 @@
 
 累计 19,489 个完整会话的跨周期检查发现 14 只标的有历史量数据冲突：NVDA、AMD、GOOGL、AMZN、MPT、MSFT、NFLX、NOW、SPCX、MU、ORCL、TQQQ、QQQ、UNH。此次重新获取的近期量数据与旧缓存的异常有改善，但这些旧日期的跨端点矛盾仍存在，不能宣布全历史正确，也不能断言 Daily 或 intraday 哪一端一定错。需要供应商修订或独立成交量来源，当前实现隔离并等待。
 
-XE 仅有 117 根 Daily，SPCX 仅有 83 根；较长窗口不可用属于真实历史不足，禁止补造 250 日指标。读取的 NVDA 标准接口持久化画像已核实；其余 28 只线上持久化画像还需在上线后逐只轻量核验，本地分类测试不代替这一验收。
+XE 仅有 117 根 Daily，SPCX 仅有 83 根；较长窗口不可用属于真实历史不足，禁止补造 250 日指标。上线后已核验全部 25 只股票的持久化 V2.1 画像，22 只完整，CRCL／MPT／UNH 的部分字段证据不足，保持 null。4 只 ETF 使用独立 ETF 定义，不需要股票画像槽位。
 
 ## 验证结果
 
@@ -30,7 +30,7 @@ XE 仅有 117 根 Daily，SPCX 仅有 83 根；较长窗口不可用属于真实
 | Python 回归 | 91 项，1 项环境相关跳过，其余通过 | server、日历、数据、接口、资源与隔离的历史记录测试 |
 | JavaScript 回归 | 14 套通过 | Technical、各 horizon、不可用门禁、API、双语与刷新 |
 | 独立公式复算 | 87 组、5,628 项全部通过，容差 relative 1e-9 / absolute floor 1e-9 | 同一组源 bars 的独立 Python 公式；不是独立行情真值认证 |
-| 标准接口 | 29 quotes、29 items、兼容别名完全相等、HTTP 200 | 冻结样本，本地 Gunicorn；尚未上线验收 |
+| 标准接口 | 29 quotes、29 items、兼容别名完全相等、HTTP 200 | 冻结样本，本地 Gunicorn；线上追加验收见下节 |
 | 整服务峰值内存 | 540,770,304 → 266,223,616 bytes，约 516 → 254 MiB | 同 29 样本、macOS 模拟，同时包含服务进程及隔离的 Node 记录流程 |
 | 标准接口峰值内存 | 441,483,264 → 174,473,216 bytes，约 421 → 166 MiB | 不是 Render cgroup；线上 512 MiB 条件需部署后实测 |
 | 实际浏览器 | 桌面 1440×1000／手机 390×844，通过 | NVDA 过期等待、QQQ 量数据冲突、中英文、打开技术面、关闭弹窗、手动刷新；冻结 3 标的样本 |
@@ -38,6 +38,18 @@ XE 仅有 117 根 Daily，SPCX 仅有 83 根；较长窗口不可用属于真实
 浏览器验证使用 Playwright 1.62.1／隔离的 headless Chrome，原因 `Browser plugin not available`。页面身份、非空内容、无框架错误覆盖层、交互及截图均通过，无相关应用异常。已有 favicon.ico 404 为站点小图标缺失，不影响数据、计算或交互；保留该证据。没有验证所有设备或线上新版本。
 
 原始行情、完整字段清单、公式逐项结果、内存采样、截图及可检查 notebook 都在外部临时目录 `/private/tmp/dashboard-fix-20261009/`，不写入 Git 或生产历史。核心证据：`full-provider-audit.json`、`full-reconciliation.json`、`independent-math.json`、`memory-before.json`、`memory-after-frozen.json`、`browser-qa.json`、`data-quality-receipt.ipynb`。测试及模拟使用独立临时数据库，生产 EOD 继续停止。
+
+## 已执行的线上验收
+
+2026-10-10 02:43:37 UTC（10 月 9 日 ET）配置发布 `dep-db4qc9t9fdbs73ahdjkg` 为 live。曾发现环境启动参数覆盖本地 `preload_app=False`；仅合并 `GUNICORN_CMD_ARGS=""` 与 `RESOURCE_METRICS_ENABLED=true` 后，日志确认 workers=1／threads=2／timeout=120／preload=False。端口由已保存的 gunicorn.conf.py 绑定。明确保留 `EOD_HISTORY_ENABLED=false`；健康检查不打开历史数据库。
+
+一次真实完整刷新于 02:44:52–02:46:07 UTC 完成，HTTP 响应约 79 秒：15 批／29 只成功，0 失败、0 延后、0 缓存回退。全部 Daily 覆盖 2026-10-09，全部原生 4H 截至 2026-10-09 13:30 ET；1H／4H 全部取得版本 1 的源种子。容器在此流程峰值 332,804,096 bytes（约 317 MiB），限制 536,870,912 bytes。
+
+Decision API 以 10／10／9 三批只读请求返回全部 29 × 3 = 87 个独立 horizon 结果，无 serializer 错误，无 Avoid。14 只主周期历史量冲突的 Short 均为 Hold、quality=0、confidence≤35、无虚假区间；其他 horizon 独立计算。包含 Node API 后容器峰值 396,017,664 bytes（约 378 MiB）。这是这次实时流程的峰值，不是长期压力测试保证。另保存 `online-full-refresh-after.json`、`online-profile-audit.json`、`online-decision-verification.json`、`health-after-full-refresh.json` 与 `health-after-api.json`。
+
+标准 29 只接口在新启动配置下实际返回 HTTP 200（约 6.1 秒），29 quotes／29 items，quotes=data=items.analysis 严格相等；gzip 约 14.8 MB，解码约 67.5 MB。验收前后容器峰值保持约 378 MiB，无新实例重启。证据 `standard-live-verification.json`、`health-after-standard.json`。未开启生产 EOD 来做压力测试。
+
+真实浏览器发现启动阶段列表已显示、行情尚未返回时打开弹窗会将 null Decision 传给 Price Landscape helper。新增缺失 Decision 的渲染门禁，显示明确未就绪提示，并在数据完成后自然恢复；不在 UI 推导 Hold 或其他 Action。回归测试覆盖整个 Decision panel，延迟冻结数据的实际浏览器复现与修复验证通过。此修复作为后续小提交发布，不修改 engine 版本或策略。
 
 ## 下一批设计边界
 

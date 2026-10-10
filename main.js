@@ -650,7 +650,7 @@ function renderProfileHeader(row) {
 
 function renderDecisionPriceMap(row, horizon) {
   const decision = decisionFor(row, horizon);
-  const model = window.DecisionPresentation?.priceMapModel?.({ currentPrice: row.price, decision }) || { points: [] };
+  const model = decision ? window.DecisionPresentation?.priceMapModel?.({ currentPrice: row.price, decision }) || { points: [] } : { points: [] };
   const pointMarkup = (point) => (point.id === "opportunity" || point.id === "reduce"
     ? `<span class="price-map-range ${point.id}" style="left:${point.start}%;width:${Math.max(1.2, point.end - point.start)}%"></span>`
     : `<span class="price-map-marker ${point.id}" style="left:${point.position}%"><b>${point.id === "current" ? "▲" : "│"}</b></span>`);
