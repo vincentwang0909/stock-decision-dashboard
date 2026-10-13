@@ -302,7 +302,7 @@
     const levels = [];
     const categories = engine.config.componentScales.opportunity.unifiedConfluence.categoryForType;
     const add = (price, type, weight, label, role = "both", sourceTimeframe = null) => {
-      if (Number.isFinite(price) && price > 0) levels.push({ price, type, category: categories[type] || type, weight, label, role, sourceTimeframe });
+      if (Number.isFinite(price) && price > 0) levels.push({ price, type, category: categories[type] || type, weight, label, role, sourceTimeframe, hardObstacle: type==="swing" || type==="price_structure" });
     };
     Object.values(parts.fibonacci.retracement_levels || {}).forEach((item) => add(item?.price, "fib", engine.config.componentScales.opportunity.structuralLevelWeight.fib, `Fib retracement ${item?.label || ""}`, fibRole(parts.fibonacci, "retracement"), parts.fibonacci.source_timeframe || null));
     Object.values(parts.fibonacci.extension_levels || {}).forEach((item) => add(item?.price, "fib", engine.config.componentScales.opportunity.structuralLevelWeight.fib, `Fib extension ${item?.label || ""}`, fibRole(parts.fibonacci, "extension"), parts.fibonacci.source_timeframe || null));
@@ -333,7 +333,25 @@
       if (level.type === "swing" && smc.bullish_confirmed && Math.abs(level.price - smc.last_bos?.reference_price) < 1e-8) level.role = "support";
       if (level.type === "swing" && smc.bearish_confirmed && Math.abs(level.price - smc.last_bos?.reference_price) < 1e-8) level.role = "reduce";
     }
-    return levels.filter((level, index, all) => !all.slice(0, index).some((prior) => prior.type === level.type && prior.label === level.label && Math.abs(prior.price - level.price) < 0.000001));
+    // A Fib endpoint and its Swing are one fact, identified by frame/pivot,
+    // not two opposing roles or two independent categories at the same price.
+    const references=[...(structure?.levels || []),...(structure?.inactive_levels || [])];
+    const at=Date.parse(parts.set.signal_as_of);
+    for (const endpoint of ["low","high"]) {
+      const price=parts.fibonacci[`swing_${endpoint}`],pivotAt=parts.fibonacci[`swing_${endpoint}_date`];
+      if (!Number.isFinite(price) || price<=0) continue;
+      const reference=references.find(item=>item.interval===parts.primary && item.pivot_at===pivotAt && Math.abs(item.price-price)<=Math.max(1e-8,price*1e-8) && Date.parse(item.known_at)<=at);
+      const matches=levels.filter(level=>(level.type==="swing" || level.type==="fib") && Math.abs(level.price-price)<=Math.max(1e-8,price*1e-8));
+      const originalRole=matches.find(level=>level.type==="swing")?.role || (endpoint==="low"?"support":"reduce");
+      for (const level of matches) {
+        level.category="swing";level.structureId=reference?.id || `fib:${parts.primary}:${pivotAt || parts.fibonacci.known_at}:${endpoint}`;
+        level.knownAt=reference?.known_at || parts.fibonacci.known_at;
+        if (reference?.active===false || Date.parse(level.knownAt)>at) {level.role="inactive";level.hardObstacle=false;}
+        else if (reference) {level.role=reference.role_confirmed===false?reference.original_role:reference.role;level.hardObstacle=true;}
+        else {level.role=originalRole;level.hardObstacle=true;}
+      }
+    }
+    return levels.filter(level=>level.role!=="inactive").filter((level, index, all) => !all.slice(0, index).some((prior) => prior.type === level.type && prior.label === level.label && Math.abs(prior.price - level.price) < 0.000001));
   }
 
   function categoryEvidence(members, seedPrice) {
@@ -398,6 +416,14 @@
     const levels = structuralLevels(parts);
     const supportClusters = clusterLevels(levels, price, atr, "support") || [];
     const resistanceClusters = clusterLevels(levels, price, atr, "resistance", parts.set.trend_reference_price) || [];
+    const cfg=engine.config.execution.landscape.obstacles;
+    const rejections=(parts.set.trend?.support_resistance?.resistance_rejections || []).filter(item=>[item.touch_low,item.touch_high,item.minimum_level].every(Number.isFinite) && Date.parse(item.known_at)<=Date.parse(parts.set.signal_as_of)).slice(-cfg.reactionBars);
+    for (const cluster of resistanceClusters) {
+      const reaction=rejections.some(item=>cluster.center>=item.touch_low && cluster.center<=item.touch_high && cluster.center>item.minimum_level);
+      cluster.hardObstacle=cluster.members.some(level=>level.hardObstacle && level.role==="reduce") || cluster.independentStructures>=cfg.minimumReactionCategories && reaction;
+      cluster.obstacleReason=cluster.hardObstacle?cluster.members.some(level=>level.hardObstacle)?"confirmed_structure":"confluence_price_rejection":"warning_only";
+    }
+    const hardObstacles=[...levels.filter(level=>level.role==="reduce" && level.hardObstacle),...resistanceClusters.filter(cluster=>cluster.hardObstacle && cluster.obstacleReason==="confluence_price_rejection").map(cluster=>({price:cluster.center,role:"reduce",type:"confluence",hardObstacle:true}))];
     const support = supportClusters[0] || null;
     const resistance = resistanceClusters[0] || null;
     const config = engine.config.componentScales.opportunity;
@@ -410,7 +436,7 @@
     return {
       score: raw,
       components: { supportConfluence: Math.round(supportScore), resistanceConfluence: Math.round(resistanceScore), bollingerExtension: Math.round(extension), selectedSupport: support ? { price: support.center, members: support.members.length, labels: support.members.slice(0, 4).map((item) => item.label) } : null, selectedResistance: resistance ? { price: resistance.center, members: resistance.members.length, labels: resistance.members.slice(0, 4).map((item) => item.label) } : null },
-      executionContext: { levels, support, resistance, supportClusters, resistanceClusters, atr, structureModel: "unified_category_confluence" },
+      executionContext: { levels, hardObstacles, warningLevels:levels.filter(level=>level.role==="reduce" && !level.hardObstacle), support, resistance, supportClusters, resistanceClusters, atr, structureModel: "unified_category_confluence" },
     };
   }
 

@@ -17,9 +17,9 @@ const WATCHLIST_REQUEST_TIMEOUT_MS = 15 * 1000;
 const SNAPSHOT_REQUEST_TIMEOUT_MS = 90 * 1000;
 // 60 tickers / 2 per batch, including bounded provider timeouts and output.
 const LIVE_REFRESH_TIMEOUT_MS = 10 * 60 * 1000;
-const REFRESH_MS = 30 * 60 * 1000;
-// Preserve the :40 anchor; a 30-minute period also produces each :10 slot.
-const AUTO_REFRESH_MINUTE = 40;
+const REFRESH_MS = 10 * 60 * 1000;
+// Fixed ET slots: :05 / :15 / :25 / :35 / :45 / :55.
+const AUTO_REFRESH_MINUTE = 5;
 const EASTERN_REFRESH_FORMATTER = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York",
   year: "numeric",
@@ -35,7 +35,7 @@ const I18N = {
   en: {
     lowerObservationRange: "Lower observation zone", upperObservationRange: "Upper observation zone", observationPriceMap: "Technical observation zones", holdNoExecutionRange: "No actionable entry or reduction range at present.", observationRangeHelp: "These are technical candidates for observation. Entering a zone does not authorize buying or reducing; follow the final Action.",
     signalAsOf: "Signal close", shortEntryRange: "Short Entry Range", shortInvalidation: "Short Invalidation (above)", structuralSpace: "Structural reward / risk",
-    appTitle: "Stock Decision Dashboard", stocks: "Stocks", search: "Search symbol or name", add: "Add selected", refresh: "Refresh now", refreshing: "Refreshing…", lastRefresh: "Last refresh", autoRefresh: "Auto refresh every 30 min at :10 / :40 (ET)",
+    appTitle: "Stock Decision Dashboard", stocks: "Stocks", search: "Search symbol or name", add: "Add selected", refresh: "Refresh now", refreshing: "Refreshing…", lastRefresh: "Last refresh", autoRefresh: "Auto refresh every 10 min at :05 / :15 / :25 / :35 / :45 / :55 (ET)",
     shared: "Shared Watchlist: everyone viewing this Dashboard sees the same stock list.", syncFailed: "Shared list sync failed. Showing cached data.", localServerRequired: "This dashboard must be opened through the local server. Run python3 server.py, then open",
     all: "All", us: "US", growth: "Growth", speculative: "Speculative", dividend: "Dividend", value: "Value",
     openMenu: "Open menu", language: "Language", sortStocks: "Sort stocks", filterStocks: "Filter stocks by market",
@@ -63,7 +63,7 @@ const I18N = {
   zh: {
     lowerObservationRange: "下方观察区", upperObservationRange: "上方观察区", observationPriceMap: "技术观察区间", holdNoExecutionRange: "当前没有可执行的建仓或减仓建议。", observationRangeHelp: "以下是技术候选位置，进入区间不代表可以买入或减仓；操作以最终 Action 为准。",
     signalAsOf: "信号收盘时间", shortEntryRange: "独立开空区", shortInvalidation: "空头上方失效位", structuralSpace: "结构空间／风险",
-    appTitle: "股票决策仪表盘", stocks: "股票", search: "搜索代码或名称", add: "添加所选", refresh: "立即刷新", refreshing: "刷新中…", lastRefresh: "上次刷新", autoRefresh: "每半小时自动刷新：10／40 分（美东时间）",
+    appTitle: "股票决策仪表盘", stocks: "股票", search: "搜索代码或名称", add: "添加所选", refresh: "立即刷新", refreshing: "刷新中…", lastRefresh: "上次刷新", autoRefresh: "每10分钟自动刷新：05／15／25／35／45／55 分（美东时间）",
     shared: "共享自选列表：所有查看此仪表盘的用户看到相同的股票列表。", syncFailed: "共享列表同步失败，正在显示缓存数据。", localServerRequired: "此仪表盘必须通过本地服务打开。请运行 python3 server.py，然后访问",
     all: "全部", us: "美股", growth: "成长型", speculative: "投机型", dividend: "分红型", value: "价值型",
     openMenu: "打开菜单", language: "语言", sortStocks: "股票排序", filterStocks: "股票筛选",
@@ -940,7 +940,7 @@ let autoRefreshTimer = null;
 function nextAutoRefreshAt(now = new Date()) {
   const minute = Number(EASTERN_REFRESH_FORMATTER.formatToParts(now).find((part) => part.type === "minute").value);
   const elapsed = minute * 60 * 1000 + now.getUTCSeconds() * 1000 + now.getUTCMilliseconds();
-  const delay = (AUTO_REFRESH_MINUTE * 60 * 1000 - elapsed + REFRESH_MS) % REFRESH_MS;
+  const delay = ((AUTO_REFRESH_MINUTE * 60 * 1000 - elapsed) % REFRESH_MS + REFRESH_MS) % REFRESH_MS;
   // Advance in elapsed time so skipped/repeated ET hours across DST work too.
   return new Date(now.getTime() + (delay || REFRESH_MS));
 }

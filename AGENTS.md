@@ -59,6 +59,15 @@ normalized distance, never invents a centre from Quote. Preserve
 `structureLevelsEnabled=false`: old return-retention failure has not been
 reversed by adding SMC confirmation. Known confirmed BOS can change the role
 of an already-existing matching swing.
+Fib endpoints and their matching Swing share a frame/pivot identity, one current
+role and one evidence category. Completed structure state resolves role; pending
+role conversion retains the original role, and retired endpoints cannot revive
+through Fib. Existing structure expansion remains disabled.
+Only active confirmed Swing/history obstacles or independent confluence with
+completed price rejection are hard execution targets. Isolated MA/Fib/BB levels
+remain warning context. Missing a reliable target still discards entry; no remote
+target may be selected just to pass R. Current-price-executable genuine candidate
+pairs are considered before remote valid pairs; Quote never invents a centre.
 
 Opportunity.high < Reduce.low, with an ATR/frame/confluence-aware neutral
 buffer. If evidence cannot form honest separation/entry R, discard the plan
@@ -80,6 +89,12 @@ beyond the fixed hard boundary plus material buffer can exit immediately.
 ATR expansion cannot continually widen the same boundary. Retired broken
 references cannot permanently suppress a genuinely new repaired structure.
 No automatic left buy merely because a prior invalidation is now lower priced.
+Event freshness and structural lifetime are separate: old intact structure needs
+a new completed valid pullback repair to renew Buy support, never age-only Buy.
+An advancing repaired break may promote a newly confirmed higher low after its
+own known_at, with a new identity/fixed ATR. Short entry freshness remains strict.
+The ordinary Accumulate one-improvement-group proposal is offline research only;
+production keeps existing persistence/independent-improvement gates and asset rules.
 
 ## Macro/event rules
 
@@ -107,7 +122,7 @@ no invented/free-scraped/paid feed, no claim of a verified expectation surprise.
 - Render target: 512 MB RAM, 0.5 CPU, 1 GB disk. Reuse bounded normalized input, avoid deep clones/unbounded caches/heavy chart dependencies. Temporary clusters/series go out of scope after calculation. Company review cache remains capped at300; no Action/range cache is needed.
 - Manual/auto share a single in-flight promise and generation. Both request force=true/full watchlist; provider-safe batches must refresh every active ticker. Fetch shared Market once per full transaction.
 Force the shared Market refresh on the first manual/auto batch; later batches reuse it. When live reads are allowed, cached benchmark history must cover the latest actual completed XNYS session, regardless of cache write age. RS uses identical completed stock/benchmark window dates; missing intervening sessions or unverified benchmark price bases stay unavailable with explicit per-window diagnostics.
-- Browser/server refresh at ET :10/:40, DST-safe wall-clock slots, not page-anchored intervals. A completed refresh means snapshot → both frames/Confidence/landscape → DOM → browser paint → loading ends/Last Refresh commits.
+- Browser/server refresh every ten minutes at ET :05/:15/:25/:35/:45/:55, DST-safe wall-clock slots, not page-anchored intervals. A completed refresh means snapshot → both frames/Confidence/landscape → DOM → browser paint → loading ends/Last Refresh commits.
 - Last Refresh uses applied server freshness in America/New_York, explicitly ET. Failed/empty responses retain prior successful page/time and release loading; retry next slot. Explicit busy response may extend a bounded first-load deadline once.
 - Unverified alternate price adjustment bases cannot replace Daily data or borrow a trusted timestamp.
 - Source calendar construction is shared per bounded frame/date lookup, not per historical row/year. Quote metadata wait remains bounded; optional metadata failure cannot discard valid price history.

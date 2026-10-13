@@ -181,7 +181,8 @@
     const low=invalidation>0?Math.max(initial.low,roundPrice(invalidation+.01)):initial.low;
     // A live protected reference is not replaced by a lower stop just to make
     // a different cluster pass. Check every price in the remaining real zone.
-    const obstacles=(technical.executionContext?.levels || []).filter((level)=>level.role==="reduce" && level.price>low).map((item)=>item.price);
+    const raw=technical.executionContext || {};
+    const obstacles=(raw.hardObstacles || raw.levels || []).filter((level)=>level.role==="reduce" && level.price>low).map((item)=>item.price);
     const target=roundPrice(Math.min(pair.reduce.range.low,...obstacles)),minimumR=engine.config.execution.rewardRisk.accumulate;
     const highest=invalidation>0 && pair.support.center>invalidation?Math.floor((target+minimumR*invalidation)/(1+minimumR)*100)/100:null;
     const opportunity=highest==null?null:range(low,Math.min(initial.high,highest));
@@ -243,20 +244,20 @@
     if (breakdown || bearish) {
       return {priceLandscape:{opportunityRange:null,reduceRange:range(price-atr*engine.config.execution.exitHalfWidthAtr,price+atr*engine.config.execution.exitHalfWidthAtr),invalidation:boundary?roundPrice(boundary.ordinary):null,hardInvalidation:boundary?roundPrice(boundary.hard):null,currentPrice:roundPrice(price),...short},priceState:"BREAKDOWN_ZONE",actionFamily:"defensive",landscapeQuality:{state:"high",score:1,penalty:0,reason:breakdown?"confirmed_structure_invalidation":"confirmed_bearish_structure"},debug:{priceLandscapeInputs:{breakdownExitAnchor:true,boundary},guardrails:[]}};
     }
-    const supportClusters=clustersFor(raw,"supportClusters",raw.support),resistanceClusters=clustersFor(raw,"resistanceClusters",raw.resistance);
+    const supportClusters=clustersFor(raw,"supportClusters",raw.support),resistanceClusters=clustersFor(raw,"resistanceClusters",raw.resistance).filter(cluster=>cluster.hardObstacle!==false);
     const pairs=pairCandidates({supportClusters,resistanceClusters,price,atr,horizon,context:{...context,technical}});
     const candidates=pairs.map((pair)=>pair.valid?pair:compressPair(pair,{price,atr,horizon})).filter((pair)=>pair && pair.support.independentStructures>=engine.config.execution.minimumIndependentEntryCategories && pair.quality>=engine.config.execution.landscape.minimumPairQuality);
     const plans=candidates.map((pair)=>entryPlanForPair(pair,technical,atr));
     // Rank only executable entry zones. A failed top pair does not erase the
     // remaining independent structures; no centre or R threshold is changed.
-    const selectedPlan=plans.find((plan)=>plan.opportunity) || plans[0];
+    const selectedPlan=plans.find(plan=>plan.opportunity && price>=plan.opportunity.low && price<=plan.opportunity.high) || plans.find((plan)=>plan.opportunity) || plans[0];
     if (!selectedPlan) return invalid("no_independent_support_resistance_pair");
     const {pair:selected,initial,invalidation,target,opportunity}=selectedPlan;
     const state=priceStateFor({price,horizon,atr,opportunityRange:opportunity,reduceRange:selected.reduce.range,neutralBuffer:selected.buffer,invalidation});
     const rr=opportunity && price>invalidation && price<target?(target-price)/(price-invalidation):null;
     return {priceLandscape:{opportunityRange:opportunity,reduceRange:selected.reduce.range,invalidation,hardInvalidation:boundary?roundPrice(boundary.hard):null,currentPrice:roundPrice(price),entryTarget:roundPrice(target),rewardRisk:rr,...short,costsIncluded:false},priceState:state,actionFamily:actionFamilyForState(state),
       landscapeQuality:{state:opportunity?selected.rebuilt?"rebuilt":"high":"invalid",score:round(selected.quality),penalty:opportunity?0:engine.config.execution.landscape.invalidQualityPenalty,reason:opportunity?null:"insufficient_reward_risk",neutralBuffer:roundPrice(selected.buffer),separation:opportunity?roundPrice(selected.reduce.range.low-opportunity.high):null},
-      debug:{priceLandscapeInputs:{structureModel:raw.structureModel,opportunity:selected.opportunity.inputs,reduce:selected.reduce.inputs,selectedSupport:compactCluster(selected.support),selectedReduce:compactCluster(selected.resistance),neutralBuffer:roundPrice(selected.buffer),originalOpportunity:initial,riskClipped:opportunity?.low!==initial.low || opportunity?.high!==initial.high,boundary,candidateCounts:{opportunity:supportClusters.length,reduce:resistanceClusters.length,rejectedRiskPairs:plans.filter((plan)=>!plan.opportunity).length}},guardrails:opportunity?[]:["insufficient_reward_risk"]}};
+      debug:{priceLandscapeInputs:{structureModel:raw.structureModel,opportunity:selected.opportunity.inputs,reduce:selected.reduce.inputs,selectedSupport:compactCluster(selected.support),selectedReduce:compactCluster(selected.resistance),neutralBuffer:roundPrice(selected.buffer),originalOpportunity:initial,riskClipped:opportunity?.low!==initial.low || opportunity?.high!==initial.high,boundary,obstacles:{hard:(raw.hardObstacles || []).length,warning:(raw.warningLevels || []).length},candidateCounts:{opportunity:supportClusters.length,reduce:resistanceClusters.length,rejectedRiskPairs:plans.filter((plan)=>!plan.opportunity).length}},guardrails:opportunity?[]:["insufficient_reward_risk"]}};
   }
 
   function decisionForPriceState({landscape,technical={},exhaustionScore=0,risk=0,marketModifiers={},profile={}}={}) {

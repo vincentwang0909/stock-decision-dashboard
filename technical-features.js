@@ -997,9 +997,11 @@
             }
           } else if (level.break_at && i>level.break_index) {
             const retained=sign*(bar.close-level.price)>cfg.breakAtr*level.break_atr;
+            if (retained && i-level.break_index>=smcCfg.heldBars && !level.break_confirmed) {level.break_confirmed=true;level.role_known_at=bar.end_timestamp;}
             if (!retained && sign*(bar.close-level.price)<-cfg.breakAtr*level.break_atr) { level.event=event("failed_break",-sign,level,bar,i,level.break_atr);level.active=false; }
-            else if (!level.retested && Math.abs((sign>0?bar.low:bar.high)-level.price)<=cfg.retestAtr*level.break_atr && retained) {
+            else if ((!level.retested || sign>0 && i>(level.last_retest_index ?? level.break_index)+smcCfg.heldBars && Math.abs(previous.low-level.price)>cfg.retestAtr*level.break_atr) && Math.abs((sign>0?bar.low:bar.high)-level.price)<=cfg.retestAtr*level.break_atr && retained) {
               level.retested=true;level.qualified=true;level.event=event(sign>0?"retest_up":"retest_down",sign,level,bar,i,level.break_atr);
+              level.last_retest_index=i;
             }
           }
           if (!level.break_at && (sign>0 ? bar.high>level.price+smcCfg.sweepPenetrationAtr*scale : bar.low<level.price-smcCfg.sweepPenetrationAtr*scale)) {
@@ -1028,11 +1030,21 @@
           if (levels.length>cfg.maxLevels) levels.shift();
         }
       }
+      // Promote a higher low only at/after its own confirmation close, under
+      // an intact repaired break. The reference fixes ATR at that known time.
+      const repairedBreak=lastBos && levels.find(level=>level.active && level.original_role==="reduce" && level.role==="support" && level.retested && level.break_at>=lastBos.timestamp);
+      if (direction>0 && repairedBreak && lastBos.sign>0) {
+        const higherLow=[...levels].reverse().find(level=>level.active && level.original_role==="support" && level.role==="support" && level.atr_at_known>0 && level.pivot_at>lastBos.bar_timestamp && timestampMillis(level.known_at)<=timestampMillis(bar.end_timestamp) && (!protectedLow || level.price>protectedLow.price && timestampMillis(level.known_at)>timestampMillis(protectedLow.known_at)) && bar.close>level.price);
+        if (higherLow) protectedLow=capture(higherLow);
+      }
     }
     const end=completed.at(-1), latestAtr=last(atr), activeLevels=levels.filter((level)=>level.active);
-    const compact = (level) => ({...capture(level),role:level.role,original_role:level.original_role,active:true,touches:level.touches,qualified:level.retested || level.touches>=cfg.minimumTouches,break_at:level.break_at,retested:level.retested,last_event:level.event?.age_bars<=cfg.maxAge?level.event:null});
-    const held = lastBos && lastBos.age_bars>=smcCfg.heldBars && lastBos.age_bars<=cfg.maxAge && direction===lastBos.sign && completed.slice(-lastBos.age_bars).every((bar)=>lastBos.sign*(bar.close-lastBos.reference_price)>cfg.breakAtr*lastBos.atr_at_event);
-    const retest = events.filter((item)=>lastBos && item.level_id===lastBos.level_id && item.timestamp>lastBos.timestamp && item.kind===(direction>0?"retest_up":"retest_down") && item.age_bars<=cfg.maxAge && (!lastChoch || lastBos.timestamp>lastChoch.timestamp)).at(-1);
+    const retained=(level)=>Boolean(level?.active && level.break_at && completed.slice(-smcCfg.heldBars).every(bar=>(level.original_role==="reduce"?1:-1)*(bar.close-level.price)>cfg.breakAtr*level.break_atr));
+    const compact = (level) => ({...capture(level),role:level.role,original_role:level.original_role,active:level.active,role_confirmed:!level.break_at || level.break_confirmed===true,role_known_at:level.role_known_at || level.known_at,touches:level.touches,qualified:level.retested || level.touches>=cfg.minimumTouches,break_at:level.break_at,retested:level.retested,last_event:level.event?.age_bars<=cfg.maxAge?level.event:null});
+    const bosLevel=lastBos && activeLevels.find(level=>level.id===lastBos.level_id);
+    const structureValid=Boolean(lastBos && bosLevel?.break_confirmed && direction===lastBos.sign && (!lastChoch || lastBos.timestamp>lastChoch.timestamp));
+    const held = structureValid && retained(bosLevel) && lastBos.age_bars>=smcCfg.heldBars && lastBos.age_bars<=cfg.maxAge && (direction>0 || completed.slice(-lastBos.age_bars).every(bar=>lastBos.sign*(bar.close-lastBos.reference_price)>cfg.breakAtr*lastBos.atr_at_event));
+    const retest = events.filter((item)=>structureValid && item.timestamp>lastBos.timestamp && item.kind===(direction>0?"retest_up":"retest_down") && item.age_bars<=cfg.maxAge && (direction<0?item.level_id===lastBos.level_id:activeLevels.some(level=>level.id===item.level_id && level.role==="support" && retained(level) && (!lastChoch || level.break_at>lastChoch.timestamp)))).at(-1);
     const support=[...activeLevels].reverse().find((level)=>level.role==="support" && level.price<=end.close+cfg.retestAtr*latestAtr);
     const resistance=[...activeLevels].reverse().find((level)=>level.role==="reduce" && level.price>=end.close-cfg.retestAtr*latestAtr);
     const repairCount = (reference,sign) => {
@@ -1048,11 +1060,13 @@
     };
     const activeEvents=events.filter((item)=>item.age_bars<=cfg.maxAge);
     return { ...metadata(args),confirmed_bars:completed.length,reference_interval:interval,supporting_interval:null,state:activeEvents.at(-1)?.kind || "structure_ready",
-      parameters:{pivot_left:pivot,pivot_right:pivot,break_atr:cfg.breakAtr,retest_atr:cfg.retestAtr,event_max_age:cfg.maxAge,volume_fast:cfg.volumeFast,volume_slow:cfg.volumeSlow,volume_threshold:cfg.volumeThreshold,volume_source:indicatorConfig().volume.source},levels:activeLevels.map(compact),support:support?compact(support):null,resistance:resistance?compact(resistance):null,
+      parameters:{pivot_left:pivot,pivot_right:pivot,break_atr:cfg.breakAtr,retest_atr:cfg.retestAtr,event_max_age:cfg.maxAge,volume_fast:cfg.volumeFast,volume_slow:cfg.volumeSlow,volume_threshold:cfg.volumeThreshold,volume_source:indicatorConfig().volume.source},levels:activeLevels.map(compact),inactive_levels:levels.filter(level=>!level.active).map(compact),support:support?compact(support):null,resistance:resistance?compact(resistance):null,
+      resistance_rejections:completed.slice(-engineConfig().execution.landscape.obstacles.reactionBars).map((bar,i,list)=>({bar,scale:atr[completed.length-list.length+i-1]})).filter(({bar,scale})=>scale>0 && bar.close<bar.open).map(({bar,scale})=>({known_at:bar.end_timestamp,touch_low:bar.high-cfg.retestAtr*scale,touch_high:bar.high+cfg.retestAtr*scale,minimum_level:bar.close+cfg.breakAtr*scale})),
       events:activeEvents,last_event:activeEvents.at(-1)||null,volume_oscillator:last(slow)>0?(last(fast)/last(slow)-1)*100:null,
       smc:{availability:"available",direction:direction>0?"bullish":direction<0?"bearish":"unconfirmed",last_bos:lastBos,last_choch:lastChoch,
         protected_low:protectedLow?{...protectedLow,active:direction>0 || lastChoch?.sign<0 && lastChoch.age_bars<=cfg.maxAge && (!lastBos || lastBos.timestamp<lastChoch.timestamp)}:null,
         protected_high:protectedHigh?{...protectedHigh,active:direction<0}:null,
+        structure_valid:structureValid,event_fresh:Boolean(lastBos && lastBos.age_bars<=cfg.maxAge),active_break_reference:structureValid?compact(bosLevel):null,
         bullish_confirmed:direction>0 && Boolean(held || retest),bearish_confirmed:direction<0 && Boolean(held || retest),held_break:held?lastBos:null,
         bullish_retest:direction>0?retest||null:null,bearish_retest:direction<0?retest||null:null,
         support_repair_bars:repairCount(support,1),resistance_failure_bars:repairCount(resistance,-1),sweeps:sweeps.filter((item)=>item.age_bars<=smcCfg.sweepAge[horizon] && !item.invalidated),signal_as_of:end.end_timestamp },

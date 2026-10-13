@@ -133,6 +133,7 @@
       maxEntryCenterDistancePct: freeze({ daily: 0.055, weekly: 0.070 }),
       confluenceWidthMultiplier: freeze({ weak: 0.72, strong: 0.94 }),
       landscape: freeze({
+        obstacles: freeze({ minimumReactionCategories: 2, reactionBars: 2 }),
         neutralBufferAtr: freeze({ daily: 0.62, weekly: 0.86 }),
         minimumHalfWidthAtr: freeze({ daily: 0.28, weekly: 0.34 }),
         weakQualityPenalty: 9,

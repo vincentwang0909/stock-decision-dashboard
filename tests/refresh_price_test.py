@@ -136,21 +136,25 @@ class RefreshPriceTests(unittest.TestCase):
         old = datetime(2000, 1, 3).date()
         self.assertEqual(validation.session(old, calendar=calendar), validation.session(old))
 
-    def test_server_schedule_uses_fixed_et_10_and_40_including_dst(self):
+    def test_server_schedule_uses_fixed_et_ten_minute_slots_including_dst(self):
         cases = [
-            ('2026-10-04T13:00:00+00:00', '2026-10-04T13:10:00+00:00'),
-            ('2026-10-04T13:09:59.999+00:00', '2026-10-04T13:10:00+00:00'),
-            ('2026-10-04T13:10:00+00:00', '2026-10-04T13:40:00+00:00'),
-            ('2026-10-04T13:39:59.999+00:00', '2026-10-04T13:40:00+00:00'),
-            ('2026-10-04T13:40:00+00:00', '2026-10-04T14:10:00+00:00'),
-            ('2026-10-04T13:45:00+00:00', '2026-10-04T14:10:00+00:00'),
-            ('2026-10-05T03:59:59.999+00:00', '2026-10-05T04:10:00+00:00'),
-            ('2026-01-04T14:39:00+00:00', '2026-01-04T14:40:00+00:00'),
-            ('2026-11-01T05:40:00+00:00', '2026-11-01T06:10:00+00:00'),
-            ('2026-11-01T05:50:00+00:00', '2026-11-01T06:10:00+00:00'),
-            ('2026-11-01T06:10:00+00:00', '2026-11-01T06:40:00+00:00'),
-            ('2026-03-08T06:40:00+00:00', '2026-03-08T07:10:00+00:00'),
-            ('2026-03-08T06:50:00+00:00', '2026-03-08T07:10:00+00:00'),
+            ('2026-10-04T13:00:00+00:00', '2026-10-04T13:05:00+00:00'),
+            ('2026-10-04T13:04:59.999+00:00', '2026-10-04T13:05:00+00:00'),
+            ('2026-10-04T13:05:00+00:00', '2026-10-04T13:15:00+00:00'),
+            ('2026-10-04T13:14:59.999+00:00', '2026-10-04T13:15:00+00:00'),
+            ('2026-10-04T13:15:00+00:00', '2026-10-04T13:25:00+00:00'),
+            ('2026-10-04T13:25:00+00:00', '2026-10-04T13:35:00+00:00'),
+            ('2026-10-04T13:35:00+00:00', '2026-10-04T13:45:00+00:00'),
+            ('2026-10-04T13:45:00+00:00', '2026-10-04T13:55:00+00:00'),
+            ('2026-10-04T13:55:00+00:00', '2026-10-04T14:05:00+00:00'),
+            ('2026-10-04T13:59:59.999+00:00', '2026-10-04T14:05:00+00:00'),
+            ('2026-10-05T03:59:59.999+00:00', '2026-10-05T04:05:00+00:00'),
+            ('2026-01-04T14:39:00+00:00', '2026-01-04T14:45:00+00:00'),
+            ('2026-11-01T05:55:00+00:00', '2026-11-01T06:05:00+00:00'),
+            ('2026-11-01T05:59:59.999+00:00', '2026-11-01T06:05:00+00:00'),
+            ('2026-11-01T06:05:00+00:00', '2026-11-01T06:15:00+00:00'),
+            ('2026-03-08T06:55:00+00:00', '2026-03-08T07:05:00+00:00'),
+            ('2026-03-08T06:59:59.999+00:00', '2026-03-08T07:05:00+00:00'),
         ]
         for current, expected in cases:
             with self.subTest(current=current):
@@ -235,13 +239,13 @@ class RefreshPriceTests(unittest.TestCase):
              patch.object(server, 'is_market_cache_fresh', return_value=True), \
              patch.object(server, 'ensure_company_profiles_for_quotes'), \
              patch.object(server, 'get_market_context_cached_snapshot', return_value=({}, {})), \
-             patch.object(server, 'next_dashboard_refresh_utc', return_value=datetime(2026, 10, 4, 13, 40, tzinfo=timezone.utc)):
+             patch.object(server, 'next_dashboard_refresh_utc', return_value=datetime(2026, 10, 4, 13, 45, tzinfo=timezone.utc)):
             result = server.build_market_data_payload(['TEST'])
-        self.assertEqual(result['refresh_status']['next_auto_refresh_at'], '2026-10-04T13:40:00Z')
+        self.assertEqual(result['refresh_status']['next_auto_refresh_at'], '2026-10-04T13:45:00Z')
         self.assertEqual(result['refresh_status']['refresh_timezone'], 'America/New_York')
-        self.assertEqual(result['refresh_status']['refresh_minute'], 40)
-        self.assertEqual(result['refresh_status']['refresh_minutes'], [10, 40])
-        self.assertEqual(result['refresh_status']['refresh_interval_minutes'], 30)
+        self.assertEqual(result['refresh_status']['refresh_minute'], 5)
+        self.assertEqual(result['refresh_status']['refresh_minutes'], [5, 15, 25, 35, 45, 55])
+        self.assertEqual(result['refresh_status']['refresh_interval_minutes'], 10)
 
 
 if __name__ == '__main__': unittest.main()
