@@ -16,9 +16,9 @@ assert.equal(presentation.executionSemantics(plan("accumulate")).opportunity, "r
 assert.equal(presentation.executionSemantics(plan("hold")).opportunity, "potentialAddRange");
 assert.equal(presentation.executionSemantics(plan("trim")).reduce, "recommendedReduceRange");
 assert.equal(presentation.executionSemantics(plan("sell")).reduce, "recommendedExitRange");
-assert.equal(presentation.executionSemantics(plan("avoid")).reduce, null);
+assert.equal(presentation.executionSemantics(plan("hold")).reduce, "potentialReduceRange");
 assert.deepEqual(presentation.actionTone, {
-  strong_buy: "strong-buy", buy: "buy", accumulate: "accumulate", hold: "hold", trim: "trim", sell: "sell", avoid: "avoid",
+  strong_buy: "strong-buy", buy: "buy", accumulate: "accumulate", hold: "hold", trim: "trim", sell: "sell", short_sell: "short-sell",
 });
 
 for (const [name, currentPrice, decision] of [
@@ -27,7 +27,7 @@ for (const [name, currentPrice, decision] of [
   ["opportunity above current", 95, plan("buy", { priceLandscape: { opportunityRange: range(100, 105), reduceRange: range(115, 120), invalidation: 96, currentPrice: 95 } })],
   ["bearish ordering", 100, plan("sell", { priceLandscape: { opportunityRange: range(82, 86), reduceRange: range(99, 102), invalidation: 106, currentPrice: 100 } })],
   ["hold landscape", 110, plan("hold")],
-  ["avoid with no exit", 100, plan("avoid", { priceLandscape: { opportunityRange: range(85, 89), reduceRange: null, invalidation: null, currentPrice: 100 } })],
+  ["avoid with no exit", 100, plan("hold", { priceLandscape: { opportunityRange: range(85, 89), reduceRange: null, invalidation: null, currentPrice: 100 } })],
 ]) {
   const model = presentation.priceMapModel({ currentPrice, decision });
   assert.ok(model.points.some((point) => point.id === "current"), `${name}: current price is missing`);
@@ -80,7 +80,7 @@ presentation.priceMapModel({ currentPrice: 103, decision: stablePresentationDeci
 presentation.profileGroups({ primaryClassification: "Semiconductors", businessTrait: "HighGrowth", riskTrait: "HighVolatility", sizeClass: "MegaCap", companyTraits: ["obsolete free-form tag"] });
 assert.deepEqual(stablePresentationDecision, beforePresentation, "presentation helpers must not mutate V1 decision values");
 
-assert.equal(presentation.translateReason("OBV and volume participation are confirming accumulation.", "zh"), "OBV 与成交量参与度正在确认资金吸筹。");
+assert.equal(presentation.translateReason("OBV and volume participation are confirming accumulation.", "zh"), "已完成日线成交量与基于日线的 OBV 支持吸筹判断。");
 assert.equal(presentation.translateReason("Price is near the opportunity range but has not entered the recommended buy/add zone.", "zh"), "当前价格接近机会区，但尚未进入推荐买入/加仓区。");
 assert.equal(presentation.translateReason("Price is approaching the reduce range but has not entered the recommended reduce/exit zone.", "zh"), "当前价格接近减仓区，但尚未进入推荐减仓/退出区域。");
 assert.equal(presentation.translateReason("Price position alone cannot create a Sell without bearish structural evidence.", "zh"), "仅凭价格位置、缺乏空头结构证据时，不能形成卖出建议。");
@@ -91,6 +91,6 @@ assert.equal(presentation.translateReason({ code: "new_code", text: "已确认�
 assert.equal(presentation.translateReason("Current price is in the neutral space between actionable price zones.", "zh"), "当前价格位于可操作区间之间的中性区域。");
 assert.equal(presentation.reasonList(["a", "b", "c", "d", "e", "f"], "en", 5).length, 5);
 assert.match(presentation.positionGuidance("hold", "en"), /not enough evidence/i);
-assert.match(presentation.positionGuidance("avoid", "zh"), /不适合/);
+assert.match(presentation.positionGuidance("short_sell", "zh"), /开空/);
 
 console.log("decision-ui.test.js: Price Landscape, execution semantics, profile presentation, and bilingual fallback assertions passed");

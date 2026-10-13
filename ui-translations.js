@@ -8,6 +8,7 @@
     dependency_unavailable: "必要输入不可用", not_applicable: "不适用", market_session_incomplete: "交易时段未完成",
     invalid_source_data: "源数据无效", previous_refresh_generation: "来自较早刷新批次",
     source_data_conflict: "数据来源存在冲突",
+    unverified_price_basis: "历史价格调整口径未经核验",
     rising: "上升", falling: "下降", flat: "走平", stable: "稳定", above: "高于参考值", below: "低于参考值", at: "位于参考值",
     bullish: "偏多", bearish: "偏空", strong_bullish: "强势多头", strong_bearish: "强势空头", mixed: "信号混合",
     tight: "紧密收敛", compressing: "收敛中", expanding: "扩张中", contracting: "收缩中", normal: "正常",
@@ -19,6 +20,7 @@
     improving: "改善中", deteriorating: "恶化中", no_trend: "无明显趋势", developing: "趋势形成中", very_strong: "很强",
     very_low: "很低", low: "低", high: "高", elevated: "偏高", extreme: "极高",
     squeeze: "波动压缩", expanded: "波动扩张", above_upper: "上轨上方", below_lower: "下轨下方",
+    bos_up: "上行结构突破", bos_down: "下行结构突破", choch_up: "上行性质变化", choch_down: "下行性质变化", sweep_low: "低点扫单并收回", sweep_high: "高点扫单并收回", premium: "结构上半区", discount: "结构下半区", equilibrium: "结构中点", unconfirmed: "尚未确认", untouched: "尚未触及", filled: "已填补", invalidated: "已失效", partial: "部分", fomc: "FOMC 利率决议", cpi: "CPI", employment: "就业报告",
     upper: "上轨附近", lower: "下轨附近", middle: "中轨附近",
     confirming_uptrend: "确认上行趋势", confirming_downtrend: "确认下行趋势", divergent: "量价背离",
     accumulation: "吸筹", distribution: "派发", balanced: "买卖均衡", bullish_confirmation: "多头确认", bearish_confirmation: "空头确认",
@@ -35,8 +37,7 @@
     greed: "贪婪", extreme_greed: "极度贪婪", moderate: "中等",
     max_available_from_source: "来源提供的全部可用历史", loaded_history_only: "仅覆盖已加载历史",
     up_swing: "上行波段", down_swing: "下行波段", stale_swing: "波段较旧", no_valid_swing: "未找到有效波段",
-    "4h_no_valid_confirmed_swing": "4 小时数据未形成有效的已确认波段",
-    "4h_source_unavailable": "4 小时数据不可用", weekly_no_valid_confirmed_swing: "周线未形成有效的已确认波段",
+    weekly_no_valid_confirmed_swing: "周线未形成有效的已确认波段",
     weekly_history_unavailable: "周线历史不可用",
   });
   const EN_STATES = Object.freeze({
@@ -44,6 +45,7 @@
     dependency_unavailable: "Required input unavailable", not_applicable: "Not applicable", market_session_incomplete: "Session unfinished",
     invalid_source_data: "Invalid source data", previous_refresh_generation: "Earlier refresh generation",
     source_data_conflict: "Conflicting source data",
+    unverified_price_basis: "Unverified historical price adjustment basis",
     squeeze_on: "Squeeze on", squeeze_off: "Squeeze off", squeeze_neither: "Neither",
     positive_increasing: "Positive, strengthening", positive_decreasing: "Positive, weakening",
     negative_decreasing: "Negative, strengthening", negative_increasing: "Negative, repairing",
@@ -53,6 +55,10 @@
     provisional: "Provisional", completed: "Completed", completion_unknown: "Completion unknown", completion_metadata_unavailable: "Completion metadata unavailable",
   });
   const LABELS = Object.freeze({
+    "CPI MoM": "CPI 环比", "Core CPI MoM": "核心 CPI 环比", "Payroll change": "新增非农就业", "Unemployment": "失业率",
+    "Previous / 3-month mean / YoY": "上月／三月均值／同比", "Previous / 3-month mean": "上月／三月均值", "Month change": "月度变化",
+    "Wage MoM / participation": "工资环比／劳动参与率", "Previous month payroll revision": "上月就业总量修订",
+
     "Moving averages": "移动平均线", "Each value names its MA type, period and candle interval.": "各项均注明均线类型、周期参数和 K 线周期。",
     Alignment: "均线排列", "Compression / expansion": "收敛／扩张", "Bollinger＋RSI": "布林带＋RSI",
     Bandwidth: "带宽", "Upper / middle / lower": "上轨／中轨／下轨", "Primary slope": "主周期斜率",
@@ -73,11 +79,11 @@
     "52-Week and history": "52 周与历史位置", "Daily OHLCV history": "日线价格与成交量历史",
     "52W high / distance": "52 周高点／距离", "52W low / distance": "52 周低点／距离", "52W position": "52 周位置",
     "All-time high / distance": "历史高点／距离", "History coverage": "历史覆盖范围", "History bars / start": "历史 K 线数／起始日期",
-    "Volume / RVOL / OBV": "成交量／RVOL／OBV", "1D current volume, moving averages, RVOL and OBV context": "日线成交量、均量、相对成交量与 OBV 背景",
+    "Volume / RVOL / OBV": "成交量／RVOL／OBV", "Completed Daily volume, moving averages, RVOL and OBV context": "已完成日线成交量、均量、相对成交量与 OBV 背景", "Completed Daily volume": "已完成日线成交量", "In-progress Daily volume · display only": "当天未完成累计量 · 仅展示",
     "Current volume": "当前成交量", "Average volume": "平均成交量", "Relative volume": "相对成交量", "OBV raw / trend": "OBV 原值／趋势",
     "Average volume · 120D / 250D": "平均成交量 · 120／250 日", "Turnover · current / 5D / 20D / 60D": "换手率 · 当前／5／20／60 日",
     "OBV trend · 5D / 20D / 60D": "OBV 趋势 · 5／20／60 日", "OBV divergence": "OBV 背离", "Volume structure": "成交量结构",
-    "Horizon OBV · 4H / 1D / 1W": "各周期 OBV · 4 小时／日线／周线",
+    "Horizon OBV · Daily 5D / Daily 20D / completed Weekly": "各周期 OBV · 日线 5 日／日线 20 日／完成周线",
     "Fear & Greed": "恐惧与贪婪指数", "US 10Y Yield": "美国 10 年期国债收益率", "US 10Y": "美国 10 年期国债",
     "Fear & Greed / US 10Y Yield": "恐惧与贪婪指数／美国 10 年期国债收益率",
     "Neutral volatility backdrop.": "波动背景中性。", "Data unavailable": "数据不可用",
@@ -106,7 +112,7 @@
   const code = value => String(value ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
   const isChinese = value => /[\u3400-\u9fff]/.test(value);
   const interval = (value, language = "en") => language === "zh"
-    ? ({ "1h": "1 小时", "4h": "4 小时", "1d": "日线", "1w": "周线" }[String(value).toLowerCase()] || "—")
+    ? ({ "1d": "日线", "1w": "周线" }[String(value).toLowerCase()] || "—")
     : String(value || "—").toUpperCase();
   function state(value, language = "en") {
     if (value == null || value === "" || code(value) === "unavailable") return "—";

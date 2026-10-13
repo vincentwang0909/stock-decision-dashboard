@@ -1,78 +1,44 @@
 #!/usr/bin/env node
 "use strict";
-// Offline only: neither the Dashboard nor the EOD recorder loads this evaluator.
-// Both engines receive completed, as-of-cut raw bars; future labels are read
-// only by outcome(), after the production decision has finished.
-const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm"), readline = require("node:readline");
-const [inputFile, baselineDir, rawDir, outputFile] = process.argv.slice(2);
-if (!outputFile) throw Error("Usage: indicator-replay.js inputs.jsonl baseline-dir raw-dir output.json");
-function runtime(directory) {
-  let stamp;
-  class SnapshotDate extends Date { constructor(...args) { super(...(args.length ? args : [stamp])); } static now() { return Date.parse(stamp); } }
-  const ctx = vm.createContext({ console, Date: SnapshotDate });
-  for (const file of ["decision-engine/config.js", "decision-engine/company-profile-classifier.js", "decision-engine/feature-inputs.js", "technical-features.js", ...["technical-engine", "exhaustion-engine", "market-engine", "etf-profile", "company-profile", "planning-width", "execution-engine", "short-model-v2", "confidence-engine", "stability-engine", "horizon-model-v2", "decision-engine"].map((name) => `decision-engine/${name}.js`)]) {
-    const source = path.join(directory, file);
-    if (file.endsWith("/horizon-model-v2.js") && !fs.existsSync(source)) continue; // Frozen pre-unification research baseline.
-    vm.runInContext(fs.readFileSync(source, "utf8"), ctx, { filename: file });
+// Causal offline diagnostics on supplied source bars. Latest macro vintages,
+// current issuer tags and outcomes are never presented as a validated backtest.
+const fs=require("node:fs"),path=require("node:path");
+for(const file of ["config","company-profile-classifier","technical-engine","exhaustion-engine","market-engine","etf-profile","company-profile","execution-engine","confidence-engine","stability-engine","horizon-model-v2","decision-engine"])require(`../decision-engine/${file}.js`);
+const e=globalThis.DecisionEngine,{buildTechnicalFeatures,_test:t}=require("../technical-features.js"),profiles=require("../profile-definitions.js");
+const [input,output]=process.argv.slice(2);if(!input||!output)throw new Error("Usage: indicator-replay.js <snapshot.json> <output.json>");
+const s=JSON.parse(fs.readFileSync(input)),core=s.marketContext?.market_context || {},rows=[],issues=[];
+const slice=(h,i,at)=>{
+ const q={...h};delete q.intervals;
+ for(const k of ['timestamps','opens','highs','lows','closes','volumes','completed','bar_end_timestamps'])q[k]=(h[k] || []).slice(0,i+1);
+ q.as_of=at;q.freshness={state:'current',latest_date:q.timestamps.at(-1),expected_completed_date:q.timestamps.at(-1)};
+ const calendar=h.session_calendar || {},knownWeeks=Object.keys(calendar.week_ends || {}).filter(k=>Date.parse(calendar.week_ends[k])<=Date.parse(at));
+ q.session_calendar={...calendar,closed_week_keys:(calendar.closed_week_keys || []).filter(k=>knownWeeks.includes(k)),completed_week_keys:(calendar.completed_week_keys || []).filter(k=>knownWeeks.includes(k)),missing_session_dates:(calendar.missing_session_dates || []).filter(d=>d<=at.slice(0,10))};
+ return q;
+};
+const benchmarkAt=(h,at)=>{const i=(h.bar_end_timestamps || []).findLastIndex(x=>Date.parse(x)<=Date.parse(at));return slice(h,i,at);};
+const indexAt=h=>({as_of:h.as_of,...Object.fromEntries([5,20,60,120].map(n=>[`change_${n}d_pct`,h.closes?.length>n?(h.closes.at(-1)/h.closes.at(-1-n)-1)*100:null]))});
+for(const item of s.items || []) {
+ const q=item.analysis || item.quote || item,h=q.history,classification=profiles.profileFor(item.ticker,q.metadata || {});if(!h?.closes?.length)continue;
+ const daily=t.normalizeBars(h,{priceOnly:true}),weekly=t.completedWeeklyBars(daily,{asOf:h.as_of,calendar:h.session_calendar});
+ for(const horizon of ['daily','weekly']) {
+  const bars=horizon==='daily'?daily:weekly,windows=horizon==='daily'?[5,20,60]:[4,12,26];
+  const start=Math.max(horizon==='daily'?260:55,bars.length-(horizon==='daily'?220:60));
+  let count=0;
+  for(let j=start;j<bars.length-windows.at(-1) && count<28;j+=(horizon==='daily'?5:2),count++) {
+   const b=bars[j],i=h.timestamps.indexOf(b.timestamp),at=b.end_timestamp;if(i<0)continue;
+   const past=slice(h,i,at),benchmarks=Object.fromEntries(Object.entries(core.benchmark_history || {}).map(([k,v])=>[k,benchmarkAt(v,at)]));
+   const market={market_context:{as_of:at,source:'historical_technical_only',equity_trend:Object.fromEntries(Object.entries(benchmarks).map(([k,h])=>[k,indexAt(h)])),benchmark_history:benchmarks,event_calendar:{status:'unavailable',events:[]},macro_actuals:{status:'unavailable'},fomc_expectations:{status:'unavailable'}}};
+   const f=buildTechnicalFeatures({history:past,currentPrice:b.close,benchmarkContext:market,calculatedAt:at});
+   const d=e.decide({ticker:item.ticker,price:b.close,technicalFeatures:f,marketContext:market,classification,metadata:{asOf:at}}).horizons[horizon],p=d.priceLandscape,atr=f.horizons[horizon].volatility.atr[`atr_14_${horizon==='daily'?'1d':'1w'}`].value;
+   const smc=f.horizons[horizon].trend.smc || {};
+   for(const ref of [smc.last_bos,smc.last_choch,smc.protected_low,smc.protected_high])if(ref && [ref.timestamp,ref.known_at,ref.reference_known_at].filter(Boolean).some(v=>Date.parse(v)>Date.parse(at)))issues.push({ticker:item.ticker,horizon,date:b.timestamp,code:'future_structure_reference'});
+   const entering=['buy','accumulate','strong_buy'].includes(d.action);if(entering&&!(p.opportunityRange&&b.close>=p.opportunityRange.low&&b.close<=p.opportunityRange.high&&p.rewardRisk>=e.config.execution.rewardRisk[d.action]))issues.push({ticker:item.ticker,horizon,date:b.timestamp,code:'entry_invariant'});
+   const future=Object.fromEntries(windows.map(n=>{const next=bars.slice(j+1,j+n+1),high=Math.max(...next.map(x=>x.high)),low=Math.min(...next.map(x=>x.low));return[n,{closeChangePct:(next.at(-1).close/b.close-1)*100,mfePct:(high/b.close-1)*100,maePct:(low/b.close-1)*100,mfeAtr:atr>0?(high-b.close)/atr:null,maeAtr:atr>0?(low-b.close)/atr:null,barsToHigh:next.findIndex(x=>x.high===high)+1,barsToLow:next.findIndex(x=>x.low===low)+1}];}));
+   // Direction changes wait for the next own close. Recheck the frozen plan at
+   // the next regular-session open, rather than assuming a same-close fill.
+   const next=bars[j+1],longAtOpen=entering&&p.opportunityRange&&next.open>=p.opportunityRange.low&&next.open<=p.opportunityRange.high&&next.open>p.invalidation&&p.entryTarget>next.open&&(p.entryTarget-next.open)/(next.open-p.invalidation)>=e.config.execution.rewardRisk[d.action];
+   rows.push({ticker:item.ticker,horizon,date:b.timestamp,action:d.action,reason:d.debug.finalDecision.reasonCode,landscapeReason:d.debug.landscapeQuality.reason,confirmation:d.states.confirmation.score,risk:d.states.risk.score,direction:d.states.direction.score,atrAtSignal:atr,priceState:d.debug.priceState,signalAsOf:d.signalAsOf,earlyRepairBars:smc.support_repair_bars,quote:b.close,range:p.opportunityRange,rewardRisk:p.rewardRisk,nextOpen:next.open,longAtNextOpen:Boolean(longAtOpen),knownAt:smc.protected_low?.known_at || smc.last_bos?.reference_known_at || null,future,missedBullishEntry:d.action==='hold'&&smc.bullish_confirmed&&d.states.direction.score>=e.config.actionPolicy.gates.buy.direction&&d.debug.finalDecision.reasonCode==='price_outside_entry'});
   }
-  return { ctx, calculate(row) {
-    stamp = row.input.metadata.asOf; ctx.DecisionEngine.stability.clear();
-    const features = ctx.CanonicalTechnicalFeatures.buildTechnicalFeatures({ history: row.history, currentPrice: row.input.price, benchmarkContext: row.input.marketContext, calculatedAt: stamp });
-    return { features, decision: ctx.DecisionEngine.decide({ ...row.input, technicalFeatures: features }) };
-  } };
+ }
 }
-const baseline = runtime(baselineDir), current = runtime(path.resolve(__dirname, ".."));
-const report = { scope: "raw-bar replay; cold-start action stability; historical frozen market/profile inputs; overlapping fixed-window observations are not independent trades", snapshots: 0, decisions: 0, changed: {}, baseline: {}, current: {}, outcomes: {}, invariantFailures: [], timingFailures: [], availability: {}, model: current.ctx.DecisionEngine.config.version };
-const previous = new Map();
-function count(group, key) { group[key] = (group[key] || 0) + 1; }
-function compact(d) { return { action: d.action, state: d.debug.priceState, direction: d.debug.directionScore, confidence: d.confidence, landscape: JSON.stringify(d.priceLandscape) }; }
-function check(d, ticker, date, horizon) {
-  const p = d.priceLandscape, state = d.debug.priceState, positive = ["strong_buy", "buy", "accumulate"].includes(d.action), negative = ["trim", "sell"].includes(d.action);
-  const fail = (reason) => report.invariantFailures.push({ ticker, date, horizon, reason });
-  if (positive && !(p.opportunityRange && p.currentPrice >= p.opportunityRange.low && p.currentPrice <= p.opportunityRange.high)) fail("positive_outside_opportunity");
-  if (negative && state !== "BREAKDOWN_ZONE" && !(p.reduceRange && p.currentPrice >= p.reduceRange.low)) fail("reduce_outside_range");
-  if (["NEAR_OPPORTUNITY_ZONE", "NEUTRAL_ZONE", "NEAR_REDUCE_ZONE"].includes(state) && d.action !== "hold") fail("near_neutral_action");
-  if (p.opportunityRange && p.reduceRange && !(p.opportunityRange.high < p.reduceRange.low)) fail("overlap");
-  if (!(d.confidence >= 0 && d.confidence <= 100)) fail("confidence");
-}
-function outcome(row, results) {
-  const file = path.join(rawDir, `${row.ticker}-1d-10y.json`);
-  if (!fs.existsSync(file)) return;
-  const raw = JSON.parse(fs.readFileSync(file, "utf8")), i = raw.timestamps.findIndex((date) => date.slice(0, 10) === row.date);
-  if (i < 0) return;
-  for (const name of ["baseline", "current"]) {
-    if (row.input.classification?.isETF || !["strong_buy", "buy", "accumulate"].includes(results[name].decision.horizons.short.action)) continue;
-    for (const days of [5, 10, 20]) {
-      const entry = raw.opens[i + 1], exit = raw.closes[i + days];
-      const key = `${name}:${days}`, record = report.outcomes[key] || (report.outcomes[key] = { observations: 0, immature: 0, sumNetPct: 0, costPct: 0.2 });
-      if (!(entry > 0 && exit > 0)) { record.immature++; continue; }
-      record.observations++; record.sumNetPct += (exit / entry - 1) * 100 - record.costPct;
-    }
-  }
-}
-(async () => {
-  for await (const line of readline.createInterface({ input: fs.createReadStream(inputFile), crlfDelay: Infinity })) {
-    if (!line.trim()) continue;
-    const row = JSON.parse(line), results = { baseline: baseline.calculate(row), current: current.calculate(row) }; report.snapshots++;
-    for (const horizon of ["short", "mid", "long"]) {
-      const a = results.baseline.decision.horizons[horizon], b = results.current.decision.horizons[horizon]; report.decisions++;
-      check(b, row.ticker, row.date, horizon);
-      if (a.action !== b.action) count(report.changed, `${horizon}:action`);
-      if (a.debug.priceState !== b.debug.priceState) count(report.changed, `${horizon}:state`);
-      const key = `${row.ticker}:${horizon}`, prev = previous.get(key);
-      for (const name of ["baseline", "current"]) {
-        const now = compact(results[name].decision.horizons[horizon]); count(report[name], `${horizon}:observations`);
-        if (prev) { count(report[name], `${horizon}:pairs`); if (prev[name].action !== now.action) count(report[name], `${horizon}:switches`); if (prev[name].landscape !== now.landscape) count(report[name], `${horizon}:landscape_changes`); }
-      }
-      previous.set(key, { baseline: compact(a), current: compact(b) });
-      const set = results.current.features.horizons[{ short: "short", mid: "medium", long: "long" }[horizon]];
-      for (const [name, feature] of [["squeeze", set.momentum.squeeze], ["structure", set.trend.support_resistance], ["combo", set.volatility.bollinger_rsi]]) count(report.availability, `${horizon}:${name}:${feature.availability}`);
-      for (const event of set.trend.support_resistance.events || []) if (!(Date.parse(event.reference_known_at) <= Date.parse(event.bar_timestamp) && Date.parse(event.timestamp) <= Date.parse(row.input.metadata.asOf))) report.timingFailures.push({ ticker: row.ticker, date: row.date, horizon, event });
-    }
-    outcome(row, results);
-  }
-  for (const record of Object.values(report.outcomes)) record.meanNetPct = record.observations ? record.sumNetPct / record.observations : null;
-  fs.writeFileSync(outputFile, JSON.stringify(report, null, 2));
-  console.log(JSON.stringify(report));
-  if (report.invariantFailures.length || report.timingFailures.length) process.exitCode = 1;
-})().catch((error) => { console.error(error); process.exitCode = 1; });
+const actions=rows.reduce((a,r)=>(a[r.action]=(a[r.action]||0)+1,a),{}),report={model:'V2',records:rows.length,actions,issueCount:issues.length,issues,windows:{daily:[5,20,60],weekly:[4,12,26]},labelConvention:'future highs/lows use fixed ATR at signal; entering plans rechecked at next regular open; no same-close fill',limitations:['frozen issuer classification is not historically point-in-time','no original historical macro/event snapshots: new short and leveraged entry pauses remain active','not a transaction P&L or profitability validation; commissions/slippage/borrow are not known','outcomes never enter production'],earlyAccumulate:rows.filter(r=>r.action==='accumulate').map(r=>({ticker:r.ticker,date:r.date,horizon:r.horizon,labels:r.future})),earlyTrim:rows.filter(r=>r.action==='trim').map(r=>({ticker:r.ticker,date:r.date,horizon:r.horizon,labels:r.future})),blockedByPriceCount:rows.filter(r=>r.missedBullishEntry).length,rows};fs.writeFileSync(output,JSON.stringify(report));console.log(JSON.stringify({records:report.records,actions,issueCount:issues.length,blockedByPrice:report.blockedByPriceCount}));if(issues.length)process.exitCode=1;

@@ -1,284 +1,130 @@
 # Stock Decision Dashboard
 
-## Project overview
+## Current architecture · 2026-10-12
 
-This is a lightweight stock decision dashboard. It displays a shared watchlist, complete canonical Technical and Market data, and an independent Short/Mid/Long Decision Engine. It is designed for Render's 512 MB RAM, 0.5 CPU, and 1 GB disk limits.
+One production engine, internal release `V2`, feature schema `V2-daily-weekly`.
+The Dashboard does not display the version. Independent `daily` and `weekly`
+replace Short/Mid/Long; there is no third horizon, 1H/4H source or legacy switch.
+Current specification and validation: [V2 Daily / Weekly](docs/daily-weekly-engine-proposal-2026-10-12.md).
+Parameters have one source, `decision-engine/config.js`. Dated older evidence is
+historical, not current configuration. Preserve its referenced reproduction material.
 
-## Architecture
+- `server.py`: bounded Daily/quote/Market fetching, validation, caching and shared watchlist/profile persistence. Daily history defaults to ten years; SPY/QQQ benchmark history is fetched once per shared market transaction.
+- `market_data_validation.py`: source envelopes, finite numbers, duplicate/order checks, one XNYS session calendar, completion/freshness and completed-week provenance.
+- `technical-features.js`: single canonical producer shared by Technical, Decision, API and offline EOD. Both horizons use only their own completed, as-of-valid bars.
+- `decision-engine/`: shared Technical, Market, Profile, exhaustion, execution, final Confidence and completed-bar persistence. `horizon-model-v2.js` handles both frames and asset policies. `decision-engine.js` is the single entry point.
+- `company-profile-classifier.js` and `profile-definitions.js`: metadata-only Company Profile V2.1 and isolated ETF definitions.
+- `decision-api/emit-decision.js`: current `decision.v2` serialization; existing HTTP URLs remain, with no external legacy consumer. Format version and profile schema are independent of engine release.
+- `main.js`: state/data integration and DOM only; never calculate an Action. `decision-presentation.js` and `ui-translations.js`: bilingual rendering only; never mutate engine inputs on language changes.
+- `scripts/`: bounded read-only/offline verification. Temporary rows, provider payloads, screenshots and logs belong outside the repository. `docs/` holds specifications and compact dated evidence.
+- `历史记录/`: offline history infrastructure, **paused** (`EOD_HISTORY_ENABLED=false`). No live request reads the history database.
 
-- `server.py` fetches, normalizes, caches, and serves market, quote, earnings, and independent page data.
-- `main.js` owns application state, data integration, and DOM rendering. It must never calculate a recommendation.
-- `technical-features.js` produces the canonical technical feature object used by both the Technical tab and the Decision Engine.
-- `decision-engine/company-profile-classifier.js` is the deterministic, metadata-only Company Profile V2.1 classifier. `profile-definitions.js` validates its canonical stock slots and holds the separate ETF definitions.
-- `decision-engine/` is one unified V2 production release. `decision-engine.js` is the shared entry; `short-model-v2.js` implements ordinary-stock Short, and `horizon-model-v2.js` implements independent stock Mid/Long and ETF horizon policies using their preserved rules. There is no production V1 switch or old ordinary-stock Short fallback. `planning-width.js` retains the gated Reduce-width transform (0.995, disabled after its retention gate failed); `etf-profile.js` supplies ETF modifiers.
-- `decision-api/emit-decision.js` serializes the unified current engine for the external `decision.v1` API contract. The neutral directory replaces `decision-v1/`. Preserve the wire contract and API URLs; `decision.v1` is a format version, not another engine. Dashboard, API and EOD use the same `config.version`; horizon `pathVersion` equals that release version and `policyFamily` names its stock/ETF horizon policy.
-- `decision-presentation.js` is a pure UI helper for execution labels, reason translation, and the native DOM/CSS Price Landscape model.
-- `ui-translations.js` is the presentation-only English/Chinese catalog for indicator labels/states, profile names and structured technical explanations. Translate at render time; never mutate canonical feature codes, profile slots or engine inputs. Language changes rerender only, without refetching or recalculating Decision/Confidence/Price Landscape. Unknown states/reasons use an explicit localized fallback and must not imply a neutral signal.
-- `scripts/` contains bounded, read-only audit/shadow tooling, not production history storage.
-- `tests/` contains deterministic regression, feature, engine, and server checks.
-- `index.html` loads browser modules in dependency order; `styles.css` provides the restrained dark theme.
+## Decision contract
 
-Keep current model specifications and compact, dated validation summaries in
-`docs/`. Write generated audit logs, raw replay rows, wide field inventories,
-temporary patches and browser screenshots to a temporary or external output
-directory. Historical reports are evidence of their named version, not live
-model inputs; preserve their referenced reproduction material when cleaning
-generated files.
+1. Inputs: canonical Technical, Market risk context, bounded Profile modifiers. No fundamental/valuation/options/news votes.
+2. Independent Daily/Weekly, no overall Action, no cross-frame voting, no Action Score or equivalent composite score.
+3. Actions: `strong_buy`, `buy`, `accumulate`, `hold`, `trim`, `sell`, `short_sell`. Avoid and Cover are absent. There is no assumed holding/position state and no mandatory Action chain.
+4. Direction is fixed MA/MACD/ADX grouping. Confirmation uses independent RS, participation, RSI/ADX/momentum groups with correlated contributions capped. Tags cannot change stock Direction weights.
+5. Buy: confirmed bullish structure plus gates and executable Opportunity. Accumulate: support repair and independent improvement before a full reversal; it is not an automatic downgrade of a failed Buy.
+6. Trim: valid Reduce candidate with sustained momentum weakening plus independent weakening/failure evidence. A strong trend in a Reduce candidate can Hold. RSI >70 or Fear & Greed alone never creates Trim/Sell or a reversal.
+7. Sell: confirmed bearish direction/structure or current protected-structure failure; executable current-area exit, without needing a new entry plan. Missing necessary trusted Technical/Quote produces waiting Hold, never a fabricated exit.
+8. Short Sell: ordinary-stock Daily only, stricter confirmed bearish/participation/RS/risk gates, independent short entry zone, upper invalidation and at least 2R; never predict a top or chase a completed decline. It also supports long exit. Upper failure cancels the short plan and reevaluates normal actions; no Cover/automatic Buy.
+9. Ordinary stock and nonleveraged ETF share left Accumulate/Trim logic. Leveraged ETF: strict Daily right/repair entry; Weekly backgroundOnly, no executable entry plan. Inverse funds use their own trend; underlying direction is bounded confirmation only.
+10. Final Confidence describes final-action support consistency/stability, never probability; it follows the final Action and includes data, landscape and signal/price tension. It cannot substitute for an entry gate.
 
-## Decision Engine principles
+## Completed sources and canonical indicators
 
-1. A final recommendation may use only Technical data, Market data, and Profile modifiers.
-2. Fundamental, valuation, options, and news data must never enter a recommendation.
-3. Short, Mid, and Long are fully independent; never average or vote across them.
-4. There is no overall action.
-5. The only live actions are `strong_buy`, `buy`, `accumulate`, `hold`, `trim`, and `sell`. Avoid was removed at the user's request on 2026-10-09. Insufficient or untrusted data/structure produces explicit waiting Hold, never a fabricated Sell/exit plan. Preserve old history rows unchanged.
-6. Recommendation Confidence is support consistency and stability, not a probability.
-7. Traits modify model behavior; they never add fixed points.
-8. Exhaustion is a contrarian modifier, not an automatic reversal rule.
-9. Strong Buy must remain rare and guarded.
-10. Market data is primarily a risk regime, not a separate buy/sell engine.
-11. Final Action is jointly determined by Direction, Confirmation, Risk, Exhaustion, and Price Landscape / Price State; it is not calculated before the landscape.
-12. Never reintroduce Action Score or an equivalent numeric AI score.
+- Daily signals update after each exchange session close. Weekly updates after that week's last actual session close. Weekly OHLCV comes only from all expected completed Daily sessions, not a Daily fallback or provider-native weekly approximation.
+- `pivot_at` differs from `known_at` (right-side confirmation close). Never backdate levels, use future candles/actuals or upgrade unfinished bars into confirmed evidence.
+- Regular-hours Quote checks current location and immediate risk only. Store/display signal, quote and market times separately. A frozen prior-close Action is not a guarantee of a next-open fill.
+- Daily RSI14 primary/6 auxiliary; Weekly RSI21 primary/14 auxiliary. EMA20/50 primary in both; Daily SMA100/200, Weekly EMA10/SMA200 background. MACD12/26/9, ADX/DI14, Wilder ATR14, BB20/2 and KDJ9 are own-frame features.
+- Preserve useful full canonical MA, RSI, MACD, ADX/DI, ATR, Bollinger, KDJ, Volume/RVOL/OBV, RS, Fibonacci/history, Squeeze, structure/SMC and BB+RSI. Auxiliary windows stay inside their group or background, not independent votes.
+- Completed Daily is the only volume source. Daily RVOL20 primary and 5/60 auxiliary; average120/250 background. Weekly RVOL compares volume per actual session against like-for-like weekly averages; Weekly OBV uses actual weekly totals, not normalized volume. Daily OBV20, Weekly OBV12.
+- Completion provenance, stale Daily source, rejected required rows, conflicting consumed volume or missing required frame history produce explicit waiting. Optional120/250/200W background gaps do not block valid unrelated judgments. Weekly gaps never borrow Daily structure.
+- ATR is actual Wilder14, never modified by company tag. ATR% and own 60/120/250 observation percentiles provide frame-specific risk context. Zero/null/nonfinite rules are strict.
+- Fibonacci independently uses confirmed Daily/Weekly pivots; no shared mutable anchors or fallback. Premium/Discount is `(P-L)/(H-L)` of that same valid interval, not a separate valuation or buy vote.
+- BOS, protected-reference CHoCH and reclaimed Sweep are deterministic completed-price features. FVG is **shadow only**, zero Action/Confidence/zone contribution.
 
-## Technical horizons and roles
+## Stateless Price Landscape and action boundaries
 
-- Short (1–30 days): primarily 4H data with 1H support.
-- Mid (1–6 months): primarily Daily data with 4H support.
-- Long (>6 months): Weekly / long-Daily structure.
+Every refresh: latest snapshot → canonical Technical → Direction/Confirmation/
+Risk/Exhaustion → legitimate category confluence → Opportunity/Reduce/invalidation
+and independent short plan → current Price State → final Action → final Confidence.
 
-The technical roles are Direction, Confirmation, Risk, Price Opportunity, and Exhaustion. The Technical tab is the complete raw/interpreted technical-data view; the AI Decision tab presents only the final decision and its reasons.
+No previous ranges, clusters, scores, actions or history rows may select a new
+zone. Categories are Fibonacci, confirmed swing, moving average, Bollinger and
+52W/loaded history; same-category stacking is capped. ATR controls width and
+normalized distance, never invents a centre from Quote. Preserve
+`structureLevelsEnabled=false`: old return-retention failure has not been
+reversed by adding SMC confirmation. Known confirmed BOS can change the role
+of an already-existing matching swing.
 
-## Current indicator integration (2026-10-04)
+Opportunity.high < Reduce.low, with an ATR/frame/confluence-aware neutral
+buffer. If evidence cannot form honest separation/entry R, discard the plan
+and explain Hold; do not manufacture precision. Buy/Accumulate require >=1.5R,
+Strong Buy/Short Sell >=2R, before unverified fees/slippage/borrow. Evaluate all genuine candidate pairs for usable risk space before final ranking;
+a failed top pair must not suppress the remaining valid zones. Clip each
+unqualified candidate entry price against the nearest legitimate obstacle.
+Display rounding must not cause a threshold pass.
 
-The detailed pipeline, formulas, base weights, replay evidence and limitations
-are in [the current indicator model](docs/indicator-model-2026-10-04.md).
-The 2026-10-09 data-trust repair and its validation limits are documented in
-[the data repair summary](docs/data-quality-repair-2026-10-09.md). This adds
-source-quality guards, not new SMC or entry/Sell policies.
-Numerical policy remains authoritative in `decision-engine/config.js`; do not
-copy parameters into a second implementation or treat a dated replay report
-as the current production configuration.
+Near/Neutral is Hold. Opportunity can Hold if its independent gates fail.
+Reduce/Beyond Reduce can Hold without exhaustion; otherwise Trim or confirmed
+Sell. Confirmed bearish exit or hard risk is independent of the ordinary
+entry family. Short Sell has its own price family and its own upper stop.
 
-- Canonical Technical includes Squeeze Momentum, confirmed support/resistance
-  breaks/retests/failures, and Bollinger+RSI. The UI and EOD recorder use these
-  same features. The merged Bollinger+RSI card preserves all original RSI and
-  Bollinger data for each horizon.
-- Squeeze belongs inside the existing momentum/acceleration group. Structure
-  events modify the existing confirmation group. Bollinger+RSI belongs to
-  confirmation/exhaustion; correlated inputs are contribution-capped rather
-  than counted as independent Direction votes. Preserve ordinary-stock Short
-  V2 outer weights, entry gates and its original defensive baseline.
-- A pivot's `known_at` is its right-hand confirmation close, distinct from
-  `pivot_at`. Only completed, as-of-valid bars may produce confirmed events.
-  Supporting 1H/4H/Daily bars may confirm already-known 4H/Daily/Weekly
-  references; never backdate a pivot, use future closes, or promote a
-  provisional release/repair into a confirmed event.
-- Native 1H/4H and Daily retain completion/end/freshness provenance. Weekly
-  is explicitly `completed_weekly_from_daily`, not provider-native Weekly.
-  Missing provider timestamps or completion metadata remain unavailable.
-  Long trend uses completed Weekly/long-Daily observations; live Quote still
-  determines current execution position and immediate risk/invalidations.
-- Structure-event confirmation is enabled, but the separate expansion of
-  support/resistance Price Landscape candidates is disabled by
-  `structureLevelsEnabled=false`: its raw-replay return-retention check
-  failed. Do not silently re-enable it or manufacture a new opportunity
-  centre from current price. New retention evidence is required to change
-  this gate. The existing Price State/action-family rules remain mandatory.
-- No additional previous-Action comparison/history cache or previous-range
-  input is introduced. Preserve canonical Short persistence and existing
-  family-internal ETF/Mid/Long stability. Final Confidence follows Final
-  Action and includes landscape quality and legitimate price/signal tension.
-- Offline audits and later return labels never enter production. Earlier
-  structure-event detection is not proof of earlier profitable entry.
-  Preserve compact new-feature/version/gate context in future EOD rows,
-  exclude raw completion/end arrays, and never rewrite old history rows.
+Protected risk references carry identity, known time, active state and ATR at
+that time. Ordinary failure waits for the own-frame completed close; a Quote
+beyond the fixed hard boundary plus material buffer can exit immediately.
+ATR expansion cannot continually widen the same boundary. Retired broken
+references cannot permanently suppress a genuinely new repaired structure.
+No automatic left buy merely because a prior invalidation is now lower priced.
 
-## Price Landscape and execution semantics
+## Macro/event rules
 
-`enter`, `add`, `hold`, `reduce`, and `exit` are the only live execution intents. Decision UI may expose only:
+Official Fed/FRED calendars use IANA ET/Central conversion. BLS actual CPI and
+employment use consecutive monthly observations, correct units/periods,
+3-month context and known revision snapshots. Missing comparison stays null;
+rising unemployment alone is not automatically bullish. Latest fetched macro
+vintages never enter past replay as if they were known then.
 
-- `opportunityRange`
-- `currentPrice`
-- `reduceRange`
-- `invalidation`
+Market is risk/confirmation context, not Direction. Combine overlapping regime,
+yield and macro stress with a cap; issuer/release events are separate. A missing
+or stale overall risk context blocks new entry, while valid bearish exits can
+remain available. Calendar gaps block strict leveraged/short entry; ordinary
+stocks face raised gates. CPI/employment consensus is not required.
 
-Technical structure still supplies zone calculations, but never expose a remote support/resistance level as a predictive decision output. A positive action is permitted only inside the opportunity range; proximity alone is Hold. Hold occupies the Neutral space and both Near zones. Trim/Sell is permitted only inside or beyond the Reduce range unless a confirmed breakdown/invalidation path applies. A structural Sell uses an executable current-area exit after breakdown; it never waits for a distant rebound. An unavailable decision is waiting Hold and must not produce a fake exit plan.
+Major FOMC/CPI/jobs crossing the latest Daily close → next real session close
+pauses leveraged new entry and Short Sell until the first completed post-release
+Daily and verified actual. Ordinary stocks raise requirements, not a blanket
+ban. Sell is not blocked. Missing actuals do not become safe through elapsed
+time. FedWatch probability source is currently unavailable: show this explicitly;
+no invented/free-scraped/paid feed, no claim of a verified expectation surprise.
 
-`Price State` is the mandatory Action-Family input: `IN_OPPORTUNITY_ZONE`, `NEAR_OPPORTUNITY_ZONE`, `NEUTRAL_ZONE`, `NEAR_REDUCE_ZONE`, `IN_REDUCE_ZONE`, `BEYOND_REDUCE_ZONE`, `BREAKDOWN_ZONE`, or `INVALID_LANDSCAPE`.
+## Refresh transaction and resource constraints
 
-- For the unified ETF/Mid/Long paths, `IN_OPPORTUNITY_ZONE` permits only Strong Buy, Buy, or Accumulate. Ordinary-stock Short V2 permits Hold when its fixed entry evidence, event, shock, or risk gates fail; each reason remains explicit. Direction, Confirmation, Risk, Exhaustion, Market and Profile modifiers choose intensity inside that family. Opportunity itself never automatically creates Buy.
-- `NEAR_OPPORTUNITY_ZONE`, `NEUTRAL_ZONE`, and `NEAR_REDUCE_ZONE` all produce Hold. Near zones are informational analysis states only; they can affect reasons and confidence but cannot trigger an early entry or reduction.
-- For the unified ETF/Mid/Long paths, `IN_REDUCE_ZONE` and `BEYOND_REDUCE_ZONE` permit only Trim or Sell. Hold and every positive Action are prohibited; if the model needs Hold, rebuild the final landscape rather than add an exception.
-- Data trust is checked before all actionable families: stale Daily history, conflicting primary-interval volume, or insufficient required evidence produces waiting Hold. Invalid landscape also produces waiting Hold. Unavailable Confidence is capped by `config.confidence.unavailableMaximum`; stability cannot retain an old actionable recommendation over this guard.
-- Breakdown / invalidation permits Sell only with adequate data and bearish confirmation or a structural/material breakdown; price being high alone cannot create Sell.
-- Near-zone tolerance is ATR-normalized but capped by the Neutral buffer, so it cannot consume the entire Neutral state.
-- When a breakdown occurs, the exit range must re-anchor near the executable current area.
+- Render target: 512 MB RAM, 0.5 CPU, 1 GB disk. Reuse bounded normalized input, avoid deep clones/unbounded caches/heavy chart dependencies. Temporary clusters/series go out of scope after calculation. Company review cache remains capped at300; no Action/range cache is needed.
+- Manual/auto share a single in-flight promise and generation. Both request force=true/full watchlist; provider-safe batches must refresh every active ticker. Fetch shared Market once per full transaction.
+- Browser/server refresh at ET :10/:40, DST-safe wall-clock slots, not page-anchored intervals. A completed refresh means snapshot → both frames/Confidence/landscape → DOM → browser paint → loading ends/Last Refresh commits.
+- Last Refresh uses applied server freshness in America/New_York, explicitly ET. Failed/empty responses retain prior successful page/time and release loading; retry next slot. Explicit busy response may extend a bounded first-load deadline once.
+- Unverified alternate price adjustment bases cannot replace Daily data or borrow a trusted timestamp.
+- Source calendar construction is shared per bounded frame/date lookup, not per historical row/year. Quote metadata wait remains bounded; optional metadata failure cannot discard valid price history.
+- Active universe is only current shared watchlist, including authoritative empty lists; caches/old profiles/history cannot resurrect removed tickers.
 
-Final Confidence is calculated only after this Action-Family selection and must include data quality, stability, landscape quality, and legitimate price-state/signal tension. It must never be copied from a pre-landscape candidate action.
+## Offline EOD history
 
-Landscape invariants are mandatory: `opportunityRange.high < reduceRange.low`, with an ATR-, horizon-, and confluence-aware neutral buffer between them. If independent support/resistance clusters cannot form this separation, lower-quality clusters are discarded; if that still fails, the landscape is marked low/invalid and no fake precision range is emitted.
+History remains paused, default and Render Blueprint false. Tests/audits use
+isolated temporary databases only. If later authorized, the Render server's
+16:30 America/New_York recorder performs full refresh → same JavaScript engine
+→ two compact Daily/Weekly rows per ticker → single atomic SQLite transaction.
+Weekly rows preserve the last completed week's signal time even on weekdays.
 
-## Refresh and stateless Price Landscape contract
-
-Every dashboard data refresh rebuilds the entire current decision pipeline for
-every valid ticker and horizon:
-
-```
-latest Quote / OHLCV / Market
-→ canonical Technical normalization
-→ Direction / Confirmation / Risk / Exhaustion
-→ unified Price Structure / Confluence Engine
-→ Opportunity / Reduce / Invalidation
-→ Price State
-→ Final Action
-→ Final Confidence
-```
-
-Price Landscape construction is stateless. A prior Opportunity range, Reduce
-range, selected cluster, or cluster score may be used only for offline debug
-comparison; it must never be an input to a new production decision. Do not add
-cluster switching margins, previous-cluster preferences, range hysteresis, or
-stale landscape reuse. Action hysteresis remains separate and may only smooth
-actions inside the current Price State family.
-
-The single unified Price Structure Engine collects all available legitimate
-structure candidates, then ranks category-aware confluence zones. Current structure
-categories are Fibonacci (including Short Daily confirmation as the same
-category), confirmed swing, moving average, Bollinger, and 52-week/ATH
-historical structure. Add breakout/retest or volume-supported categories only
-when they exist as reliable canonical Technical data; do not invent them from
-current price. Multiple levels in one category refine a zone's location but are
-contribution-capped. Cross-category agreement, not a stack of nearby EMAs, is
-what raises confluence quality. ATR controls zone width and distance
-normalization, never zone center; current price alone must not drag an
-Opportunity range upward.
-
-Material conditions are checked on every refresh: earnings/event proximity,
-post-event gap, abnormal RVOL, ATR shock, major support breakdown/breakout,
-and market shock. They may invalidate the current landscape and bypass
-family-internal action hysteresis immediately.
-
-## Refresh completion contract
-
-A refresh is not complete when its HTTP request resolves. It proceeds through:
-
-```
-latest snapshot obtained
-→ canonical Technical normalization
-→ all Short/Mid/Long Decision, Landscape, Action, and Confidence calculations
-→ Dashboard DOM render
-→ browser paint
-→ Refreshing state ends and Last Refresh is updated
-```
-
-Manual and half-hour automatic refreshes must call the same full refresh
-transaction. Both send the existing `force=true` live-data request; Auto
-Refresh must never be cache-only while Manual Refresh is live/forced. Manual
-and automatic refreshes share one in-flight promise, and a monotonic refresh
-generation prevents a stale response from applying over a newer snapshot.
-This also prevents an automatic timer from overlapping a manual refresh (and
-vice versa). A failed automatic refresh leaves the prior successful Dashboard
-and Last Refresh unchanged, releases the loading state, and does not stop the
-next half-hour attempt.
-
-Both browser and server refresh schedules run every **30 minutes**, at minutes
-**10 and 40** in `America/New_York` (09:10, 09:40, 10:10, etc.), independent of page-open time and
-manual refreshes. Calculate the next future wall-clock slot, including DST;
-never use a page-anchored interval. Empty/null prices cannot mark a
-refresh successful or advance Last Refresh. Optional quote/profile metadata
-has a bounded wait alongside intraday history and cannot discard valid Daily
-price data. Market cache defaults beside the watchlist database so a Render
-persistent watchlist also keeps quote cache on its persistent disk.
-
-Normalize multi-year bars with one shared exchange calendar for the frame,
-and a date-to-session lookup scoped to that calculation. Do not rebuild a
-calendar for each historical year or retain an unbounded session/history
-cache. A first visit that receives explicit `refresh_in_progress` may extend
-its cache-request deadline once to the bounded live-refresh deadline; repeated
-busy responses cannot extend it indefinitely. Render unavailable watchlist
-rows while warming and explicitly disclose partial price availability.
-
-A browser-triggered live refresh is a **full requested-watchlist** server
-transaction, not one provider-limited request. The server may use small
-provider-safe batches, but it must force-refresh every requested ticker before
-returning the final cache snapshot. A later batch/newly added ticker must never
-be marked deferred merely because it was not in the first batch. Fetch shared
-market context once per batch transaction, then reuse it for the final snapshot
-instead of multiplying macro requests.
-
-The UI's Last Refresh uses the applied snapshot's server freshness
-(`last_dashboard_refresh` first), but is committed only after the whole
-transaction has applied the snapshot, recalculated all horizons, rendered the
-Dashboard, and completed a browser paint. Display it explicitly in
-`America/New_York`, with the `ET` label so daylight saving is correct; never
-use browser-local time, server-local time, or a fixed UTC-5 offset. The client
-may persist this single current timestamp to retain the displayed freshness
-across a reload; it must not become refresh history.
-
-## EOD Decision History contract
-
-Daily Decision History is an **offline-only** recorder for later validation;
-it is not a Dashboard UI/data source and must never become an input to a live
-Recommendation. The Render Web Service—not a browser timer, local Mac task,
-or client cron—runs it at **4:30 PM `America/New_York`**. The timezone must be
-named (DST-safe), never a fixed UTC offset.
-
-For each run, the server performs the production full live refresh first,
-then uses the same JavaScript `technical-features.js` and `decision-engine/`
-modules to calculate all Short/Mid/Long decisions, and only then atomically
-writes compact rows to SQLite:
-
-```
-full live refresh
-→ latest valid current-day market snapshot
-→ canonical Technical features / production Decision Engine
-→ Short, Mid, Long Decision snapshots
-→ one SQLite transaction / commit
-```
-
-The database is persistent-disk only: `DECISION_HISTORY_DB_PATH` has priority;
-otherwise use Render's writable `/var/data/历史记录.sqlite`, with
-`历史记录/历史记录.sqlite` as local-only fallback. SQLite files and exports must
-remain ignored by Git. No normal Dashboard request may open or preload this
-database. The recorder uses short connections/transactions, has no history
-cache, and discards temporary provider payloads and JS process state after a
-run. The one-shot Node serializer reads ticker files and streams compact output, heap-capped by
-`EOD_HISTORY_NODE_MAX_OLD_SPACE_MB` (Render Blueprint: `128`, young semi-space `4` MB) and exits after
-each write.
-
-`decision_history` has exactly one official row per
-`market_date + ticker + horizon`; repeat same-day runs UPSERT rather than
-duplicate. Store compact final Decision state, Price Landscape, core model
-states, market context, compact canonical technical features/reason codes, and
-stock/ETF profile context. EOD stock context may retain internal `sizeClass`
-for future offline analysis, but it must never promote it into a Company Trait
-or rewrite existing history rows. Never store raw OHLCV arrays or complete indicator
-series. `eod_runs` is a small operational table recording started/completed
-status, counts, error summary, and SQLite size. Unavailable tickers receive
-explicit unavailable rows after a valid market-day run.
-
-Before writing, validate that latest valid Daily data has the current ET
-trading date. Weekends and exchange holidays/no valid session are skipped;
-never copy yesterday's cache as today's EOD data. A ticker whose own latest
-Daily bar is stale is persisted as an explicit unavailable row, not an old
-Decision. The EOD run shares the full
-refresh lock with scheduled provider refresh, so it cannot mix cache generations;
-the scheduler may safely catch up only for the current date after 4:30 PM and
-still must pass this session validation. Scheduler/API failure leaves no
-partial success: all rows and the success state are committed together or
-rolled back.
-
-`历史记录/README-历史记录.md` documents operation, export, storage and the
-complete removal procedure. `历史记录/导出历史记录.py` is an offline-only CSV /
-JSON / JSONL exporter.
-
-## Fibonacci horizon provenance
-
-- Short Fibonacci: native 4H confirmed pivots first, with Daily only as a named secondary confirmation or explicit fallback.
-- Mid Fibonacci: independently derived Daily confirmed pivots.
-- Long Fibonacci: independently derived completed Weekly pivots; long-Daily is an explicit fallback only when Weekly cannot form a valid swing.
-
-Every horizon Fibonacci object has independent derivation/source identifiers. Equal anchors across horizons are allowed only when independently derived; never share a mutable Fibonacci object or silently map Short to Daily.
+Unique key market_date+ticker+horizon; no live history input, raw OHLCV arrays,
+complete series or unbounded cache. Heap-capped one-shot Node exits afterward.
+Current-day valid session is required; stale tickers are explicit unavailable.
+Legacy Short/Mid/Long rows (including Avoid) are unchanged; schema migration
+allows new keys but copies all old row values verbatim. Existing width-shadow
+columns remain only to preserve old rows, not new production experiments.
+Storage/export/removal: [history README](历史记录/README-历史记录.md).
 
 ## Profiles
 
@@ -328,13 +174,13 @@ cycle language under the centralized evidence threshold; strong secular-growth
 evidence may still select `HighGrowth`. Use the documented deterministic tie
 order and candidate scores—never ticker-specific overrides or category quotas.
 
-It stores compact current profiles in the persistent `company_profiles` table inside `watchlist.db`; Dashboard restart must not change their source of truth. The V2.1 migration runs once per stock when compact fresh/cached metadata is available, replaces legacy slot values with the current classifier result, removes legacy visible `MegaCap`, and stores `profile_schema_version = 2.1`. It is idempotent. Complete V2.1 profiles do not change on normal hourly refreshes. Incomplete profiles may fill a null slot, but never overwrite a populated slot outside the annual review.
+It stores compact current profiles in the persistent `company_profiles` table inside `watchlist.db`; Dashboard restart must not change their source of truth. The V2.1 migration runs once per stock when compact fresh/cached metadata is available, replaces legacy slot values with the current classifier result, removes legacy visible `MegaCap`, and stores `profile_schema_version = 2.1`. It is idempotent. Complete V2.1 profiles do not change on normal market refreshes. Incomplete profiles may fill a null slot, but never overwrite a populated slot outside the annual review.
 
 The only annual review date is **March 31, `America/New_York`**. A review does not force a change and sparse review metadata must never erase an established value. A valid review persists the date/provenance; it must also update the modifiers actually used by the engine. `profileConfidence` can remain in old rows, but its Final Confidence contribution is zero and the UI exposes no profile score. Confidence weights are renormalized over agreement/action strength/stability/data quality at 0.35/0.90, 0.25/0.90, 0.20/0.90, 0.10/0.90.
 
-The four visible slots use conservative, centralized, aggregate-then-cap modifiers for Direction/Confirmation weights, risk and exhaustion tolerance, market/rate/event sensitivity, execution gates, benchmark emphasis, and stability. Internal size context is narrower: it may affect only small bounded risk/market/stability sensitivity and never votes Direction, changes confirmation, or alters an action gate. No profile context may add action points, override Price State → Action Family, or create a second recommendation engine. General caps remain 0.85–1.15; justified special sensitivity caps remain 0.80–1.20.
+The four visible slots use conservative, centralized, aggregate-then-cap modifiers for Confirmation weights, risk and exhaustion tolerance, market/rate/event sensitivity, execution gates, benchmark emphasis, and stability. Internal size context is narrower: it may affect only small bounded risk/market/stability sensitivity and never votes Direction, changes confirmation, or alters an action gate. Stock Direction weights are fixed across identities. No profile may add action points, bypass a data/structure/location gate, or create a second recommendation engine. General caps remain 0.85–1.15; justified special sensitivity caps remain 0.80–1.20.
 
-For `longStability`, correlated maturity evidence from Business Trait,
+For `weeklyStability`, correlated maturity evidence from Business Trait,
 Lifecycle, and internal Size Class is combined as one group: retain its
 strongest contribution instead of stacking CashCow/EstablishedLeader/MegaCap
 as three copies of the same fact. Independent Primary and Risk stability
@@ -347,121 +193,18 @@ duplicate active symbol from a provider-form ticker.
 
 ETFs remain isolated policy families inside the same production release. They never receive stock profile slots, Company Traits, or a Lifecycle. ETF profile fields are `isETF`, `leveraged`, `direction` (`long` or `inverse`), `underlying`, and optional `underlyingTicker`. Ordinary long ETFs use the unified ETF technical/market policy with its preserved rules. Leveraged ETFs use stricter gates and higher risk, exhaustion, and market sensitivity. Inverse ETFs use inverted underlying direction only as bounded confirmation; their own Technical states remain the Direction source.
 
-## Accepted ordinary-stock Short V2 (2026-10-01)
 
-The current ordinary-stock Short path uses fixed workflow=3, direction=3, confirmation=0, risk=2, exhaustion=1, structure=6, entry=30, confirm=50, maxRisk=65, near=0.7, extension=3, exit=10, exhaustionGate=50, macro=0, reversal=false. All numerical policy/scales/groups stay in `decision-engine/config.js`. Fixed Direction and Confirmation group weights are not changed by stock identity. Profiles retain only bounded risk sensitivity and structural/benchmark background on this path; ETF/Mid/Long retain their existing modifiers.
+## Coding and verification
 
-Inside Reduce/Beyond Reduce, stock Short requires Direction <=10 and downward Confirmation >=50 for reduction (Sell below -45, otherwise Trim), or upside exhaustion <=-50 with weakening acceleration for Trim; otherwise Hold is explicit. Confirmed defensive Sell requires confirmed swing support, price below pivotLow-0.25 ATR, baseline Direction <=-68 and baseline Confirmation >=52. The immediate current-area exit bypasses planning-width transformation.
+Keep numerical policy centralized. UI reads final objects only. Null, blank,
+NaN/infinity and boolean numeric values never become zero. Missing labels use
+localized explicit fallback, never imply a neutral signal. No ticker-specific
+stock recommendation or classifier map. Delete dead legacy implementations.
 
-Stock Short uses canonical signal persistence and identity stability, without enabling the legacy action hysteresis. Final Confidence follows the final action and uses its corresponding confirmation. Width baseline/candidate diagnostics are recorded offline at EOD; no future labels or parameter search enters production. ATR% percentile windows use real valid observations, KDJ flags are true/false/unavailable, and unfinished bars are provisional indicator inputs but not confirmed-pivot observations.
-
-## Stability and performance
-
-The unified ETF/Mid/Long engine paths use family-internal hysteresis and material-change overrides. Ordinary-stock Short follows the identity/persistence path above. Its bounded stability/profile caches have a 300-entry limit. Hysteresis may only smooth actions within the current Price State family (Buy↔Accumulate, Trim↔Sell); it must never retain an action across Opportunity, Neutral, Reduce, or Breakdown family boundaries. Restarting may remove hysteresis history but must not make decisions incorrect because signal persistence is derived from existing technical history.
-
-Do not add unbounded recommendation history, duplicate Technical normalization/fetches, large deep clones, or heavy client chart libraries without a demonstrated need. Reuse normalized Technical/Market payloads once per refresh.
-
-Temporary price candidates and confluence clusters belong only to the active
-calculation. Do not retain candidate, cluster, debug, or landscape history in
-production; final Decision debug may retain only compact selected-zone
-provenance and candidate counts. The compact stability/profile caches remain capped at 300 entries;
-every decision must be correct after a restart even without either cache.
-
-## Coding rules
-
-- Keep Decision Engine parameters centralized in `decision-engine/config.js`; do not scatter magic numbers.
-- UI reads final Decision Objects only and never derives an action itself.
-- Preserve complete canonical Technical data: Fibonacci, MA, RSI, MACD, ADX/DI, ATR, Bollinger, KDJ, OBV, Volume/RVOL, Relative Strength, 52-week/history structure, Squeeze Momentum, support/resistance events, and Bollinger+RSI.
-- Missing data must remain unavailable; never fake neutral/bullish values.
-- Keep Chinese and English presentation strings synchronized, with a safe fallback for unknown reasons.
-- Delete dead legacy code rather than wrapping it for compatibility.
-- Every changed Decision behavior needs targeted tests.
-- Never add ticker-specific recommendation hardcodes.
-- Never add ticker-specific ordinary-stock profile definitions; preserve the ETF map as the separate ETF architecture.
-- Keep Company Profile V2.1 evidence compact and metadata-only. It must never use a short-term price move, RSI, MACD, or current recommendation to define company identity. Put every evidence threshold, score weight, sufficiency minimum, and tie-break order in `decision-engine/config.js`.
-
-## Common mistakes to avoid
-
-- `RSI > 70 => Sell` or `RSI < 30 => Buy`
-- `ATR high => Bearish`
-- `Fear & Greed => Buy/Sell`
-- allowing the market to override an individual stock
-- averaging Short/Mid/Long
-- trait `+5/-5` scoring
-- fixed-percentage buy zones
-- separate formulas for action and execution zones
-- previous-landscape reuse, cluster switching margins, or range hysteresis
-- counting a stack of same-category moving averages as independent confluence
-- allowing current price alone to manufacture a new Opportunity-zone centre
-- calculating a complete Action before Price State and patching it with reconciliation exceptions
-- treating a Near Opportunity or Near Reduce state as an actionable zone
-- allowing Buy/Accumulate outside the exact Opportunity range
-- allowing Trim/Sell outside the exact Reduce range without Breakdown/Invalidation
-- Buy while current price is in a Reduce zone
-- Hold while current price is in a Reduce zone on the strict ETF/Mid/Long paths; ordinary-stock Short V2 has the accepted evidence-gated Hold rule above
-- overlapping Opportunity and Reduce zones, or a $0.01 fake neutral buffer
-- assuming Opportunity automatically means Buy
-- Current price between opportunity and reduce ranges but still Sell without breakdown
-- Sell caused only by a high price
-- showing remote technical support as a prediction
-- reintroducing removed decision-target concepts under another name
-- using Daily-only Fibonacci for Short without an explicit fallback reason
-- sharing a Fibonacci object across horizons, or forcing different anchors merely to make horizons look different
-- ETF using fake company traits
-- free-form, provider-sector, or legacy tags as Company Traits (`Technology`, `Equity`, `DiversifiedBusiness`, `UnreviewedProfile`)
-- exposing `MegaCap` as a Business Trait, Company Trait, visible UI tag, or visible Applied Modifier
-- treating market capitalization alone as a Business Trait or a Lifecycle
-- classifying `Scaling` from revenue growth alone, or `Recovery` from generic non-issuer recovery language
-- generic `EstablishedLeader` or a business/risk trait without direct metadata evidence
-- rolling 365-day Company Profile reviews, profiles that churn hourly, or annual sparse data erasing valid profile fields
-- applying a Company Profile modifier outside the centralized bounded V2 matrix
-- inverse ETF ignoring its underlying
-- leveraged ETF using identical risk rules as a 1x ETF
-- rendering Hold as Buy or Avoid as Sell
-
-## Testing
-
-Run from the repository root:
-
-```bash
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/decision-engine.test.js
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/unified-model.test.js
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/decision-api.test.js
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/company-profile.test.js
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/technical-features.test.js
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/indicator-modules.test.js
-/private/tmp/stock-dashboard-final-venv/bin/python3 -m unittest discover -s tests -p 'indicator_data_test.py'
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/dashboard-regression.test.js
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/dashboard-network.test.js
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/dashboard-schedule.test.js
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/dashboard-language.test.js
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/decision-ui.test.js
-/private/tmp/stock-dashboard-final-venv/bin/python3 -m unittest discover -s tests -p 'server_availability_test.py'
-/private/tmp/stock-dashboard-final-venv/bin/python3 -m unittest discover -s tests -p 'refresh_price_test.py'
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/decision-audit.js
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/decision-shadow.js
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/fibonacci-audit.js
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node --expose-gc scripts/refresh-memory-audit.js
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/company-profile-audit.js
-/private/tmp/stock-dashboard-final-venv/bin/python3 -m unittest discover -s tests -p 'eod_history_test.py'
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/eod-history-node.test.js
-/Users/vincentwang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/final-model.test.js
-/private/tmp/stock-dashboard-final-venv/bin/python3 -m unittest discover -s tests -p 'service_resources_test.py'
-```
-
-`decision-engine.test.js` includes joint price/action consistency, stateless-refresh, category-aware confluence, annual-review, ETF, and coverage checks. `company-profile.test.js` protects V2 vocabularies, metadata-only/ticker-independent classification, modifier caps, annual-review boundaries, and ETF isolation. `technical-features.test.js` protects canonical data completeness and independent Fibonacci provenance. `dashboard-regression.test.js` protects data/UI regressions. `decision-audit.js`, `decision-shadow.js`, `fibonacci-audit.js`, `refresh-memory-audit.js`, and `company-profile-audit.js` are bounded cache-only audits.
-`eod_history_test.py` and `eod-history-node.test.js` protect the independent
-SQLite scheduler/write path and compact production-engine snapshot serializer.
-`indicator-modules.test.js` and `indicator_data_test.py` protect the new
-formulas, causal event times, provisional/missing inputs, native-history
-extension, unchanged defensive baseline, Long trend stability, and the closed
-structure-range retention gate. `indicator-replay.js` and
-`structure-event-audit.js` are offline raw-bar validation tools; keep their
-inputs/outputs outside production data and the repository.
-
-`unified-model.test.js` protects one production version across all policies, the removed V1 fallback, and browser/API module loading. `decision-api.test.js` protects the existing `decision.v1` wire shape with the current unified model version. Historical versions are read only by explicit offline comparison tools; never recreate a V1 switch in production.
-
-`dashboard-network.test.js`, `dashboard-schedule.test.js`, and
-`refresh_price_test.py` protect empty-price rejection, failure recovery,
-shared Manual/Auto refreshes, fixed ET :10 / :40 slots (including both DST
-transitions), bounded metadata enrichment and valid price/history retention.
+Each changed decision behavior requires targeted tests. Use existing tests and
+read-only scripts; do not store broad audit output in the repo. Required checks:
+all tests/*.test.js, Python unittest tests/*_test.py, source-completion/independent
+math, causal structure and offline diagnostics, browser rendering/interactions,
+bounded refresh/serializer memory. Historical diagnostics do not prove future
+profitability or optimal thresholds. No push/deployment/history activation without
+its authorized scope.

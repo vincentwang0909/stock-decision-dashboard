@@ -28,8 +28,8 @@ class RefreshPriceTests(unittest.TestCase):
         self.addCleanup(validation.exchange_calendar.cache_clear)
         for _ in range(2):
             payload = server._history_payload(raw)
-            self.assertEqual(len(payload['completed']), len(raw))
-            self.assertEqual(payload['closes'], [100.] * len(raw))
+            self.assertEqual(len(payload['completed']), len(validation.validate_us_daily_frame(raw)[0]))
+            self.assertEqual(payload['closes'], [100.] * len(payload['completed']))
         self.assertEqual(validation.exchange_calendar.cache_info().misses, 1,
                          'one shared calendar, instead of rebuilding all eleven years for every ticker')
 
@@ -70,7 +70,6 @@ class RefreshPriceTests(unittest.TestCase):
         with patch.object(server, 'provider_ticker', return_value=object()), \
              patch.object(server, 'load_incremental_daily_history', return_value=history), \
              patch.object(server, 'read_market_cache', return_value=None), \
-             patch.object(server, 'load_technical_intraday_history_frames', return_value=(None, (pd.DataFrame(), {}, 'source_unavailable'))), \
              patch.object(server.AUXILIARY_TASKS, 'submit', return_value=future), \
              patch.object(server, 'QUOTE_METADATA_TIMEOUT_SECONDS', .001):
             return server.fetch_us_quote_with_yfinance('TEST')
@@ -85,8 +84,25 @@ class RefreshPriceTests(unittest.TestCase):
         self.assertEqual(quote['updatedAt'], '2026-10-01T20:00:00Z')
         self.assertEqual(quote['metadata']['quoteMetadataStatus'], 'unavailable')
         self.assertIsNone(quote['metadata']['industry'])
-        self.assertEqual(quote['history']['intervals']['4h']['availability'], 'unavailable')
+        self.assertNotIn('intervals', quote['history'])
         self.assertFalse(pending.cancelled(), 'timeout must not release or restart running work')
+
+    def test_undated_future_or_older_quote_cannot_borrow_history_timestamp(self):
+        for stamp in (None, int(datetime(2029,1,1,tzinfo=timezone.utc).timestamp()), int(datetime(2026,9,30,20,tzinfo=timezone.utc).timestamp())):
+            metadata=Future()
+            metadata.set_result(({'regularMarketPrice':999,'regularMarketTime':stamp}, {}, {}, {}, False))
+            quote=self.quote_with_metadata_future(metadata)
+            self.assertEqual(quote['price'],101)
+            self.assertEqual(quote['updatedAt'],'2026-10-01T20:00:00Z')
+            self.assertEqual(quote['metadata']['historyBasisAlignment'],'same_history_source')
+
+    def test_unverified_stooq_is_not_an_automatic_daily_price_replacement(self):
+        class Missing:
+            def history(self, **kwargs):
+                return pd.DataFrame()
+        with patch.object(server.yf,'download',return_value=pd.DataFrame()), patch.object(server,'fetch_yahoo_chart_frame',return_value=pd.DataFrame()), patch.object(server,'fetch_stooq_chart_frame') as stooq:
+            self.assertTrue(server.load_yfinance_history_frame(Missing(),'TEST',period='10y').empty)
+            stooq.assert_not_called()
 
     def test_earlier_metadata_generation_cannot_replace_current_price(self):
         future = Future()

@@ -15,7 +15,7 @@
   --action-hold: #8bb7d8;
   --action-trim: #e5aa60;
   --action-sell: #df827b;
-  --action-avoid: #b96b72;
+  --action-short-sell: #b96b72;
   --buy: var(--action-buy);
   --buy-bg: rgba(79, 144, 96, 0.18);
   --hold: var(--action-hold);
@@ -32,8 +32,8 @@
   --trim-bg: rgba(174, 107, 35, 0.18);
   --profit: #ff7b4f;
   --profit-bg: rgba(185, 78, 45, 0.26);
-  --avoid: var(--action-avoid);
-  --avoid-bg: rgba(137, 55, 65, 0.19);
+  --short-sell: var(--action-short-sell);
+  --short-sell-bg: rgba(137, 55, 65, 0.19);
   --accent: #8ec5ff;
   --shadow: 0 24px 64px rgba(0, 0, 0, 0.42);
   --space-xs: 4px;
@@ -429,7 +429,7 @@ body.modal-open {
 .analysis-pill.trim-reduce { color: var(--trim); }
 .analysis-pill.take-profit { color: var(--profit); }
 .analysis-pill.sell { color: var(--sell); }
-.analysis-pill.avoid { color: var(--avoid); }
+.analysis-pill.short-sell { color: var(--short-sell); }
 
 .analysis-grid {
   display: grid;
@@ -1550,7 +1550,7 @@ thead tr.subhead th[data-group-cell] {
 .action.trim-reduce { color: var(--trim); }
 .action.take-profit { color: var(--profit); }
 .action.sell { color: var(--sell); }
-.action.avoid { color: var(--avoid); }
+.action.short-sell { color: var(--short-sell); }
 .action.na { color: var(--muted); }
 
 .price-cell {
@@ -2009,9 +2009,9 @@ tbody tr.selected-row td {
 }
 
 .stock-mini-chip.sell,
-.stock-mini-chip.avoid {
-  color: var(--avoid);
-  background: var(--avoid-bg);
+.stock-mini-chip.short-sell {
+  color: var(--short-sell);
+  background: var(--short-sell-bg);
 }
 
 .stock-current-action {
@@ -2110,7 +2110,7 @@ tbody tr.selected-row td {
 
 .decision-core-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -2181,10 +2181,10 @@ tbody tr.selected-row td {
   color: var(--sell);
 }
 
-.decision-core-card.avoid strong,
-.detail-kpi-card.avoid strong,
-.dimension-card.avoid strong {
-  color: var(--avoid);
+.decision-core-card.short-sell strong,
+.detail-kpi-card.short-sell strong,
+.dimension-card.short-sell strong {
+  color: var(--short-sell);
 }
 
 .detail-consensus-mini {
@@ -2835,7 +2835,7 @@ tbody tr.selected-row td {
 .stock-mini-chip.hold { color: var(--action-hold); background: var(--hold-bg); border-color: rgba(139, 183, 216, 0.18); }
 .stock-mini-chip.trim { color: var(--action-trim); background: var(--trim-bg); border-color: rgba(229, 170, 96, 0.2); }
 .stock-mini-chip.sell { color: var(--action-sell); background: var(--sell-bg); border-color: rgba(223, 130, 123, 0.2); }
-.stock-mini-chip.avoid { color: var(--action-avoid); background: var(--avoid-bg); border-color: rgba(185, 107, 114, 0.2); }
+.stock-mini-chip.short-sell { color: var(--action-short-sell); background: var(--short-sell-bg); border-color: rgba(185, 107, 114, 0.2); }
 
 .detail-sheet { width: min(1180px, calc(100vw - 32px)); padding: var(--space-xl); border-radius: var(--radius-lg); }
 .detail-tab-panel, .detail-tab-section { gap: var(--space-md); }
@@ -3032,3 +3032,9 @@ tbody tr.selected-row td {
   .market-status-primary { grid-template-columns: 1fr; }
   .price-map-label { width: min(116px, 34vw); font-size: 0.62rem; }
 }
+
+.decision-signal-time { color: var(--muted, #a8b4c7); font-size: .74rem; margin: 8px 0; }
+.decision-gate-reason { font-size: .78rem; line-height: 1.5; min-height: 2.4em; }
+.stock-mini-chip.short-sell { color: #ff8890; }
+.price-map-range.short_entry { background: rgba(240, 106, 126, .3); border: 1px solid #f06a7e; }
+.price-map-key.short_entry { background: #f06a7e; }

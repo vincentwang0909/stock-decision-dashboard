@@ -7,18 +7,14 @@
   // One production release, with independently evaluated horizon/asset policies.
   // There is no version switch or ordinary-stock Short fallback.
   function decideHorizon(input) {
-    if (input.horizon === "short" && !input.profile?.isETF) {
-      const profile = engine.profile.forHorizon(input.profile, input.horizon);
-      const technical = engine.technical.evaluate(input.technicalFeatures, input.horizon, input.price, profile);
-      return engine.shortV2.decide({ ...input, technical, profile });
-    }
+    if (!engine.config.horizons[input.horizon]) throw new TypeError("Unknown V2 horizon");
     return engine.horizonV2.decide(input);
   }
 
   function decide(input = {}) {
     const profile = engine.profile.build(input.classification || {}, input.ticker);
     const market = engine.market.evaluate(input.marketContext || {}, input.metadata || {});
-    const horizons = Object.fromEntries(["short", "mid", "long"].map((horizon) => [horizon, decideHorizon({ ...input, horizon, market, profile })]));
+    const horizons = Object.fromEntries(Object.keys(engine.config.horizons).map((horizon) => [horizon, decideHorizon({ ...input, horizon, market, profile })]));
     return { version: engine.config.version, ticker: input.ticker, horizons, generatedAt: new Date().toISOString() };
   }
 

@@ -4,29 +4,38 @@
 
   const finite = (value) => value == null || typeof value === "boolean" || (typeof value === "string" && !value.trim()) ? null : Number.isFinite(Number(value)) ? Number(value) : null;
   const validRange = (range) => finite(range?.low) > 0 && finite(range?.high) > finite(range?.low);
-  const actionIntent = Object.freeze({ strong_buy: "enter", buy: "enter", accumulate: "add", hold: "hold", trim: "reduce", sell: "exit", avoid: "avoid" });
-  const actionTone = Object.freeze({ strong_buy: "strong-buy", buy: "buy", accumulate: "accumulate", hold: "hold", trim: "trim", sell: "sell", avoid: "avoid" });
+  const actionIntent = Object.freeze({ strong_buy: "enter", buy: "enter", accumulate: "add", hold: "hold", trim: "reduce", sell: "exit", short_sell: "short_enter" });
+  const actionTone = Object.freeze({ strong_buy: "strong-buy", buy: "buy", accumulate: "accumulate", hold: "hold", trim: "trim", sell: "sell", short_sell: "short-sell" });
   const REASONS = Object.freeze({
+    waiting_required_data: { en: "Required completed-bar data or structure is missing or untrusted.", zh: "必要的完成周期数据或结构不足／不可信，等待更新。" },
+    waiting_benchmark_confirmation: { en: "Aligned benchmark history is missing for this horizon.", zh: "缺少该周期日期一致的基准历史，等待确认。" },
+    waiting_valid_landscape: { en: "No valid structural entry plan with sufficient reward/risk.", zh: "真实结构尚未形成空间足够的入场计划。" },
+    price_outside_entry: { en: "Direction alone is insufficient: current price is outside the valid entry range.", zh: "方向信号本身不足以执行；当前价格不在有效入场区。" },
+    reduce_candidate_without_exhaustion: { en: "Price is in the reduce candidate area, but exhaustion is unconfirmed.", zh: "价格进入减仓候选区，但衰竭证据不足，继续观察。" },
+    waiting_entry_confirmation: { en: "Early repair or confirmed right-side entry requirements are incomplete.", zh: "早期修复或右侧入场条件尚未完整满足。" },
+    waiting_strict_right_confirmation: { en: "Leveraged ETFs require stricter confirmed right-side structure.", zh: "杠杆 ETF 需要更严格的右侧结构确认。" },
+    early_support_repair: { en: "Support rejection is completed, momentum is improving and independent evidence supports gradual entry.", zh: "完成周期出现止跌／收回支撑，动量持续改善并有独立证据，支持逐步加仓。" },
+    confirmed_pullback_entry: { en: "Bullish structure and its pullback are confirmed at a valid entry price.", zh: "上行结构及回踩获得确认，当前价格满足入场条件。" },
+    confirmed_continuation_entry: { en: "Confirmed bullish continuation has a valid structural entry range and risk space.", zh: "上行延续结构获确认，新的真实入场区和风险空间有效。" },
+    strong_confirmed_right_entry: { en: "Strong aligned confirmation, controlled risk and at least 2R support entry.", zh: "强趋势、同向确认和受控风险，结构空间至少 2R。" },
+    early_upside_exhaustion: { en: "Momentum is persistently weakening with independent evidence in the reduce area.", zh: "减仓候选区内推动力持续减弱，并有独立证据支持提前减仓。" },
+    confirmed_long_exit: { en: "Confirmed bearish structure or invalidation supports exiting long exposure in the current area.", zh: "确认转空或关键多头结构失效，支持在当前区域退出多头。" },
+    confirmed_short_entry: { en: "Confirmed bearish continuation and an independent short plan meet stricter gates and 2R; also supports long exit.", zh: "确认空头延续，独立开空区及上方风险位满足严格门槛与 2R；同时支持退出多头。" },
+    major_release_entry_pause: { en: "A major release crosses the execution window; leveraged entries and new shorts wait for its first completed Daily close.", zh: "执行窗口跨越重大发布；杠杆新进入及新做空等发布后首根日线收盘再核验。" },
+    waiting_event_calendar: { en: "The calendar required for this entry policy cannot be verified.", zh: "此类入场必需的发布日历暂不能核实。" },
+    waiting_market_context: { en: "The market risk context required for a new entry is missing or stale.", zh: "新进入所需的市场风险数据缺失或已过期。" },
+    market_shock_blocks_entry: { en: "Market shock blocks new entries.", zh: "市场冲击阻止新进入。" },
+    macro_actuals_unavailable: { en: "Official macro actuals are unavailable; no favourable assumption is made.", zh: "官方宏观实际发布暂不可用，不假设为利好。" },
+    leveraged_weekly_background: { en: "Leveraged ETF Weekly is trend background; execute using Daily.", zh: "杠杆 ETF 周线仅展示趋势背景，以日线执行。" },
+    short_plan_invalidated: { en: "Price invalidates the upper boundary of the current short plan.", zh: "价格突破当前空头计划的上方失效位，该计划不再具备开空资格。" },
+
     market_context_is_unavailable_its_risk_regime_cannot_be_verified: { en: "Market context is unavailable; its risk regime cannot be verified.", zh: "市场上下文不可用，无法核实当前风险环境。" },
     squeeze_momentum_supports_upside: { en: "Squeeze momentum is positive and strengthening.", zh: "挤压动量为正且正在增强。" },
     squeeze_momentum_supports_downside: { en: "Squeeze momentum is negative and strengthening.", zh: "挤压指标的负向动量正在增强。" },
     confirmed_structure_supports_upside: { en: "An already-known structure has a confirmed upward event.", zh: "此前已知的结构出现已确认向上事件。" },
     confirmed_structure_limits_upside: { en: "An already-known structure has a confirmed downward or failed event.", zh: "此前已知的结构出现已确认下行或失败事件。" },
-    v2_wait: { en: "Evidence does not support a new action.", zh: "当前证据不足以支持新动作。" },
-    v2_missing: { en: "Required technical evidence is unavailable.", zh: "核心技术证据不可用。" },
     daily_price_history_is_stale_wait_for_a_current_validated_snapshot: { en: "Daily price history is stale; wait for a current validated snapshot.", zh: "日线历史已过期，等待当前有效数据后再判断。" },
     required_technical_evidence_is_unavailable_wait_for_validated_data: { en: "Required technical evidence is unavailable; wait for validated data.", zh: "核心技术证据不可用，等待有效数据后再判断。" },
-    v2_break: { en: "Price broke confirmed swing support with bearish confirmation.", zh: "价格跌破已确认波段支撑，原技术趋势与确认满足防御退出门槛。" },
-    v2_structure_missing: { en: "Independent structures cannot form valid separated ranges.", zh: "独立结构不能构成有效、分离的规划区间。" },
-    v2_entry: { en: "Trend and participation support entry inside structural support.", zh: "价格位于机会区间，趋势及量价参与支持入场。" },
-    v2_weak_resistance: { en: "Bearish evidence is confirmed in the reduce range.", zh: "价格位于减持区间且下行证据获得确认。" },
-    v2_exhausted_resistance: { en: "Upside stretch accompanies weakening momentum in the reduce range.", zh: "价格位于减持区间，上侧伸展伴随边际动量走弱。" },
-    v2_trend_resistance: { en: "Resistance alone does not outweigh the continuing trend.", zh: "趋势仍延续，阻力位置本身不足以触发减持。" },
-    v2_event: { en: "The recorded earnings window blocks a new entry.", zh: "当时已知财报剩余 0–6 天，暂停新增买入或加仓。" },
-    v2_risk: { en: "Execution risk exceeds the entry limit.", zh: "执行风险超过入场上限，暂时持有。" },
-    v2_entry_unconfirmed: { en: "Support location is suitable but entry evidence is insufficient.", zh: "机会位置合适，但入场参与或向上确认不足。" },
-    v2_location: { en: "Current price lacks an entry location with sufficient room.", zh: "当前价格不在满足空间和位置约束的入场区域。" },
-    v2_shock: { en: "A market shock blocks a new entry.", zh: "市场冲击暂停新增入场。" },
     obv_participation_improving: { en: "OBV participation is improving.", zh: "OBV 参与度正在改善。" },
     obv_participation_weakening: { en: "OBV participation is weakening.", zh: "OBV 参与度正在走弱。" },
     moving_average_structure_bearish: { en: "Moving-average structure is bearish.", zh: "均线结构偏空。" },
@@ -41,7 +50,7 @@
     primary_moving_average_structure_is_constructive: { en: "Primary moving-average structure is constructive.", zh: "主要均线结构具有建设性。" },
     primary_macd_structure_supports_the_current_upside_direction: { en: "Primary MACD structure supports the current upside direction.", zh: "主要 MACD 结构支持当前上行方向。" },
     relative_strength_is_confirming_versus_the_selected_benchmarks: { en: "Relative Strength is confirming versus the selected benchmarks.", zh: "相对强弱正在确认并跑赢所选基准。" },
-    obv_and_volume_participation_are_confirming_accumulation: { en: "OBV and volume participation are confirming accumulation.", zh: "OBV 与成交量参与度正在确认资金吸筹。" },
+    obv_and_volume_participation_are_confirming_accumulation: { en: "Completed Daily volume and Daily-derived OBV support accumulation.", zh: "已完成日线成交量与基于日线的 OBV 支持吸筹判断。" },
     several_technical_structures_form_nearby_support_confluence: { en: "Several technical structures form nearby support confluence.", zh: "多个技术结构在附近形成支撑共振。" },
     primary_moving_average_structure_remains_bearish: { en: "Primary moving-average structure remains bearish.", zh: "主要均线结构仍然偏空。" },
     primary_macd_structure_still_confirms_downside_momentum: { en: "Primary MACD structure still confirms downside momentum.", zh: "主要 MACD 结构仍在确认下行动量。" },
@@ -101,7 +110,8 @@
       hold: { opportunity: "potentialAddRange", reduce: "potentialReduceRange", invalidation: "riskInvalidation" },
       reduce: { opportunity: "reevaluationRange", reduce: "recommendedReduceRange", invalidation: "riskInvalidation" },
       exit: { opportunity: "reevaluationRange", reduce: "recommendedExitRange", invalidation: "riskInvalidation" },
-      avoid: { opportunity: "reevaluationRange", reduce: null, invalidation: null },
+      short_enter: { opportunity: "shortEntryRange", reduce: null, invalidation: "shortInvalidation" },
+      background: { opportunity: null, reduce: null, invalidation: null },
     };
     return { intent, ...(labels[intent] || labels.hold) };
   }
@@ -182,10 +192,14 @@
     const current = finite(landscape.currentPrice) ?? finite(currentPrice);
     const execution = executionSemantics(decision);
     const points = [];
-    if (validRange(landscape.opportunityRange)) points.push({ id: "opportunity", low: finite(landscape.opportunityRange.low), high: finite(landscape.opportunityRange.high), labelKey: execution.opportunity, distance: nearestRangeDistance(current, landscape.opportunityRange) });
-    if (validRange(landscape.reduceRange)) points.push({ id: "reduce", low: finite(landscape.reduceRange.low), high: finite(landscape.reduceRange.high), labelKey: execution.reduce, distance: nearestRangeDistance(current, landscape.reduceRange) });
-    const invalidation = finite(landscape.invalidation);
-    if (invalidation != null) points.push({ id: "invalidation", value: invalidation, labelKey: execution.invalidation || "riskInvalidation", distance: current == null ? null : { within: false, percent: (invalidation - current) / current * 100 } });
+    if (decision.action === "short_sell") {
+      if (validRange(landscape.shortEntryRange)) points.push({id:"short_entry",low:finite(landscape.shortEntryRange.low),high:finite(landscape.shortEntryRange.high),labelKey:"shortEntryRange",distance:nearestRangeDistance(current,landscape.shortEntryRange)});
+      if (finite(landscape.shortInvalidation)>0) points.push({id:"invalidation",value:finite(landscape.shortInvalidation),labelKey:"shortInvalidation"});
+    } else {
+      if (validRange(landscape.opportunityRange)) points.push({id:"opportunity",low:finite(landscape.opportunityRange.low),high:finite(landscape.opportunityRange.high),labelKey:execution.opportunity,distance:nearestRangeDistance(current,landscape.opportunityRange)});
+      if (validRange(landscape.reduceRange)) points.push({id:"reduce",low:finite(landscape.reduceRange.low),high:finite(landscape.reduceRange.high),labelKey:execution.reduce,distance:nearestRangeDistance(current,landscape.reduceRange)});
+      if (finite(landscape.invalidation)>0) points.push({id:"invalidation",value:finite(landscape.invalidation),labelKey:execution.invalidation});
+    }
     if (current != null) points.push({ id: "current", value: current, labelKey: "currentPrice", distance: null });
     const values = points.flatMap((point) => point.value != null ? [point.value] : [point.low, point.high]).filter(Number.isFinite);
     if (!values.length) return { execution, points: [], labels: [], legend: [], min: null, max: null, position: () => null };
@@ -207,7 +221,7 @@
       hold: { en: "There is not enough evidence to add or reduce exposure now.", zh: "当前没有足够证据增加或减少风险暴露。" },
       trim: { en: "Risk/reward has deteriorated; consider reducing part of the exposure.", zh: "当前风险收益恶化，可考虑减少部分暴露。" },
       sell: { en: "The structure supports materially reducing risk exposure.", zh: "当前结构支持明显降低风险暴露。" },
-      avoid: { en: "Current conditions do not support establishing a new position.", zh: "当前条件不适合建立新仓位。" },
+      short_sell: { en: "A confirmed bearish setup meets the stricter independent short-entry conditions.", zh: "已确认空头结构满足更严格的独立开空条件。" },
     };
     return messages[action]?.[language === "zh" ? "zh" : "en"] || messages.hold[language === "zh" ? "zh" : "en"];
   }

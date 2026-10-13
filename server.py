@@ -54,7 +54,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 from 历史记录 import 历史记录数据库 as eod_history_db
 from server_resources import BoundedTaskPool, BoundedTTLCache, ApplyToken, TaskBudgetExceeded, memory_snapshot
-from market_data_validation import validate_frame, validate_us_daily_frame, completed_week_metadata, exchange_calendar, session as exchange_session, reconcile_intraday_volume, daily_history_freshness, SOURCE_VALIDATION_VERSION
+from market_data_validation import validate_frame, validate_us_daily_frame, completed_week_metadata, exchange_calendar, session as exchange_session, daily_history_freshness, SOURCE_VALIDATION_VERSION
 
 ENV_FILE = os.path.join(ROOT, ".env")
 if os.path.exists(ENV_FILE):
@@ -86,15 +86,9 @@ QUOTE_METADATA_TIMEOUT_SECONDS = float(os.environ.get("QUOTE_METADATA_TIMEOUT_SE
 # be requested with an environment override, but `max` is too slow/unreliable
 # for a dashboard quote request and can make every row appear unavailable.
 TECHNICAL_DAILY_HISTORY_PERIOD = os.environ.get("TECHNICAL_DAILY_HISTORY_PERIOD", "10y")
-TECHNICAL_INTRADAY_HISTORY_PERIOD = os.environ.get("TECHNICAL_INTRADAY_HISTORY_PERIOD", "365d")
-TECHNICAL_FOUR_HOUR_HISTORY_PERIOD = os.environ.get("TECHNICAL_FOUR_HOUR_HISTORY_PERIOD", "365d")
 TECHNICAL_DAILY_MAX_BARS = int(os.environ.get("TECHNICAL_DAILY_MAX_BARS", "2800"))
-TECHNICAL_INTRADAY_MAX_BARS = int(os.environ.get("TECHNICAL_INTRADAY_MAX_BARS", "6000"))
 # Native 4H and 1H requests run concurrently. This is the shared deadline for
 # the pair, not a reason to synthesize or substitute a missing timeframe.
-TECHNICAL_INTRADAY_FETCH_TIMEOUT_SECONDS = float(os.environ.get("TECHNICAL_INTRADAY_FETCH_TIMEOUT_SECONDS", "4.5"))
-TECHNICAL_FOUR_HOUR_BAR_METHOD = "provider_native_v1"
-TECHNICAL_FOUR_HOUR_TIMEZONE = "America/New_York"
 PROVIDER_CONNECT_TIMEOUT_SECONDS = float(os.environ.get("PROVIDER_CONNECT_TIMEOUT_SECONDS", "3"))
 PROVIDER_READ_TIMEOUT_SECONDS = float(os.environ.get("PROVIDER_READ_TIMEOUT_SECONDS", "5"))
 OPTIONS_FETCH_TIMEOUT_SECONDS = float(os.environ.get("OPTIONS_FETCH_TIMEOUT_SECONDS", "6"))
@@ -110,7 +104,7 @@ DASHBOARD_REFRESH_MINUTE = 40
 DASHBOARD_REFRESH_MINUTES = tuple(range(DASHBOARD_REFRESH_MINUTE % DASHBOARD_REFRESH_INTERVAL_MINUTES,
                                         60, DASHBOARD_REFRESH_INTERVAL_MINUTES))
 BACKGROUND_MARKET_REFRESH_ON_START = os.environ.get("BACKGROUND_MARKET_REFRESH_ON_START", "true").strip().lower() not in {"0", "false", "no", "n"}
-EOD_HISTORY_ENABLED = os.environ.get("EOD_HISTORY_ENABLED", "true").strip().lower() not in {"0", "false", "no", "n"}
+EOD_HISTORY_ENABLED = os.environ.get("EOD_HISTORY_ENABLED", "false").strip().lower() not in {"0", "false", "no", "n"}
 EOD_HISTORY_STARTUP_DELAY_SECONDS = int(os.environ.get("EOD_HISTORY_STARTUP_DELAY_SECONDS", "30"))
 EOD_HISTORY_NODE_TIMEOUT_SECONDS = int(os.environ.get("EOD_HISTORY_NODE_TIMEOUT_SECONDS", "120"))
 EOD_HISTORY_NODE_MAX_OLD_SPACE_MB = max(64, min(192, int(os.environ.get("EOD_HISTORY_NODE_MAX_OLD_SPACE_MB", "128"))))
@@ -153,7 +147,6 @@ NODE_PROCESS_LOCK = threading.RLock()
 # a quote must never wait on work queued behind itself in the same pool.
 QUOTE_TASKS = BoundedTaskPool("quote-fetch", MARKET_DATA_MAX_WORKERS, 2)
 ROUTE_TASKS = BoundedTaskPool("quote-controller", MARKET_DATA_MAX_WORKERS, 2)
-INTERVAL_TASKS = BoundedTaskPool("interval-fetch", 4, 4)
 MARKET_TASKS = BoundedTaskPool("market-source", 4, 12)
 AUXILIARY_TASKS = BoundedTaskPool("auxiliary-fetch", 2, 2)
 TASK_CONTEXT = threading.local()
@@ -254,7 +247,7 @@ MACRO_EVENT_PATTERNS = [
 
 
 def resource_snapshot():
-    return {**memory_snapshot(), "node_old_space_mb": EOD_HISTORY_NODE_MAX_OLD_SPACE_MB, "tasks": {pool.name: pool.snapshot() for pool in (QUOTE_TASKS, ROUTE_TASKS, INTERVAL_TASKS, MARKET_TASKS, AUXILIARY_TASKS)},
+    return {**memory_snapshot(), "node_old_space_mb": EOD_HISTORY_NODE_MAX_OLD_SPACE_MB, "tasks": {pool.name: pool.snapshot() for pool in (QUOTE_TASKS, ROUTE_TASKS, MARKET_TASKS, AUXILIARY_TASKS)},
             "caches": {name: value.snapshot() for name, value in (("quotes", CACHE), ("search", SYMBOL_SEARCH_CACHE), ("news", COMPANY_NEWS_CACHE)) if isinstance(value, BoundedTTLCache)}}
 
 
@@ -278,7 +271,7 @@ def serialized_node_work(function):
             # Outstanding timed-out I/O still belongs to the service budget.
             # A child process must not overlap it and manufacture a new peak.
             deadline = time.monotonic() + 30
-            if not all(pool.drain(max(0, deadline - time.monotonic())) for pool in (QUOTE_TASKS, ROUTE_TASKS, INTERVAL_TASKS, MARKET_TASKS, AUXILIARY_TASKS)):
+            if not all(pool.drain(max(0, deadline - time.monotonic())) for pool in (QUOTE_TASKS, ROUTE_TASKS, MARKET_TASKS, AUXILIARY_TASKS)):
                 raise RuntimeError("Timed-out provider work is still running; defer the Node transaction and retry")
             if function.__name__ in {"build_eod_decision_snapshot", "build_decision_payload"}:
                 # Long tails already live in the persistent quote cache. Do
@@ -2107,7 +2100,13 @@ def find_active_market_event(events, as_of_date=None, lookback_days=3):
 
 
 def build_index_trend(symbol, label):
-    points = fetch_symbol_history_points(symbol, period="1y", interval="1d", limit=180)
+    benchmark_history = None
+    if symbol in {"SPY", "QQQ"}:
+        frame = load_yfinance_history_frame(provider_ticker(symbol), symbol, period=TECHNICAL_DAILY_HISTORY_PERIOD, interval="1d")
+        benchmark_history = _history_payload(frame)
+        points = [{"date":day,"value":value,"source":benchmark_history["source"]} for day,value,done in zip(benchmark_history["timestamps"],benchmark_history["closes"],benchmark_history["completed"]) if done]
+    else:
+        points = fetch_symbol_history_points(symbol, period="1y", interval="1d", limit=180)
     if not points:
         return {
             "symbol": symbol,
@@ -2143,6 +2142,7 @@ def build_index_trend(symbol, label):
     elif trend == "falling":
         impact = "Broad market trend is soft"
     return {
+        "benchmark_history": benchmark_history,
         "symbol": symbol,
         "label": label,
         "value": current_value,
@@ -2169,6 +2169,224 @@ SECTOR_ETF_BENCHMARKS = {
 }
 
 
+MACRO_OFFICIAL_CACHE = {}
+MACRO_CALENDAR_SOURCES = {
+    "fomc": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+    "cpi": "https://fred.stlouisfed.org/releases/calendar?rid=10",
+    "employment": "https://fred.stlouisfed.org/releases/calendar?rid=50",
+}
+
+
+def _official_macro_cached(key, loader, ttl):
+    now = time.time()
+    def known_timestamp(value):
+        try:
+            stamp = datetime.fromisoformat(value)
+            return stamp.timestamp() if stamp.tzinfo is not None else None
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    cached = MACRO_OFFICIAL_CACHE.get(key)
+    cache_path = os.path.join(MARKET_CACHE_DIR, "official_macro_" + key + ".json")
+    if cached is None:
+        try:
+            with open(cache_path, encoding="utf-8") as handle:
+                cached = json.load(handle)
+        except (OSError, ValueError):
+            cached = None
+    cache_value = cached.get("value") if isinstance(cached, dict) else None
+    cache_as_of = known_timestamp(cache_value.get("as_of")) if isinstance(cache_value, dict) else None
+    if not (isinstance(cache_value, dict) and cache_value.get("status") == "available"
+            and cache_as_of is not None and cache_as_of <= now
+            and isinstance(cached.get("expires_at"), (int, float))
+            and (key != "calendar" or isinstance(cache_value.get("events"), list))):
+        cached = None
+        MACRO_OFFICIAL_CACHE.pop(key, None)
+    if cached:
+        MACRO_OFFICIAL_CACHE[key] = cached
+    release_since_cache = key == "calendar" and cached and any(
+        isinstance(event, dict) and event.get("type") == "fomc"
+        and known_timestamp(event.get("at")) is not None
+        and cache_as_of < known_timestamp(event.get("at")) <= now
+        for event in cached["value"].get("events", [])
+    )
+    if cached and cached.get("expires_at", 0) > now and not release_since_cache:
+        return cached["value"]
+    try:
+        value = loader()
+        if value.get("status") == "available":
+            entry = {"expires_at": now + ttl, "value": value}
+            MACRO_OFFICIAL_CACHE[key] = entry
+            os.makedirs(MARKET_CACHE_DIR, exist_ok=True)
+            fd, temporary = tempfile.mkstemp(prefix="macro-", dir=MARKET_CACHE_DIR)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    json.dump(entry, handle, ensure_ascii=False, allow_nan=False)
+                os.replace(temporary, cache_path)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+            return value
+        return value
+    except Exception as exc:
+        return {"status":"unavailable", "reason":str(exc)[:160], "source":key}
+
+
+def _read_official_html(url):
+    from lxml import html
+    import requests
+    # Public pages, bounded time and body; no authentication or browser bypass.
+    with requests.get(url, timeout=5, stream=True) as response:
+        response.raise_for_status()
+        body = bytearray()
+        for chunk in response.iter_content(65536):
+            body.extend(chunk)
+            if len(body) > 1500000:
+                raise ValueError("official calendar body exceeds bounded size")
+        return html.fromstring(bytes(body))
+
+
+def parse_fomc_calendar(document, now):
+    events = []
+    for panel in document.xpath('//div[contains(concat(" ",normalize-space(@class)," ")," panel ")]'):
+        heading = " ".join(panel.xpath('.//h4//text()'))
+        match = re.search(r"(20\d{2}) FOMC Meetings", heading)
+        if not match:
+            continue
+        year = int(match.group(1))
+        for row in panel.xpath('.//div[contains(concat(" ",normalize-space(@class)," ")," fomc-meeting ")]'):
+            months = "".join(row.xpath('.//*[contains(@class,"fomc-meeting__month")]//text()')).strip()
+            days = "".join(row.xpath('.//*[contains(@class,"fomc-meeting__date")]//text()')).strip()
+            numbers = re.findall(r"\d+", days)
+            if not numbers or "notation" in days.lower():
+                continue
+            month_name = months.split("/")[-1]
+            try:
+                month = datetime.strptime(month_name, "%B").month
+            except ValueError:
+                try:
+                    month = datetime.strptime(month_name, "%b").month
+                except ValueError:
+                    continue
+            day = int(numbers[-1])
+            when = datetime(year,month,day,14,0,tzinfo=ZoneInfo("America/New_York"))
+            if abs((when-now).days) <= 70:
+                statement_links=row.xpath('.//a[contains(@href,"/newsevents/pressreleases/monetary")]/@href')
+                events.append({"statement_url":"https://www.federalreserve.gov"+statement_links[0] if statement_links else None,"id":f"fomc-{when.date()}","type":"fomc","at":when.isoformat(),"source":MACRO_CALENDAR_SOURCES["fomc"],"time_basis":"scheduled_14:00_ET_decision"})
+    return events
+
+
+def parse_fred_release_calendar(document, event_type, source):
+    events = []
+    # FRED states its release calendar times in US Central time. Convert with an IANA zone, not a fixed offset.
+    for group in document.xpath('//tbody'):
+        text = " ".join(group.xpath('.//span//text()')).strip()
+        try:
+            day = datetime.strptime(text, "%A %B %d, %Y")
+        except ValueError:
+            continue
+        for row in group.xpath('./tr'):
+            release_id = "10" if event_type == "cpi" else "50"
+            if not row.xpath(f'.//a[contains(@href,"/release?rid={release_id}")]'):
+                continue
+            time_text = " ".join(row.xpath('./td[1]//text()')).strip()
+            try:
+                clock = datetime.strptime(time_text.upper(), "%I:%M %p")
+            except ValueError:
+                continue
+            when = day.replace(hour=clock.hour,minute=clock.minute,tzinfo=ZoneInfo("America/Chicago")).astimezone(ZoneInfo("America/New_York"))
+            events.append({"id":f"{event_type}-{when.date()}","type":event_type,"at":when.isoformat(),"source":source,"time_basis":"FRED_Central_converted_to_ET"})
+    return events
+
+
+def fetch_official_event_calendar():
+    now = datetime.now(ZoneInfo("America/New_York"))
+    def load():
+        events, failures = [], []
+        try:
+            events.extend(parse_fomc_calendar(_read_official_html(MACRO_CALENDAR_SOURCES["fomc"]),now))
+        except Exception as error:
+            failures.append({"source":MACRO_CALENDAR_SOURCES["fomc"],"reason":str(error)[:140]})
+        first = now.replace(day=1)
+        months = [first-timedelta(days=1), first, (first+timedelta(days=32)).replace(day=1)]
+        for month in months:
+            for kind in ["cpi","employment"]:
+                url = f'{MACRO_CALENDAR_SOURCES[kind]}&y={month.year}&m={month.month}'
+                try:
+                    events.extend(parse_fred_release_calendar(_read_official_html(url),kind,url))
+                except Exception as error:
+                    failures.append({"source":url,"reason":str(error)[:140]})
+        events = sorted({event["id"]:event for event in events}.values(),key=lambda event:event["at"])
+        last_fomc=next((event for event in reversed(events) if event["type"]=="fomc" and event["at"]<=now.isoformat()),None)
+        decision={"status":"unavailable"}
+        if last_fomc and last_fomc.get("statement_url"):
+            try:
+                doc=_read_official_html(last_fomc["statement_url"])
+                text=" ".join(doc.xpath('//div[@id="article"]//text()') or doc.xpath('//body//text()'))
+                rate=re.search(r"target range for the federal funds rate.{0,160}?percent",text,re.I)
+                decision={"status":"available" if rate else "unavailable","statement":rate.group(0) if rate else None,"meeting_id":last_fomc["id"],"released_at":last_fomc["at"],"source":last_fomc["statement_url"],"as_of":now.isoformat()}
+            except Exception:
+                pass
+        valid = all(any(event["type"]==kind and datetime.fromisoformat(event["at"])>now for event in events) for kind in MACRO_CALENDAR_SOURCES)
+        return {"status":"available" if valid else "unavailable","events":events,"as_of":now.isoformat(),"valid_through":months[-1].replace(day=28).date().isoformat(),"source":"Federal Reserve + FRED official release calendar","fomc_decision":decision,"source_failures":failures}
+    return _official_macro_cached("calendar",load,86400)
+
+
+def parse_bls_actuals(payload, now, previous=None):
+    series = {}
+    if payload.get("status") != "REQUEST_SUCCEEDED":
+        return {"status":"unavailable","source":"BLS public API","reason":"provider_rejected"}
+    for item in payload.get("Results",{}).get("series",[]):
+        rows = []
+        for row in item.get("data",[]):
+            if not re.fullmatch(r"M(?:0[1-9]|1[0-2])",row.get("period","")):
+                continue
+            value = _safe_float(row.get("value"))
+            if value is not None:
+                rows.append({"period":row["year"]+"-"+row["period"][1:],"value":value})
+        series[item["seriesID"]] = sorted(rows,key=lambda row:row["period"])[-15:]
+    def values(name):
+        return series.get(name) or []
+    def month_index(period):
+        year, month = map(int, period.split("-"))
+        return year * 12 + month
+    def contiguous(rows, lag):
+        return len(rows) > lag and all(month_index(rows[i]["period"])-month_index(rows[i-1]["period"]) == 1 for i in range(len(rows)-lag, len(rows)))
+    def change(rows, lag=1, percent=False):
+        if not contiguous(rows, lag):
+            return None
+        recent,base = rows[-1]["value"],rows[-1-lag]["value"]
+        return (recent/base-1)*100 if percent and base else recent-base
+    def inflation(name):
+        rows=values(name)
+        changes=[(rows[i]["value"]/rows[i-1]["value"]-1)*100 if rows[i-1]["value"]>0 and month_index(rows[i]["period"])-month_index(rows[i-1]["period"])==1 else None for i in range(1,len(rows))]
+        return {"period":rows[-1]["period"] if rows else None,"mom_pct":change(rows,percent=True),"previous_mom_pct":changes[-2] if len(changes)>1 else None,"three_month_mean_pct":sum(changes[-3:])/3 if len(changes)>=3 and all(x is not None for x in changes[-3:]) else None,"yoy_pct":change(rows,12,True)}
+    payroll=values("CES0000000001");unemployment=values("LNS14000000");wages=values("CES0500000003");participation=values("LNS11300000")
+    changes=[payroll[i]["value"]-payroll[i-1]["value"] if month_index(payroll[i]["period"])-month_index(payroll[i-1]["period"])==1 else None for i in range(1,len(payroll))]
+    period=payroll[-1]["period"] if payroll else None
+    aligned_jobs=bool(period and unemployment and unemployment[-1]["period"]==period)
+    aligned_cpi=bool(values("CUSR0000SA0") and values("CUSR0000SA0L1E") and values("CUSR0000SA0")[-1]["period"]==values("CUSR0000SA0L1E")[-1]["period"])
+    old_rows=(previous or {}).get("series",{}).get("CES0000000001") or []
+    old={row["period"]:row["value"] for row in old_rows}
+    revised=payroll[-2] if len(payroll)>1 else None
+    revision=revised["value"]-old[revised["period"]] if revised and revised["period"] in old else None
+    return {"status":"available" if aligned_jobs and aligned_cpi else "unavailable","source":"https://api.bls.gov/publicAPI/v2/timeseries/data/","as_of":now.isoformat(),"vintage":"latest_as_fetched; not a historical point-in-time vintage","series":series,
+      "cpi":{"headline":inflation("CUSR0000SA0"),"core":inflation("CUSR0000SA0L1E"),"seasonally_adjusted":True},
+      "employment":{"period":period,"payroll_change_thousands":change(payroll),"previous_payroll_change_thousands":changes[-2] if len(changes)>1 else None,"payroll_three_month_mean_thousands":sum(changes[-3:])/3 if len(changes)>=3 and all(x is not None for x in changes[-3:]) else None,"unemployment_rate_pct":unemployment[-1]["value"] if aligned_jobs else None,"unemployment_change_pp":change(unemployment) if aligned_jobs else None,"previous_month_revision_thousands":revision,"revision_available":revision is not None,"wage_mom_pct":change(wages,percent=True) if wages and wages[-1]["period"]==period else None,"participation_rate_pct":participation[-1]["value"] if participation and participation[-1]["period"]==period else None}}
+
+
+def fetch_official_macro_actuals():
+    now = datetime.now(timezone.utc)
+    def load():
+        names=["CUSR0000SA0","CUSR0000SA0L1E","CES0000000001","LNS14000000","CES0500000003","LNS11300000"]
+        payload={"seriesid":names,"startyear":str(now.year-2),"endyear":str(now.year)}
+        req=Request("https://api.bls.gov/publicAPI/v2/timeseries/data/",data=json.dumps(payload).encode(),headers={"Content-Type":"application/json"},method="POST")
+        with urlopen(req,timeout=6) as response:
+            result=json.load(response)
+        return parse_bls_actuals(result,now,(MACRO_OFFICIAL_CACHE.get("actuals") or {}).get("value"))
+    return _official_macro_cached("actuals",load,1800)
+
+
 def fetch_market_context_core_sources():
     tasks = {
         "vix_points": lambda: (
@@ -2177,12 +2395,16 @@ def fetch_market_context_core_sources():
         ),
         "treasury_points": lambda: fetch_treasury_history_points(limit=40),
         "fear_greed_snapshot": fetch_fear_greed_snapshot,
+        "event_calendar": fetch_official_event_calendar,
+        "macro_actuals": fetch_official_macro_actuals,
         "spy_trend": lambda: build_index_trend("SPY", "SPY"),
         "qqq_trend": lambda: build_index_trend("QQQ", "QQQ"),
     }
     for symbol in SECTOR_ETF_BENCHMARKS:
         tasks[f"sector_{symbol.lower()}"] = lambda symbol=symbol: build_index_trend(symbol, symbol)
     defaults = {
+        "event_calendar": {"status":"unavailable","events":[]},
+        "macro_actuals": {"status":"unavailable"},
         "vix_points": [],
         "treasury_points": [],
         "fear_greed_snapshot": {
@@ -2256,8 +2478,11 @@ def fetch_market_context_payload():
     fear_greed = fear_greed_snapshot.get("value")
     fear_greed_label_value = fear_greed_snapshot.get("label") or fear_greed_label(fear_greed)
     active_event = find_active_market_event(load_market_events(), datetime.now(timezone.utc).date(), lookback_days=3)
-    spy_trend = core_sources["spy_trend"]
-    qqq_trend = core_sources["qqq_trend"]
+    spy_trend = dict(core_sources["spy_trend"])
+    qqq_trend = dict(core_sources["qqq_trend"])
+    benchmark_history={"spy":spy_trend.pop("benchmark_history",None),"qqq":qqq_trend.pop("benchmark_history",None)}
+    calendar=core_sources["event_calendar"]
+    actuals=core_sources["macro_actuals"]
     sector_trends = {
         symbol: core_sources.get(f"sector_{symbol.lower()}") or build_unavailable_market_trend(symbol)
         for symbol in SECTOR_ETF_BENCHMARKS
@@ -2376,6 +2601,10 @@ def fetch_market_context_payload():
             "impact": "supportive" if len(rising_indices) == 2 else "cautious" if len(falling_indices) == 2 else "neutral",
         },
         "sector_trends": sector_trends,
+        "benchmark_history": benchmark_history,
+        "event_calendar": calendar,
+        "macro_actuals": actuals,
+        "fomc_expectations": {"status":"unavailable","source":"CME FedWatch","source_url":"https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html","meeting_id":None,"as_of":None,"probabilities":None,"reason":"No verified stable free probability feed; no inferred or paid data."},
         "summary": market_summary,
         "source_info": {
             "vix": build_source_info("Live" if vix is not None else "Data unavailable", missing_source="Cboe / FRED / Yahoo Finance", suggested_source="FRED VIXCLS / Yahoo Finance ^VIX / Cboe", source_name=(vix_points[-1].get("source") or "Unverified") if vix_points else "Unavailable"),
@@ -3784,17 +4013,14 @@ def load_yfinance_history_frame(instrument, symbol, period="1y", interval="1d"):
     except Exception:
         pass
 
-    fallback_limit = TECHNICAL_DAILY_MAX_BARS if interval == "1d" else TECHNICAL_INTRADAY_MAX_BARS
+    fallback_limit = TECHNICAL_DAILY_MAX_BARS
     yahoo_frame = fetch_yahoo_chart_frame(symbol, range_value=period, interval=interval, limit=fallback_limit)
     if yahoo_frame is not None and not yahoo_frame.empty:
         yahoo_frame.attrs.update({"source": "yahoo_chart", "adjustment_basis": "provider_chart_quote_ohlc", "request": {"period": period, "interval": interval}})
         return yahoo_frame
 
-    stooq_frame = fetch_stooq_chart_frame(symbol)
-    if stooq_frame is not None and not stooq_frame.empty:
-        stooq_frame.attrs.update({"source": "stooq", "adjustment_basis": "unverified", "request": {"period": "source_available", "interval": "1d"}})
-        return stooq_frame
-
+    # Stooq's adjustment/volume basis has not been independently verified.
+    # It remains a diagnostic source, not an automatic Daily replacement.
     return pd.DataFrame()
 
 
@@ -3827,379 +4053,33 @@ def load_incremental_daily_history(instrument, symbol, ticker):
     return load_yfinance_history_frame(instrument, symbol, period=TECHNICAL_DAILY_HISTORY_PERIOD, interval="1d")
 
 
-def load_yfinance_intraday_history_frame(instrument, symbol, period="60d", interval="1h"):
-    """Return only genuine intraday data; never fall back to daily Stooq bars."""
-    try:
-        history = instrument.history(period=period, interval=interval, auto_adjust=False, timeout=PROVIDER_READ_TIMEOUT_SECONDS)
-        if history is not None and not history.empty:
-            history.attrs.update({"source": "yfinance", "adjustment_basis": "provider_ohlc_auto_adjust_false", "request": {"period": period, "interval": interval, "auto_adjust": False}})
-            return history
-    except Exception:
-        pass
-
-    try:
-        downloaded = yf.download(
-            symbol,
-            period=period,
-            interval=interval,
-            auto_adjust=False,
-            progress=False,
-            threads=False,
-            timeout=PROVIDER_READ_TIMEOUT_SECONDS,
-        )
-        downloaded = _normalize_download_history_frame(downloaded)
-        if downloaded is not None and not downloaded.empty:
-            downloaded.attrs.update({"source": "yfinance_download", "adjustment_basis": "provider_ohlc_auto_adjust_false", "request": {"period": period, "interval": interval, "auto_adjust": False}})
-            return downloaded
-    except Exception:
-        pass
-
-    try:
-        # Preserve the provider's real 1H history for its own technical
-        # warm-up. Yahoo permits up to 730 days of 1H history; 6,000 rows
-        # safely covers that maximum without manufacturing any missing bars.
-        yahoo_frame = fetch_yahoo_chart_frame(symbol, range_value=period, interval=interval, limit=6000)
-        if yahoo_frame is not None and not yahoo_frame.empty:
-            yahoo_frame.attrs.update({"source": "yahoo_chart", "adjustment_basis": "provider_chart_quote_ohlc", "request": {"period": period, "interval": interval}})
-            return yahoo_frame
-    except Exception:
-        pass
-
-    return pd.DataFrame()
-
-
-def load_incremental_hourly_history_frame(instrument, symbol):
-    """Extend genuine 1H history with checked overlap; never splice a rebase."""
-    cached = read_market_cache(symbol)
-    history = (((cached or {}).get("quote") or {}).get("history") or {}).get("intervals", {}).get("1h", {})
-    if history.get("source_validation_version") == SOURCE_VALIDATION_VERSION and history.get("lookback") == TECHNICAL_INTRADAY_HISTORY_PERIOD and history.get("source") == "yfinance" and history.get("adjustment_basis") == "provider_ohlc_auto_adjust_false":
-        try:
-            old = pd.DataFrame({col: history[key] for col, key in (("Open", "opens"), ("High", "highs"), ("Low", "lows"), ("Close", "closes"), ("Volume", "volumes"))}, index=pd.to_datetime(history["timestamps"], utc=True))
-            recent = load_yfinance_intraday_history_frame(instrument, symbol, period="1mo", interval="1h")
-            recent, audit = validate_frame(recent)
-            recent.index = recent.index.tz_convert("UTC")
-            overlap = old.index.intersection(recent.index)
-            completed = overlap[overlap < old.index[-1]]
-            if len(completed) and not audit["rejected_rows"]:
-                changed = any(abs(float(old.loc[stamp, col]) - float(recent.loc[stamp, col])) > max(1e-7, abs(float(old.loc[stamp, col])) * 1e-7) for stamp in completed for col in ("Open", "High", "Low", "Close", "Volume"))
-                if not changed:
-                    merged = pd.concat([old.loc[old.index < recent.index[0]], recent]).tail(TECHNICAL_INTRADAY_MAX_BARS)
-                    merged.index = merged.index.tz_convert(TECHNICAL_FOUR_HOUR_TIMEZONE)
-                    merged.attrs.update({"source": "yfinance", "adjustment_basis": "provider_ohlc_auto_adjust_false", "request": {"interval": "1h", "period": "1mo", "method": "incremental_validated_overlap", "seed_period": TECHNICAL_INTRADAY_HISTORY_PERIOD, "prepost": False}})
-                    return merged
-        except Exception:
-            pass
-    return load_yfinance_intraday_history_frame(instrument, symbol, period=TECHNICAL_INTRADAY_HISTORY_PERIOD, interval="1h")
-
-
-def load_yfinance_native_four_hour_history_frame(instrument, period=TECHNICAL_FOUR_HOUR_HISTORY_PERIOD):
-    """Fetch only the provider-native 4H regular-session series.
-
-    This deliberately has no yfinance-download, Yahoo-chart, daily, or 1H
-    reconstruction fallback. If the primary provider does not return verified
-    4H data, the technical layer must receive an unavailable 4H interval.
-    """
-    metadata = {}
-    try:
-        frame = instrument.history(
-            period=period,
-            interval="4h",
-            auto_adjust=False,
-            prepost=False,
-            timeout=PROVIDER_READ_TIMEOUT_SECONDS,
-        )
-        metadata = dict(instrument.history_metadata or {})
-    except Exception:
-        return pd.DataFrame(), metadata, "source_unavailable"
-
-    if frame is None or frame.empty:
-        return pd.DataFrame(), metadata, "source_unavailable"
-    if metadata.get("dataGranularity") != "4h":
-        return pd.DataFrame(), metadata, "invalid_source_data"
-    if metadata.get("exchangeTimezoneName") != TECHNICAL_FOUR_HOUR_TIMEZONE:
-        return pd.DataFrame(), metadata, "invalid_source_data"
-    frame.attrs.update({"source": "yfinance", "adjustment_basis": "provider_ohlc_auto_adjust_false", "request": {"period": period, "interval": "4h", "prepost": False, "auto_adjust": False}})
-    return frame, metadata, None
-
-
-def load_incremental_native_four_hour_history_frame(instrument, symbol):
-    cached = read_market_cache(symbol)
-    history = ((((cached or {}).get("quote") or {}).get("history") or {}).get("intervals") or {}).get("4h") or {}
-    if history.get("source_validation_version") == SOURCE_VALIDATION_VERSION and history.get("lookback") == TECHNICAL_FOUR_HOUR_HISTORY_PERIOD and history.get("bar_method") == TECHNICAL_FOUR_HOUR_BAR_METHOD and history.get("source") == "yfinance" and history.get("available"):
-        try:
-            old = pd.DataFrame({column: history[key] for column, key in (("Open", "opens"), ("High", "highs"), ("Low", "lows"), ("Close", "closes"), ("Volume", "volumes"))}, index=pd.to_datetime(history["timestamps"], utc=True))
-            recent, metadata, failure = load_yfinance_native_four_hour_history_frame(instrument, period="1mo")
-            recent, audit = validate_frame(recent)
-            recent.index = recent.index.tz_convert("UTC")
-            overlap = old.index.intersection(recent.index)
-            completed = overlap[overlap < old.index[-1]]
-            if not failure and len(completed) and not audit["rejected_rows"]:
-                changed = any(abs(float(old.loc[stamp, column]) - float(recent.loc[stamp, column])) > max(1e-7, abs(float(old.loc[stamp, column])) * 1e-7) for stamp in completed for column in ("Open", "High", "Low", "Close", "Volume"))
-                if not changed:
-                    frame = pd.concat([old.loc[old.index < recent.index[0]], recent]).tail(TECHNICAL_INTRADAY_MAX_BARS)
-                    frame.index = frame.index.tz_convert(TECHNICAL_FOUR_HOUR_TIMEZONE)
-                    frame.attrs.update({"source": "yfinance", "adjustment_basis": "provider_ohlc_auto_adjust_false", "request": {"period": "1mo", "interval": "4h", "prepost": False, "auto_adjust": False, "method": "incremental_validated_overlap", "seed_period": TECHNICAL_FOUR_HOUR_HISTORY_PERIOD, "overlap_bars": len(completed)}})
-                    return frame, metadata, None
-        except Exception:
-            pass
-    return load_yfinance_native_four_hour_history_frame(instrument)
-
-
-def validate_native_four_hour_history_frame(frame, as_of=None):
-    """Keep only structurally valid provider-native US regular-session 4H bars.
-
-    Normal sessions have 09:30 and 13:30 provider bars. A 09:30-only session
-    is retained only for calendar-confirmed early close or an active session. A
-    13:30-only day, duplicate segments, malformed timestamps, and invalid
-    OHLCV are excluded rather than repaired or filled.
-    """
-    empty = pd.DataFrame() if frame is None else frame.iloc[0:0].copy()
-    result = {
-        "frame": empty,
-        "source_rows": 0 if frame is None else int(len(frame)),
-        "excluded_invalid_rows": 0 if frame is None else int(len(frame)),
-        "normal_session_days": 0,
-        "single_session_days": 0,
-        "invalid_session_days": 0,
-        "invalid_session_examples": [],
-        "partial_session_days": 0,
-        "bar_segments": [],
-        "rejected_reasons": {},
-        "unavailable_reason": "source_unavailable" if frame is None or frame.empty else "invalid_source_data",
-    }
-    if frame is None or frame.empty or not isinstance(frame.index, pd.DatetimeIndex):
-        return result
-    if frame.index.tz is None or str(frame.index.tz) != TECHNICAL_FOUR_HOUR_TIMEZONE:
-        return result
-
-    required = ("Open", "High", "Low", "Close", "Volume")
-    if any(column not in frame.columns for column in required):
-        return result
-
-    day_rows = {}
-    invalid_days = set()
-    previous_stamp = None
-    for stamp, row in frame.iterrows():
-        try:
-            local_stamp = stamp.tz_convert(TECHNICAL_FOUR_HOUR_TIMEZONE)
-            local_time = local_stamp.strftime("%H:%M")
-            day = local_stamp.date().isoformat()
-            if previous_stamp is not None and stamp <= previous_stamp:
-                invalid_days.add(day)
-                result["rejected_reasons"]["duplicate_or_unordered_timestamp"] = result["rejected_reasons"].get("duplicate_or_unordered_timestamp", 0) + 1
-                continue
-            previous_stamp = stamp
-            open_value = _safe_float(row["Open"])
-            high_value = _safe_float(row["High"])
-            low_value = _safe_float(row["Low"])
-            close_value = _safe_float(row["Close"])
-            volume_value = _safe_float(row["Volume"])
-        except Exception:
-            continue
-        valid_ohlcv = (
-            None not in (open_value, high_value, low_value, close_value, volume_value)
-            and high_value >= max(open_value, close_value)
-            and low_value <= min(open_value, close_value)
-            and volume_value >= 0
-            and min(open_value, high_value, low_value, close_value) > 0
-        )
-        if not valid_ohlcv or local_time not in {"09:30", "13:30"}:
-            invalid_days.add(day)
-            continue
-        day_rows.setdefault(day, []).append((local_time, stamp))
-
-    valid_indices = []
-    now = as_of or datetime.now(timezone.utc)
-    calendar = exchange_calendar(frame.index[-1].year)
-    for day, entries in sorted(day_rows.items()):
-        times = [time_value for time_value, _stamp in entries]
-        if day in invalid_days or len(set(times)) != len(times):
-            result["invalid_session_days"] += 1
-            if len(result["invalid_session_examples"]) < 5:
-                result["invalid_session_examples"].append({"date": day, "times": times, "reason": "invalid_or_duplicate_session_bar"})
-            continue
-        calendar_session = exchange_session(datetime.fromisoformat(day).date(), calendar=calendar)
-        if calendar_session is None:
-            result["invalid_session_days"] += 1
-            if len(result["invalid_session_examples"]) < 5:
-                result["invalid_session_examples"].append({"date": day, "times": times, "reason": "exchange_closed"})
-            continue
-        early_close = calendar_session["close"].astimezone(EOD_HISTORY_TIMEZONE).hour < 16
-        partial_session = now < calendar_session["close"]
-        if any(stamp.to_pydatetime() >= calendar_session["close"] or stamp.to_pydatetime() > now for _time, stamp in entries):
-            result["invalid_session_days"] += 1
-            continue
-        if times == ["09:30", "13:30"] and not early_close:
-            result["normal_session_days"] += 1
-            valid_indices.extend(stamp for _time, stamp in entries)
-        elif times == ["09:30"] and (early_close or partial_session):
-            result["single_session_days"] += 1
-            valid_indices.append(entries[0][1])
-        else:
-            result["invalid_session_days"] += 1
-            if len(result["invalid_session_examples"]) < 5:
-                result["invalid_session_examples"].append({"date": day, "times": times, "reason": "missing_or_invalid_session_segment"})
-            continue
-        result["partial_session_days"] += int(partial_session)
-        for _time, stamp in entries:
-            end = min(stamp.to_pydatetime() + timedelta(hours=4), calendar_session["close"])
-            result["bar_segments"].append({"timestamp": stamp.isoformat(), "end": end.isoformat(),
-                "duration_minutes": (end - stamp.to_pydatetime()).total_seconds() / 60, "completed": end <= now})
-
-    if valid_indices:
-        result["frame"] = frame.loc[valid_indices].sort_index().copy()
-        result["excluded_invalid_rows"] = int(len(frame) - len(result["frame"]))
-        if result["excluded_invalid_rows"]:
-            result["frame"].attrs["validation"] = {"source_rows":len(frame),"rejected_rows":result["excluded_invalid_rows"],"reasons":{**result["rejected_reasons"],"invalid_native_session_rows":result["excluded_invalid_rows"]}}
-        result["unavailable_reason"] = None
-    return result
-
-
-def native_four_hour_history_payload(frame, metadata=None, failure_reason=None):
-    """Create a compact, provenance-bearing payload from validated 4H bars."""
-    validation = validate_native_four_hour_history_frame(frame)
-    payload = _history_payload(validation["frame"], timestamp_format="%Y-%m-%dT%H:%M:%S%z")
-    unavailable_reason = None if validation["frame"].shape[0] else (failure_reason or validation["unavailable_reason"])
-    payload.update({
-        "interval": "4h",
-        "lookback": TECHNICAL_FOUR_HOUR_HISTORY_PERIOD,
-        "source": "yfinance",
-        "bar_method": TECHNICAL_FOUR_HOUR_BAR_METHOD,
-        "regular_hours_only": True,
-        "timezone": TECHNICAL_FOUR_HOUR_TIMEZONE,
-        "provider_data_granularity": (metadata or {}).get("dataGranularity"),
-        "provider_exchange_timezone": (metadata or {}).get("exchangeTimezoneName"),
-        "session_validation": {
-            "normal_session_days": validation["normal_session_days"],
-            "single_session_days": validation["single_session_days"],
-            "invalid_session_days": validation["invalid_session_days"],
-            "invalid_session_examples": validation["invalid_session_examples"],
-            "partial_session_days": validation["partial_session_days"],
-            "calendar_source": "exchange_calendars:XNYS",
-            "tail_method": "native_regular_session_tail_150_minutes_on_full_days",
-        },
-        "bar_segments": validation["bar_segments"][-TECHNICAL_INTRADAY_MAX_BARS:],
-        "source_rows": validation["source_rows"],
-        "available_bars": int(len(validation["frame"])),
-        "excluded_invalid_rows": validation["excluded_invalid_rows"],
-        "rejected_reasons": payload.get("rejected_reasons") or validation["rejected_reasons"],
-        "availability": "available" if len(validation["frame"]) else "unavailable",
-        "available": bool(len(validation["frame"])),
-        "unavailable_reason": unavailable_reason,
-        "last_bar_timestamp": payload["timestamps"][-1] if payload["timestamps"] else None,
-        "reason": None if len(validation["frame"]) else "Native provider 4H history was unavailable or failed session validation.",
-    })
-    return payload
-
-
-def load_technical_intraday_history_frames(symbol):
-    """Fetch 1H and provider-native 4H concurrently within one shared budget."""
-    hourly_history = None
-    native_four_hour = (pd.DataFrame(), {}, "source_unavailable")
-    generation = getattr(TASK_CONTEXT, "refresh_generation", None) or current_refresh_generation()
-    def tagged(function, *args):
-        return generation, function(*args)
-    try:
-        hourly_future = INTERVAL_TASKS.submit((symbol, "1h"), tagged,
-            load_incremental_hourly_history_frame, provider_ticker(symbol), symbol)
-        four_hour_future = INTERVAL_TASKS.submit((symbol, "4h"), tagged,
-            load_incremental_native_four_hour_history_frame, provider_ticker(symbol), symbol)
-        deadline = time.monotonic() + TECHNICAL_INTRADAY_FETCH_TIMEOUT_SECONDS
-        try:
-            fetched_generation, hourly_history = hourly_future.result(timeout=max(0, deadline - time.monotonic()))
-            if fetched_generation != generation:
-                hourly_history = None
-        except Exception:
-            hourly_history = None
-        try:
-            fetched_generation, native_four_hour = four_hour_future.result(timeout=max(0, deadline - time.monotonic()))
-            if fetched_generation != generation:
-                native_four_hour = (pd.DataFrame(), {}, "previous_refresh_generation")
-        except Exception:
-            native_four_hour = (pd.DataFrame(), {}, "source_unavailable")
-    except TaskBudgetExceeded:
-        # Every running/queued interval remains counted after a caller timeout.
-        pass
-    return hourly_history, native_four_hour
-
-
 def _history_payload(frame, timestamp_format="%Y-%m-%d"):
-    clean, audit = validate_frame(frame)
-    intraday = "T" in timestamp_format
-    calendar = exchange_calendar(clean.index[-1].year) if len(clean) else None
-    # This lookup exists only while normalizing this frame. Intraday bars on
-    # the same session share its official close; nothing is retained as quote
-    # or recommendation history after the calculation.
-    schedules = {}
-    def schedule_for(stamp):
-        day = stamp.date()
-        if day not in schedules:
-            schedules[day] = exchange_session(day, calendar=calendar)
-        return schedules[day]
-    request_interval = getattr(frame, "attrs", {}).get("request", {}).get("interval") if frame is not None else None
-    if intraday and request_interval == "1h" and len(clean):
-        keep = []
-        for entry in clean.index:
-            stamp = entry.to_pydatetime()
-            schedule = schedule_for(stamp)
-            valid = bool(stamp.tzinfo and schedule and schedule["open"] <= stamp < schedule["close"] and (stamp - schedule["open"]).total_seconds() % 3600 == 0)
-            keep.append(valid)
-        rejected = len(keep) - sum(keep)
-        if rejected:
-            audit["rejected_rows"] += rejected
-            audit["reasons"]["invalid_hourly_session_bar"] = rejected
-            clean = clean.loc[keep].copy()
-    limit = TECHNICAL_INTRADAY_MAX_BARS if intraday else TECHNICAL_DAILY_MAX_BARS
-    clean = clean.tail(limit)
+    clean, audit = validate_us_daily_frame(frame)
+    clean = clean.tail(TECHNICAL_DAILY_MAX_BARS)
     as_of = datetime.now(timezone.utc)
     attrs = getattr(frame, "attrs", {}) if frame is not None else {}
+    calendar = exchange_calendar(clean.index[-1].year) if len(clean) else None
+    ends = [exchange_session(entry.date(), calendar=calendar)["close"] for entry in clean.index]
     result = {
-        "timestamps": [entry.to_pydatetime().strftime(timestamp_format) for entry in clean.index],
-        "opens": [_safe_float(value) for value in clean.get("Open", []).tolist()] if len(clean) else [],
-        "closes": [_safe_float(value) for value in clean.get("Close", []).tolist()] if len(clean) else [],
-        "highs": [_safe_float(value) for value in clean.get("High", []).tolist()] if len(clean) else [],
-        "lows": [_safe_float(value) for value in clean.get("Low", []).tolist()] if len(clean) else [],
-        "volumes": [_safe_float(value) for value in clean.get("Volume", []).tolist()] if len(clean) else [],
+        "timestamps": [entry.date().isoformat() for entry in clean.index],
+        **{name: [_safe_float(value) for value in clean[column].tolist()] if len(clean) else [] for name, column in [("opens","Open"),("highs","High"),("lows","Low"),("closes","Close"),("volumes","Volume")]},
         "availability": "available" if len(clean) else "unavailable", "available": bool(len(clean)),
         "unavailable_reason": None if len(clean) else "invalid_source_data" if audit["source_rows"] else "source_unavailable",
-        "source_rows": audit["source_rows"], "available_bars": len(clean), "excluded_invalid_rows": audit["rejected_rows"],
-        "rejected_reasons": audit["reasons"], "as_of": as_of.isoformat(), "source": attrs.get("source", "unverified_provider"),
-        "adjustment_basis": attrs.get("adjustment_basis", "unverified"), "currency": attrs.get("currency"),
-        "request": attrs.get("request", {}), "first_bar_timestamp": str(clean.index[0]) if len(clean) else None,
-        "last_bar_timestamp": str(clean.index[-1]) if len(clean) else None, "retention_limit_bars": limit,
+        "source_rows": audit["source_rows"], "available_bars": len(clean), "excluded_invalid_rows": audit["rejected_rows"], "rejected_reasons": audit["reasons"],
+        "as_of": as_of.isoformat(), "source": attrs.get("source", "unverified_provider"), "adjustment_basis": attrs.get("adjustment_basis", "unverified"), "currency": attrs.get("currency"),
+        "request": attrs.get("request", {}), "retention_limit_bars": TECHNICAL_DAILY_MAX_BARS,
         "requested_history": attrs.get("request", {}).get("seed_period") or attrs.get("request", {}).get("period"),
-        "timezone": "America/New_York", "regular_hours_only": bool(intraday),
+        "interval":"1d", "timezone":"America/New_York", "regular_hours_only":True,
+        "completed":[end<=as_of for end in ends], "bar_end_timestamps":[end.isoformat() for end in ends],
+        "last_bar_completed":ends[-1]<=as_of if ends else None, "provider_as_of":attrs.get("provider_as_of"),
+        "active_bar_usage":"completed_only; unfinished_daily_volume_display_only", "source_validation_version":SOURCE_VALIDATION_VERSION,
+        "session_calendar":completed_week_metadata(clean,as_of),
     }
-    result["completed"] = []
-    result["bar_end_timestamps"] = []
-    interval = attrs.get("request", {}).get("interval")
-    for entry in clean.index:
-        stamp = entry.to_pydatetime()
-        schedule = schedule_for(stamp)
-        end = None
-        if schedule and intraday and stamp.tzinfo and interval in {"1h", "4h"}:
-            if schedule["open"] <= stamp < schedule["close"]:
-                end = min(stamp + timedelta(hours=1 if interval == "1h" else 4), schedule["close"])
-        elif schedule and not intraday:
-            end = schedule["close"]
-        result["bar_end_timestamps"].append(end.isoformat() if end else None)
-        result["completed"].append(end <= as_of if end else None)
-    result["provider_as_of"] = attrs.get("provider_as_of")
-    if not intraday and len(clean):
-        result["session_calendar"] = completed_week_metadata(clean, as_of)
-        result["freshness"] = daily_history_freshness(result, as_of)
-    if len(clean):
-        stamp = clean.index[-1].to_pydatetime()
-        schedule = schedule_for(stamp)
-        interval = attrs.get("request", {}).get("interval")
-        if schedule:
-            if intraday and stamp.tzinfo and interval in {"1h", "4h"}:
-                end = min(stamp + timedelta(hours=1 if interval == "1h" else 4), schedule["close"])
-                result["last_bar_completed"] = end <= as_of
-                result["last_bar_duration_minutes"] = (end - stamp).total_seconds() / 60
-            elif not intraday:
-                result["last_bar_completed"] = schedule["close"] <= as_of
-        result["active_bar_usage"] = "provisional_current_indicators; confirmed_pivots_use_completed_bars"
+    completed_ends=[end for end in ends if end<=as_of]
+    if completed_ends and calendar is not None:
+        next_day=calendar.next_session(completed_ends[-1].astimezone(ZoneInfo("America/New_York")).date().isoformat())
+        result["execution_window_end"]=calendar.schedule.loc[next_day]["close"].to_pydatetime().isoformat()
+    result["freshness"] = daily_history_freshness(result,as_of)
     return result
 
 
@@ -4263,10 +4143,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         except TaskBudgetExceeded:
             pass
 
-    # Optional metadata runs alongside real 1H/native 4H history, instead of
-    # adding its multi-request latency to the price-critical path. Missing
-    # enrichment remains unavailable/cached; it cannot discard valid OHLCV.
-    hourly_history, (native_four_hour_frame, native_four_hour_metadata, native_four_hour_failure) = load_technical_intraday_history_frames(symbol)
+    # Metadata is optional and bounded. Its absence cannot discard valid Daily history.
     if metadata_future is not None:
         try:
             fetched_generation, enrichment = metadata_future.result(timeout=QUOTE_METADATA_TIMEOUT_SECONDS)
@@ -4277,33 +4154,9 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         except Exception:
             pass
 
-    for source_frame in (history, hourly_history, native_four_hour_frame):
-        if source_frame is not None:
-            source_frame.attrs["currency"] = info.get("currency")
-    hourly_payload = _history_payload(hourly_history, timestamp_format="%Y-%m-%dT%H:%M:%S%z")
-    hourly_payload.update({
-        "interval": "1h",
-        "lookback": TECHNICAL_INTRADAY_HISTORY_PERIOD,
-        "last_bar_timestamp": hourly_payload["timestamps"][-1] if hourly_payload["timestamps"] else None,
-        "reason": None if hourly_payload["availability"] == "available" else "Intraday history was not available within the quote-refresh time budget.",
-    })
-    four_hour_payload = native_four_hour_history_payload(
-        native_four_hour_frame,
-        metadata=native_four_hour_metadata,
-        failure_reason=native_four_hour_failure,
-    )
+    history.attrs["currency"] = info.get("currency")
     daily_payload = _history_payload(history)
-    daily_payload.update({
-        "interval": "1d",
-        "lookback": TECHNICAL_DAILY_HISTORY_PERIOD,
-        "last_bar_timestamp": daily_payload["timestamps"][-1] if daily_payload["timestamps"] else None,
-    })
-    interval_payloads = {"1h": hourly_payload, "4h": four_hour_payload}
-    volume_checks = reconcile_intraday_volume(daily_payload, interval_payloads)
-    for interval, source in interval_payloads.items():
-        source["source_validation_version"] = SOURCE_VALIDATION_VERSION
-        source["volume_validation"] = volume_checks[interval]
-    daily_payload["source_validation_version"] = SOURCE_VALIDATION_VERSION
+    daily_payload.update({"lookback":TECHNICAL_DAILY_HISTORY_PERIOD,"last_bar_timestamp":daily_payload["timestamps"][-1] if daily_payload["timestamps"] else None})
 
     latest_row = history.iloc[-1]
     previous_row = history.iloc[-2] if len(history) > 1 else latest_row
@@ -4326,6 +4179,16 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         ("regularMarketPrice", "currentPrice", "lastPrice"),
         positive=True,
     )
+    regular_market_time = dt_from_epoch(info.get("regularMarketTime"))
+    history_date = _history_session_date(history, -1)
+    if regular_market_price is not None and (
+        regular_market_time is None
+        or regular_market_time > datetime.now(timezone.utc)
+        or (history_date is not None and regular_market_time.astimezone(EOD_HISTORY_TIMEZONE).date() < history_date)
+    ):
+        # An undated/older quote cannot borrow a newer Daily bar's timestamp.
+        # Keep the valid history price and its disclosed source instead.
+        regular_market_price = None
     price = regular_market_price if regular_market_price is not None else history_price
 
     provider_previous_close = _first_finite_quote_value(
@@ -4333,9 +4196,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         ("regularMarketPreviousClose", "previousClose", "previous_close"),
         positive=True,
     )
-    regular_market_time = dt_from_epoch(info.get("regularMarketTime"))
     market_date = regular_market_time.astimezone(ZoneInfo("America/New_York")).date() if regular_market_time else None
-    history_date = _history_session_date(history, -1)
 
     # When today's daily bar is present, its prior row is the most reliable
     # session-to-session baseline.  If the history is lagging, keep the
@@ -4389,7 +4250,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
             "priceSource": "regular_market_quote" if regular_market_price is not None else daily_payload.get("source"),
             "priceBasis": "provider_regular_quote" if regular_market_price is not None else daily_payload.get("adjustment_basis"),
             "historyBasisAlignment": "unverified_cross_endpoint" if regular_market_price is not None else "same_history_source",
-            "asOf": daily_payload.get("as_of"),
+            "asOf": updated_at,
             "quoteMetadataStatus": metadata_status,
             "sector": info.get("sector"),
             "industry": info.get("industry"),
@@ -4434,7 +4295,7 @@ def fetch_us_quote_with_yfinance(ticker, include_options=False):
         },
         "history": {
             **daily_payload,
-            "intervals": {"1h": hourly_payload, "4h": four_hour_payload},
+
         },
     }
 
@@ -4574,8 +4435,6 @@ def read_market_cache(ticker):
 
 
 def is_market_cache_fresh(cached):
-    if cached is not None and "_summary_cache_fresh" in cached:
-        return bool(cached["_summary_cache_fresh"])
     if not cached:
         return False
     age_seconds = cached.get("cache_age_seconds")
@@ -4584,28 +4443,8 @@ def is_market_cache_fresh(cached):
     quote = cached.get("quote") if isinstance(cached, dict) else None
     if not isinstance(quote, dict):
         quote = cached if isinstance(cached, dict) else {}
-    hourly = ((quote.get("history") or {}).get("intervals") or {}).get("1h") or {}
-    four_hour = ((quote.get("history") or {}).get("intervals") or {}).get("4h") or {}
-    # A cache written before the configured real intraday history request is
-    # not technically fresh: it cannot support the current 4H indicator
-    # warm-up. It is refreshed through the normal cache lifecycle, not filled
-    # with synthetic bars.
-    if hourly.get("lookback") != TECHNICAL_INTRADAY_HISTORY_PERIOD:
-        return False
-    # Retire caches whose 4H features would have been derived from the former
-    # morning-only 1H aggregation. A current quote must prove native-provider
-    # provenance before its technical history is considered fresh.
-    if four_hour.get("lookback") != TECHNICAL_FOUR_HOUR_HISTORY_PERIOD:
-        return False
-    if four_hour.get("source") != "yfinance":
-        return False
-    if four_hour.get("bar_method") != TECHNICAL_FOUR_HOUR_BAR_METHOD:
-        return False
-    if four_hour.get("timezone") != TECHNICAL_FOUR_HOUR_TIMEZONE:
-        return False
-    if four_hour.get("regular_hours_only") is not True:
-        return False
-    return True
+    history = quote.get("history") or {}
+    return history.get("source_validation_version") == SOURCE_VALIDATION_VERSION and history.get("lookback") == TECHNICAL_DAILY_HISTORY_PERIOD and not history.get("intervals") and history.get("adjustment_basis") in ("provider_ohlc_auto_adjust_false", "provider_chart_quote_ohlc")
 
 
 def normalize_cached_market_quote(ticker, cached, stale=False):
@@ -4643,14 +4482,8 @@ def normalize_cached_market_quote(ticker, cached, stale=False):
     history = normalized.get("history")
     if isinstance(history, dict) and history.get("timestamps"):
         history["freshness"] = daily_history_freshness(history)
-    if isinstance(history, dict) and history.get("source_validation_version") != SOURCE_VALIDATION_VERSION:
-        # Quarantine old conflicting volume immediately, before the next live
-        # refresh reseeds history from the provider. Keep real price bars.
-        intervals = history.get("intervals") or {}
-        checks = reconcile_intraday_volume(history, intervals)
-        for interval, source in intervals.items():
-            source["volume_validation"] = checks[interval]
-        history["source_validation_version"] = SOURCE_VALIDATION_VERSION
+    if isinstance(history, dict):
+        history.pop("intervals", None)
     normalized.pop("optionsMarket", None)
     return normalized
 
@@ -4888,7 +4721,7 @@ def write_market_context_cache(payload):
     return updated_at
 
 
-def get_market_context_cached_snapshot(force=False, allow_live=True):
+def _get_market_context_cached_snapshot(force=False, allow_live=True):
     attempts = []
     now = time.time()
     cached_memory = MARKET_CONTEXT_CACHE.get("value")
@@ -4989,6 +4822,13 @@ def get_market_context_cached_snapshot(force=False, allow_live=True):
         "missing_fields": missing_fields,
         "cache_updated_at": None,
     }
+
+
+def get_market_context_cached_snapshot(force=False, allow_live=True):
+    payload, meta = _get_market_context_cached_snapshot(force=force, allow_live=allow_live)
+    # Carry source trust into the canonical context used by UI, API and EOD.
+    # A fresh Quote cannot make a stale fallback Market snapshot fresh.
+    return {**payload, "status": meta.get("status"), "stale": meta.get("status") == "stale"}, meta
 
 
 def get_lightweight_market_context(force=False, allow_live=True):
@@ -5826,7 +5666,7 @@ def run_eod_history_once(now=None, reason="scheduled_eod"):
             gc.collect()
             snapshot = build_eod_decision_snapshot(input_path, output_path)
             records = snapshot.get("records") or []
-            expected_rows = len(tickers) * 3
+            expected_rows = len(tickers) * 2
             if len(records) != expected_rows:
                 raise RuntimeError(f"EOD Decision snapshot returned {len(records)} rows; expected {expected_rows}")
             completed_at_et = eod_history_timestamp(datetime.now(EOD_HISTORY_TIMEZONE))
@@ -6438,7 +6278,7 @@ def build_decision_payload(tickers):
     if not node:
         raise RuntimeError("Node.js is required because the production Decision Engine is JavaScript. Set EOD_DECISION_NODE_PATH if node is not on PATH.")
     if not os.path.isfile(DECISION_NODE_RUNNER):
-        raise RuntimeError(f"decision.v1 runner is missing: {DECISION_NODE_RUNNER}")
+        raise RuntimeError(f"decision.v2 runner is missing: {DECISION_NODE_RUNNER}")
 
     market = get_lightweight_market_context(force=False, allow_live=False) or {}
     missing = []
@@ -6468,7 +6308,7 @@ def build_decision_payload(tickers):
         )
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or "unknown Node error").strip()
-            raise RuntimeError(f"decision.v1 serialization failed: {detail[:1200]}")
+            raise RuntimeError(f"decision.v2 serialization failed: {detail[:1200]}")
         with open(output_path, "r", encoding="utf-8") as handle:
             result = json.load(handle)
     finally:
@@ -6480,7 +6320,7 @@ def build_decision_payload(tickers):
 
 @app.route("/api/decision/<path:ticker>")
 def api_decision(ticker):
-    """One ticker's decision.v1 payload: short, mid and long, independently.
+    """One ticker's decision.v2 payload: Daily and Weekly, independently.
 
     Returns 404 only when the ticker has no cached quote at all. A ticker the
     engine could not decide on comes back 200 with its reason in `errors`, so a
@@ -6547,7 +6387,7 @@ def api_health():
         "feature_version": TECHNICAL_FEATURE_VERSION,
         "model_version": DECISION_MODEL_VERSION,
         "eod_history_enabled": EOD_HISTORY_ENABLED,
-        "service_version": "2026-10-09-data-trust",
+        "service_version": "V2",
         "resource_metrics_enabled": RESOURCE_METRICS_ENABLED,
         **({"resources": resource_snapshot()} if RESOURCE_METRICS_ENABLED else {}),
         "render_service": bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID") or os.environ.get("RENDER_EXTERNAL_URL")),

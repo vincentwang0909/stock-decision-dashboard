@@ -5,62 +5,55 @@
   const freeze = (value) => Object.freeze(value);
 
   engine.config = freeze({
-    version: "decision-engine-v2.3-data-guarded",
+    version: "V2",
     indicators: freeze({
-      version: "structure-momentum-v1",
+      version: "V2-daily-weekly",
+      volume: freeze({
+        source: "completed_daily_ohlcv",
+        averageWindows: freeze([5, 20, 60, 120, 250]), rvolWindows: freeze([5, 20, 60]), obvAuxiliaryWindows: freeze([5, 20, 60]),
+        obv: freeze({ daily: freeze({ interval: "1d", lookback: 20 }), weekly: freeze({ interval: "1w", lookback: 12 }) }),
+        structureIntervals: freeze(["1d", "1w"]),
+      }),
       squeeze: freeze({ length: 20, bbMultiplier: 2, kcMultiplier: 1.5, regressionLength: 20, levelScale: 0.4, changeScale: 0.045, levelShare: 0.60 }),
-      structure: freeze({ pivotBars: freeze({ "4h": 3, "1d": 4, "1w": 2 }), atrPeriod: 14, lookback: 120, maxLevels: 12, maxEvents: 6, maxAge: 6, breakAtr: 0.25, retestAtr: 0.35, volumeFast: 5, volumeSlow: 10, volumeThreshold: 20, minimumTouches: 2, maxEngineLevels: 2, minimumIndependentCategories: 2, breakEvidence: 50, retestEvidence: 85, confirmationShare: 0.15 }),
-      bollingerRsi: freeze({ low: 35, high: 65, repairBars: 3, confirmationShare: 0.15, periods: freeze({ short: 14, medium: 14, long: 21 }) }),
-      integration: freeze({ enabled: true, squeezeShare: freeze({ short: 0.20, mid: 0.20, long: 0.10 }), accelerationShare: 0.20, structureEnabled: true, structureLevelsEnabled: false, structureRetentionGate: "raw-replay-return-retention-failed" }),
-      stability: freeze({ completedLongDaily: true }),
+      structure: freeze({ pivotBars: freeze({ "1d": 4, "1w": 2 }), atrPeriod: 14, lookback: 120, maxLevels: 12, maxEvents: 6, maxAge: 6, breakAtr: 0.25, retestAtr: 0.35, volumeFast: 5, volumeSlow: 10, volumeThreshold: 20, minimumTouches: 2, maxEngineLevels: 2, minimumIndependentCategories: 2, breakEvidence: 50, retestEvidence: 85, confirmationShare: 0.15 }),
+      bollingerRsi: freeze({ low: 35, high: 65, repairBars: 3, confirmationShare: 0.15, periods: freeze({ daily: 14, weekly: 21 }) }),
+      integration: freeze({ enabled: true, squeezeShare: freeze({ daily: 0.20, weekly: 0.10 }), accelerationShare: 0.20, structureEnabled: true, structureLevelsEnabled: false, structureRetentionGate: "raw-replay-return-retention-failed" }),
+      smc: freeze({ sweepPenetrationAtr: 0.10, sweepReclaimBars: freeze({ daily: 2, weekly: 1 }), sweepAge: freeze({ daily: 3, weekly: 2 }), heldBars: 1, ordinaryInvalidationAtr: 0.25, hardInvalidationAtr: 1.0, materialInvalidationAtr: 0.25, repairBars: 1, highRiskRepairBars: 2, momentumRepairBars: 2 }),
+      fvg: freeze({ enabled: true, shadowOnly: true, bodyAtr: 0.80, bodyShare: 0.60, minimumGapAtr: 0.10, maximumGaps: 6 }),
+      fibonacci: freeze({
+        daily: freeze({ source_timeframe: "1d", lookback: 100, min_lookback: 60, max_lookback: 150, pivot_bars: 4, min_pivot_separation: 10, min_swing_pct: 10, stale_after_bars: 50 }),
+        weekly: freeze({ source_timeframe: "1w", lookback: 104, min_lookback: 26, max_lookback: 130, pivot_bars: 2, min_pivot_separation: 5, min_swing_pct: 15, stale_after_bars: 26 }),
+      }),
+      relativeStrength: freeze({ daily: freeze({ primary: 20, windows: freeze([20, 60, 120]) }), weekly: freeze({ primary: 12, windows: freeze([4, 12, 26]) }) }),
+      historyPosition: freeze({ annualBars: freeze({ daily: 252, weekly: 52 }) }),
       confidence: freeze({ tensionStart: 42, tensionOrigin: 38, tensionScale: 62, minimumTensionShare: 0.20 }),
     }),
-    shortV2: freeze({
-      scope: "ordinary_stocks",
-      policy: freeze({ workflow: 3, direction: 3, confirmation: 0, risk: 2, exhaustion: 1, structure: 6, entry: 30, confirm: 50, maxRisk: 65, near: 0.7, extension: 3, exit: 10, exhaustionGate: 50, macro: 0, reversal: false }),
-      directionWeights: freeze([0.25, 0.20, 0.05, 0.25, 0.25]), confirmationWeights: freeze([0.35, 0.35, 0.20, 0.10]),
-      groups: freeze({ ma: freeze([0.20, 0.45, 0.35]), macd: freeze([0.25, 0.45, 0.30]), early: freeze([0.50, 0.30, 0.20]), obv: freeze([0.55, 0.25, 0.20]), trendAgreement: freeze([0.45, 0.35, 0.20]), acceleration: freeze([0.55, 0.45]), risk: freeze([0.40, 0.40, 0.20]), macdChange: freeze([0.50, 0.30, 0.20]) }),
-      scales: freeze({ maPrice: 1.8, maOrder: 0.8, maSlope: 0.18, macdLevel: 0.4, macdImpulse: 0.07, macdChange: 0.045,
-        oscillatorHigh: 70, oscillatorLow: 30, qualityMinimum: 60, breakBuffer: 0.25, baselineBreakDirection: -68, baselineBreakConfirmation: 52,
-        eventDays: 6, immediateEventDays: 2, immediateEventRisk: 30, nearEventRisk: 18, strongDirection: 55, strongConfirmation: 68,
-        strongRisk: 55, strongExhaustion: 25, buyDirection: 30, buyConfirmation: 58, sellDirection: -45, entryDirectionFloor: -65,
-        minimumRoomAtr: 0.30, rewardRiskFloorAtr: 0.25, strongRewardRisk: 1.5, buyRewardRisk: 1,
-        exitHalfWidthAtr: 0.20, invalidBuffer: 0.70, profileRiskFloor: 0.85, profileRiskCeiling: 1.20,
-        rvolMissingReliability: 0.75, rvolReliabilityBase: 0.60, rvolReliabilityOrigin: 0.50, rvolReliabilityScale: 0.30, rvolReliabilityFloor: 0.40,
-        eventConfidencePenalty: 0.20, excessRiskStart: 60, excessRiskPenalty: 0.12, holdConfirmationScale: 1.5,
-        stretchBollingerHigh: 0.80, stretchBollingerLow: 0.20, stretchRsiHigh: 65, stretchRsiLow: 35,
-        nearNeutralShare: 0.40, reasonEvidenceThreshold: 20, directionLabelThreshold: 25,
-        confirmationStrongLabel: 75, confirmationModerateLabel: 50, exhaustionLabelThreshold: 30,
-        opportunityScoreScale: 35, opportunityRoomLabelAtr: 0.50 }),
-    }),
-    shortReduceWidth: freeze({ enabled: false, factor: 0.995, version: "short-reduce-0995", gate: "current-baseline-retention-replay" }),
-    actions: freeze(["strong_buy", "buy", "accumulate", "hold", "trim", "sell"]),
+    actions: freeze(["strong_buy", "buy", "accumulate", "hold", "trim", "sell", "short_sell"]),
     actionLabels: freeze({
       strong_buy: freeze({ en: "Strong Buy", zh: "强力买入" }),
       buy: freeze({ en: "Buy", zh: "买入" }),
       accumulate: freeze({ en: "Accumulate", zh: "逐步加仓" }),
-      hold: freeze({ en: "Hold", zh: "持有" }),
+      hold: freeze({ en: "Hold", zh: "等待／观察" }),
       trim: freeze({ en: "Trim", zh: "减仓" }),
       sell: freeze({ en: "Sell", zh: "卖出" }),
+      short_sell: freeze({ en: "Short Sell", zh: "做空" }),
     }),
     horizons: freeze({
-      short: freeze({
-        label: "1–30 days", technicalKey: "short", fibonacciKey: "short_term", primaryInterval: "4h", earlyInterval: "1h", rsiPeriod: 6,
-        directionWeights: freeze({ ma: 0.40, macd: 0.30, adx: 0.15, early: 0.15 }),
-        confirmationWeights: freeze({ relativeStrength: 0.30, participation: 0.30, rsi: 0.20, adx: 0.10, momentum: 0.10 }),
-        marketSensitivity: 1.0, rangeAtrWidth: 0.65, structuralDistanceAtr: 2.2,
-      }),
-      mid: freeze({
-        label: "1–6 months", technicalKey: "medium", fibonacciKey: "mid_term", primaryInterval: "1d", earlyInterval: "4h", rsiPeriod: 14,
-        directionWeights: freeze({ ma: 0.45, macd: 0.30, adx: 0.15, early: 0.10 }),
+      daily: freeze({
+        label: "Daily", technicalKey: "daily", fibonacciKey: "daily", primaryInterval: "1d", rsiPeriod: 14,
+        directionWeights: freeze({ ma: 0.50, macd: 1 / 3, adx: 1 / 6 }),
         confirmationWeights: freeze({ relativeStrength: 0.35, participation: 0.30, rsi: 0.20, adx: 0.10, momentum: 0.05 }),
         marketSensitivity: 0.70, rangeAtrWidth: 0.85, structuralDistanceAtr: 2.8,
+        primaryMaPeriods: freeze([20, 50]),
+        features: freeze({ ema: freeze({ "1d": freeze([20, 50]) }), sma: freeze({ "1d": freeze([100, 200]) }), rsi: freeze({ "1d": freeze([14, 6]) }), macd: freeze({ "1d": freeze([12, 26, 9]) }), adx: freeze({ "1d": 14 }), atr: freeze({ "1d": 14 }), kdj: freeze({ "1d": 9 }), bollinger: freeze({ "1d": freeze([20, 2]) }) }),
       }),
-      long: freeze({
-        label: "> 6 months", technicalKey: "long", fibonacciKey: "long_term", primaryInterval: "1w", maInterval: "1d", earlyInterval: "1d", rsiPeriod: 21,
-        directionWeights: freeze({ ma: 0.50, macd: 0.30, adx: 0.15, early: 0.05 }),
-        confirmationWeights: freeze({ relativeStrength: 0.40, participation: 0.30, rsi: 0.20, adx: 0.10, momentum: 0.00 }),
+      weekly: freeze({
+        label: "Weekly", technicalKey: "weekly", fibonacciKey: "weekly", primaryInterval: "1w", rsiPeriod: 21,
+        directionWeights: freeze({ ma: 10 / 19, macd: 6 / 19, adx: 3 / 19 }),
+        confirmationWeights: freeze({ relativeStrength: 0.40, participation: 0.30, rsi: 0.20, adx: 0.10, momentum: 0 }),
         marketSensitivity: 0.40, rangeAtrWidth: 0.70, structuralDistanceAtr: 3.5,
+        primaryMaPeriods: freeze([20, 50]),
+        features: freeze({ ema: freeze({ "1w": freeze([10, 20, 50]) }), sma: freeze({ "1w": freeze([200]) }), rsi: freeze({ "1w": freeze([21, 14]) }), macd: freeze({ "1w": freeze([12, 26, 9]) }), adx: freeze({ "1w": 14 }), atr: freeze({ "1w": 14 }), kdj: freeze({ "1w": 9 }), bollinger: freeze({ "1w": freeze([20, 2]) }) }),
       }),
     }),
     componentScales: freeze({
@@ -70,15 +63,15 @@
       adx: freeze({ low: 15, fullStrength: 42, diSpreadScale: 0.55 }),
       relativeStrength: freeze({ benchmarkWeight: 0.65, stockReturnWeight: 0.35, returnScale: 4.2, persistenceBonus: 10 }),
       participation: freeze({ obvWeight: 0.38, divergenceWeight: 0.22, confirmationWeight: 0.18, rvolWeight: 0.12, volumeTrendWeight: 0.10 }),
-      rsi: freeze({ healthyBullish: freeze([52, 70]), healthyBearish: freeze([30, 48]), extremeHigh: 78, extremeLow: 22 }),
+      rsi: freeze({ healthyBullish: freeze([52, 70]), healthyBearish: freeze([30, 48]), extremeHigh: 78, extremeLow: 22, auxiliaryShare: 0.20 }),
       opportunity: freeze({
         confluenceBandAtr: 0.72, supportEligibilityAtr: 0.05, reduceEligibilityAtr: 0.25, clusterDedupAtr: 0.32, clusterCandidateLimit: 8,
-        structuralLevelWeight: freeze({ fib: 0.65, moving_average: 0.80, swing: 1.0, price_structure: 1.10, bollinger: 0.65, daily_fib_confirmation: 0.25 }),
+        structuralLevelWeight: freeze({ fib: 0.65, moving_average: 0.80, swing: 1.0, price_structure: 1.10, bollinger: 0.65 }),
         // The Price Structure Engine is one category-aware confluence model.
         // More levels from one category improve localisation, but they must
         // not be treated as independent proof of a zone.
         unifiedConfluence: freeze({
-          categoryForType: freeze({ fib: "fibonacci", daily_fib_confirmation: "fibonacci", swing: "swing", price_structure: "historical", moving_average: "moving_average", bollinger: "bollinger" }),
+          categoryForType: freeze({ fib: "fibonacci", swing: "swing", price_structure: "historical", moving_average: "moving_average", bollinger: "bollinger" }),
           categoryContributionCap: freeze({ fibonacci: 0.85, swing: 1.0, historical: 1.10, moving_average: 0.82, bollinger: 0.65 }),
           crossCategoryBonus: 0.30,
           categoryQualityFloor: 0.15,
@@ -90,7 +83,7 @@
       }),
     }),
     risk: freeze({
-      atrPct: freeze({ mild: 2.0, elevated: 4.0, high: 7.0, extreme: 11.0 }),
+      atrPct: freeze({ daily: freeze({ mild: 2.0, extreme: 11.0 }), weekly: freeze({ mild: 4.5, extreme: 24.5 }) }),
       atrPercentile: freeze({ elevated: 70, extreme: 92 }),
       volatilityRegime: freeze({ low: 0, normal: 0, elevated: 55, high: 75, extreme: 90, unavailable: 0 }),
       bollingerPercentB: freeze({ extended: 1.0, extreme: 1.25 }),
@@ -110,37 +103,38 @@
     exhaustion: freeze({
       highRsi: 72, lowRsi: 28, extremeRsi: 82, extremeLowRsi: 18,
       highKdj: 88, lowKdj: 12, extensionPercentB: 1.05, downsidePercentB: -0.05,
-      trendWithoutDeteriorationCap: 28, marketContrarianMax: 14,
-      contrarianEdgeWeight: 0.28,
+      trendWithoutDeteriorationCap: 28, marketContrarianMax: 14, histogramChangeAtr: freeze({ start: 0.01, extreme: 0.35 }),
     }),
     market: freeze({
       vix: freeze({ cautious: 21, riskOff: 28, shock: 35, spike5d: 6, spike20d: 10 }),
       yields: freeze({ restrictive: 4.5, severe: 5.0, rising5dBps: 18, rising20dBps: 35 }),
       regimes: freeze({ risk_on: freeze({ riskAdd: 0, confidencePenalty: 0 }), normal: freeze({ riskAdd: 0, confidencePenalty: 0 }), cautious: freeze({ riskAdd: 10, confidencePenalty: 6 }), risk_off: freeze({ riskAdd: 22, confidencePenalty: 13 }), shock: freeze({ riskAdd: 38, confidencePenalty: 24 }) }),
-      maxRiskAdd: freeze({ short: 32, mid: 24, long: 18 }),
+      maxRiskAdd: freeze({ daily: 24, weekly: 18 }),
       earnings: freeze({ nearDays: 7, immediateDays: 2, nearRiskAdd: 12, immediateRiskAdd: 20, confidencePenalty: 10 }),
       fearGreed: freeze({ extremeGreed: 80, extremeFear: 20 }),
+      events: freeze({ majorTypes: freeze(["fomc", "cpi", "employment"]), ordinaryConfirmationAdd: 5, ordinaryRiskAdd: 8 }),
+      macro: freeze({ cpiStep: 0.10, unemploymentStep: 0.20, payrollDeteriorationShare: 0.25, riskAddMaximum: 8, riskUnit: 4 }),
     }),
-    edge: freeze({ directionTrustFloor: 0.46, directionTrustConfirmationWeight: 0.54, priceOpportunityWeight: 0.20, riskPenaltyMax: 0.52, riskPenaltyStart: 32, riskPenaltyPower: 1.65 }),
     actionPolicy: freeze({
-      minimumDataQuality: 38,
-      territories: freeze({ strongBuy: 80, buy: 55, accumulate: 25, holdFloor: -20, trim: -25, sell: -55 }),
-      gates: freeze({ strongBuy: freeze({ direction: 62, confirmation: 76, priceOpportunity: 24, riskMaximum: 42, bullishExhaustionMaximum: 28, confidence: 78 }), buy: freeze({ direction: 30, confirmation: 57, riskMaximum: 64 }), accumulate: freeze({ riskMaximum: 76 }), sell: freeze({ direction: -55, confirmation: 58 }), bearishContrarianAccumulate: freeze({ exhaustion: 58, priceOpportunity: 36, dataQuality: 55 }), extremeRisk: 88, confidenceMinimum: freeze({ strong_buy: 78, buy: 48, accumulate: 38 }) }),
+      minimumDataQuality: 38, earlyConfirmation: 45,
+      gates: freeze({ strongBuy: freeze({ direction: 62, confirmation: 76, riskMaximum: 42, bullishExhaustionMaximum: 28,  }), buy: freeze({ direction: 30, confirmation: 57, riskMaximum: 64 }), accumulate: freeze({ riskMaximum: 76 }), sell: freeze({ direction: -55, confirmation: 58 }), shortSell: freeze({ direction: -62, confirmation: 76, riskMaximum: 42 }) }),
     }),
     execution: freeze({
       invalidationAtrBuffer: 0.55,
-      actionableRangeToleranceAtr: 0.28, staleRangeDistanceAtr: 2.5,
+      rewardRisk: freeze({ buy: 1.5, accumulate: 1.5, strong_buy: 2, short_sell: 2 }),
+      exitHalfWidthAtr: 0.20,
+      newEntryExhaustionMaximum: 55,
+      minimumIndependentEntryCategories: 2,
       // These are width and distance safety rails, not fixed-price ranges.
       // Centre still comes only from structural confluence; ATR determines the
       // unconstrained width before the horizon-specific normalisation below.
-      maxHalfWidthPct: freeze({ short: 0.035, mid: 0.045, long: 0.060 }),
-      maxEntryCenterDistanceAtr: freeze({ short: 1.15, mid: 1.45, long: 1.70 }),
-      maxEntryCenterDistancePct: freeze({ short: 0.035, mid: 0.055, long: 0.070 }),
+      maxHalfWidthPct: freeze({ daily: 0.045, weekly: 0.060 }),
+      maxEntryCenterDistanceAtr: freeze({ daily: 1.45, weekly: 1.70 }),
+      maxEntryCenterDistancePct: freeze({ daily: 0.055, weekly: 0.070 }),
       confluenceWidthMultiplier: freeze({ weak: 0.72, strong: 0.94 }),
-      minimumConfluenceForFormalEntry: 14,
       landscape: freeze({
-        neutralBufferAtr: freeze({ short: 0.42, mid: 0.62, long: 0.86 }),
-        minimumHalfWidthAtr: freeze({ short: 0.22, mid: 0.28, long: 0.34 }),
+        neutralBufferAtr: freeze({ daily: 0.62, weekly: 0.86 }),
+        minimumHalfWidthAtr: freeze({ daily: 0.28, weekly: 0.34 }),
         weakQualityPenalty: 9,
         invalidQualityPenalty: 24,
         minimumPairQuality: 0.85,
@@ -148,37 +142,24 @@
         // merely select between existing clusters as trend/risk conditions
         // evolve; they never shift a centre by a fixed percentage or ATR.
         contextualSelection: freeze({
-          minimumReduceDistanceAtr: freeze({ short: 0.70, mid: 0.95, long: 1.20 }),
-          bullishTrendLiftAtr: freeze({ short: 1.10, mid: 1.45, long: 1.85 }),
-          prematureReducePenalty: 0.72,
+          minimumReduceDistanceAtr: freeze({ daily: 0.95, weekly: 1.20 }),
+          bullishTrendLiftAtr: freeze({ daily: 1.45, weekly: 1.85 }),
+          prematureReducePenalty: 0.72, weakeningTrendDiscount: 0.65, reduceReferenceAtr: 1.5,
           supportDistancePenalty: 0.13,
           reduceDistancePenalty: 0.05,
           bearishPressureProximityBonus: 0.16,
         }),
       }),
       priceState: freeze({
-        nearOpportunityAtr: freeze({ short: 1.15, mid: 1.45, long: 1.70 }),
-        nearReduceAtr: freeze({ short: 0.85, mid: 1.15, long: 1.45 }),
+        nearOpportunityAtr: freeze({ daily: 1.45, weekly: 1.70 }),
+        nearReduceAtr: freeze({ daily: 1.15, weekly: 1.45 }),
         // Near-zone tolerance must never consume the entire deliberate
         // Neutral buffer between two actionable zones.
         neutralBufferNearShare: 0.42,
         minimumNearAtr: 0.15,
       }),
-      actionFamily: freeze({
-        // A confirmed breakdown is a separate Price State.  The threshold is
-        // deliberately stricter than an ordinary bearish direction so that
-        // routine weakness cannot erase a still-valid opportunity zone.
-        breakdownDirection: -68,
-        breakdownConfirmation: 52,
-        sellDirection: -45,
-        sellConfirmation: 55,
-        sellRisk: 60,
-        sellBullishExhaustion: -56,
-      }),
     }),
     stability: freeze({
-      cacheLimit: 300, materialEdgeDelta: 26,
-      stayBands: freeze({ strong_buy: freeze([68, 101]), buy: freeze([35, 101]), accumulate: freeze([6, 101]), hold: freeze([-30, 34]), trim: freeze([-64, -8]), sell: freeze([-101, -35]) }),
       material: freeze({ atrShock: 82, majorBreakdown: -68, majorBreakout: 68 }),
       noHistory: freeze({ ma: 0.36, macd: 0.30, adx: 0.18, relativeStrength: 0.16, minimum: 42, maximum: 76, unavailable: 45 }),
     }),
@@ -189,6 +170,7 @@
       penalties: freeze({ marketConflict: 18, exhaustionConflict: 16, eventUncertainty: 12, internalConflict: 18, priceConflict: 14, invalidLandscape: 18 }),
     }),
     profile: freeze({
+      highRiskRepair: freeze({business: freeze(["Turnaround","EmergingGrowth"]),risk: freeze(["ExecutionRisk"]),lifecycle: freeze(["Emerging","Recovery"])}),
       // Company Profile V2.1 is deliberately a metadata-only, structural
       // classifier.  The numeric evidence requirements live here rather than
       // being hidden in classifier control flow so reviews and audits can
@@ -250,10 +232,10 @@
       review: freeze({ annualReviewMonth: 3, annualReviewDay: 31, timeZone: "America/New_York", cacheLimit: 300 }),
       modifierCaps: freeze({ normal: freeze([0.85, 1.15]), special: freeze([0.80, 1.20]) }),
       // These sources all encode the same broad issuer-maturity/stability
-      // fact.  For longStability, retain the strongest one rather than adding
+      // fact.  For weeklyStability, retain the strongest one rather than adding
       // all of them and immediately flattening distinct profiles at the cap.
       // Unlisted primary/risk contributions remain independent evidence.
-      correlatedLongStability: freeze({
+      correlatedWeeklyStability: freeze({
         businessTrait: freeze(["MarketLeader", "MatureGrowth", "CashCow", "Defensive"]),
         lifecycle: freeze(["EstablishedLeader", "MatureLeader"]),
         sizeClass: freeze(["MegaCap"]),
@@ -261,50 +243,50 @@
       primaryClassificationModifiers: freeze({
         Semiconductors: freeze({ confirmationWeights: freeze({ relativeStrength: 0.06, participation: 0.05 }), normalAtrTolerance: 0.04, marketSensitivity: 0.05, benchmarkWeights: freeze({ qqq: 0.06 }) }),
         "Semiconductor Equipment": freeze({ confirmationWeights: freeze({ participation: 0.07 }), marketSensitivity: 0.06, benchmarkWeights: freeze({ qqq: 0.05 }) }),
-        "Enterprise Software": freeze({ directionWeights: freeze({ ma: 0.04 }), confirmationWeights: freeze({ relativeStrength: 0.04 }), marketSensitivity: 0.03, rateSensitivity: 0.03, benchmarkWeights: freeze({ qqq: 0.04 }) }),
-        "Cloud Infrastructure": freeze({ directionWeights: freeze({ ma: 0.04 }), confirmationWeights: freeze({ relativeStrength: 0.06, participation: 0.04 }), marketSensitivity: 0.05, benchmarkWeights: freeze({ qqq: 0.06 }) }),
+        "Enterprise Software": freeze({ confirmationWeights: freeze({ relativeStrength: 0.04 }), marketSensitivity: 0.03, rateSensitivity: 0.03, benchmarkWeights: freeze({ qqq: 0.04 }) }),
+        "Cloud Infrastructure": freeze({ confirmationWeights: freeze({ relativeStrength: 0.06, participation: 0.04 }), marketSensitivity: 0.05, benchmarkWeights: freeze({ qqq: 0.06 }) }),
         "Consumer Technology": freeze({ confirmationWeights: freeze({ relativeStrength: 0.04 }), marketSensitivity: 0.04, benchmarkWeights: freeze({ qqq: 0.04 }) }),
         "Internet Platforms": freeze({ confirmationWeights: freeze({ relativeStrength: 0.04 }), eventSensitivity: 0.04, marketSensitivity: 0.03, benchmarkWeights: freeze({ qqq: 0.04 }) }),
         "Media & Entertainment": freeze({ confirmationWeights: freeze({ participation: 0.04, relativeStrength: 0.03 }), eventSensitivity: 0.04, marketSensitivity: 0.04, benchmarkWeights: freeze({ qqq: 0.03 }) }),
         "E-Commerce": freeze({ confirmationWeights: freeze({ participation: 0.05 }), marketSensitivity: 0.06 }),
         "Digital Advertising": freeze({ confirmationWeights: freeze({ participation: 0.06 }), marketSensitivity: 0.06 }),
-        "Telecommunications Infrastructure": freeze({ directionWeights: freeze({ ma: 0.04 }), marketSensitivity: 0.04 }),
+        "Telecommunications Infrastructure": freeze({ marketSensitivity: 0.04 }),
         "Capital Markets": freeze({ marketSensitivity: 0.08, rateSensitivity: 0.08, benchmarkWeights: freeze({ spy: 0.05 }) }),
         Banking: freeze({ marketSensitivity: 0.07, rateSensitivity: 0.12, benchmarkWeights: freeze({ spy: 0.06 }) }),
-        "Digital Financial Services": freeze({ directionWeights: freeze({ macd: 0.04 }), marketSensitivity: 0.07, rateSensitivity: 0.05, benchmarkWeights: freeze({ qqq: 0.03 }) }),
-        Payments: freeze({ directionWeights: freeze({ ma: 0.03 }), marketSensitivity: 0.04 }),
-        Insurance: freeze({ rateSensitivity: 0.07, longStability: 0.05, strongBuyOpportunity: 0.03 }),
-        "Managed Care & Health Services": freeze({ marketSensitivity: -0.05, eventSensitivity: 0.07, longStability: 0.06 }),
+        "Digital Financial Services": freeze({ marketSensitivity: 0.07, rateSensitivity: 0.05, benchmarkWeights: freeze({ qqq: 0.03 }) }),
+        Payments: freeze({ marketSensitivity: 0.04 }),
+        Insurance: freeze({ rateSensitivity: 0.07, weeklyStability: 0.05 }),
+        "Managed Care & Health Services": freeze({ marketSensitivity: -0.05, eventSensitivity: 0.07, weeklyStability: 0.06 }),
         Pharmaceuticals: freeze({ eventSensitivity: 0.09, actionGates: freeze({ buyConfirmation: 2, strongBuyConfirmation: 3 }) }),
         Biotechnology: freeze({ eventSensitivity: 0.14, riskSensitivity: 0.07, actionGates: freeze({ buyConfirmation: 5, strongBuyConfirmation: 7 }) }),
-        "Medical Devices": freeze({ marketSensitivity: -0.02, eventSensitivity: 0.04, longStability: 0.03 }),
+        "Medical Devices": freeze({ marketSensitivity: -0.02, eventSensitivity: 0.04, weeklyStability: 0.03 }),
         "Consumer Discretionary": freeze({ marketSensitivity: 0.07, confirmationWeights: freeze({ participation: 0.05 }) }),
-        "Consumer Staples": freeze({ marketSensitivity: -0.07, longStability: 0.08, actionGates: freeze({ buyConfirmation: 2 }) }),
+        "Consumer Staples": freeze({ marketSensitivity: -0.07, weeklyStability: 0.08, actionGates: freeze({ buyConfirmation: 2 }) }),
         Retail: freeze({ marketSensitivity: 0.07, confirmationWeights: freeze({ participation: 0.06 }) }),
-        Industrials: freeze({ directionWeights: freeze({ ma: 0.05 }), marketSensitivity: 0.05 }),
-        "Aerospace & Defense": freeze({ longStability: 0.07, eventSensitivity: 0.04 }),
+        Industrials: freeze({ marketSensitivity: 0.05 }),
+        "Aerospace & Defense": freeze({ weeklyStability: 0.07, eventSensitivity: 0.04 }),
         "Transportation & Logistics": freeze({ marketSensitivity: 0.08, confirmationWeights: freeze({ participation: 0.06 }) }),
         Energy: freeze({ marketSensitivity: 0.07, confirmationWeights: freeze({ participation: 0.06 }) }),
-        Utilities: freeze({ rateSensitivity: 0.14, marketSensitivity: -0.06, longStability: 0.09 }),
-        "Real Estate": freeze({ rateSensitivity: 0.16, marketSensitivity: -0.03, longStability: 0.06 }),
+        Utilities: freeze({ rateSensitivity: 0.14, marketSensitivity: -0.06, weeklyStability: 0.09 }),
+        "Real Estate": freeze({ rateSensitivity: 0.16, marketSensitivity: -0.03, weeklyStability: 0.06 }),
         Materials: freeze({ marketSensitivity: 0.08, confirmationWeights: freeze({ participation: 0.06 }) }),
       }),
       // Size is deliberately internal.  It preserves only a small
       // noise/stability context and may never act as a visible Company Trait
       // or permission to take a bullish action.
       sizeClassModifiers: freeze({
-        MegaCap: freeze({ riskSensitivity: -0.02, marketSensitivity: -0.02, longStability: 0.03 }),
+        MegaCap: freeze({ riskSensitivity: -0.02, marketSensitivity: -0.02, weeklyStability: 0.03 }),
         NonMegaCap: freeze({}),
       }),
       businessTraitModifiers: freeze({
-        MarketLeader: freeze({ directionWeights: freeze({ ma: 0.04 }), confirmationWeights: freeze({ relativeStrength: 0.06 }), longStability: 0.04 }),
-        HighGrowth: freeze({ directionWeights: freeze({ macd: 0.05 }), confirmationWeights: freeze({ relativeStrength: 0.05 }), marketSensitivity: 0.05, rateSensitivity: 0.04, exhaustionSensitivity: 0.05, actionGates: freeze({ buyConfirmation: 2 }) }),
-        MatureGrowth: freeze({ directionWeights: freeze({ ma: 0.03 }), longStability: 0.05, normalAtrTolerance: -0.03 }),
-        CashCow: freeze({ riskSensitivity: -0.04, marketSensitivity: -0.04, rateSensitivity: -0.03, longStability: 0.08 }),
-        Defensive: freeze({ marketSensitivity: -0.07, longStability: 0.09, actionGates: freeze({ buyConfirmation: 2 }) }),
-        Cyclical: freeze({ confirmationWeights: freeze({ participation: 0.06, relativeStrength: 0.03 }), marketSensitivity: 0.07, longStability: -0.03, actionGates: freeze({ buyConfirmation: 2 }) }),
-        Turnaround: freeze({ riskSensitivity: 0.06, longStability: -0.06, actionGates: freeze({ buyDirection: 3, buyConfirmation: 7, strongBuyConfirmation: 8 }) }),
-        EmergingGrowth: freeze({ directionWeights: freeze({ macd: 0.04 }), confirmationWeights: freeze({ relativeStrength: 0.04 }), riskSensitivity: 0.04, normalAtrTolerance: 0.03, longStability: -0.04, actionGates: freeze({ buyConfirmation: 3, strongBuyConfirmation: 4 }) }),
+        MarketLeader: freeze({ confirmationWeights: freeze({ relativeStrength: 0.06 }), weeklyStability: 0.04 }),
+        HighGrowth: freeze({ confirmationWeights: freeze({ relativeStrength: 0.05 }), marketSensitivity: 0.05, rateSensitivity: 0.04, exhaustionSensitivity: 0.05, actionGates: freeze({ buyConfirmation: 2 }) }),
+        MatureGrowth: freeze({ weeklyStability: 0.05, normalAtrTolerance: -0.03 }),
+        CashCow: freeze({ riskSensitivity: -0.04, marketSensitivity: -0.04, rateSensitivity: -0.03, weeklyStability: 0.08 }),
+        Defensive: freeze({ marketSensitivity: -0.07, weeklyStability: 0.09, actionGates: freeze({ buyConfirmation: 2 }) }),
+        Cyclical: freeze({ confirmationWeights: freeze({ participation: 0.06, relativeStrength: 0.03 }), marketSensitivity: 0.07, weeklyStability: -0.03, actionGates: freeze({ buyConfirmation: 2 }) }),
+        Turnaround: freeze({ riskSensitivity: 0.06, weeklyStability: -0.06, actionGates: freeze({ buyConfirmation: 7, strongBuyConfirmation: 8 }) }),
+        EmergingGrowth: freeze({ confirmationWeights: freeze({ relativeStrength: 0.04 }), riskSensitivity: 0.04, normalAtrTolerance: 0.03, weeklyStability: -0.04, actionGates: freeze({ buyConfirmation: 3, strongBuyConfirmation: 4 }) }),
       }),
       riskTraitModifiers: freeze({
         HighVolatility: freeze({ normalAtrTolerance: 0.10, exhaustionSensitivity: -0.05, actionGates: freeze({ buyConfirmation: 2 }) }),
@@ -313,23 +295,23 @@
         CommoditySensitive: freeze({ marketSensitivity: 0.07, actionGates: freeze({ buyConfirmation: 3 }) }),
         MacroSensitive: freeze({ marketSensitivity: 0.09, actionGates: freeze({ buyConfirmation: 3 }) }),
         CrowdedLeader: freeze({ exhaustionSensitivity: 0.11, riskSensitivity: 0.04, actionGates: freeze({ buyConfirmation: 2 }) }),
-        ExecutionRisk: freeze({ riskSensitivity: 0.07, eventSensitivity: 0.08, longStability: -0.04, actionGates: freeze({ buyConfirmation: 5, strongBuyConfirmation: 6 }) }),
-        LowVolatility: freeze({ normalAtrTolerance: -0.07, exhaustionSensitivity: -0.03, longStability: 0.07 }),
+        ExecutionRisk: freeze({ riskSensitivity: 0.07, eventSensitivity: 0.08, weeklyStability: -0.04, actionGates: freeze({ buyConfirmation: 5, strongBuyConfirmation: 6 }) }),
+        LowVolatility: freeze({ normalAtrTolerance: -0.07, exhaustionSensitivity: -0.03, weeklyStability: 0.07 }),
       }),
       lifecycleModifiers: freeze({
-        Emerging: freeze({ riskSensitivity: 0.08, normalAtrTolerance: 0.06, longStability: -0.07, actionGates: freeze({ buyDirection: 3, buyConfirmation: 7, strongBuyConfirmation: 8 }) }),
-        Scaling: freeze({ directionWeights: freeze({ macd: 0.04 }), confirmationWeights: freeze({ relativeStrength: 0.04 }), normalAtrTolerance: 0.04, actionGates: freeze({ buyConfirmation: 2 }) }),
-        EstablishedLeader: freeze({ directionWeights: freeze({ ma: 0.05 }), confirmationWeights: freeze({ relativeStrength: 0.04 }), longStability: 0.08 }),
-        MatureLeader: freeze({ longStability: 0.10, marketSensitivity: -0.04, exhaustionSensitivity: 0.04 }),
-        Recovery: freeze({ confirmationWeights: freeze({ participation: 0.08 }), riskSensitivity: 0.05, longStability: -0.06, actionGates: freeze({ buyDirection: 3, buyConfirmation: 6, strongBuyConfirmation: 7 }) }),
-        Declining: freeze({ riskSensitivity: 0.08, longStability: -0.08, actionGates: freeze({ buyDirection: 4, buyConfirmation: 8, strongBuyConfirmation: 9 }) }),
+        Emerging: freeze({ riskSensitivity: 0.08, normalAtrTolerance: 0.06, weeklyStability: -0.07, actionGates: freeze({ buyConfirmation: 7, strongBuyConfirmation: 8 }) }),
+        Scaling: freeze({ confirmationWeights: freeze({ relativeStrength: 0.04 }), normalAtrTolerance: 0.04, actionGates: freeze({ buyConfirmation: 2 }) }),
+        EstablishedLeader: freeze({ confirmationWeights: freeze({ relativeStrength: 0.04 }), weeklyStability: 0.08 }),
+        MatureLeader: freeze({ weeklyStability: 0.10, marketSensitivity: -0.04, exhaustionSensitivity: 0.04 }),
+        Recovery: freeze({ confirmationWeights: freeze({ participation: 0.08 }), riskSensitivity: 0.05, weeklyStability: -0.06, actionGates: freeze({ buyConfirmation: 6, strongBuyConfirmation: 7 }) }),
+        Declining: freeze({ riskSensitivity: 0.08, weeklyStability: -0.08, actionGates: freeze({ buyConfirmation: 8, strongBuyConfirmation: 9 }) }),
       }),
     }),
     etf: freeze({
       leveraged: freeze({
         modifierDelta: freeze({ riskSensitivity: 0.12, exhaustionSensitivity: 0.10, marketSensitivity: 0.16, normalAtrTolerance: 0.10 }),
         gates: freeze({ buyDirection: 4, buyConfirmation: 3, strongBuyDirection: 8, strongBuyConfirmation: 6 }),
-        confidenceScale: freeze({ short: 0.98, mid: 0.92, long: 0.86 }),
+        confidenceScale: freeze({ daily: 0.92, weekly: 0.86 }),
       }),
       inverse: freeze({ underlyingConfirmationImpact: 14, underlyingConflictImpact: 16 }),
     }),

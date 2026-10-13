@@ -1,144 +1,21 @@
-#!/usr/bin/env node
 "use strict";
-
-// The EOD process must use the production JS engine and persist only compact
-// technical state. This test uses deterministic synthetic bars, never a
-// provider/cache/network call.
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-const { spawnSync } = require("node:child_process");
-
-const ROOT = path.resolve(__dirname, "..");
-const runner = path.join(ROOT, "历史记录", "生成决策快照.js");
-const modelConfig = require("../decision-engine/config.js");
-const RAW_KEYS = new Set(["timestamps", "opens", "highs", "lows", "closes", "volumes", "bars", "series", "macd_series", "signal_series", "histogram_series"]);
-
-function bars(count, start, increment, timestampStart = "2025-01-02") {
-  const timestamps = [];
-  const opens = [];
-  const highs = [];
-  const lows = [];
-  const closes = [];
-  const volumes = [];
-  let value = start;
-  let date = new Date(`${timestampStart}T16:00:00Z`);
-  for (let index = 0; index < count; index += 1) {
-    value += increment + Math.sin(index / 7) * 0.25;
-    timestamps.push(date.toISOString().slice(0, 10));
-    opens.push(value - 0.45); highs.push(value + 1.2); lows.push(value - 1.1); closes.push(value); volumes.push(1_000_000 + index * 5000);
-    date.setUTCDate(date.getUTCDate() + 1);
-  }
-  return { timestamps, opens, highs, lows, closes, volumes, availability: "available", available: true, lookback: "2y" };
-}
-
-function intradayBars(count, start, increment, hoursPerBar) {
-  const result = bars(count, start, increment);
-  result.timestamps = result.timestamps.map((date, index) => `${date}T${String(9 + ((index * hoursPerBar) % 7)).padStart(2, "0")}:30:00-0400`);
-  result.interval = hoursPerBar === 4 ? "4h" : "1h";
-  result.source = "test";
-  result.regular_hours_only = true;
-  return result;
-}
-
-function quote(ticker, price = 180) {
-  const end = new Date("2026-08-18T16:00:00Z");
-  end.setUTCDate(end.getUTCDate() - 319);
-  const daily = bars(320, price - 100, 0.32, end.toISOString().slice(0, 10));
-  const oneHour = intradayBars(180, price - 20, 0.10, 1);
-  const fourHour = intradayBars(150, price - 40, 0.18, 4);
-  return {
-    ticker, price: daily.closes.at(-1), quote_status: "available",
-    history: { ...daily, intervals: { "1h": oneHour, "4h": fourHour }, daily_history_metadata: { lookback: "2y" } },
-    metadata: { quoteType: ticker === "TQQQ" ? "ETF" : "EQUITY", sharesOutstanding: 1_000_000_000 },
-    technical: { fibonacci_structure: {} },
-  };
-}
-
-function hasRawSeries(value) {
-  if (!value || typeof value !== "object") return false;
-  if (Array.isArray(value)) return value.some(hasRawSeries);
-  return Object.entries(value).some(([key, child]) => RAW_KEYS.has(key) || /_series$/i.test(key) || hasRawSeries(child));
-}
-
-const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "eod-history-node-"));
+const assert=require("node:assert/strict"),fs=require("node:fs"),os=require("node:os"),path=require("node:path"),{spawnSync}=require("node:child_process");
+const {rawHistory,market}=require("./fixtures/decision-scenarios.js");const history=rawHistory(),date=history.timestamps.at(-1),temp=fs.mkdtempSync(path.join(os.tmpdir(),"eod-v2-"));
+const rawKeys=new Set(["timestamps","opens","highs","lows","closes","volumes","bars","series","completed","bar_end_timestamps"]);
+const hasRaw=v=>v&&typeof v==="object"&&(Array.isArray(v)?v.some(hasRaw):Object.entries(v).some(([k,c])=>rawKeys.has(k)||/_series$/.test(k)||hasRaw(c)));
 try {
-  const qqq = quote("QQQ", 300);
-  const tqqq = quote("TQQQ", 100);
-  const stock = quote("STOCK", 180);
-  stock.metadata = {
-    quoteType: "EQUITY", industry: "Semiconductors", marketCap: 2_400_000_000_000,
-    revenueGrowth: 0.28, profitMargins: 0.42, beta: 1.62,
-    classification: {
-      primaryClassification: "Semiconductors", businessTrait: "HighGrowth", riskTrait: "HighVolatility",
-      lifecycle: "EstablishedLeader", sizeClass: "MegaCap", companyTraits: ["HighGrowth", "HighVolatility"], profileStatus: "complete",
-      profileSource: "automatic", profileSchemaVersion: "2.1", profileConfidence: 0.82, lastProfileReview: "2026-03-31T03:30:00-04:00",
-    },
-  };
-  const unavailable = { ticker: "NOPE", price: null, quote_status: "unavailable", history: { timestamps: [], closes: [], availability: "unavailable" }, metadata: { quoteType: "EQUITY" } };
-  const stale = quote("STALE", 80);
-  stale.history.timestamps[stale.history.timestamps.length - 1] = "2026-08-17";
-  const input = {
-    marketDate: "2026-08-18", recordedAtEt: "2026-08-18T16:30:00-04:00",
-    payload: {
-      items: [{ ticker: "QQQ", analysis: qqq }, { ticker: "TQQQ", analysis: tqqq }, { ticker: "STOCK", analysis: stock }, { ticker: "NOPE", analysis: unavailable }, { ticker: "STALE", analysis: stale }],
-      marketContext: { market_context: { regime: "normal", equity_trend: { spy: { change_20d_pct: 1.5 }, qqq: { change_20d_pct: 2.1 } }, vix: { current: 18 } } },
-    },
-  };
-  const inputPath = path.join(temporary, "input.json");
-  const outputPath = path.join(temporary, "output.json");
-  fs.writeFileSync(inputPath, JSON.stringify(input));
-  const run = spawnSync(process.execPath, [runner, inputPath, outputPath], { encoding: "utf8" });
-  assert.equal(run.status, 0, run.stderr || run.stdout);
-  const output = JSON.parse(fs.readFileSync(outputPath, "utf8"));
-  assert.equal(output.records.length, 15, "every ticker must produce all three horizons");
-  for (const record of output.records) {
-    assert.equal(record.technical_features.model_diagnostics.model_version, modelConfig.version);
-    if (record.data_status !== "unavailable") {
-      assert.equal(record.technical_features.model_diagnostics.path_version, modelConfig.version);
-      assert.equal(record.technical_features.model_diagnostics.policy_family, `${record.asset_type === "ETF" ? "etf" : "stock"}_${record.horizon}`);
-    }
-  }
-  const qqqShort = output.records.find((row) => row.ticker === "QQQ" && row.horizon === "short");
-  const tqqqLong = output.records.find((row) => row.ticker === "TQQQ" && row.horizon === "long");
-  const nopeMid = output.records.find((row) => row.ticker === "NOPE" && row.horizon === "mid");
-  const staleLong = output.records.find((row) => row.ticker === "STALE" && row.horizon === "long");
-  const stockShort = output.records.find((row) => row.ticker === "STOCK" && row.horizon === "short");
-  assert.equal(qqqShort.asset_type, "ETF");
-  assert.equal(tqqqLong.leveraged, true);
-  assert.equal(tqqqLong.etf_direction, "long");
-  assert.equal(nopeMid.data_status, "unavailable");
-  assert.equal(nopeMid.action, null);
-  assert.equal(staleLong.data_status, "unavailable", "prior-day cache must not become a current EOD recommendation");
-  assert.equal(stockShort.primary_classification, "Semiconductors");
-  assert.deepEqual(stockShort.company_traits, ["HighGrowth", "HighVolatility"]);
-  assert.equal(stockShort.business_trait, "HighGrowth");
-  assert.equal(stockShort.size_class, "MegaCap", "EOD stores internal V2.1 size context without promoting it to a trait");
-  assert.equal(stockShort.risk_trait, "HighVolatility");
-  assert.equal(stockShort.profile_status, "complete");
-  assert.equal(stockShort.profile_source, "automatic");
-  assert.equal(stockShort.applied_profile_modifiers.profile_confidence, 0.82);
-  assert.ok(qqqShort.technical_features, "available record includes compact canonical features");
-  assert.equal(hasRawSeries(qqqShort.technical_features), false, "raw OHLCV and indicator series must never be persisted");
-  assert.equal(stockShort.technical_features.model_diagnostics.confidence.profileConfidenceWeight, 0);
-  assert.equal(stockShort.technical_features.model_diagnostics.width_comparison.shadow_only, true);
-  assert.equal(stockShort.technical_features.model_diagnostics.width_comparison.production_enabled, false);
-  assert.equal(stockShort.technical_features.current_observation.close, stock.history.closes.at(-1));
-  assert.equal(stockShort.technical_features.model_diagnostics.width_comparison.baseline.action, stockShort.action);
-  // The bounded handoff must preserve precisely the legacy input's result.
-  const manifest = { ...input, format: "ticker-files-v1", marketContext: input.payload.marketContext, items: input.payload.items.map((item, index) => {
-    const quotePath = path.join(temporary, `quote-${index}.json`);
-    fs.writeFileSync(quotePath, JSON.stringify(item.analysis));
-    return { ticker: item.ticker, path: quotePath };
-  }) };
-  delete manifest.payload;
-  fs.writeFileSync(inputPath, JSON.stringify(manifest));
-  const bounded = spawnSync(process.execPath, ["--max-old-space-size=128", "--max-semi-space-size=4", runner, inputPath, outputPath], { encoding: "utf8" });
-  assert.equal(bounded.status, 0, bounded.stderr);
-  assert.deepEqual(JSON.parse(fs.readFileSync(outputPath, "utf8")), output, "file handoff and streamed records cannot change production decisions");
-  assert.ok(Array.isArray(qqqShort.supporting_reasons));
-  console.log("EOD history Node snapshot tests passed.");
-} finally {
-  fs.rmSync(temporary, { recursive: true, force: true });
-}
+ const context=market();context.market_context.benchmark_history={spy:history,qqq:history};
+ const stock={price:history.closes.at(-1),history,updatedAt:history.as_of,metadata:{quoteType:"EQUITY",classification:{primaryClassification:"Semiconductors",businessTrait:"HighGrowth",riskTrait:"HighVolatility",lifecycle:"EstablishedLeader",sizeClass:"MegaCap",profileStatus:"complete",profileSchemaVersion:"2.1"}}};
+ const input={marketDate:date,recordedAtEt:history.as_of,payload:{items:[{ticker:"TEST",analysis:stock},{ticker:"TQQQ",analysis:{...stock,metadata:{quoteType:"ETF"}}},{ticker:"EMPTY",analysis:{price:null,history:{},metadata:{}}},{ticker:"STALE",analysis:{...stock,stale:true}}],marketContext:context}};
+ const src=path.join(temp,"input.json"),dest=path.join(temp,"output.json"),runner=path.resolve(__dirname,"../历史记录/生成决策快照.js");
+ const run=value=>{fs.writeFileSync(src,JSON.stringify(value));const r=spawnSync(process.execPath,["--max-old-space-size=128","--max-semi-space-size=4",runner,src,dest],{encoding:"utf8"});assert.equal(r.status,0,r.stderr);return JSON.parse(fs.readFileSync(dest));};
+ const data=run(input);assert.equal(data.records.length,8);
+ for(const row of data.records){assert(["daily","weekly"].includes(row.horizon));assert.equal(row.technical_features.model_diagnostics.model_version,"V2");assert.equal(hasRaw(row.technical_features),false);if(["EMPTY","STALE"].includes(row.ticker)){assert.equal(row.data_status,"unavailable");assert.equal(row.action,null);}}
+ const s=data.records.find(x=>x.ticker==="TEST"&&x.horizon==="daily");assert.equal(s.size_class,"MegaCap");assert.equal(s.business_trait,"HighGrowth");assert.equal(s.technical_features.model_diagnostics.confidence.profileConfidenceWeight,0);
+ const w=data.records.find(x=>x.ticker==="TEST"&&x.horizon==="weekly");
+ assert.equal(s.technical_features.price_position.interval,"1d");assert.equal(w.technical_features.price_position.interval,"1w","Weekly history preserves its own completed-week historical structure");
+ assert.equal(data.records.find(x=>x.ticker==="TQQQ"&&x.horizon==="weekly").technical_features.model_diagnostics.background_only,true);
+ const manifest={...input,format:"ticker-files-v1",marketContext:context,items:input.payload.items.map((x,i)=>{const p=path.join(temp,`q${i}.json`);fs.writeFileSync(p,JSON.stringify(x.analysis));return{ticker:x.ticker,path:p};})};delete manifest.payload;
+ assert.deepEqual(run(manifest),data,"bounded handoff and inline snapshots are identical");
+ console.log("EOD: two compact rows per ticker, missing/stale explicit, profile context and bounded serializer parity passed.");
+}finally{fs.rmSync(temp,{recursive:true,force:true});}

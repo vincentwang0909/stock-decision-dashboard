@@ -10,17 +10,17 @@ const profiles = require("../profile-definitions.js");
 
 for (const file of [
   "config.js", "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "etf-profile.js", "company-profile.js",
-  "planning-width.js", "execution-engine.js", "short-model-v2.js", "confidence-engine.js", "stability-engine.js", "horizon-model-v2.js", "decision-engine.js",
+  "execution-engine.js", "confidence-engine.js", "stability-engine.js", "horizon-model-v2.js", "decision-engine.js",
 ]) require(path.join(__dirname, "..", "decision-engine", file));
 
 const engine = globalThis.DecisionEngine;
-const HORIZONS = ["short", "mid", "long"];
+const HORIZONS = ["daily", "weekly"];
 const finite = (value) => value == null || value === "" ? null : Number.isFinite(Number(value)) ? Number(value) : null;
 const mb = (value) => Number((value / 1024 / 1024).toFixed(2));
 
 function featuresFor(quote, market) {
   return buildTechnicalFeatures({
-    history: quote.history || {}, currentPrice: finite(quote.price), benchmarkContext: market, calculatedAt: quote.updatedAt || quote.history?.as_of || new Date().toISOString(),
+    history: quote.history || {}, currentPrice: finite(quote.price), benchmarkContext: market, calculatedAt: quote.history?.as_of || quote.updatedAt || new Date().toISOString(),
     fibonacciStructure: quote.technical?.fibonacci_structure || {}, shareBase: quote.metadata?.sharesOutstanding || null,
   });
 }
@@ -46,7 +46,7 @@ async function main() {
   const quotes = Object.fromEntries((payload.items || []).map((item) => [item.ticker, item.analysis || item]));
   // Keep only raw cache payloads between refreshes. Canonical Technical input
   // is rebuilt once per ticker on every simulated dashboard refresh, then the
-  // three horizons share that one current-normalization result.
+  // two horizons share that one current-normalization result.
   const prepared = Object.fromEntries(tickers.map((ticker) => {
     const quote = quotes[ticker] || {};
     const price = finite(quote.price);
@@ -66,7 +66,7 @@ async function main() {
       const underlying = classification.isETF && classification.underlyingTicker ? prepared[classification.underlyingTicker] : null;
       const decision = engine.decide({
         ticker, price: item.price, technicalFeatures: featuresByTicker[ticker], marketContext: market,
-        classification, metadata: item.quote.metadata || {}, language: "en",
+        classification, metadata: { ...(item.quote.metadata || {}), asOf:item.quote.updatedAt, quoteStale:Boolean(item.quote.stale) }, language: "en",
         underlyingTechnicalFeatures: underlying?.valid ? featuresByTicker[classification.underlyingTicker] : null, underlyingPrice: underlying?.price ?? null,
       });
       const key = ticker;
@@ -77,7 +77,7 @@ async function main() {
     }
     if (typeof global.gc === "function") global.gc();
     const usage = process.memoryUsage();
-    samples.push({ refresh, heapUsedMB: mb(usage.heapUsed), rssMB: mb(usage.rss), stabilityEntries: engine.stability._cache.size, profileReviewEntries: engine.profile._reviewCache.size });
+    samples.push({ refresh, heapUsedMB: mb(usage.heapUsed), rssMB: mb(usage.rss), stabilityEntries: 0, profileReviewEntries: engine.profile._reviewCache.size });
   }
   const heapValues = samples.map((sample) => sample.heapUsedMB);
   const first = heapValues[0] || 0;
@@ -87,7 +87,7 @@ async function main() {
     canonicalNormalization: "once_per_ticker_per_refresh", priorLandscapeReuse: false,
     landscapeFingerprintMismatchCount: mismatches.length, mismatches,
     memory: { samples, firstHeapUsedMB: first, lastHeapUsedMB: last, deltaHeapMB: Number((last - first).toFixed(2)), maxHeapUsedMB: Math.max(...heapValues) },
-    boundedState: { stabilityCacheLimit: engine.config.stability.cacheLimit, stabilityEntries: engine.stability._cache.size, profileReviewCacheLimit: engine.config.profile.review.cacheLimit, profileReviewEntries: engine.profile._reviewCache.size },
+    boundedState: { stabilityCacheLimit: 0, stabilityEntries: 0, profileReviewCacheLimit: engine.config.profile.review.cacheLimit, profileReviewEntries: engine.profile._reviewCache.size },
   }, null, 2));
 }
 

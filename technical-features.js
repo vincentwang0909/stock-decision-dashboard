@@ -7,7 +7,7 @@
 (function exposeCanonicalTechnicalFeatures(root) {
   "use strict";
 
-  const SCHEMA_VERSION = "technical-features-v6-data-trust";
+  const SCHEMA_VERSION = "V2-daily-weekly";
   const AVAILABILITY_REASONS = Object.freeze([
     "available",
     "source_unavailable",
@@ -23,64 +23,11 @@
   const RVOL_THRESHOLDS = Object.freeze([
     [0.6, "very_low"], [0.8, "low"], [1.2, "normal"], [1.5, "elevated"], [2.0, "high"], [Infinity, "extreme"],
   ]);
-  const HORIZON_CONFIG = Object.freeze({
-    short: {
-      label: "1–30 days",
-      primary_intervals: ["4h"],
-      supporting_intervals: ["1h", "1d"],
-      ema: { "1h": [9, 20], "4h": [9, 20, 50] },
-      rsi: { "1h": [6], "4h": [6, 14] },
-      macd: { "1h": [12, 26, 9], "4h": [12, 26, 9] },
-      adx: { "4h": 14 },
-      atr: { "4h": 14 },
-      kdj: { "1h": 9, "4h": 9 },
-      bollinger: { "4h": [20, 2] },
-      obv: { "4h": 12 },
-      fibonacci_horizon: "short_term",
-    },
-    medium: {
-      label: "1–6 months",
-      primary_intervals: ["1d"],
-      supporting_intervals: ["4h", "1w"],
-      ema: { "1d": [20, 50], "4h": [20, 50] },
-      sma: { "1d": [100] },
-      rsi: { "1d": [14], "4h": [14] },
-      macd: { "1d": [12, 26, 9] },
-      adx: { "1d": 14 },
-      atr: { "1d": 14 },
-      kdj: { "1d": 9 },
-      bollinger: { "1d": [20, 2] },
-      obv: { "1d": 20 },
-      fibonacci_horizon: "mid_term",
-    },
-    long: {
-      label: "> 6 months",
-      primary_intervals: ["1w"],
-      supporting_intervals: ["1d"],
-      sma: { "1d": [50, 100, 200] },
-      rsi: { "1w": [21], "1d": [21] },
-      macd: { "1w": [12, 26, 9], "1d": [12, 26, 9] },
-      adx: { "1w": 14 },
-      atr: { "1w": 14 },
-      bollinger: { "1w": [20, 2] },
-      obv: { "1w": 12 },
-      fibonacci_horizon: "long_term",
-    },
-  });
-  // Fibonacci is a technical-structure feature, not a decision score.  These
-  // are the pre-existing confirmed-pivot windows, moved here so the canonical
-  // feature layer remains complete even when the API does not attach a legacy
-  // presentation object to a quote.
-  const FIBONACCI_HORIZON_CONFIG = Object.freeze({
-    // The swing source follows the actual Decision horizon.  Short is native
-    // 4H first; Daily is a named secondary confirmation/fallback rather than
-    // a silently reused Short object.  Long uses completed Weekly bars.
-    short_term: { source_timeframe: "4h", lookback: 80, min_lookback: 45, max_lookback: 120, pivot_bars: 3, min_pivot_separation: 8, min_swing_pct: 4, stale_after_bars: 32 },
-    short_daily_confirmation: { source_timeframe: "1d", lookback: 65, min_lookback: 40, max_lookback: 90, pivot_bars: 2, min_pivot_separation: 6, min_swing_pct: 5, stale_after_bars: 28 },
-    mid_term: { source_timeframe: "1d", lookback: 100, min_lookback: 60, max_lookback: 150, pivot_bars: 4, min_pivot_separation: 10, min_swing_pct: 10, stale_after_bars: 50 },
-    long_term: { source_timeframe: "1w", lookback: 104, min_lookback: 26, max_lookback: 130, pivot_bars: 2, min_pivot_separation: 5, min_swing_pct: 15, stale_after_bars: 26 },
-    long_daily_fallback: { source_timeframe: "1d", lookback: 250, min_lookback: 120, max_lookback: 320, pivot_bars: 5, min_pivot_separation: 20, min_swing_pct: 15, stale_after_bars: 80 },
-  });
+  const engineConfig = () => root.DecisionEngine?.config || (typeof require !== "undefined" ? require("./decision-engine/config.js") : null);
+  const HORIZON_CONFIG = Object.freeze(Object.fromEntries(Object.entries(engineConfig().horizons).map(([key, value]) => [key, {
+    ...value.features, label: value.label, primary_intervals: [value.primaryInterval], supporting_intervals: [], fibonacci_horizon: key,
+  }])));
+  const FIBONACCI_HORIZON_CONFIG = engineConfig().indicators.fibonacci;
 
   const finite = (value) => value == null || typeof value === "boolean" || (typeof value === "string" && value.trim() === "") ? null : Number.isFinite(Number(value)) ? Number(value) : null;
   const mean = (values) => {
@@ -115,7 +62,7 @@
     return Number.isFinite(stamp) ? stamp : null;
   }
 
-  function normalizeBars(source = {}) {
+  function normalizeBars(source = {}, { priceOnly = false } = {}) {
     const arrays = Object.fromEntries(["opens", "highs", "lows", "closes", "volumes"].map((key) => [key, Array.isArray(source[key]) ? source[key] : []]));
     const timestamps = Array.isArray(source.timestamps) ? source.timestamps : (Array.isArray(source.dates) ? source.dates : []);
     const length = Math.max(timestamps.length, ...Object.values(arrays).map((array) => array.length));
@@ -128,11 +75,12 @@
       if (previous != null && stamp <= previous) { reject("duplicate_or_unordered_timestamp"); continue; }
       previous = stamp;
       const [open, high, low, close, volume] = ["opens", "highs", "lows", "closes", "volumes"].map((key) => finite(arrays[key][index]));
-      if ([open, high, low, close, volume].some((value) => value == null)) { reject("missing_or_nonfinite_ohlcv"); continue; }
+      if ((priceOnly ? [open, high, low, close] : [open, high, low, close, volume]).some((value) => value == null)) { reject("missing_or_nonfinite_ohlcv"); continue; }
       if (Math.min(open, high, low, close) <= 0) { reject("nonpositive_price"); continue; }
       if (!(low <= Math.min(open, close) && Math.max(open, close) <= high)) { reject("ohlc_envelope"); continue; }
-      if (volume < 0) { reject("negative_volume"); continue; }
+      if (volume < 0 && !priceOnly) { reject("negative_volume"); continue; }
       const bar = { open, high, low, close, volume, timestamp: typeof timestamps[index] === "number" ? new Date(stamp).toISOString() : timestamps[index] };
+      if (volume == null || volume < 0) bar.volume_available = false;
       if (source.volume_validation?.status === "conflict") {
         const dates = source.volume_validation.conflicting_dates;
         if (!Array.isArray(dates) || dates.includes(bar.timestamp.slice(0, 10))) bar.volume_available = false;
@@ -163,10 +111,7 @@
 
   function pickBars(history = {}, interval) {
     const intervals = history.intervals || history.by_interval || {};
-    if (interval === "1d") return normalizeBars(intervals["1d"] || history.full_daily || history.daily || history);
-    if (interval === "1h") return normalizeBars(intervals["1h"] || intervals.hourly || {});
-    if (interval === "4h") return normalizeBars(intervals["4h"] || {});
-    return [];
+    return interval === "1d" ? normalizeBars(intervals["1d"] || history.full_daily || history.daily || history, { priceOnly: true }) : [];
   }
 
   function completedWeeklyBars(dailyBars = [], { asOf = null, calendar = null } = {}) {
@@ -185,12 +130,16 @@
       if (current && key !== currentKey) push();
       if (!current) {
         currentKey = key;
-        current = { ...bar, volume: Number.isFinite(bar.volume) ? bar.volume : null, week_key: key, last_day: new Date(bar.timestamp).getUTCDay() };
+        current = { ...bar, volume: Number.isFinite(bar.volume) ? bar.volume : null, session_count: 1, week_key: key, last_day: new Date(bar.timestamp).getUTCDay() };
       } else {
+        current.session_count += 1;
         current.high = Math.max(current.high, bar.high);
         current.low = Math.min(current.low, bar.low);
         current.close = bar.close;
         current.timestamp = bar.timestamp;
+        current.end_timestamp = bar.end_timestamp;
+        current.completed = current.completed === true && bar.completed === true;
+        if (bar.volume_available === false) current.volume_available = false;
         current.last_day = new Date(bar.timestamp).getUTCDay();
         current.volume = Number.isFinite(current.volume) && Number.isFinite(bar.volume) ? current.volume + bar.volume : null;
       }
@@ -200,21 +149,10 @@
     // stays unavailable rather than being treated as a completed weekly signal.
     if (calendar?.completed_week_keys) {
       const completed = new Set(calendar.completed_week_keys);
-      return result.filter((bar) => completed.has(bar.week_key)).map(({ last_day, week_key, ...bar }) => ({ ...bar, completed: true, end_timestamp: bar.end_timestamp || null }));
+      return result.filter((bar) => completed.has(bar.week_key) && calendar.week_ends?.[bar.week_key] && timestampMillis(calendar.week_ends[bar.week_key])<=timestampMillis(asOf) && bar.session_count===calendar.session_counts?.[bar.week_key] && bar.completed === true && confirmedBy(bar, asOf)).map(({ last_day, week_key, ...bar }) => ({ ...bar, completed: true, end_timestamp: bar.end_timestamp || null }));
     }
-    // Legacy/offline inputs without a session calendar use an explicit
-    // conservative fallback. A current Friday still needs its session close.
-    if (result.length) {
-      const final = result.at(-1);
-      const stamp = new Date(final.timestamp);
-      const asOfMs = timestampMillis(asOf);
-      const etDate = Number.isFinite(asOfMs) ? new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(asOfMs)) : null;
-      const etParts = Number.isFinite(asOfMs) ? new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(new Date(asOfMs)) : [];
-      const hour = Number(etParts.find((part) => part.type === "hour")?.value);
-      const beforeFridayClose = etDate === stamp.toISOString().slice(0, 10) && hour < 16;
-      if (final.last_day < 5 || beforeFridayClose) result.pop();
-    }
-    return result.map(({ last_day, week_key, ...bar }) => bar);
+    // Completion without an exchange calendar cannot account for holidays or missing sessions.
+    return [];
   }
 
   function emaSeries(values, period) {
@@ -264,12 +202,12 @@
     }
     gain /= period;
     loss /= period;
-    result[period] = loss === 0 ? 100 : 100 - (100 / (1 + gain / loss));
+    result[period] = loss === 0 ? gain === 0 ? 50 : 100 : 100 - (100 / (1 + gain / loss));
     for (let index = period + 1; index < values.length; index += 1) {
       const delta = values[index] - values[index - 1];
       gain = ((gain * (period - 1)) + Math.max(delta, 0)) / period;
       loss = ((loss * (period - 1)) + Math.max(-delta, 0)) / period;
-      result[index] = loss === 0 ? 100 : 100 - (100 / (1 + gain / loss));
+      result[index] = loss === 0 ? gain === 0 ? 50 : 100 : 100 - (100 / (1 + gain / loss));
     }
     return result;
   }
@@ -300,7 +238,7 @@
       unavailable_reason: availability === "available" ? null : (unavailableReason || "source_unavailable"),
       required_bars: requiredBars,
       available_bars: availableBars,
-      source: source || (interval === "4h" ? "provider_native_4h" : interval === "1w" ? "completed_weekly_from_daily" : "market_ohlcv"),
+      source: source || (interval === "1w" ? "completed_weekly_from_daily" : "market_ohlcv"),
       last_bar_timestamp: last(bars)?.timestamp ?? null,
       last_bar_completed: last(bars)?.completed ?? null,
       last_bar_end: last(bars)?.end_timestamp ?? null,
@@ -461,8 +399,7 @@
     const fastSeries = emaSeries(closes, fast);
     const slowSeries = emaSeries(closes, slow);
     const macdSeries = closes.map((_, index) => Number.isFinite(fastSeries[index]) && Number.isFinite(slowSeries[index]) ? fastSeries[index] - slowSeries[index] : null);
-    const signalInput = macdSeries.map((value) => Number.isFinite(value) ? value : 0);
-    const signalSeries = emaSeries(signalInput, signal);
+    const signalSeries = new Array(slow - 1).fill(null).concat(emaSeries(macdSeries.slice(slow - 1), signal));
     const histogramSeries = macdSeries.map((value, index) => Number.isFinite(value) && Number.isFinite(signalSeries[index]) ? value - signalSeries[index] : null);
     const histogram = last(histogramSeries);
     const macd = last(macdSeries);
@@ -493,33 +430,29 @@
       macd_series: macdSeries,
       signal_series: signalSeries,
       histogram_series: histogramSeries,
+      improving_bars: consecutiveChanges(histogramSeries, 1),
+      weakening_bars: consecutiveChanges(histogramSeries, -1),
       ...metadata({ indicator: "macd", interval, period: `${fast}/${slow}/${signal}`, lookback: slow + signal, bars, calculatedAt }),
     };
   }
 
+  function consecutiveChanges(values, sign) {
+    let count=0;
+    for (let i=values.length-1;i>0;i-=1) { if (!Number.isFinite(values[i]) || !Number.isFinite(values[i-1]) || sign*(values[i]-values[i-1])<=0) break; count+=1; }
+    return count;
+  }
+
   function adxFeature(bars, interval, period, calculatedAt) {
-    if (bars.length < period * 2 + 1) return unavailableFeature({ indicator: "adx", interval, period, lookback: period * 2 + 1, bars, calculatedAt });
-    const tr = []; const plusDm = []; const minusDm = [];
-    for (let index = 1; index < bars.length; index += 1) {
-      const up = bars[index].high - bars[index - 1].high;
-      const down = bars[index - 1].low - bars[index].low;
-      tr.push(Math.max(bars[index].high - bars[index].low, Math.abs(bars[index].high - bars[index - 1].close), Math.abs(bars[index].low - bars[index - 1].close)));
-      plusDm.push(up > down && up > 0 ? up : 0);
-      minusDm.push(down > up && down > 0 ? down : 0);
-    }
-    const plus = []; const minus = []; const dx = [];
-    for (let index = period - 1; index < tr.length; index += 1) {
-      const averageTr = mean(tr.slice(index - period + 1, index + 1));
-      const plusDi = averageTr ? 100 * mean(plusDm.slice(index - period + 1, index + 1)) / averageTr : null;
-      const minusDi = averageTr ? 100 * mean(minusDm.slice(index - period + 1, index + 1)) / averageTr : null;
-      plus.push(plusDi); minus.push(minusDi);
-      dx.push(Number.isFinite(plusDi) && Number.isFinite(minusDi) && plusDi + minusDi ? 100 * Math.abs(plusDi - minusDi) / (plusDi + minusDi) : null);
-    }
-    const adxValues = smaSeries(dx, period);
-    const adx = last(adxValues); const plusDi = last(plus); const minusDi = last(minus);
-    if (![adx, plusDi, minusDi].every(Number.isFinite)) return unavailableFeature({ indicator: "adx", interval, period, lookback: period * 2 + 1, bars, calculatedAt, unavailableReason: "dependency_unavailable" });
-    const trendStrength = adx < 15 ? "no_trend" : adx < 22 ? "weak" : adx < 30 ? "developing" : adx < 40 ? "strong" : "very_strong";
-    return { adx, plus_di: plusDi, minus_di: minusDi, trend_strength: trendStrength, directional_bias: plusDi > minusDi ? "bullish" : minusDi > plusDi ? "bearish" : "neutral", slope: slopeState(adxValues, 3), ...metadata({ indicator: "adx", interval, period, lookback: period * 2 + 1, bars, calculatedAt }) };
+    const args={indicator:"adx",interval,period,lookback:period*2,bars,calculatedAt};
+    if (bars.length<args.lookback) return unavailableFeature(args);
+    const tr=[],plus=[],minus=[];
+    for (let i=1;i<bars.length;i+=1) {const up=bars[i].high-bars[i-1].high,down=bars[i-1].low-bars[i].low;tr.push(Math.max(bars[i].high-bars[i].low,Math.abs(bars[i].high-bars[i-1].close),Math.abs(bars[i].low-bars[i-1].close)));plus.push(up>down&&up>0?up:0);minus.push(down>up&&down>0?down:0);}
+    const smooth=(values)=>{const out=new Array(values.length).fill(null);let value=mean(values.slice(0,period));out[period-1]=value;for(let i=period;i<values.length;i+=1){value=(value*(period-1)+values[i])/period;out[i]=value;}return out;};
+    const range=smooth(tr),up=smooth(plus),down=smooth(minus),diPlus=range.map((value,i)=>value>0?100*up[i]/value:null),diMinus=range.map((value,i)=>value>0?100*down[i]/value:null);
+    const dx=diPlus.map((value,i)=>Number.isFinite(value)&&Number.isFinite(diMinus[i])?value+diMinus[i]>0?100*Math.abs(value-diMinus[i])/(value+diMinus[i]):0:null);
+    const adxValues=new Array(period-1).fill(null).concat(smooth(dx.slice(period-1))),adx=last(adxValues),plusDi=last(diPlus),minusDi=last(diMinus);
+    if (![adx,plusDi,minusDi].every(Number.isFinite)) return unavailableFeature({...args,unavailableReason:"dependency_unavailable"});
+    return {adx,plus_di:plusDi,minus_di:minusDi,trend_strength:adx<15?"no_trend":adx<22?"weak":adx<30?"developing":adx<40?"strong":"very_strong",directional_bias:plusDi>minusDi?"bullish":minusDi>plusDi?"bearish":"neutral",slope:slopeState(adxValues,3),smoothing:"wilder",...metadata(args)};
   }
 
   function atrFeature(bars, interval, period, calculatedAt) {
@@ -616,53 +549,38 @@
     return { raw_value: last(series), slope, trend: slope.state, divergence, price_obv_confirmation: divergence === "none" ? slope.state === "rising" ? "confirming_uptrend" : slope.state === "falling" ? "confirming_downtrend" : "neutral" : "divergent", ...metadata({ indicator: "obv", interval, period: null, lookback, bars, calculatedAt }) };
   }
 
-  function canonicalVolumeFeature(bars, shareBase, calculatedAt) {
+  function canonicalVolumeFeature(bars, shareBase, calculatedAt, interval = "1d") {
+    const cfg = indicatorConfig().volume, suffix = interval === "1w" ? "w" : "d", horizon = interval === "1w" ? "weekly" : "daily";
+    const invalid = bars.some((bar) => bar.volume_available === false || !Number.isFinite(bar.volume) || bar.volume < 0);
+    if (!bars.length || invalid) return { availability: "unavailable", interval, current_volume: null, unavailable_reason: invalid ? "source_data_conflict" : "insufficient_history" };
     const volumes = bars.map((bar) => bar.volume);
-    if (!bars.length || volumes.some((value) => !Number.isFinite(value))) return { availability: "unavailable", source: "market_ohlcv", current_volume: null, reason: "Daily volume history is unavailable." };
-    const averages = Object.fromEntries([5, 20, 60, 120, 250].map((period) => [`avg_${period}d`, volumes.length >= period ? mean(volumes.slice(-period)) : null]));
-    const current = last(volumes);
-    const rvol = Object.fromEntries([5, 20, 60].map((period) => [`rvol_${period}d`, Number.isFinite(averages[`avg_${period}d`]) && averages[`avg_${period}d`] > 0 ? current / averages[`avg_${period}d`] : null]));
-    const turnover = Object.fromEntries(["current", 5, 20, 60].map((period) => {
-      const volume = period === "current" ? current : averages[`avg_${period}d`];
-      return [`turnover_${period === "current" ? "current" : `${period}d_avg`}`, Number.isFinite(shareBase) && shareBase > 0 && Number.isFinite(volume) ? volume / shareBase * 100 : null];
-    }));
-    const obvByLookback = Object.fromEntries([5, 20, 60].map((lookback) => [`d${lookback}`, obvFeature(bars, "1d", lookback, calculatedAt)]));
-    // One canonical OBV calculation family. The 20D view remains the primary
-        // value, while 5D/60D are child trend context only.
-    const obv = obvByLookback.d20;
-    const ma5vs20 = Number.isFinite(averages.avg_5d) && Number.isFinite(averages.avg_20d) && averages.avg_20d > 0 ? averages.avg_5d / averages.avg_20d : null;
-    const ma20vs60 = Number.isFinite(averages.avg_20d) && Number.isFinite(averages.avg_60d) && averages.avg_60d > 0 ? averages.avg_20d / averages.avg_60d : null;
-    const volumeTrend = ma5vs20 > 1.1 && ma20vs60 > 1 ? "expanding" : ma5vs20 < 0.9 && ma20vs60 < 1 ? "contracting" : "stable";
-    const latestBar = last(bars); const priorBar = bars[bars.length - 2] || null;
-    const confirmation = !priorBar || !Number.isFinite(rvol.rvol_20d) ? "unavailable" : latestBar.close > priorBar.close && rvol.rvol_20d >= 1.2 && obv.trend === "rising" ? "bullish_confirmation" : latestBar.close < priorBar.close && rvol.rvol_20d >= 1.2 && obv.trend === "falling" ? "bearish_confirmation" : "neutral";
+    // Weekly totals are valid OBV inputs; RVOL compares volume per actual trading session.
+    const normalized = interval === "1w" ? bars.map((bar) => bar.session_count > 0 ? bar.volume / bar.session_count : null) : volumes;
+    const averagesFor = (values) => Object.fromEntries(cfg.averageWindows.map((n) => [`avg_${n}${suffix}`, values.length >= n && values.slice(-n).every(Number.isFinite) ? mean(values.slice(-n)) : null]));
+    const averages = averagesFor(volumes), rvolAverages = averagesFor(normalized), current = last(volumes);
+    const rvol = Object.fromEntries(cfg.rvolWindows.map((n) => [`rvol_${n}${suffix}`, rvolAverages[`avg_${n}${suffix}`] > 0 ? last(normalized) / rvolAverages[`avg_${n}${suffix}`] : null]));
+    const obvByLookback = Object.fromEntries([...new Set([...cfg.obvAuxiliaryWindows, cfg.obv[horizon].lookback])].map((n) => [`${suffix}${n}`, obvFeature(bars, interval, n, calculatedAt)]));
+    const obv = obvByLookback[`${suffix}${cfg.obv[horizon].lookback}`];
+    const ratio = (a,b) => rvolAverages[`avg_${b}${suffix}`] > 0 ? rvolAverages[`avg_${a}${suffix}`] / rvolAverages[`avg_${b}${suffix}`] : null;
+    const fast = ratio(5,20), slow = ratio(20,60), trend = fast == null || slow == null ? "unavailable" : fast > 1.1 && slow > 1 ? "expanding" : fast < .9 && slow < 1 ? "contracting" : "stable";
+    const rv = rvol[`rvol_20${suffix}`], latest = last(bars), prior = bars.at(-2);
+    const confirmation = !prior || rv == null ? "unavailable" : latest.close > prior.close && rv >= 1.2 && obv.trend === "rising" ? "bullish_confirmation" : latest.close < prior.close && rv >= 1.2 && obv.trend === "falling" ? "bearish_confirmation" : "neutral";
     return {
-      availability: "available",
-      source: "daily_ohlcv",
-      interval: "1d",
-      calculation_timestamp: calculatedAt,
-      last_bar_timestamp: latestBar.timestamp,
-      current_volume: current,
-      moving_average_volume: averages,
-      relative_volume: { ...rvol, displayed_rvol: rvol.rvol_20d, state: stateFromRvol(rvol.rvol_20d), thresholds: RVOL_THRESHOLDS.map(([limit, state]) => ({ less_than: Number.isFinite(limit) ? limit : null, state })) },
-      turnover: { ...turnover, share_base: Number.isFinite(shareBase) ? shareBase : null, availability: Number.isFinite(shareBase) && shareBase > 0 ? "available" : "unavailable" },
-      obv: {
-        ...obv,
-        trends: Object.fromEntries(Object.entries(obvByLookback).map(([period, feature]) => [period, {
-          trend: feature.trend,
-          slope: feature.slope,
-          price_obv_confirmation: feature.price_obv_confirmation,
-          divergence: feature.divergence,
-        }])),
-        by_lookback: obvByLookback,
-      },
-      trend: { volume_ma5_vs_ma20: ma5vs20, volume_ma20_vs_ma60: ma20vs60, volume_trend: volumeTrend, volume_expanding: volumeTrend === "expanding", volume_contracting: volumeTrend === "contracting", price_volume_confirmation: confirmation },
-      accumulation_distribution: obv.availability === "available" ? obv.trend === "rising" ? "accumulation" : obv.trend === "falling" ? "distribution" : "balanced" : "unavailable",
+      availability: "available", source: interval === "1w" ? "completed_weekly_from_daily" : cfg.source, interval, completed: true,
+      calculation_timestamp: calculatedAt, last_bar_timestamp: latest.timestamp, last_bar_end: latest.end_timestamp,
+      current_volume: current, session_count: latest.session_count || 1, moving_average_volume: averages,
+      rvol_basis: interval === "1w" ? "volume_per_trading_session" : "completed_session_total", rvol_average_volume: rvolAverages,
+      relative_volume: { ...rvol, displayed_rvol: rv, state: stateFromRvol(rv), thresholds: RVOL_THRESHOLDS.map(([limit,state]) => ({ less_than: Number.isFinite(limit) ? limit : null, state })) },
+      turnover: { ...Object.fromEntries(["current", ...cfg.rvolWindows].map((n) => [`turnover_${n === "current" ? "current" : `${n}${suffix}_avg`}`, shareBase > 0 && Number.isFinite(n === "current" ? current : averages[`avg_${n}${suffix}`]) ? (n === "current" ? current : averages[`avg_${n}${suffix}`]) / shareBase * 100 : null])), share_base: shareBase, availability: shareBase > 0 ? "available" : "unavailable" },
+      obv: { ...obv, by_lookback: obvByLookback, trends: Object.fromEntries(Object.entries(obvByLookback).map(([key,v]) => [key,{ trend:v.trend, slope:v.slope, divergence:v.divergence, price_obv_confirmation:v.price_obv_confirmation }])) },
+      trend: { volume_ma5_vs_ma20: fast, volume_ma20_vs_ma60: slow, volume_trend: trend, volume_expanding: trend === "expanding", volume_contracting: trend === "contracting", price_volume_confirmation: confirmation },
+      accumulation_distribution: obv.availability !== "available" ? "unavailable" : obv.trend === "rising" ? "accumulation" : obv.trend === "falling" ? "distribution" : "balanced",
     };
   }
 
-  function pricePositionFeatures(bars, currentPrice, calculatedAt, dailyMetadata = {}) {
+  function pricePositionFeatures(bars, currentPrice, calculatedAt, dailyMetadata = {}, interval = "1d") {
     if (!bars.length || !Number.isFinite(currentPrice)) return { availability: "unavailable", high_52w: null, low_52w: null, all_time_high: null };
-    const annual = bars.slice(-252);
+    const annual = bars.slice(-indicatorConfig().historyPosition.annualBars[interval==="1w"?"weekly":"daily"]);
     const maxItem = (items, key) => items.reduce((winner, item) => item[key] > winner[key] ? item : winner, items[0]);
     const minItem = (items, key) => items.reduce((winner, item) => item[key] < winner[key] ? item : winner, items[0]);
     const high52 = maxItem(annual, "high"); const low52 = minItem(annual, "low"); const ath = maxItem(bars, "high");
@@ -670,8 +588,8 @@
     const range = high52.high - low52.low;
     return {
       availability: annual.length >= 2 ? "available" : "partial",
-      source: "daily_ohlcv",
-      interval: "1d",
+      source: interval==="1w"?"completed_weekly_from_daily":"daily_ohlcv",
+      interval,
       calculation_timestamp: calculatedAt,
       high_52w: high52.high,
       high_52w_date: high52.timestamp,
@@ -689,44 +607,36 @@
     };
   }
 
-  function relativeStrengthFeatures(relativeStrength = {}, horizon) {
-    const period = horizon === "short" ? 20 : horizon === "medium" ? 60 : 120;
-    const spy = relativeStrength[`stock_vs_spy_${period}d`] ?? null;
-    const qqq = relativeStrength[`stock_vs_qqq_${period}d`] ?? null;
-    const shortValue = relativeStrength.stock_vs_spy_20d ?? relativeStrength.stock_vs_qqq_20d ?? null;
-    const longValue = relativeStrength.stock_vs_spy_120d ?? relativeStrength.stock_vs_qqq_120d ?? null;
-    const state = Number.isFinite(shortValue) && Number.isFinite(longValue) ? shortValue > longValue + 1 ? "improving" : shortValue < longValue - 1 ? "deteriorating" : "stable" : "unavailable";
-    const average = mean([spy, qqq]);
-    const returns = {
-      stock_20d: relativeStrength.stock_return_20d ?? null,
-      stock_60d: relativeStrength.stock_return_60d ?? null,
-      stock_120d: relativeStrength.stock_return_120d ?? null,
-    };
-    const vsSpy = {
-      d20: relativeStrength.stock_vs_spy_20d ?? null,
-      d60: relativeStrength.stock_vs_spy_60d ?? null,
-      d120: relativeStrength.stock_vs_spy_120d ?? null,
-    };
-    const vsQqq = {
-      d20: relativeStrength.stock_vs_qqq_20d ?? null,
-      d60: relativeStrength.stock_vs_qqq_60d ?? null,
-      d120: relativeStrength.stock_vs_qqq_120d ?? null,
-    };
-    const primaryReturn = returns[`stock_${period}d`];
-    return {
-      interval: "1d",
-      period: `${period}d`,
-      primary_lookback_days: period,
-      source: "stock_and_benchmark_daily_returns",
-      availability: Number.isFinite(spy) || Number.isFinite(qqq) ? "available" : "unavailable",
-      returns,
-      vs_spy: vsSpy,
-      vs_qqq: vsQqq,
-      primary: { stock_return: primaryReturn, vs_spy: spy, vs_qqq: qqq, average },
-      consistency: { value: state, state },
-      state: average == null ? "unavailable" : average > 3 ? "outperforming" : average < -3 ? "underperforming" : "neutral",
-      consistency_state: state,
-    };
+  function relativeStrengthFeatures(input = {}, horizon, bars = [], benchmarkContext = {}, calendar = null, calculatedAt = null) {
+    const cfg = indicatorConfig().relativeStrength[horizon], suffix = horizon === "weekly" ? "w" : "d", interval = horizon === "weekly" ? "1w" : "1d";
+    const core = benchmarkContext.market_context || benchmarkContext.market_engine || benchmarkContext || {};
+    const benchmarks = core.benchmark_history || {};
+    const stockByDate = new Map(bars.map((bar) => [bar.timestamp.slice(0,10),bar.close]));
+    const asOf = bars.at(-1)?.timestamp.slice(0,10);
+    const returns = {}, vsSpy = {}, vsQqq = {};
+    const ownReturn = (items,n) => items.length > n && items.at(-n-1)?.close > 0 ? (items.at(-1).close/items.at(-n-1).close-1)*100 : null;
+    for (const n of cfg.windows) {
+      returns[`stock_${n}${suffix}`] = ownReturn(bars,n);
+      for (const name of ["spy","qqq"]) {
+        let series = normalizeBars(benchmarks[name] || {}, { priceOnly:true }).filter((bar) => confirmedBy(bar, calculatedAt));
+        if (horizon === "weekly") series = completedWeeklyBars(series,{ asOf:calculatedAt,calendar });
+        const aligned = series.filter((bar) => stockByDate.has(bar.timestamp.slice(0,10)) && bar.timestamp.slice(0,10) <= asOf);
+        let excess = null;
+        if (aligned.at(-1)?.timestamp.slice(0,10) === asOf && aligned.length > n) {
+          const start = aligned.at(-n-1).timestamp.slice(0,10), base = stockByDate.get(start);
+          if (base > 0) excess = (stockByDate.get(asOf)/base-1)*100 - ownReturn(aligned,n);
+        }
+        // Named Daily return inputs are allowed only at the identical completed close.
+        if (excess == null && horizon === "daily" && input.as_of === asOf) excess = finite(input[`stock_vs_${name}_${n}d`]);
+        (name === "spy" ? vsSpy : vsQqq)[`${suffix}${n}`] = excess;
+      }
+    }
+    const n = cfg.primary, spy = vsSpy[`${suffix}${n}`], qqq = vsQqq[`${suffix}${n}`], average = mean([spy,qqq]);
+    const fast = mean([vsSpy[`${suffix}${cfg.windows[0]}`],vsQqq[`${suffix}${cfg.windows[0]}`]]), slow = mean([vsSpy[`${suffix}${cfg.windows.at(-1)}`],vsQqq[`${suffix}${cfg.windows.at(-1)}`]]);
+    const consistency = fast == null || slow == null ? "unavailable" : fast > slow + 1 ? "improving" : fast < slow - 1 ? "deteriorating" : "stable";
+    return { interval, period:`${n}${suffix}`, primary_lookback: n, as_of: asOf || null, source:"aligned_completed_stock_and_benchmark_bars", availability:average == null ? "unavailable" : "available", returns, vs_spy:vsSpy,vs_qqq:vsQqq,
+      primary:{ stock_return:returns[`stock_${n}${suffix}`],vs_spy:spy,vs_qqq:qqq,average }, consistency:{ value:consistency,state:consistency },consistency_state:consistency,
+      state:average == null ? "unavailable" : average > 3 ? "outperforming" : average < -3 ? "underperforming" : "neutral" };
   }
 
   function fibonacciDate(value) {
@@ -773,22 +683,6 @@
       for (let index = 0; index < text.length; index += 1) value = Math.imul(value ^ text.charCodeAt(index), 16777619);
     });
     return `${(value >>> 0).toString(16)}-${bars.length}`;
-  }
-
-  function fibSecondarySummary(item) {
-    return {
-      availability: item?.status === "available" || item?.status === "stale_swing" ? "available" : "unavailable",
-      source_timeframe: item?.source_timeframe || null,
-      fallback_used: Boolean(item?.fallback_used),
-      swing_low: item?.swing_low ?? null,
-      swing_high: item?.swing_high ?? null,
-      swing_low_date: item?.swing_low_date ?? null,
-      swing_high_date: item?.swing_high_date ?? null,
-      swing_direction: item?.swing_direction ?? null,
-      retracement_levels: { ...(item?.retracement_levels || {}) },
-      extension_levels: { ...(item?.extension_levels || {}) },
-      derivation_id: item?.derivation_id || null,
-    };
   }
 
   function canonicalFibonacciHorizon(sourceBars, horizon, currentPrice, options = {}) {
@@ -897,7 +791,8 @@
       pivot_low_count: lows.length,
       retracement_levels: retracementLevels,
       extension_levels: extensionLevels,
-      current_position_ratio: swing.direction === "up_swing" ? (currentPrice - swing.low) / swing.range : (swing.high - currentPrice) / swing.range,
+      current_position_ratio: (currentPrice - swing.low) / swing.range,
+      known_at: bars[swing.end.index + config.pivot_bars]?.end_timestamp || null,
       current_position_label: below && above && below !== above ? `Between ${below.label} and ${above.label}` : below ? `Above ${below.label}` : above ? `Below ${above.label}` : "Outside selected swing range",
       nearest_level_below: below,
       nearest_level_above: above,
@@ -909,53 +804,12 @@
     };
   }
 
-  function canonicalFibonacciStructure(fourHourBars, dailyBars, weeklyBars, currentPrice) {
-    const shortDailyConfirmation = canonicalFibonacciHorizon(dailyBars, "short_daily_confirmation", currentPrice);
-    let shortTerm = canonicalFibonacciHorizon(fourHourBars, "short_term", currentPrice);
-    if (!(["available", "stale_swing"].includes(shortTerm.status))) {
-      // A source-unavailable Short calculation may use Daily structure only as
-      // an explicit, inspectable fallback.  It is freshly calculated and never
-      // references the Mid object.
-      const fallback = canonicalFibonacciHorizon(dailyBars, "short_daily_confirmation", currentPrice, {
-        sourceTimeframe: "1d",
-        fallbackUsed: true,
-        fallbackReason: fourHourBars.length ? "4h_no_valid_confirmed_swing" : "4h_source_unavailable",
-      });
-      shortTerm = {
-        ...fallback,
-        horizon: "short_term",
-        source_object_id: `fib:short_term:1d-fallback:${fallback.source_bar_hash}`,
-        derivation_id: `fib:short_term:1d-fallback:${fallback.lookback_bars}:${fallback.source_bar_hash}`,
-      };
-    }
-    shortTerm = {
-      ...shortTerm,
-      secondary_confirmation: fibSecondarySummary(shortDailyConfirmation),
-    };
-    const midTerm = canonicalFibonacciHorizon(dailyBars, "mid_term", currentPrice);
-    let longTerm = canonicalFibonacciHorizon(weeklyBars, "long_term", currentPrice);
-    if (!(["available", "stale_swing"].includes(longTerm.status))) {
-      const fallback = canonicalFibonacciHorizon(dailyBars, "long_daily_fallback", currentPrice, {
-        sourceTimeframe: "1d",
-        fallbackUsed: true,
-        fallbackReason: weeklyBars.length ? "weekly_no_valid_confirmed_swing" : "weekly_history_unavailable",
-      });
-      longTerm = {
-        ...fallback,
-        horizon: "long_term",
-        source_object_id: `fib:long_term:1d-fallback:${fallback.source_bar_hash}`,
-        derivation_id: `fib:long_term:1d-fallback:${fallback.lookback_bars}:${fallback.source_bar_hash}`,
-      };
-    }
-    return { short_term: shortTerm, mid_term: midTerm, long_term: longTerm };
+  function canonicalFibonacciStructure(dailyBars, weeklyBars, currentPrice) {
+    return { daily:canonicalFibonacciHorizon(dailyBars,"daily",currentPrice), weekly:canonicalFibonacciHorizon(weeklyBars,"weekly",currentPrice) };
   }
 
-  function fibonacciFeatures(fibonacciStructure = {}, fourHourBars = [], dailyBars = [], weeklyBars = [], currentPrice = null) {
-    // Server-side Fibonacci objects predate independent 4H/1D/1W horizons.
-    // Keep the input parameter for API compatibility, but canonical features
-    // always derive fresh immutable structures from the raw interval sources.
-    void fibonacciStructure;
-    const generatedStructure = canonicalFibonacciStructure(fourHourBars, dailyBars, weeklyBars, currentPrice);
+  function fibonacciFeatures(dailyBars, weeklyBars, currentPrice) {
+    const generatedStructure = canonicalFibonacciStructure(dailyBars,weeklyBars,currentPrice);
     const normalize = (item) => {
       if (!item) return { availability: "unavailable" };
       const levels = [...Object.values(item.retracement_levels || {}), ...Object.values(item.extension_levels || {})].filter((entry) => Number.isFinite(entry?.price));
@@ -979,7 +833,7 @@
         derivation_id: item.derivation_id || null,
         fallback_used: Boolean(item.fallback_used),
         fallback_reason: item.fallback_reason || null,
-        secondary_confirmation: item.secondary_confirmation || null,
+        premium_discount: Number.isFinite(item.current_position_ratio) ? { ratio:item.current_position_ratio, state:item.current_position_ratio < .5 ? "discount" : item.current_position_ratio > .5 ? "premium" : "equilibrium", anchor_low:item.swing_low,anchor_high:item.swing_high,known_at:item.known_at || null } : { state:"unavailable",ratio:null },
         anchor_method: item.pivot_method || "confirmed_pivots",
         anchor_confidence: item.data_quality || "unavailable",
         anchor_low: item.swing_low ?? null,
@@ -998,12 +852,7 @@
         above_or_below_61_8_retracement: Number.isFinite(level618) && Number.isFinite(currentPrice) ? currentPrice >= level618 ? "above" : "below" : "unavailable",
       };
     };
-    return {
-      short: normalize(generatedStructure.short_term),
-      medium: normalize(generatedStructure.mid_term),
-      long: normalize(generatedStructure.long_term),
-      structure: { short_term: generatedStructure.short_term, mid_term: generatedStructure.mid_term, long_term: generatedStructure.long_term },
-    };
+    return { daily:normalize(generatedStructure.daily), weekly:normalize(generatedStructure.weekly),structure:generatedStructure };
   }
 
   function indicatorConfig() {
@@ -1086,199 +935,188 @@
   }
 
   function supportResistanceFeature(bars, interval, supportingBars, supportingInterval, calculatedAt) {
-    const cfg = indicatorConfig().structure, pivot = cfg.pivotBars[interval];
-    const args = { indicator: "support_resistance", interval, period: pivot, lookback: pivot * 2 + 1, bars, calculatedAt };
-    const asOf = timestampMillis(calculatedAt);
-    const completed = bars.filter((bar) => bar.completed === true && timestampMillis(bar.end_timestamp) != null && (asOf == null || timestampMillis(bar.end_timestamp) <= asOf));
-    if (completed.length < Math.max(pivot * 2 + 1, cfg.atrPeriod)) return unavailableFeature({ ...args, unavailableReason: bars.length && !completed.length ? "completion_metadata_unavailable" : "insufficient_history" });
-    const atr = atrSeries(completed, cfg.atrPeriod), fast = validatedVolumeEma(completed, cfg.volumeFast), slow = validatedVolumeEma(completed, cfg.volumeSlow);
-    const levels = [], events = [];
-    const appendEvent = (level, kind, sign, bar, index, age, volumeOscillator, confirmationInterval) => {
-      const event = { kind, sign, level_id: level.id, reference_price: level.price, reference_interval: interval, reference_known_at: level.known_at,
-        confirmation_interval: confirmationInterval, age_interval: confirmationInterval, timestamp: bar.end_timestamp, bar_timestamp: bar.timestamp, age_bars: age, confirmed: true,
-        volume_oscillator: volumeOscillator, volume_confirmed: Number.isFinite(volumeOscillator) ? volumeOscillator > cfg.volumeThreshold : null };
-      events.push(event); if (events.length > cfg.maxEvents) events.shift();
-      level.event = event; return event;
+    const cfg = indicatorConfig().structure, smcCfg = indicatorConfig().smc, horizon = interval === "1w" ? "weekly" : "daily", pivot = cfg.pivotBars[interval];
+    const completed = bars.filter((bar) => confirmedBy(bar,calculatedAt));
+    const args = { indicator:"support_resistance",interval,period:pivot,lookback:Math.max(pivot*2+1,cfg.atrPeriod+1),bars:completed,calculatedAt };
+    if (completed.length < args.lookback) return unavailableFeature(args);
+    const volumeBars=interval==="1w"?completed.map(bar=>({...bar,volume:bar.session_count>0?bar.volume/bar.session_count:null})):completed;
+    const atr = atrSeries(completed,cfg.atrPeriod), fast = validatedVolumeEma(volumeBars,cfg.volumeFast), slow = validatedVolumeEma(volumeBars,cfg.volumeSlow);
+    const levels = [], events = [], sweeps = [], pending = [], usedBreaks = new Set();
+    let direction = 0, protectedLow = null, protectedHigh = null, lastBos = null, lastChoch = null;
+    const age = (i) => completed.length-1-i;
+    const event = (kind,sign,level,bar,i,scale) => {
+      const value = { kind,sign,level_id:level.id,reference_price:level.price,reference_known_at:level.known_at,reference_interval:interval,confirmation_interval:interval,age_interval:interval,
+        timestamp:bar.end_timestamp,bar_timestamp:bar.timestamp,age_bars:age(i),confirmed:true,atr_at_event:scale,
+        volume_source:indicatorConfig().volume.source,volume_oscillator:slow[i]>0 && Number.isFinite(fast[i]) ? (fast[i]/slow[i]-1)*100 : null };
+      value.volume_confirmed = value.volume_oscillator == null ? null : value.volume_oscillator > cfg.volumeThreshold;
+      events.push(value); if (events.length > cfg.maxEvents) events.shift(); return value;
     };
-    const observe = (bar, previous, index, scale, oscillator, confirmationInterval, age) => {
-      if (!(scale > 0)) return;
-      for (const level of levels) {
-        if (!level.active || timestampMillis(level.known_at) > timestampMillis(bar.timestamp)) continue;
-        const direction = level.original_role === "reduce" ? 1 : -1, buffer = cfg.breakAtr * scale;
-        if (!level.break_at) {
-          if (Math.abs(bar.close - level.price) <= cfg.retestAtr * scale) level.touches += 1;
-          if (direction * (bar.close - level.price) > buffer && direction * (previous.close - level.price) <= buffer) {
-            level.break_at = bar.end_timestamp; level.break_index = index; level.break_interval = confirmationInterval;
-            const ev = appendEvent(level, direction > 0 ? "breakout_up" : "breakdown_down", direction, bar, index, age, oscillator, confirmationInterval);
-            level.role = direction > 0 ? "support" : "reduce"; level.qualified = ev.volume_confirmed === true;
+    const capture = (level) => level ? { id:level.id,price:level.price,pivot_at:level.pivot_at,known_at:level.known_at,atr_at_known:level.atr_at_known,interval } : null;
+    for (let i=0;i<completed.length;i+=1) {
+      const bar=completed[i], previous=completed[i-1], scale=atr[i-1];
+      const known = levels.filter((level) => level.active && timestampMillis(level.known_at) <= timestampMillis(bar.timestamp));
+      if (previous && scale > 0) {
+        // A protected reference belongs to the last confirmed directional break, not the latest arbitrary wick.
+        if (direction > 0 && protectedLow && bar.close < protectedLow.price-smcCfg.ordinaryInvalidationAtr*protectedLow.atr_at_known) {
+          lastChoch=event("choch_down",-1,protectedLow,bar,i,protectedLow.atr_at_known); direction=0;
+        } else if (direction < 0 && protectedHigh && bar.close > protectedHigh.price+smcCfg.ordinaryInvalidationAtr*protectedHigh.atr_at_known) {
+          lastChoch=event("choch_up",1,protectedHigh,bar,i,protectedHigh.atr_at_known); direction=0;
+        }
+        for (const level of known) {
+          const sign=level.original_role === "reduce" ? 1 : -1;
+          if (Math.abs(bar.close-level.price)<=cfg.retestAtr*scale) level.touches+=1;
+          if (!usedBreaks.has(level.id) && sign*(bar.close-level.price)>cfg.breakAtr*scale && sign*(previous.close-level.price)<=cfg.breakAtr*scale) {
+            usedBreaks.add(level.id); level.break_at=bar.end_timestamp;level.break_index=i;level.break_atr=scale;level.role=sign>0?"support":"reduce";
+            // Opposite structural direction is a change of character. A later break or retest is required for a confirmed reversal.
+            const opposite=direction !== 0 && direction!==sign || lastChoch?.timestamp === bar.end_timestamp;
+            const ev=event(opposite ? sign>0?"choch_up":"choch_down" : sign>0?"bos_up":"bos_down",sign,level,bar,i,scale);
+            level.event=ev;
+            if (opposite) { lastChoch=ev;direction=0; }
+            else { lastBos=ev;direction=sign;
+              const reference=[...known].reverse().find((ref)=>ref.original_role===(sign>0?"support":"reduce") && ref.atr_at_known>0);
+              if (sign>0) protectedLow=capture(reference); else protectedHigh=capture(reference);
+            }
+          } else if (level.break_at && i>level.break_index) {
+            const retained=sign*(bar.close-level.price)>cfg.breakAtr*level.break_atr;
+            if (!retained && sign*(bar.close-level.price)<-cfg.breakAtr*level.break_atr) { level.event=event("failed_break",-sign,level,bar,i,level.break_atr);level.active=false; }
+            else if (!level.retested && Math.abs((sign>0?bar.low:bar.high)-level.price)<=cfg.retestAtr*level.break_atr && retained) {
+              level.retested=true;level.qualified=true;level.event=event(sign>0?"retest_up":"retest_down",sign,level,bar,i,level.break_atr);
+            }
           }
-        } else if (timestampMillis(bar.timestamp) >= timestampMillis(level.break_at)) {
-          if (direction * (bar.close - level.price) < -buffer) {
-            appendEvent(level, "failed_break", -direction, bar, index, age, oscillator, confirmationInterval); level.active = false; level.qualified = false;
-          } else if (Math.abs((direction > 0 ? bar.low : bar.high) - level.price) <= cfg.retestAtr * scale && direction * (bar.close - level.price) > buffer && !level.retested) {
-            appendEvent(level, direction > 0 ? "retest_up" : "retest_down", direction, bar, index, age, oscillator, confirmationInterval);
-            level.retested = true; level.qualified = true; level.touches += 1;
+          if (!level.break_at && (sign>0 ? bar.high>level.price+smcCfg.sweepPenetrationAtr*scale : bar.low<level.price-smcCfg.sweepPenetrationAtr*scale)) {
+            if (!pending.some((item)=>item.id===level.id)) pending.push({ ...capture(level),sign:-sign,index:i,atr_at_event:scale });
           }
         }
+        for (let k=pending.length-1;k>=0;k-=1) {
+          const candidate=pending[k], elapsed=i-candidate.index;
+          if (elapsed>smcCfg.sweepReclaimBars[horizon]) { pending.splice(k,1);continue; }
+          if (candidate.sign*(bar.close-candidate.price)>0) {
+            sweeps.push({ ...candidate,kind:candidate.sign>0?"sweep_low":"sweep_high",timestamp:bar.end_timestamp,bar_timestamp:bar.timestamp,age_bars:age(i),confirmed:true,reclaim_bars:elapsed,invalidated:false });
+            if (sweeps.length>cfg.maxEvents) sweeps.shift(); pending.splice(k,1);
+          }
+        }
+        sweeps.forEach((item)=>{ if (item.sign*(bar.close-item.price)<-smcCfg.ordinaryInvalidationAtr*item.atr_at_event) item.invalidated=true; });
       }
+      // New pivots become known only after the right-side confirmation close.
+      const j=i-pivot;
+      if (j>=pivot) {
+        const window=completed.slice(j-pivot,j+pivot+1);
+        for (const role of ["support","reduce"]) {
+          const key=role==="support"?"low":"high",price=completed[j][key];
+          if (!window.every((item,k)=>k===pivot || (role==="support"?price<=item[key]:price>=item[key])) || !window.some((item)=>item[key]!==price)) continue;
+          if (levels.some((level)=>level.active && level.original_role===role && Math.abs(level.price-price)<=Math.max(1e-8,price*1e-8))) continue;
+          levels.push({id:`${interval}:${completed[j].timestamp}:${role}`,price,original_role:role,role,pivot_at:completed[j].timestamp,known_at:bar.end_timestamp,atr_at_known:atr[i],active:true,touches:1,qualified:false,break_at:null,retested:false});
+          if (levels.length>cfg.maxLevels) levels.shift();
+        }
+      }
+    }
+    const end=completed.at(-1), latestAtr=last(atr), activeLevels=levels.filter((level)=>level.active);
+    const compact = (level) => ({...capture(level),role:level.role,original_role:level.original_role,active:true,touches:level.touches,qualified:level.retested || level.touches>=cfg.minimumTouches,break_at:level.break_at,retested:level.retested,last_event:level.event?.age_bars<=cfg.maxAge?level.event:null});
+    const held = lastBos && lastBos.age_bars>=smcCfg.heldBars && lastBos.age_bars<=cfg.maxAge && direction===lastBos.sign && completed.slice(-lastBos.age_bars).every((bar)=>lastBos.sign*(bar.close-lastBos.reference_price)>cfg.breakAtr*lastBos.atr_at_event);
+    const retest = events.filter((item)=>lastBos && item.level_id===lastBos.level_id && item.timestamp>lastBos.timestamp && item.kind===(direction>0?"retest_up":"retest_down") && item.age_bars<=cfg.maxAge && (!lastChoch || lastBos.timestamp>lastChoch.timestamp)).at(-1);
+    const support=[...activeLevels].reverse().find((level)=>level.role==="support" && level.price<=end.close+cfg.retestAtr*latestAtr);
+    const resistance=[...activeLevels].reverse().find((level)=>level.role==="reduce" && level.price>=end.close-cfg.retestAtr*latestAtr);
+    const repairCount = (reference,sign) => {
+      if (!reference) return 0; let count=0;
+      for (let i=completed.length-1;i>0;i-=1) {
+        const bar=completed[i],prior=completed[i-1],scale=atr[i-1];
+        if (timestampMillis(reference.known_at)>timestampMillis(bar.timestamp) || !(scale>0)) break;
+        const reclaim=sign*(bar.close-reference.price)>=0 && sign*(bar.close-prior.close)>0 && Math.abs((sign>0?bar.low:bar.high)-reference.price)<=cfg.retestAtr*scale;
+        const stopping=sign*(bar.close-prior.close)>=0 && sign*(bar.close-bar.open)>=0 && sign*((sign>0?bar.low:bar.high)-(sign>0?prior.low:prior.high))>=0;
+        if (!(reclaim || (stopping && sign*(bar.close-reference.price)>=0))) break;
+        count+=1;
+      } return count;
     };
-    for (let i = 0; i < completed.length; i += 1) {
-      const oscillator = slow[i] > 0 && Number.isFinite(fast[i]) ? (fast[i] / slow[i] - 1) * 100 : null;
-      if (i) observe(completed[i], completed[i - 1], i, atr[i], oscillator, interval, completed.length - 1 - i);
-      const j = i - pivot;
-      if (j < pivot || j < completed.length - cfg.lookback) continue;
-      const window = completed.slice(j - pivot, j + pivot + 1);
-      for (const role of ["support", "reduce"]) {
-        const key = role === "support" ? "low" : "high", value = completed[j][key];
-        const isPivot = window.every((bar, k) => k === pivot || (role === "support" ? value <= bar[key] : value >= bar[key])) && window.some((bar) => bar[key] !== value);
-        if (!isPivot) continue;
-        // Equal-price plateaus identify one reference, not a stack of evidence.
-        if (levels.some((level) => level.active && level.original_role === role && Math.abs(level.price - value) <= Math.max(1e-8, value * 1e-8))) continue;
-        levels.push({ id: `${interval}:${completed[j].timestamp}:${role}`, price: value, original_role: role, role, pivot_at: completed[j].timestamp,
-          known_at: completed[i].end_timestamp, interval, active: true, touches: 1, qualified: false, break_at: null, retested: false });
-        if (levels.length > cfg.maxLevels) levels.shift();
-      }
-    }
-    // Only completed supporting bars after the last completed primary bar may
-    // confirm an earlier event against a reference already known at bar start.
-    const primaryEnd = timestampMillis(last(completed).end_timestamp);
-    const early = supportingBars.filter((bar) => bar.completed === true && timestampMillis(bar.timestamp) >= primaryEnd && timestampMillis(bar.end_timestamp) != null && (asOf == null || timestampMillis(bar.end_timestamp) <= asOf));
-    const supportingFast = validatedVolumeEma(supportingBars, cfg.volumeFast), supportingSlow = validatedVolumeEma(supportingBars, cfg.volumeSlow);
-    for (let i = 0; i < early.length; i += 1) {
-      const index = supportingBars.indexOf(early[i]), previous = supportingBars[index - 1];
-      if (!previous) continue;
-      const oscillator = supportingSlow[index] > 0 && Number.isFinite(supportingFast[index]) ? (supportingFast[index] / supportingSlow[index] - 1) * 100 : null;
-      observe(early[i], previous, completed.length + i, last(atr), oscillator, supportingInterval, early.length - 1 - i);
-    }
-    const compactLevel = (level) => ({ id: level.id, price: level.price, role: level.role, original_role: level.original_role, pivot_at: level.pivot_at, known_at: level.known_at, interval,
-      active: level.active, touches: level.touches, qualified: level.break_at ? level.qualified : level.touches >= cfg.minimumTouches, break_at: level.break_at, retested: level.retested,
-      last_event: level.event?.age_bars <= cfg.maxAge ? level.event : null });
-    const availableLevels = levels.filter((level) => level.active).map(compactLevel);
-    const activeEvents = events.filter((event) => event.age_bars <= cfg.maxAge && (event.kind === "failed_break" || availableLevels.some((level) => level.id === event.level_id)));
-    return { ...metadata(args), state: activeEvents.at(-1)?.kind || "structure_ready", parameters: { pivot_left: pivot, pivot_right: pivot, break_atr: cfg.breakAtr, retest_atr: cfg.retestAtr, volume_fast: cfg.volumeFast, volume_slow: cfg.volumeSlow, volume_threshold: cfg.volumeThreshold, event_max_age: cfg.maxAge },
-      confirmed_bars: completed.length, reference_interval: interval, supporting_interval: supportingInterval, levels: availableLevels,
-      support: [...availableLevels].reverse().find((level) => level.role === "support") || null, resistance: [...availableLevels].reverse().find((level) => level.role === "reduce") || null,
-      events: activeEvents, last_event: activeEvents.at(-1) || null, volume_oscillator: last(slow) > 0 && Number.isFinite(last(fast)) ? (last(fast) / last(slow) - 1) * 100 : null };
+    const activeEvents=events.filter((item)=>item.age_bars<=cfg.maxAge);
+    return { ...metadata(args),confirmed_bars:completed.length,reference_interval:interval,supporting_interval:null,state:activeEvents.at(-1)?.kind || "structure_ready",
+      parameters:{pivot_left:pivot,pivot_right:pivot,break_atr:cfg.breakAtr,retest_atr:cfg.retestAtr,event_max_age:cfg.maxAge,volume_fast:cfg.volumeFast,volume_slow:cfg.volumeSlow,volume_threshold:cfg.volumeThreshold,volume_source:indicatorConfig().volume.source},levels:activeLevels.map(compact),support:support?compact(support):null,resistance:resistance?compact(resistance):null,
+      events:activeEvents,last_event:activeEvents.at(-1)||null,volume_oscillator:last(slow)>0?(last(fast)/last(slow)-1)*100:null,
+      smc:{availability:"available",direction:direction>0?"bullish":direction<0?"bearish":"unconfirmed",last_bos:lastBos,last_choch:lastChoch,
+        protected_low:protectedLow?{...protectedLow,active:direction>0 || lastChoch?.sign<0 && lastChoch.age_bars<=cfg.maxAge && (!lastBos || lastBos.timestamp<lastChoch.timestamp)}:null,
+        protected_high:protectedHigh?{...protectedHigh,active:direction<0}:null,
+        bullish_confirmed:direction>0 && Boolean(held || retest),bearish_confirmed:direction<0 && Boolean(held || retest),held_break:held?lastBos:null,
+        bullish_retest:direction>0?retest||null:null,bearish_retest:direction<0?retest||null:null,
+        support_repair_bars:repairCount(support,1),resistance_failure_bars:repairCount(resistance,-1),sweeps:sweeps.filter((item)=>item.age_bars<=smcCfg.sweepAge[horizon] && !item.invalidated),signal_as_of:end.end_timestamp },
+    };
   }
 
-  function horizonFeatureSet(horizon, sources, currentPrice, relativeStrength, fibonacci, calculatedAt) {
-    const config = HORIZON_CONFIG[horizon];
-    const indicators = { ema: {}, sma: {}, rsi: {}, macd: {}, adx: {}, atr: {}, kdj: {}, bollinger: {}, obv: {} };
-    const use = (interval) => horizon === "long" && interval === "1d" && indicatorConfig().stability.completedLongDaily ? (sources[interval] || []).filter((bar) => bar.completed !== false) : sources[interval] || [];
-    Object.entries(config.ema || {}).forEach(([interval, periods]) => periods.forEach((period) => { indicators.ema[`ema_${period}_${interval}`] = movingAverageFeature(use(interval), interval, period, "ema", currentPrice, calculatedAt); }));
-    Object.entries(config.sma || {}).forEach(([interval, periods]) => periods.forEach((period) => { indicators.sma[`sma_${period}_${interval}`] = movingAverageFeature(use(interval), interval, period, "sma", currentPrice, calculatedAt); }));
+  function fvgFeature(bars, interval, calculatedAt) {
+    const cfg=indicatorConfig().fvg, atr=atrSeries(bars,indicatorConfig().structure.atrPeriod), gaps=[];
+    for (let i=2;i<bars.length;i+=1) {
+      const first=bars[i-2],middle=bars[i-1],third=bars[i],scale=atr[i-2],body=Math.abs(middle.close-middle.open),span=middle.high-middle.low;
+      if (!(scale>0) || body<cfg.bodyAtr*scale || !(span>0) || body/span<cfg.bodyShare) continue;
+      const sign=third.low>first.high && middle.close>middle.open?1:third.high<first.low && middle.close<middle.open?-1:0;
+      if (!sign) continue;
+      const low=sign>0?first.high:third.high,high=sign>0?third.low:first.low;
+      if (high-low<cfg.minimumGapAtr*scale) continue;
+      let status="untouched",fill=0;
+      for (let j=i+1;j<bars.length;j+=1) {
+        const bar=bars[j];fill=Math.max(fill,Math.max(0,Math.min(1,sign>0?(high-bar.low)/(high-low):(bar.high-low)/(high-low))));
+        if (sign>0?bar.close<low:bar.close>high) {status="invalidated";break;}
+        status=fill>=1?"filled":fill>0?"partial":"untouched";
+      }
+      gaps.push({side:sign>0?"bullish":"bearish",low,high,known_at:third.end_timestamp,age_bars:bars.length-1-i,status,fill_fraction:fill});
+      if (gaps.length>cfg.maximumGaps) gaps.shift();
+    }
+    return {availability:bars.length>=indicatorConfig().structure.atrPeriod+2?"available":"unavailable",interval,source:"completed_three_bar_gap",shadow_only:true,used_for_decision:false,calculation_timestamp:calculatedAt,gaps};
+  }
+
+  function horizonFeatureSet(horizon, sources, currentPrice, relativeStrength, fibonacci, calculatedAt, volume, benchmarkContext, calendar) {
+    const config=HORIZON_CONFIG[horizon], primaryInterval=config.primary_intervals[0], primaryBars=sources[primaryInterval] || [], referencePrice=last(primaryBars)?.close ?? null;
+    const indicators={ema:{},sma:{},rsi:{},macd:{},adx:{},atr:{},kdj:{},bollinger:{},obv:{}};
+    const use=(interval)=>sources[interval] || [];
+    Object.entries(config.ema || {}).forEach(([interval, periods]) => periods.forEach((period) => { indicators.ema[`ema_${period}_${interval}`] = movingAverageFeature(use(interval), interval, period, "ema", referencePrice, calculatedAt); }));
+    Object.entries(config.sma || {}).forEach(([interval, periods]) => periods.forEach((period) => { indicators.sma[`sma_${period}_${interval}`] = movingAverageFeature(use(interval), interval, period, "sma", referencePrice, calculatedAt); }));
     Object.entries(config.rsi || {}).forEach(([interval, periods]) => periods.forEach((period) => { indicators.rsi[`rsi_${period}_${interval}`] = rsiFeature(use(interval), interval, period, calculatedAt); }));
     Object.entries(config.macd || {}).forEach(([interval, params]) => { indicators.macd[`macd_${interval}`] = macdFeature(use(interval), interval, params, calculatedAt); });
     Object.entries(config.adx || {}).forEach(([interval, period]) => { indicators.adx[`adx_${period}_${interval}`] = adxFeature(use(interval), interval, period, calculatedAt); });
     Object.entries(config.atr || {}).forEach(([interval, period]) => { indicators.atr[`atr_${period}_${interval}`] = atrFeature(use(interval), interval, period, calculatedAt); });
     Object.entries(config.kdj || {}).forEach(([interval, period]) => { indicators.kdj[`kdj_${period}_${interval}`] = kdjFeature(use(interval), interval, period, calculatedAt); });
     Object.entries(config.bollinger || {}).forEach(([interval, params]) => { indicators.bollinger[`bollinger_${interval}`] = bollingerFeature(use(interval), interval, params, calculatedAt); });
-    Object.entries(config.obv || {}).forEach(([interval, lookback]) => { indicators.obv[`obv_${interval}`] = obvFeature(use(interval), interval, lookback, calculatedAt); });
-    const primaryInterval = config.primary_intervals[0], primaryBars = use(primaryInterval);
-    const supportingInterval = horizon === "short" ? "1h" : horizon === "medium" ? "4h" : "1d";
-    const squeeze = squeezeFeature(primaryBars, primaryInterval, calculatedAt);
-    const comboPeriod = indicatorConfig().bollingerRsi.periods[horizon];
-    const combo = bollingerRsiFeature(primaryBars, primaryInterval, horizon, indicators.rsi[`rsi_${comboPeriod}_${primaryInterval}`] || {}, indicators.bollinger[`bollinger_${primaryInterval}`] || {}, calculatedAt);
-    const structure = supportResistanceFeature(primaryBars, primaryInterval, use(supportingInterval), supportingInterval, calculatedAt);
-    const allMa = [...Object.values(indicators.ema), ...Object.values(indicators.sma)];
-    const preferredMa = allMa.filter((feature) => feature.interval === (horizon === "short" ? "4h" : "1d"));
-    const missing = Object.entries(indicators).filter(([, group]) => Object.keys(group).length && Object.values(group).every((feature) => feature.availability === "unavailable")).map(([key]) => key);
-    return {
-      horizon,
-      horizon_label: config.label,
-      indicator_version: indicatorConfig().version,
-      trend_reference_price: horizon === "long" ? last(use("1d"))?.close ?? currentPrice : currentPrice,
-      primary_intervals: config.primary_intervals,
-      supporting_intervals: config.supporting_intervals,
-      trend: { moving_averages: { ...indicators.ema, ...indicators.sma }, ma_structure: movingAverageStructure(preferredMa), adx: indicators.adx, support_resistance: structure },
-      momentum: { rsi: indicators.rsi, macd: indicators.macd, kdj: indicators.kdj, squeeze },
-      volatility: { atr: indicators.atr, bollinger: indicators.bollinger, bollinger_rsi: combo },
-      participation: { obv: indicators.obv },
-      relative_strength: relativeStrengthFeatures(relativeStrength, horizon),
-      fibonacci: fibonacci[horizon],
-      missing_families: missing,
-      availability: missing.length === Object.keys(indicators).length ? "unavailable" : missing.length ? "partial" : "available",
-    };
+    const policy=indicatorConfig().volume.obv[horizon], suffix=primaryInterval==="1w"?"w":"d";
+    const obv=volume.obv?.by_lookback?.[`${suffix}${policy.lookback}`] || unavailableFeature({indicator:"obv",interval:primaryInterval,lookback:policy.lookback,bars:[],calculatedAt,unavailableReason:volume.unavailable_reason});
+    indicators.obv[`obv_${primaryInterval}`]={...obv,source:volume.source,volume_source:indicatorConfig().volume.source,completed:volume.availability==="available"};
+    const squeeze=squeezeFeature(primaryBars,primaryInterval,calculatedAt), period=indicatorConfig().bollingerRsi.periods[horizon];
+    const combo=bollingerRsiFeature(primaryBars,primaryInterval,horizon,indicators.rsi[`rsi_${period}_${primaryInterval}`] || {},indicators.bollinger[`bollinger_${primaryInterval}`] || {},calculatedAt);
+    const structure=supportResistanceFeature(primaryBars,primaryInterval,[],null,calculatedAt);
+    const primaryPeriods=engineConfig().horizons[horizon].primaryMaPeriods;
+    const allMa=[...Object.values(indicators.ema),...Object.values(indicators.sma)], preferred=allMa.filter((item)=>primaryPeriods.includes(item.period));
+    const macdValue=indicators.macd[`macd_${primaryInterval}`];
+    const improving=macdValue?.improving_bars || 0, weakening=macdValue?.weakening_bars || 0;
+    const missing=Object.entries(indicators).filter(([,group])=>Object.keys(group).length && Object.values(group).every((item)=>item.availability!=="available")).map(([key])=>key);
+    return {horizon,horizon_label:config.label,indicator_version:indicatorConfig().version,trend_reference_price:referencePrice,signal_as_of:last(primaryBars)?.end_timestamp || null,
+      price_position:pricePositionFeatures(primaryBars,referencePrice,calculatedAt,{},primaryInterval),
+      primary_intervals:config.primary_intervals,supporting_intervals:[],
+      trend:{moving_averages:{...indicators.ema,...indicators.sma},ma_structure:movingAverageStructure(preferred),adx:indicators.adx,support_resistance:structure,smc:structure.smc || {availability:"unavailable"}},
+      momentum:{rsi:indicators.rsi,macd:indicators.macd,kdj:indicators.kdj,squeeze,improving_bars:improving,weakening_bars:weakening},
+      volatility:{atr:indicators.atr,bollinger:indicators.bollinger,bollinger_rsi:combo},participation:{obv:indicators.obv,volume},
+      relative_strength:relativeStrengthFeatures(relativeStrength,horizon,primaryBars,benchmarkContext,calendar,calculatedAt),fibonacci:fibonacci[horizon],fvg:fvgFeature(primaryBars,primaryInterval,calculatedAt),
+      missing_families:missing,availability:primaryBars.length?missing.length?"partial":"available":"unavailable"};
   }
 
-  function buildTechnicalFeatures({ history = {}, currentPrice = null, relativeStrength = null, benchmarkContext = null, fibonacciStructure = {}, shareBase = null, calculatedAt = timestampNow() } = {}) {
-    const daily = pickBars(history, "1d");
-    const inputHelpers = root.CanonicalFeatureInputs || (typeof require !== "undefined" ? require("./decision-engine/feature-inputs.js") : null);
-    relativeStrength = relativeStrength || (benchmarkContext && inputHelpers ? inputHelpers.relativeStrengthFromBars(daily, benchmarkContext) : {});
-    const hourly = pickBars(history, "1h");
-    // 4H is provider-native market data. Never reconstruct it from 1H, daily,
-    // or any other interval: unavailable provider data must remain unavailable.
-    const fourHour = pickBars(history, "4h");
-    const weekly = completedWeeklyBars(daily, { asOf: history.as_of || calculatedAt, calendar: history.session_calendar });
-    const sources = { "1h": hourly, "4h": fourHour, "1d": daily, "1w": weekly };
-    const normalizedPrice = Number.isFinite(currentPrice) ? currentPrice : last(daily)?.close ?? null;
-    const fibonacci = fibonacciFeatures(fibonacciStructure, fourHour.filter((bar) => bar.completed !== false), daily.filter((bar) => bar.completed !== false), weekly, normalizedPrice);
-    const volume = canonicalVolumeFeature(daily, finite(shareBase), calculatedAt);
-    const hourlySource = history.intervals?.["1h"] || history.by_interval?.["1h"] || history.intervals?.hourly || {};
-    const fourHourSource = history.intervals?.["4h"] || history.by_interval?.["4h"] || {};
-    const sourceIntervalMetadata = (interval, bars) => {
-      const upstream = interval === "1h" ? hourlySource : interval === "4h" ? fourHourSource : history;
-      const available = bars.length > 0;
-      const unavailableReason = available ? null
-        : interval === "4h" ? (upstream.unavailable_reason || "source_unavailable")
-          : interval === "1w" ? (daily.length ? "insufficient_history" : "source_unavailable")
-            : "source_unavailable";
-      return {
-        interval,
-        bar_count: bars.length,
-        availability: available ? "available" : "unavailable",
-        available,
-        unavailable_reason: unavailableReason,
-        lookback: interval === "1d" ? (history.daily_history_metadata?.lookback || history.lookback || null) : interval === "1h" ? (hourlySource.lookback || null) : interval === "4h" ? (fourHourSource.lookback || null) : null,
-        requested_history: upstream.requested_history || (interval === "1h" ? (hourlySource.lookback || null) : interval === "1d" ? (history.daily_history_metadata?.lookback || history.lookback || null) : interval === "4h" ? (fourHourSource.lookback || null) : null),
-        first_bar_timestamp: bars[0]?.timestamp ?? null,
-        last_bar_timestamp: last(bars)?.timestamp ?? null,
-        as_of: upstream.as_of || history.as_of || calculatedAt,
-        last_bar_completed: available ? last(bars)?.completed ?? upstream.last_bar_completed ?? upstream.bar_segments?.at(-1)?.completed ?? null : null,
-        last_bar_end: last(bars)?.end_timestamp ?? null,
-        provider_as_of: upstream.provider_as_of ?? null,
-        volume_validation: upstream.volume_validation || null,
-        freshness: history.freshness || null,
-        last_bar_duration_minutes: upstream.last_bar_duration_minutes ?? (interval === "4h" ? fourHourSource.bar_segments?.at(-1)?.duration_minutes ?? null : null),
-        active_bar_usage: upstream.active_bar_usage || "legacy_completion_metadata_unavailable",
-        adjustment_basis: upstream.adjustment_basis || "unverified",
-        currency: upstream.currency || history.currency || null,
-        request: upstream.request || {},
-        validation: bars.validation || null,
-        rejected_reasons: upstream.rejected_reasons || {},
-        weekly_completion: interval === "1w" ? { source: history.session_calendar?.source || "legacy_calendar_unavailable", excluded_weeks: history.session_calendar?.excluded_weeks ?? null } : null,
-        source: interval === "1w" ? "completed_weekly_from_daily" : upstream.source || "unverified_provider",
-        bar_method: interval === "4h" ? (fourHourSource.bar_method || null) : null,
-        regular_hours_only: upstream.regular_hours_only ?? null,
-        timezone: upstream.timezone || null,
-        session_validation: interval === "4h" ? (fourHourSource.session_validation || null) : null,
-      };
-    };
-    return {
-      schema_version: SCHEMA_VERSION,
-      calculated_at: calculatedAt,
-      source_intervals: Object.fromEntries(Object.entries(sources).map(([interval, bars]) => [interval, sourceIntervalMetadata(interval, bars)])),
-      horizons: {
-        short: horizonFeatureSet("short", sources, normalizedPrice, relativeStrength, fibonacci, calculatedAt),
-        medium: horizonFeatureSet("medium", sources, normalizedPrice, relativeStrength, fibonacci, calculatedAt),
-        long: horizonFeatureSet("long", sources, normalizedPrice, relativeStrength, fibonacci, calculatedAt),
-      },
-      volume,
-      price_position: pricePositionFeatures(daily, normalizedPrice, calculatedAt, history.daily_history_metadata || {}),
-      fibonacci: { short: fibonacci.short, medium: fibonacci.medium, long: fibonacci.long },
-      fibonacci_structure: fibonacci.structure,
-      data_quality: {
-        daily_freshness: history.freshness || null,
-        volume_conflicts: Object.entries(sources).filter(([, bars]) => bars.some((bar) => bar.volume_available === false)).map(([interval]) => interval),
-        daily_history: daily.length >= 252 ? "available" : daily.length ? "partial" : "unavailable",
-        intraday_history: hourly.length ? "available" : "unavailable",
-        all_time_history: daily.length ? "available_history" : "unavailable",
-        missing_intervals: Object.entries(sources).filter(([, bars]) => !bars.length).map(([interval]) => interval),
-      },
-    };
+  function buildTechnicalFeatures({history={},currentPrice=null,relativeStrength={},benchmarkContext={},shareBase=null,calculatedAt=null}={}) {
+    calculatedAt=calculatedAt || history.as_of || timestampNow();
+    if (Number.isFinite(timestampMillis(history.as_of)) && timestampMillis(history.as_of)<timestampMillis(calculatedAt)) calculatedAt=history.as_of;
+    const rawDaily=pickBars(history,"1d"), daily=rawDaily.filter((bar)=>confirmedBy(bar,calculatedAt));
+    const unknown=rawDaily.some((bar)=>bar.completed==null || (bar.completed===true && !bar.end_timestamp)), rejected=(rawDaily.validation?.rejected_rows || history.excluded_invalid_rows || 0)>0;
+    const weekly=completedWeeklyBars(daily,{asOf:calculatedAt,calendar:history.session_calendar}),sources={"1d":daily,"1w":weekly};
+    const calendar=history.session_calendar || {},neededDaily=engineConfig().horizons.daily.primaryMaPeriods.at(-1),neededWeekly=engineConfig().horizons.weekly.primaryMaPeriods.at(-1);
+    const dailyGaps=(calendar.missing_session_dates || []).some((date)=>date>=daily.at(-neededDaily)?.timestamp?.slice(0,10));
+    const completeWeeks=new Set(calendar.completed_week_keys || []);
+    const weeklyGaps=(calendar.closed_week_keys || []).slice(-neededWeekly).some((key)=>!completeWeeks.has(key));
+    const price=finite(currentPrice) ?? last(daily)?.close ?? null, fibonacci=fibonacciFeatures(daily,weekly,price);
+    const validVolume=unknown || rejected?[]:daily,volume=canonicalVolumeFeature(validVolume,finite(shareBase),calculatedAt),weeklyVolume=canonicalVolumeFeature(unknown || rejected?[]:weekly,finite(shareBase),calculatedAt,"1w");
+    if (unknown || rejected) {volume.unavailable_reason=weeklyVolume.unavailable_reason=unknown?"completion_metadata_unavailable":"invalid_source_data";}
+    const latest=last(rawDaily);
+    volume.current_session=latest?.completed===false && timestampMillis(latest.timestamp)<=timestampMillis(calculatedAt)?{date:latest.timestamp,volume:latest.volume_available===false?null:latest.volume,availability:latest.volume_available===false?"unavailable":"provisional",used_for_decision:false}:null;
+    return {schema_version:SCHEMA_VERSION,calculated_at:calculatedAt,execution_window_end:history.execution_window_end || null,
+      source_intervals:Object.fromEntries(Object.entries(sources).map(([interval,bars])=>[interval,{interval,bar_count:bars.length,availability:bars.length?"available":"unavailable",available:!!bars.length,source:interval==="1w"?"completed_weekly_from_daily":history.source || "unverified_provider",first_bar_timestamp:bars[0]?.timestamp || null,last_bar_timestamp:last(bars)?.timestamp || null,last_bar_end:last(bars)?.end_timestamp || null,last_bar_completed:bars.length?true:null,as_of:history.as_of || calculatedAt,provider_as_of:history.provider_as_of || null,active_bar_usage:"completed_only",adjustment_basis:history.adjustment_basis || "unverified",volume_validation:history.volume_validation || null,freshness:history.freshness || null,validation:rawDaily.validation,weekly_completion:interval==="1w"?{source:history.session_calendar?.source || "unavailable"}:null}])),
+      horizons:Object.fromEntries(Object.keys(HORIZON_CONFIG).map((key)=>[key,horizonFeatureSet(key,sources,price,relativeStrength,fibonacci,calculatedAt,key==="weekly"?weeklyVolume:volume,benchmarkContext,history.session_calendar)])),
+      volume,weekly_volume:weeklyVolume,price_position:pricePositionFeatures(daily,price,calculatedAt,history.daily_history_metadata || {}),fibonacci:{daily:fibonacci.daily,weekly:fibonacci.weekly},fibonacci_structure:fibonacci.structure,
+      data_quality:{price_basis_unverified:!["provider_ohlc_auto_adjust_false","provider_chart_quote_ohlc"].includes(history.adjustment_basis || history.adjustmentBasis),required_history_gaps:{daily:dailyGaps,weekly:weeklyGaps},daily_freshness:history.freshness || null,decision_volume_conflicts:daily.some((bar)=>bar.volume_available===false)?["1d"]:[],volume_conflicts:daily.some((bar)=>bar.volume_available===false)?["1d"]:[],completion_unavailable:unknown,rejected_daily_rows:rawDaily.validation?.rejected_rows || 0,daily_history:daily.length>=252?"available":daily.length?"partial":"unavailable",all_time_history:daily.length?"available_history":"unavailable",missing_intervals:Object.entries(sources).filter(([,bars])=>!bars.length).map(([interval])=>interval)} };
   }
 
-  const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, _test: { squeezeFeature, bollingerRsiFeature, supportResistanceFeature, regressionEndpoint, smaSeries, normalizeBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, atrFeature, kdjFeature, macdFeature, adxFeature, bollingerFeature, obvFeature, pricePositionFeatures, canonicalVolumeFeature, canonicalFibonacciHorizon, canonicalFibonacciStructure } };
+  const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, _test: { squeezeFeature, bollingerRsiFeature, supportResistanceFeature, fvgFeature, relativeStrengthFeatures, regressionEndpoint, smaSeries, normalizeBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, atrFeature, kdjFeature, macdFeature, adxFeature, bollingerFeature, obvFeature, pricePositionFeatures, canonicalVolumeFeature, canonicalFibonacciHorizon, canonicalFibonacciStructure } };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.CanonicalTechnicalFeatures = api;
 }(typeof globalThis !== "undefined" ? globalThis : window));

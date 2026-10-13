@@ -31,14 +31,15 @@ for (const vocabulary of [classifier.PRIMARY_CLASSIFICATIONS, classifier.BUSINES
 const row = {
   ticker: "TEST", companyName: "Example Company", price: 100, currency: "USD",
   classification: { primaryClassification: "Enterprise Software", businessTrait: "HighGrowth", riskTrait: "HighVolatility", lifecycle: "Scaling" },
-  technicalFeatures: featureSet({ short: "recover", mid: "bear", long: "bull" }),
+  technicalFeatures: featureSet({ daily: "recover", weekly: "bull" }),
 };
 for (const group of Object.values(row.technicalFeatures.horizons)) group.trend.ma_structure.alignment = "mixed";
-Object.assign(row.technicalFeatures.fibonacci_structure.short_term, {
-  swing_direction: "up_swing", source_timeframe: "4h", data_window: "recent 80 4h bars",
-  pivot_method: "confirmed 4h pivots (3/3)", pivot_confirmation: "left 3 / right 3 bars confirmed",
-  current_position_label: "Between 38.2% and 61.8%", fallback_used: true, fallback_reason: "4h_source_unavailable",
+Object.assign(row.technicalFeatures.fibonacci_structure.daily, {
+  swing_direction: "up_swing", source_timeframe: "1d", data_window: "recent 80 1d bars",
+  pivot_method: "confirmed 1d pivots (3/3)", pivot_confirmation: "left 3 / right 3 bars confirmed",
+  current_position_label: "Between 38.2% and 61.8%", fallback_used: true, fallback_reason: "1d_source_unavailable",
 });
+Object.assign(row.technicalFeatures.volume, { completed: true, last_bar_timestamp: "2026-10-08", current_session: { date: "2026-10-09", volume: 2000000, used_for_decision: false } });
 const original = JSON.stringify(row);
 const main = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8").replace(/\nstart\(\);\s*$/, "");
 const context = vm.createContext({
@@ -48,34 +49,42 @@ const context = vm.createContext({
 vm.runInContext(main, context);
 vm.runInContext('state.language = "zh";', context);
 assert.equal(vm.runInContext('decisionActionLabel({action: "buy", actionLabel: "Buy"})', context), config.actionLabels.buy.zh);
-for (const horizon of ["short", "mid", "long"]) {
+for (const horizon of ["daily", "weekly"]) {
   const result = vm.runInContext(`technicalBlock(sampleRow, "${horizon}")`, context);
   assert.match(result, /主周期斜率/);
   assert.match(result, /布林带＋RSI/);
   assert.match(result, /移动平均线/);
   assert.doesNotMatch(result, /Primary slope|recovering bearish|rising|falling|Moving averages|Bandwidth|Signal line|Relative Strength/);
 }
-assert.match(vm.runInContext('technicalBlock(sampleRow, "short")', context), /空头动量修复/);
-const fib = vm.runInContext('fibonacciHorizonCard(sampleRow, "斐波那契结构", sampleRow.technicalFeatures.fibonacci_structure.short_term)', context);
+assert.match(vm.runInContext('technicalBlock(sampleRow, "daily")', context), /空头动量修复/);
+const shortChinese = vm.runInContext('technicalBlock(sampleRow, "daily")', context);
+assert.match(shortChinese, /日线 OBV/);
+assert.doesNotMatch(shortChinese, /4 小时 OBV/);
+const volumeChinese = vm.runInContext('renderTechnicalFoundation(sampleRow)', context);
+assert.match(volumeChinese, /已完成日线成交量/);
+assert.match(volumeChinese, /2026-10-08/);
+assert.match(volumeChinese, /当天未完成累计量 · 仅展示/);
+assert.match(volumeChinese, /2026-10-09/);
+const fib = vm.runInContext('fibonacciHorizonCard(sampleRow, "斐波那契结构", sampleRow.technicalFeatures.fibonacci_structure.daily)', context);
 assert.match(fib, /位于 38.2% 与 61.8% 之间/);
 assert.match(fib, /左 3／右 3 根 K 线确认/);
 assert.doesNotMatch(fib, /Between|confirmed|Anchor|recent|source unavailable/);
 const profile = vm.runInContext('renderProfileHeader(sampleRow)', context);
 assert.match(profile, /企业软件/); assert.match(profile, /高成长/); assert.match(profile, /高波动/); assert.match(profile, /扩张期/);
-context.marketRow = { decision: { horizons: { short: { market: { spy: { trend: "rising" }, qqq: { trend: "falling" } } } } } };
+context.marketRow = { decision: { horizons: { daily: { market: { spy: { trend: "rising" }, qqq: { trend: "falling" } } } } } };
 const marketChinese = vm.runInContext('renderMarketRiskRegime(marketRow)', context);
 assert.match(marketChinese, /基准指数趋势上升/);
 assert.match(marketChinese, /基准指数趋势下降/);
 assert.doesNotMatch(marketChinese, /尚未形成明确上涨或下跌趋势/);
-context.marketRow.decision.horizons.short.market.spy.trend = "unexpected";
+context.marketRow.decision.horizons.daily.market.spy.trend = "unexpected";
 assert.match(vm.runInContext('renderMarketRiskRegime(marketRow)', context), /趋势不可用或尚未识别/);
 assert.match(vm.runInContext('decisionActionLabel({action: "hold", debug: {actionFamily: "unavailable"}})', context), /等待.*不足/);
 context.qualityRow = JSON.parse(JSON.stringify(row));
-context.qualityRow.technicalFeatures.source_intervals = { "4h": { last_bar_completed: true, as_of: "2026-10-10T02:00:00Z", provider_as_of: null, freshness: { state: "stale", latest_date: "2026-10-08", expected_completed_date: "2026-10-09" }, volume_validation: { status: "conflict", conflicting_sessions: 2 } } };
+context.qualityRow.technicalFeatures.source_intervals = { "1d": { last_bar_completed: true, as_of: "2026-10-10T02:00:00Z", provider_as_of: null, freshness: { state: "stale", latest_date: "2026-10-08", expected_completed_date: "2026-10-09" }, volume_validation: { status: "conflict", conflicting_sessions: 2 } } };
 const qualityPanel = vm.runInContext('renderTechnicalPanel(qualityRow)', context);
 assert.match(qualityPanel, /2026-10-08 \/ 2026-10-09/);
 assert.match(qualityPanel, /已过期/);
-assert.match(qualityPanel, /2 个交易日的成交量跨周期冲突/);
+assert.match(qualityPanel, /决策只使用完成日线成交量/);
 assert.match(qualityPanel, /供应商历史截止时间.*未提供/);
 context.warmingRow = { ...row, price: null, decision: null, ready: false };
 const warmingPanel = vm.runInContext('renderDecisionPanel(warmingRow)', context);
@@ -83,7 +92,7 @@ assert.match(warmingPanel, /数据不足，暂无法生成该周期推荐/);
 assert.doesNotMatch(warmingPanel, /price-map-track/);
 vm.runInContext('state.language = "en";', context);
 assert.equal(vm.runInContext('decisionActionLabel({action: "buy", actionLabel: "买入"})', context), config.actionLabels.buy.en);
-const english = vm.runInContext('technicalBlock(sampleRow, "short")', context);
+const english = vm.runInContext('technicalBlock(sampleRow, "daily")', context);
 assert.match(english, /Primary slope/); assert.match(english, /recovering bearish/);
 assert.equal(JSON.stringify(row), original, "localization never mutates canonical Technical or Profile data");
 console.log("Dashboard language: all profile slots, technical horizons, Fibonacci, unknown/missing states, English roundtrip and canonical-data preservation passed.");

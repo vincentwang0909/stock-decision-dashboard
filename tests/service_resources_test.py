@@ -13,7 +13,7 @@ from datetime import date, datetime, timezone
 
 
 class ResourcesAndDataTests(unittest.TestCase):
-    def test_unified_model_health_and_real_api_serializer_keep_wire_contract(self):
+    def test_unified_model_health_and_real_api_serializer_use_v2_contract(self):
         import server
         node = server.eod_history_node_executable()
         if not node:
@@ -35,9 +35,9 @@ class ResourcesAndDataTests(unittest.TestCase):
             response = server.app.test_client().get('/api/decision/model')
             self.assertEqual(response.status_code, 200, response.get_json())
             payload = response.get_json()
-            self.assertEqual(payload['contractVersion'], 'decision.v1')
+            self.assertEqual(payload['contractVersion'], 'decision.v2')
             self.assertEqual(payload['modelVersion'], expected)
-            self.assertEqual(set(payload['horizons']), {'short', 'mid', 'long'})
+            self.assertEqual(set(payload['horizons']), {'daily', 'weekly'})
 
     def test_full_refresh_receipt_is_live_even_when_serialized_from_disk(self):
         import server
@@ -138,21 +138,6 @@ class ResourcesAndDataTests(unittest.TestCase):
             gate.set();server.TASK_CONTEXT.refresh_generation=None
             server.QUOTE_TASKS.drain(1)
 
-    def test_native_four_hour_dst_tail_and_unordered_source(self):
-        import server
-        stamps=pd.to_datetime(['2026-03-06 09:30','2026-03-06 13:30','2026-03-09 09:30','2026-03-09 13:30']).tz_localize('America/New_York')
-        frame=pd.DataFrame({'Open':[100.]*4,'High':[101.]*4,'Low':[99.]*4,'Close':[100.]*4,'Volume':[0]*4},index=stamps)
-        result=server.validate_native_four_hour_history_frame(frame,datetime(2026,3,10,tzinfo=timezone.utc))
-        self.assertEqual(len(result['frame']),4)
-        self.assertEqual([x['duration_minutes'] for x in result['bar_segments']],[240,150,240,150])
-        self.assertEqual(stamps[0].tz_convert('UTC').hour,14)
-        self.assertEqual(stamps[2].tz_convert('UTC').hour,13)
-        unordered=server.validate_native_four_hour_history_frame(frame.iloc[[2,3,0,1]],datetime(2026,3,10,tzinfo=timezone.utc))
-        self.assertEqual(len(unordered['frame']),2)
-        self.assertIn('duplicate_or_unordered_timestamp',unordered['rejected_reasons'])
-        active=server.validate_native_four_hour_history_frame(frame.iloc[[2]],datetime(2026,3,9,15,tzinfo=timezone.utc))
-        self.assertEqual(len(active['frame']),1)
-        self.assertFalse(active['bar_segments'][0]['completed'])
 
     def test_expired_controller_never_writes_cache(self):
         import server

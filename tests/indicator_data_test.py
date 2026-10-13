@@ -1,59 +1,50 @@
-"""Native-history depth, completion/session metadata and split-safe extension."""
+"""Daily-only history, actual exchange completion and clean overlap backfill."""
 import os
-for key in ('BACKGROUND_MARKET_REFRESH_ENABLED','EOD_HISTORY_ENABLED','COMPANY_PROFILE_REVIEW_ENABLED'):
-    os.environ[key]='false'
+for k in ('BACKGROUND_MARKET_REFRESH_ENABLED','EOD_HISTORY_ENABLED','COMPANY_PROFILE_REVIEW_ENABLED'): os.environ[k]='false'
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 import pandas as pd
 import server
+from market_data_validation import validate_us_daily_frame
 
 class FrozenDate(datetime):
     @classmethod
-    def now(cls, tz=None):
+    def now(cls,tz=None):
         value=datetime(2026,11,27,12,45,tzinfo=ZoneInfo('America/New_York'))
         return value.astimezone(tz) if tz else value.replace(tzinfo=None)
 
-def frame(closes=(100,101,102),date='2026-11-27',hours=(9,10,12)):
-    values=pd.DataFrame({'Open':closes,'High':[x+1 for x in closes],'Low':[x-1 for x in closes],'Close':closes,'Volume':[1000]*len(closes)},index=pd.DatetimeIndex([f'{date} {hour}:30:00' for hour in hours]).tz_localize('America/New_York'))
-    values.attrs.update(source='yfinance',adjustment_basis='provider_ohlc_auto_adjust_false',request={'interval':'1h','period':'365d'})
-    return values
+def frame(dates):
+    f=pd.DataFrame({'Open':100.,'High':101.,'Low':99.,'Close':100.,'Volume':1000.},index=pd.to_datetime(dates))
+    f.attrs.update(source='yfinance',adjustment_basis='provider_ohlc_auto_adjust_false',request={'interval':'1d','period':'10y'})
+    return f
 
 class IndicatorDataTests(unittest.TestCase):
-    def test_half_day_completion_and_invalid_session_are_explicit(self):
-        raw=frame((100,101,102,103),hours=(9,10,12,13))
-        with patch.object(server,'datetime',FrozenDate):value=server._history_payload(raw,timestamp_format='%Y-%m-%dT%H:%M:%S%z')
-        self.assertEqual(len(value['timestamps']),3)
-        self.assertEqual(value['completed'],[True,True,False])
-        self.assertEqual(datetime.fromisoformat(value['bar_end_timestamps'][-1]).astimezone(ZoneInfo('America/New_York')).hour,13)
-        self.assertEqual(value['last_bar_duration_minutes'],30)
-        self.assertFalse(value['last_bar_completed'])
-        self.assertEqual(value['rejected_reasons']['invalid_hourly_session_bar'],1)
-        self.assertEqual(value['requested_history'],'365d')
-    def test_overlap_is_extended_without_duplicate_bars(self):
-        old=frame(date='2026-09-24',hours=(9,10,11))
-        with patch.object(server,'datetime',FrozenDate):payload=server._history_payload(old,timestamp_format='%Y-%m-%dT%H:%M:%S%z')
-        payload['lookback']=server.TECHNICAL_INTRADAY_HISTORY_PERIOD
-        payload['source_validation_version']=server.SOURCE_VALIDATION_VERSION
-        cached={'quote':{'history':{'intervals':{'1h':payload}}}}
-        recent=old.iloc[1:].copy()
-        with patch.object(server,'read_market_cache',return_value=cached),patch.object(server,'load_yfinance_intraday_history_frame',return_value=recent) as fetch:
-            result=server.load_incremental_hourly_history_frame(object(),'TEST')
-        self.assertEqual(len(result),3)
-        self.assertEqual(result.attrs['request']['method'],'incremental_validated_overlap')
-        self.assertEqual(fetch.call_count,1)
-    def test_revised_overlap_forces_real_seed_backfill(self):
-        old=frame(date='2026-09-24',hours=(9,10,11))
-        with patch.object(server,'datetime',FrozenDate):payload=server._history_payload(old,timestamp_format='%Y-%m-%dT%H:%M:%S%z')
-        payload['lookback']=server.TECHNICAL_INTRADAY_HISTORY_PERIOD
-        payload['source_validation_version']=server.SOURCE_VALIDATION_VERSION
-        recent=old.iloc[1:].astype(float).copy();recent.iloc[0,recent.columns.get_loc('Close')]=100.5
-        cached={'quote':{'history':{'intervals':{'1h':payload}}}}
-        with patch.object(server,'read_market_cache',return_value=cached),patch.object(server,'load_yfinance_intraday_history_frame',side_effect=[recent,old]) as fetch:
-            result=server.load_incremental_hourly_history_frame(object(),'TEST')
-        self.assertEqual(fetch.call_count,2)
-        self.assertEqual(fetch.call_args.kwargs['period'],server.TECHNICAL_INTRADAY_HISTORY_PERIOD)
-        self.assertEqual(len(result),3)
-
+    def test_half_day_is_unfinished_until_actual_early_close(self):
+        with patch.object(server,'datetime',FrozenDate): result=server._history_payload(frame(['2026-11-25','2026-11-26','2026-11-27']))
+        self.assertEqual(result['timestamps'],['2026-11-25','2026-11-27'])
+        self.assertEqual(result['completed'],[True,False])
+        self.assertEqual(result['bar_end_timestamps'][-1],'2026-11-27T18:00:00+00:00')
+        self.assertEqual(result['rejected_reasons']['exchange_closed_daily_bar'],1)
+        self.assertEqual(result['session_calendar']['completed_week_keys'],[])
+    def test_closed_holiday_week_has_four_real_daily_observations(self):
+        from market_data_validation import completed_week_metadata
+        result=completed_week_metadata(frame(['2026-11-23','2026-11-24','2026-11-25','2026-11-27']),datetime(2026,11,27,18,1,tzinfo=timezone.utc))
+        self.assertEqual(result['completed_week_keys'],['2026-11-23'])
+        incomplete=completed_week_metadata(frame(['2026-11-23','2026-11-24','2026-11-27']),datetime(2026,11,27,18,1,tzinfo=timezone.utc))
+        self.assertEqual(incomplete['completed_week_keys'],[])
+    def test_hourly_rows_cannot_masquerade_as_daily(self):
+        raw=frame(['2026-10-09 09:30','2026-10-09 13:30'])
+        clean,audit=validate_us_daily_frame(raw)
+        self.assertTrue(clean.empty);self.assertEqual(audit['reasons']['multiple_bars_in_daily_session'],2)
+    def test_stale_summary_marker_cannot_skip_new_source_validation(self):
+        old={'_summary_cache_fresh':True,'cache_age_seconds':0,'quote':{'history':{'source_validation_version':1,'lookback':'10y'}}}
+        self.assertFalse(server.is_market_cache_fresh(old))
+        old['quote']['history']['source_validation_version']=server.SOURCE_VALIDATION_VERSION
+        self.assertFalse(server.is_market_cache_fresh(old))
+        old['quote']['history']['adjustment_basis']='provider_ohlc_auto_adjust_false'
+        self.assertTrue(server.is_market_cache_fresh(old))
+        old['quote']['history']['intervals']={'4h':{}}
+        self.assertFalse(server.is_market_cache_fresh(old))
 if __name__=='__main__':unittest.main()

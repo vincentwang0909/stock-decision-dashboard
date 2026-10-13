@@ -45,7 +45,7 @@ import server
 from 历史记录 import 历史记录数据库 as history_db
 
 
-def record(ticker="NVDA", horizon="short", **changes):
+def record(ticker="NVDA", horizon="daily", **changes):
     base = {
         "market_date": "2026-08-18", "recorded_at_et": "2026-08-18T16:30:05-04:00",
         "ticker": ticker, "asset_type": "stock", "horizon": horizon, "data_status": "available",
@@ -95,12 +95,22 @@ class EodHistoryDatabaseTests(unittest.TestCase):
         self.assertTrue(self.db.exists())
         self.assertTrue(history_db.initialize().exists())
 
-    def test_one_ticker_three_horizons_writes_three_rows(self):
-        rows = [record(horizon=horizon) for horizon in ("short", "mid", "long")]
+    def test_one_ticker_two_horizons_writes_two_rows(self):
+        rows = [record(horizon=horizon) for horizon in ("daily", "weekly")]
         result = history_db.write_snapshot("2026-08-18", "start", "end", rows)
-        self.assertEqual(result["row_count"], 3)
+        self.assertEqual(result["row_count"], 2)
         self.assertEqual(result["ticker_count"], 1)
-        self.assertEqual(len(self.rows()), 3)
+        self.assertEqual(len(self.rows()), 2)
+
+    def test_old_schema_migration_preserves_history_verbatim(self):
+        self.db.parent.mkdir(parents=True, exist_ok=True)
+        schema=(ROOT/'历史记录'/'历史记录建表.sql').read_text().replace("'short', 'mid', 'long', 'daily', 'weekly'", "'short', 'mid', 'long'")
+        conn=sqlite3.connect(self.db);conn.executescript(schema);conn.close()
+        conn=sqlite3.connect(self.db);conn.execute("insert into decision_history(market_date,recorded_at_et,ticker,asset_type,horizon,data_status,action) values('2026-08-18','legacy','OLD','stock','short','available','avoid')");conn.commit();conn.close()
+        conn=sqlite3.connect(self.db);before=conn.execute("select * from decision_history where horizon='short'").fetchall();conn.close()
+        history_db.initialize();history_db.write_snapshot('2026-08-18','start','end',[record(horizon='daily'),record(horizon='weekly')])
+        conn=sqlite3.connect(self.db);after=conn.execute("select * from decision_history where horizon='short'").fetchall();conn.close()
+        self.assertEqual(before,after);self.assertEqual(len(self.rows()),3)
 
     def test_same_date_ticker_horizon_upserts_without_duplicate(self):
         history_db.write_snapshot("2026-08-18", "start", "end", [record(confidence=45)])
@@ -110,14 +120,14 @@ class EodHistoryDatabaseTests(unittest.TestCase):
         self.assertEqual(rows[0][7], 71.0)
 
     def test_multiple_ticker_transaction_and_eod_run_success(self):
-        rows = [record("NVDA", horizon) for horizon in ("short", "mid", "long")] + [record("TQQQ", horizon, asset_type="ETF", primary_classification=None, lifecycle=None, company_traits=None, leveraged=True, etf_direction="long", underlying="Nasdaq-100", etf_modifiers={"riskSensitivity": 1.2}) for horizon in ("short", "mid", "long")]
+        rows = [record("NVDA", horizon) for horizon in ("daily", "weekly")] + [record("TQQQ", horizon, asset_type="ETF", primary_classification=None, lifecycle=None, company_traits=None, leveraged=True, etf_direction="long", underlying="Nasdaq-100", etf_modifiers={"riskSensitivity": 1.2}) for horizon in ("daily", "weekly")]
         result = history_db.write_snapshot("2026-08-18", "start", "end", rows)
         self.assertEqual(result["ticker_count"], 2)
-        self.assertEqual(len(self.rows()), 6)
+        self.assertEqual(len(self.rows()), 4)
         conn = sqlite3.connect(self.db)
         try:
             run = conn.execute("SELECT status, row_count, unavailable_count FROM eod_runs WHERE market_date='2026-08-18'").fetchone()
-            self.assertEqual(run, ("success", 6, 0))
+            self.assertEqual(run, ("success", 4, 0))
             etf = conn.execute("SELECT asset_type, leveraged, etf_direction, underlying, etf_modifiers_json FROM decision_history WHERE ticker='TQQQ' LIMIT 1").fetchone()
             self.assertEqual(etf[:4], ("ETF", 1, "long", "Nasdaq-100"))
             self.assertIn("riskSensitivity", etf[4])
@@ -144,7 +154,7 @@ class EodHistoryDatabaseTests(unittest.TestCase):
         self.assertEqual(profile["profile_status"], "complete")
 
     def test_failed_transaction_rolls_back_incomplete_rows(self):
-        good = record("GOOD", "short")
+        good = record("GOOD", "daily")
         bad = record("BAD", "not_a_horizon")
         with self.assertRaises(sqlite3.IntegrityError):
             history_db.write_snapshot("2026-08-18", "start", "end", [good, bad])
@@ -211,7 +221,7 @@ class EodHistorySchedulerTests(unittest.TestCase):
     def test_full_refresh_precedes_production_engine_snapshot_and_writes_rows(self):
         now = datetime(2026, 8, 18, 16, 30, tzinfo=ZoneInfo("America/New_York"))
         payload = {"success": True, "items": [{"ticker": "NVDA", "analysis": {"price": 180, "history": {"timestamps": ["2026-08-18"], "availability": "available"}}}]}
-        snapshot = {"records": [record("NVDA", horizon) for horizon in ("short", "mid", "long")]}
+        snapshot = {"records": [record("NVDA", horizon) for horizon in ("daily", "weekly")]}
         events = []
         def refreshed(_):
             events.append("refresh")
@@ -225,7 +235,7 @@ class EodHistorySchedulerTests(unittest.TestCase):
         self.assertEqual(events, ["refresh", "production_js_engine"])
         conn = sqlite3.connect(self.db)
         try:
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM decision_history").fetchone()[0], 3)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM decision_history").fetchone()[0], 2)
         finally:
             conn.close()
 

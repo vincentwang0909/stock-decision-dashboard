@@ -86,27 +86,52 @@
       vix: { value: vix, change5d: vix5, change20d: vix20, trend: vixData.trend || "unavailable", shock: vixShock },
       spy, qqq, synchronizedBreakdown, synchronizedStrength, yield: yieldData,
       fearGreed: { value: fearGreedValue, label: fearGreed.label || "unavailable", trend: fearGreed.trend || "unavailable" },
-      earnings: earningsRisk, reasons, provenance: { asOf: context.as_of || context.updated_at || marketContext.updatedAt || metadata.asOf || null, source: context.source || marketContext.source || "unverified", units: { vix: "index_points", yield: "percent", yieldChanges: "basis_points", equityChanges: "percent" }, availability: regime === "unavailable" ? "unavailable" : context.stale ? "stale" : "available", timestampAlignment: "per-field timestamps required; legacy snapshots may be unverified" },
+      eventCalendar: context.event_calendar || {status:"unavailable",events:[]}, macroActuals: context.macro_actuals || {status:"unavailable"}, fomcExpectations: context.fomc_expectations || {status:"unavailable"},
+      earnings: earningsRisk, reasons, provenance: { asOf: context.as_of || context.updated_at || marketContext.updatedAt || marketContext.updated_at || null, source: context.source || marketContext.source || "unverified", units: { vix: "index_points", yield: "percent", yieldChanges: "basis_points", equityChanges: "percent" }, availability: regime === "unavailable" ? "unavailable" : context.stale || marketContext.stale || marketContext.status === "stale" ? "stale" : "available", timestampAlignment: "per-field timestamps required; legacy snapshots may be unverified" },
       dataQuality: Math.round(([Number.isFinite(vix), spy.available, qqq.available, yieldData.available, Number.isFinite(fearGreedValue)].filter(Boolean).length / 5) * 100),
     };
   }
 
   // Market adjusts risk and confidence only.  It deliberately never contributes
   // a directional vote; a Risk-On market cannot turn a weak stock into a Buy.
-  function forHorizon(market = {}, horizon = "short", profile = {}) {
+  function forHorizon(market = {}, horizon = "daily", profile = {}, technical = {}) {
     const baseSensitivity = engine.config.horizons[horizon]?.marketSensitivity ?? 1;
     const modifier = profile.effectiveModifiers?.marketSensitivity || 1;
     const rateSensitivity = profile.effectiveModifiers?.rateSensitivity || 1;
     const eventSensitivity = profile.effectiveModifiers?.eventSensitivity || 1;
-    const uncappedRiskAdd = (market.riskAddBase || 0) * baseSensitivity * modifier
-      + (market.yield?.riskAdd || 0) * rateSensitivity * baseSensitivity
-      + (market.earnings?.riskAdd || 0) * eventSensitivity;
-    const riskAdd = clamp(uncappedRiskAdd, -4, engine.config.market.maxRiskAdd[horizon] ?? 24);
+    const eventCfg=engine.config.market.events,macroCfg=engine.config.market.macro;
+    const calendar=market.eventCalendar || {},start=Date.parse(technical.latestDailyEnd),end=Date.parse(technical.nextExecutionClose),asOf=Date.parse(market.provenance?.asOf);
+    const asOfDay=Number.isFinite(asOf)?new Intl.DateTimeFormat("sv-SE",{timeZone:"America/New_York",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(asOf)):null;
+    const calendarUnavailable=calendar.status!=="available" || !Number.isFinite(start) || !Number.isFinite(end) || !calendar.valid_through || asOfDay && calendar.valid_through<asOfDay;
+    const crossing=calendarUnavailable?[]:(calendar.events || []).filter((event)=>eventCfg.majorTypes.includes(event.type) && Number.isFinite(Date.parse(event.at)) && Date.parse(event.at)>start && Date.parse(event.at)<=end);
+    const majorEventWindow=crossing.length>0;
+    const actual=market.macroActuals || {},core=actual.cpi?.core || {},jobs=actual.employment || {};
+    const actualValid=actual.status==="available" && Number.isFinite(Date.parse(actual.as_of)) && (!Number.isFinite(asOf) || Date.parse(actual.as_of)<=asOf);
+    const inflationRisk=actualValid && Number.isFinite(core.mom_pct) && Number.isFinite(core.previous_mom_pct) ? Math.max(0,(core.mom_pct-core.previous_mom_pct)/macroCfg.cpiStep):0;
+    const jobRisk=actualValid && Number.isFinite(jobs.unemployment_change_pp) && jobs.unemployment_change_pp>=macroCfg.unemploymentStep && Number.isFinite(jobs.payroll_change_thousands) && Number.isFinite(jobs.payroll_three_month_mean_thousands) && jobs.payroll_change_thousands<jobs.payroll_three_month_mean_thousands*(1-macroCfg.payrollDeteriorationShare)?1:0;
+    const macroRisk=Math.min(macroCfg.riskAddMaximum,Math.max(inflationRisk,jobRisk)*macroCfg.riskUnit);
+    // Keep the latest known release of each type pending until its actual is
+    // verified. Elapsed time alone cannot make an unavailable release safe.
+    const recentReleases=eventCfg.majorTypes.map(type=>(calendar.events || []).filter(event=>event.type===type && Date.parse(event.at)<=start).sort((a,b)=>Date.parse(b.at)-Date.parse(a.at))[0]).filter(Boolean);
+    const releaseDataPending=recentReleases.some((recentRelease)=>{
+      const stamp=new Date(recentRelease.at),expected=new Date(Date.UTC(stamp.getUTCFullYear(),stamp.getUTCMonth()-1,1)).toISOString().slice(0,7);
+      const period=recentRelease.type==="cpi"?actual.cpi?.headline?.period:actual.employment?.period;
+      const decisionAt=Date.parse(calendar.fomc_decision?.as_of);
+      return recentRelease.type==="fomc"?calendar.fomc_decision?.meeting_id!==recentRelease.id || calendar.fomc_decision?.status!=="available" || !Number.isFinite(decisionAt) || decisionAt<Date.parse(recentRelease.at) || decisionAt>asOf:!actualValid || !period || period<expected || Date.parse(actual.as_of)<Date.parse(recentRelease.at);
+    });
+    const eventRisk=majorEventWindow?eventCfg.ordinaryRiskAdd*eventSensitivity:0;
+    // Overlapping market, rate and macro stress are one regime group; issuer/release event uncertainty is separate.
+    const regimeRisk=Math.max((market.riskAddBase || 0)*modifier,(market.yield?.riskAdd || 0)*rateSensitivity,macroRisk);
+    const uncappedRiskAdd=regimeRisk*baseSensitivity+Math.max((market.earnings?.riskAdd || 0)*eventSensitivity,eventRisk);
+    const riskAdd=clamp(uncappedRiskAdd,-4,engine.config.market.maxRiskAdd[horizon]);
     return {
+      marketUnavailable: market.regime==="unavailable" || market.provenance?.availability==="stale" || !Number.isFinite(Date.parse(market.provenance?.asOf)),
+      majorEventWindow, earningsNear: market.earnings?.near === true, entryPaused: majorEventWindow || releaseDataPending, releaseDataPending, calendarUnavailable, crossingEvents: crossing, macroRisk: Math.round(macroRisk),
+      confirmationAdd: (majorEventWindow || releaseDataPending || calendarUnavailable || !actualValid) ? eventCfg.ordinaryConfirmationAdd * eventSensitivity : 0,
       regime: market.regime || "normal", sensitivity: baseSensitivity * modifier,
       riskAdd: Math.round(riskAdd), uncappedRiskAdd: Math.round(uncappedRiskAdd), marketRiskCap: engine.config.market.maxRiskAdd[horizon] ?? 24,
       confidencePenalty: Math.round((market.confidencePenaltyBase || 0) * baseSensitivity * modifier + (market.earnings?.confidencePenalty || 0) * eventSensitivity),
-      shock: market.regime === "shock", reasons: market.reasons || [],
+      shock: market.regime === "shock", reasons: [...(market.reasons || []), ...(majorEventWindow ? [{code:"major_release_entry_pause",text:"major_release_entry_pause"}] : []), ...(actual.status !== "available" ? [{code:"macro_actuals_unavailable",text:"macro_actuals_unavailable"}] : [])],
     };
   }
 

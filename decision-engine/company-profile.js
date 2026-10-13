@@ -11,9 +11,9 @@
 
   function blankModifiers() {
     return {
-      directionWeights: {}, confirmationWeights: {}, riskSensitivity: 1, exhaustionSensitivity: 1,
-      marketSensitivity: 1, normalAtrTolerance: 1, strongBuyOpportunity: 1, rateSensitivity: 1,
-      eventSensitivity: 1, longStability: 1, confidenceScale: 1,
+      confirmationWeights: {}, riskSensitivity: 1, exhaustionSensitivity: 1,
+      marketSensitivity: 1, normalAtrTolerance: 1, rateSensitivity: 1,
+      eventSensitivity: 1, weeklyStability: 1, confidenceScale: 1,
       actionGates: { buyDirection: 0, buyConfirmation: 0, strongBuyDirection: 0, strongBuyConfirmation: 0 },
       benchmarkWeights: { spy: 0.5, qqq: 0.5 },
     };
@@ -70,7 +70,7 @@
     const appliedModifiers = [];
     const modifierProvenance = [];
     const dimensionProvenance = {};
-    const correlatedLongStability = [];
+    const correlatedWeeklyStability = [];
     const modifierSources = [
       [profile.primaryClassification, engine.config.profile.primaryClassificationModifiers, "primaryClassification", true],
       [profile.businessTrait, engine.config.profile.businessTraitModifiers, "businessTrait", true],
@@ -85,42 +85,47 @@
       if (!modifier) return;
       if (visible) appliedModifiers.push(value);
       modifierProvenance.push({ slot, value, visible: Boolean(visible) });
-      Object.entries(modifier.directionWeights || {}).forEach(([key, delta]) => { aggregate.directionWeights[key] = (aggregate.directionWeights[key] || 0) + Number(delta || 0); });
+
       Object.entries(modifier.confirmationWeights || {}).forEach(([key, delta]) => { aggregate.confirmationWeights[key] = (aggregate.confirmationWeights[key] || 0) + Number(delta || 0); });
       Object.entries(modifier.benchmarkWeights || {}).forEach(([key, delta]) => { aggregate.benchmarkWeights[key] = (aggregate.benchmarkWeights[key] || 0) + Number(delta || 0); });
-      ["riskSensitivity", "exhaustionSensitivity", "marketSensitivity", "normalAtrTolerance", "strongBuyOpportunity", "rateSensitivity", "eventSensitivity", "longStability"].forEach((key) => {
+      ["riskSensitivity", "exhaustionSensitivity", "marketSensitivity", "normalAtrTolerance", "rateSensitivity", "eventSensitivity", "weeklyStability"].forEach((key) => {
         if (!Number.isFinite(modifier[key])) return;
         const contribution = Number(modifier[key]);
         (dimensionProvenance[key] ||= []).push({ slot, value, contribution });
-        if (key === "longStability" && engine.config.profile.correlatedLongStability?.[slot]?.includes(value)) {
-          correlatedLongStability.push({ slot, value, contribution });
+        if (key === "weeklyStability" && engine.config.profile.correlatedWeeklyStability?.[slot]?.includes(value)) {
+          correlatedWeeklyStability.push({ slot, value, contribution });
           return;
         }
         aggregate[key] += contribution;
       });
       Object.entries(modifier.actionGates || {}).forEach(([key, delta]) => { aggregate.actionGates[key] = (aggregate.actionGates[key] || 0) + Number(delta || 0); });
     });
-    if (correlatedLongStability.length) {
+    if (correlatedWeeklyStability.length) {
       // Mature-size, business-maturity and lifecycle-maturity are deliberately
       // one semantic group. Keep the largest signal (including a future
       // negative one by magnitude) rather than counting the same property
       // three times. This remains stateless and applies to every stock.
-      const selected = correlatedLongStability.reduce((best, item) => Math.abs(item.contribution) > Math.abs(best.contribution) ? item : best);
-      aggregate.longStability += selected.contribution;
-      dimensionProvenance.longStability ||= [];
-      dimensionProvenance.longStability.forEach((item) => {
-        if (correlatedLongStability.some((candidate) => candidate.slot === item.slot && candidate.value === item.value && candidate.contribution === item.contribution)) {
+      const selected = correlatedWeeklyStability.reduce((best, item) => Math.abs(item.contribution) > Math.abs(best.contribution) ? item : best);
+      aggregate.weeklyStability += selected.contribution;
+      dimensionProvenance.weeklyStability ||= [];
+      dimensionProvenance.weeklyStability.forEach((item) => {
+        if (correlatedWeeklyStability.some((candidate) => candidate.slot === item.slot && candidate.value === item.value && candidate.contribution === item.contribution)) {
           item.combination = item.slot === selected.slot && item.value === selected.value && item.contribution === selected.contribution
             ? "correlated_group_selected" : "correlated_group_suppressed";
         }
       });
     }
-    Object.keys(aggregate.directionWeights).forEach((key) => { aggregate.directionWeights[key] = capMultiplier(1 + aggregate.directionWeights[key]) - 1; });
+
     Object.keys(aggregate.confirmationWeights).forEach((key) => { aggregate.confirmationWeights[key] = capMultiplier(1 + aggregate.confirmationWeights[key]) - 1; });
-    ["riskSensitivity", "exhaustionSensitivity", "marketSensitivity", "normalAtrTolerance", "strongBuyOpportunity", "rateSensitivity", "eventSensitivity", "longStability"].forEach((key) => {
+    ["riskSensitivity", "exhaustionSensitivity", "marketSensitivity", "normalAtrTolerance", "rateSensitivity", "eventSensitivity", "weeklyStability"].forEach((key) => {
       aggregate[key] = capMultiplier(aggregate[key], ["marketSensitivity", "exhaustionSensitivity", "rateSensitivity", "eventSensitivity"].includes(key));
     });
-    Object.keys(aggregate.actionGates).forEach((key) => { aggregate.actionGates[key] = clamp(Math.round(aggregate.actionGates[key]), 0, 12); });
+    Object.keys(aggregate.actionGates).forEach((key) => {
+      if (key.toLowerCase().includes("direction")) {aggregate.actionGates[key]=0;return;}
+      const base=key.startsWith("strong")?engine.config.actionPolicy.gates.strongBuy.confirmation:engine.config.actionPolicy.gates.buy.confirmation;
+      const max=base*(engine.config.profile.modifierCaps.normal[1]-1);
+      aggregate.actionGates[key]=clamp(aggregate.actionGates[key],-max,max);
+    });
     const benchmarkTotal = aggregate.benchmarkWeights.spy + aggregate.benchmarkWeights.qqq;
     aggregate.benchmarkWeights = benchmarkTotal > 0
       ? { spy: aggregate.benchmarkWeights.spy / benchmarkTotal, qqq: aggregate.benchmarkWeights.qqq / benchmarkTotal }
@@ -165,6 +170,7 @@
     const modifierSet = effectiveModifiers(profile);
     return {
       type: "stock", isETF: false, ...profile,
+      highRiskRepair: engine.config.profile.highRiskRepair.business.includes(profile.businessTrait) || engine.config.profile.highRiskRepair.risk.includes(profile.riskTrait) || engine.config.profile.highRiskRepair.lifecycle.includes(profile.lifecycle),
       effectiveModifiers: modifierSet.modifiers,
       appliedModifiers: modifierSet.appliedModifiers,
       modifierProvenance: modifierSet.modifierProvenance,

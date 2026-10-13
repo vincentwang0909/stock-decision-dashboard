@@ -150,20 +150,20 @@ assert.equal(profile.effectiveModifiers.actionGates.buyConfirmation, sameWithout
 
 const withSize = engine.profile.build({ primaryClassification: "Enterprise Software", sizeClass: "MegaCap" }, "SIZE_A");
 const withoutSize = engine.profile.build({ primaryClassification: "Enterprise Software", sizeClass: "NonMegaCap" }, "SIZE_B");
-assert(withSize.effectiveModifiers.longStability > withoutSize.effectiveModifiers.longStability, "size has a small bounded stability effect");
+assert(withSize.effectiveModifiers.weeklyStability > withoutSize.effectiveModifiers.weeklyStability, "size has a small bounded stability effect");
 assert.equal(withSize.effectiveModifiers.actionGates.buyDirection, withoutSize.effectiveModifiers.actionGates.buyDirection, "size cannot alter action gates");
-assert.deepEqual(withSize.effectiveModifiers.directionWeights, withoutSize.effectiveModifiers.directionWeights, "size class does not vote on Direction");
+assert.equal(Object.hasOwn(withSize.effectiveModifiers, "directionWeights"), false, "profile does not expose a Direction weight override");
 
 const capped = engine.profile.build({ primaryClassification: "Real Estate", businessTrait: "HighGrowth", riskTrait: "InterestRateSensitive", lifecycle: "Scaling", sizeClass: "MegaCap" }, "CAPPED");
-for (const key of ["riskSensitivity", "marketSensitivity", "exhaustionSensitivity", "normalAtrTolerance", "strongBuyOpportunity", "rateSensitivity", "eventSensitivity", "longStability"]) {
+for (const key of ["riskSensitivity", "marketSensitivity", "exhaustionSensitivity", "normalAtrTolerance", "rateSensitivity", "eventSensitivity", "weeklyStability"]) {
   const special = ["marketSensitivity", "exhaustionSensitivity", "rateSensitivity", "eventSensitivity"].includes(key);
   const [low, high] = engine.config.profile.modifierCaps[special ? "special" : "normal"];
   assert(capped.effectiveModifiers[key] >= low && capped.effectiveModifiers[key] <= high, `${key} remains cap-bounded`);
 }
 
 const maturityStack = engine.profile.build({ businessTrait: "CashCow", lifecycle: "EstablishedLeader", sizeClass: "MegaCap" }, "MATURITY_STACK");
-assert.equal(maturityStack.effectiveModifiers.longStability, 1.08, "correlated maturity/size stability keeps the strongest contribution rather than summing all three");
-const maturityProvenance = maturityStack.modifierDimensionProvenance.longStability;
+assert.equal(maturityStack.effectiveModifiers.weeklyStability, 1.08, "correlated maturity/size stability keeps the strongest contribution rather than summing all three");
+const maturityProvenance = maturityStack.modifierDimensionProvenance.weeklyStability;
 assert.equal(maturityProvenance.filter((item) => item.combination === "correlated_group_selected").length, 1);
 assert.equal(maturityProvenance.filter((item) => item.combination === "correlated_group_suppressed").length, 2);
 

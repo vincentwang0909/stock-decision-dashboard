@@ -24,9 +24,9 @@ function walk(ticker,horizon,features,value,field='',owner={}){
 }
 for(const file of fs.readdirSync(quoteDirectory).filter(x=>x.endsWith('.json')).sort()){
  const cache=JSON.parse(fs.readFileSync(path.join(quoteDirectory,file),'utf8')),quote=cache.quote||cache;
- const ticker=quote.ticker||file.slice(0,-5),features=canonical.buildTechnicalFeatures(featureInputs(quote,market)),profile=profiles.profileFor(ticker,quote.metadata||{});
+ const ticker=quote.ticker||file.slice(0,-5),features=canonical.buildTechnicalFeatures({...featureInputs(quote,market),calculatedAt:quote.history?.as_of || quote.updatedAt}),profile=profiles.profileFor(ticker,quote.metadata||{});
  const item={ticker,as_of:quote.updatedAt,feature_version:features.schema_version,asset_type:profile.isETF?'ETF':'stock',source_intervals:features.source_intervals,profile,atr:{},kdj:{}};
- for(const [horizon,key,interval] of [['short','short','4h'],['mid','medium','1d'],['long','long','1w']]){
+ for(const [horizon,key,interval] of [['daily','daily','1d'],['weekly','weekly','1w']]){
   const set=features.horizons[key];walk(ticker,horizon,features,set);walk(ticker,horizon,features,features.volume,'daily_volume');walk(ticker,horizon,features,features.price_position,'history_position');
   const atr=set.volatility.atr[`atr_14_${interval}`];item.atr[horizon]={bars:atr.available_bars,observations:Math.max(0,(atr.available_bars||0)-13),value:atr.value,percentiles:{}};
   for(const window of [60,120,250]){
@@ -35,7 +35,6 @@ for(const file of fs.readdirSync(quoteDirectory).filter(x=>x.endsWith('.json')).
    emit(ticker,horizon,features,`atr_percentile_${window}`,value,meta);
   }
   item.kdj[horizon]=Object.fromEntries(Object.entries(set.momentum.kdj).map(([name,x])=>[name,{bars:x.available_bars,required:x.required_bars,k:x.k,d:x.d,j:x.j,overbought:x.overbought??null,oversold:x.oversold??null}]));
-  if(horizon==='long')emit(ticker,horizon,features,'kdj',null,{unavailable_reason:'not_applicable',source:'horizon_configuration'});
   for(const slot of ['primaryClassification','businessTrait','riskTrait','lifecycle'])emit(ticker,horizon,features,`profile.${slot}`,profile.isETF?null:profile[slot],{source:profile.profileSource||'current_metadata_classifier',unavailable_reason:profile.isETF?'not_applicable':profile[slot]==null?'insufficient_metadata':null});
   walk(ticker,horizon,features,market.market_context||market,'market_context');
  }

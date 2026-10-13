@@ -40,56 +40,18 @@
     };
   }
 
-  function opportunityEdge(technical, exhaustion, risk) {
-    const config = engine.config.edge;
-    const direction = technical.directionScore || 0;
-    const confirmation = technical.confirmationScore || 0;
-    const directional = (direction / 100) * (config.directionTrustFloor + (confirmation / 100) * config.directionTrustConfirmationWeight);
-    const price = (technical.priceOpportunityScore || 0) / 100 * config.priceOpportunityWeight;
-    // Exhaustion is deliberately nonlinear only around meaningful extremes.
-    const exhaustionMagnitude = Math.max(0, Math.abs(exhaustion.score || 0) - 22) / 78;
-    const contrarian = Math.sign(exhaustion.score || 0) * exhaustionMagnitude * engine.config.exhaustion.contrarianEdgeWeight;
-    const raw = directional + price + contrarian;
-    const excessRisk = clamp(((risk - config.riskPenaltyStart) / Math.max(1, 100 - config.riskPenaltyStart)), 0, 1);
-    const riskPenalty = raw > 0 ? (excessRisk ** config.riskPenaltyPower) * config.riskPenaltyMax : 0;
-    return {
-      directional: directional * 100, price: price * 100, contrarian: contrarian * 100,
-      rawEdge: clamp(raw * 100, -100, 100), adjustedEdge: clamp((raw - riskPenalty) * 100, -100, 100), riskPenalty: riskPenalty * 100,
-    };
-  }
-
-  function applyLandscapeQuality(technical, landscape) {
-    const penalty = Number(landscape?.landscapeQuality?.penalty || 0);
-    if (!penalty) return technical;
-    return {
-      ...technical,
-      priceOpportunityScore: clamp((technical.priceOpportunityScore || 0) - penalty, -100, 100),
-      priceComponents: { ...technical.priceComponents, landscapeQuality: landscape.landscapeQuality },
-    };
-  }
-
-  function applyConfidenceGate(action, confidence, actionFamily) {
-    const minimum = engine.config.actionPolicy.gates.confidenceMinimum;
-    if (action === "strong_buy" && confidence < minimum.strong_buy) return "buy";
-    if (action === "buy" && confidence < minimum.buy) return "accumulate";
-    // Confidence can soften the intensity of an opportunity action, but it
-    // may not cross the Price State boundary into Hold/Trim/Sell.
-    void actionFamily;
-    return action;
-  }
-
   function reasons(technical, exhaustion, marketModifiers, underlyingContext = null, finalDecision = null) {
     const etfReason = underlyingContext?.alignment === "supporting" ? "Inverse underlying direction supports the ETF technical setup."
       : underlyingContext?.alignment === "limiting" ? "Underlying direction conflicts with the inverse ETF technical setup." : null;
     return {
-      supporting: unique([...technical.supporting, ...exhaustion.supporting, ...(finalDecision?.reasons?.supporting || []), ...(etfReason && underlyingContext.alignment === "supporting" ? [etfReason] : [])]).slice(0, 5),
-      limiting: unique([...technical.limiting, ...exhaustion.limiting, ...(finalDecision?.reasons?.limiting || []), ...(marketModifiers.reasons || []), ...(etfReason && underlyingContext.alignment === "limiting" ? [etfReason] : [])]).slice(0, 5),
+      supporting: unique([...(finalDecision?.reasons?.supporting || []), ...technical.supporting, ...exhaustion.supporting, ...(etfReason && underlyingContext.alignment === "supporting" ? [etfReason] : [])]).slice(0, 5),
+      limiting: unique([...(finalDecision?.reasons?.limiting || []), ...technical.limiting, ...exhaustion.limiting, ...(marketModifiers.reasons || []), ...(etfReason && underlyingContext.alignment === "limiting" ? [etfReason] : [])]).slice(0, 5),
     };
   }
 
   function underlyingDirection({ technicalFeatures, horizon, price, profile }) {
     if (!profile?.isETF || profile.direction !== "inverse" || !technicalFeatures || !Number.isFinite(price)) return null;
-    const neutralProfile = { effectiveModifiers: { directionWeights: {}, confirmationWeights: {}, benchmarkWeights: { spy: 0.5, qqq: 0.5 } } };
+    const neutralProfile = { effectiveModifiers: { confirmationWeights: {}, benchmarkWeights: { spy: 0.5, qqq: 0.5 } } };
     const value = engine.technical.evaluate(technicalFeatures, horizon, price, neutralProfile);
     return Number.isFinite(value.directionScore) ? value.directionScore : null;
   }
@@ -97,9 +59,6 @@
   function decide({ ticker, horizon, price, technicalFeatures, market, profile, metadata, underlyingTechnicalFeatures, underlyingPrice, language = "en", modelOptions = {} }) {
     const horizonProfile = engine.profile.forHorizon(profile, horizon);
     let technical = engine.technical.evaluate(technicalFeatures, horizon, price, horizonProfile);
-    if (horizon === "short" && !horizonProfile.isETF) {
-      throw new TypeError("Ordinary-stock Short must use the stock Short policy.");
-    }
     const underlying = engine.etfProfile.underlyingContext({
       profile: horizonProfile,
       ownDirection: technical.directionScore,
@@ -113,7 +72,10 @@
         signalAgreement: clamp(technical.signalAgreement + underlying.adjustment * 0.35, 0, 100),
       };
     }
-    const marketModifiers = engine.market.forHorizon(market, horizon, horizonProfile);
+    if (metadata?.quoteStale || metadata?.quoteUnavailable || !Number.isFinite(price)) {
+      technical={...technical,dataQuality:{...technical.dataQuality,score:0,missingCore:[...(technical.dataQuality?.missingCore || []),"untrusted_quote"]}};
+    }
+    const marketModifiers = engine.market.forHorizon(market, horizon, horizonProfile, technical);
     const exhaustion = engine.exhaustion.evaluate({ technical, market, profile: horizonProfile, horizon });
     const riskAdjustment = adjustedRisk(technical, marketModifiers, horizonProfile);
     const risk = Math.round(riskAdjustment.score);
@@ -122,45 +84,24 @@
     // core final-decision input, not a post-hoc execution decoration.
     const rawLandscape = engine.execution.buildLandscape({
       price, horizon, technical,
-      context: { risk, exhaustionScore: exhaustion.score, marketModifiers, profile: horizonProfile, widthTransformEnabled: modelOptions.widthTransformEnabled },
+      context: { risk, exhaustionScore: exhaustion.score, marketModifiers, profile: horizonProfile, },
     });
-    technical = applyLandscapeQuality(technical, rawLandscape);
-    const edgeBeforeMarket = opportunityEdge(technical, exhaustion, riskAdjustment.profileRisk);
-    const edge = opportunityEdge(technical, exhaustion, risk);
-    const familyDecision = engine.execution.decisionForPriceState({
-      landscape: rawLandscape, technical, exhaustionScore: exhaustion.score, risk,
-      edge: edge.adjustedEdge, marketModifiers, profile: horizonProfile,
-    });
-    const actionBeforeStability = familyDecision.action;
-    // This value is stability input only. The displayed confidence is always
-    // recalculated below after joint decision, hysteresis, and any confidence
-    // gate have determined the final action.
-    const stabilityInputConfidence = engine.confidence.calculate({ action: actionBeforeStability, edge: edge.adjustedEdge, technical, marketModifiers, exhaustion, profile: horizonProfile, finalDecision: familyDecision, landscapeQuality: rawLandscape.landscapeQuality });
-    const materialChangeReasons = unique([
-      ...technical.materialSignals,
-      ...(marketModifiers.shock ? ["market_shock"] : []),
-    ]);
-    const stability = engine.stability.evaluate({
-      ticker, horizon, candidateAction: actionBeforeStability,
-      allowedActions: engine.execution.ACTION_FAMILIES[familyDecision.actionFamily], actionFamily: familyDecision.actionFamily,
-      edge: edge.adjustedEdge, confidence: stabilityInputConfidence.score, materialChangeReasons, profile: horizonProfile, technical,
-    });
-    let finalAction = stability.finalAction;
-    let confidence = engine.confidence.calculate({ action: finalAction, edge: edge.adjustedEdge, technical, marketModifiers, exhaustion, profile: horizonProfile, stability, finalDecision: familyDecision, landscapeQuality: rawLandscape.landscapeQuality });
-    const confidenceGated = applyConfidenceGate(finalAction, confidence.score, familyDecision.actionFamily);
-    if (confidenceGated !== finalAction) {
-      finalAction = confidenceGated;
-      confidence = engine.confidence.calculate({ action: finalAction, edge: edge.adjustedEdge, technical, marketModifiers, exhaustion, profile: horizonProfile, stability, finalDecision: familyDecision, landscapeQuality: rawLandscape.landscapeQuality });
-    }
-    if (finalAction !== stability.finalAction) engine.stability.commit({ ticker, horizon, action: finalAction, actionFamily: familyDecision.actionFamily, edge: edge.adjustedEdge, confidence: confidence.score, materialChange: Boolean(materialChangeReasons.length) });
+    const backgroundOnly = Boolean(horizonProfile.leveraged && horizon === "weekly");
+    const familyDecision = backgroundOnly ? { action:"hold",actionFamily:"background",priceState:rawLandscape.priceState,reasonCode:"leveraged_weekly_background",reasons:{supporting:[],limiting:[{code:"leveraged_weekly_background",text:"leveraged_weekly_background"}]},guardrails:[] } : engine.execution.decisionForPriceState({landscape:rawLandscape,technical,exhaustionScore:exhaustion.score,risk,marketModifiers,profile:horizonProfile});
+    const actionBeforeStability=familyDecision.action;
+    const materialChangeReasons=unique([...technical.materialSignals,...(marketModifiers.shock?["market_shock"]:[]),...(marketModifiers.entryPaused?["major_release_window"]:[])]);
+    const stability=engine.stability.evaluate({ticker,horizon,candidateAction:familyDecision.action,actionFamily:familyDecision.actionFamily,materialChangeReasons,profile:horizonProfile,technical});
+    const finalAction=stability.finalAction;
+    const confidence=engine.confidence.calculate({action:finalAction,technical,marketModifiers,exhaustion,profile:horizonProfile,stability,finalDecision:familyDecision,landscapeQuality:rawLandscape.landscapeQuality});
     const execution = engine.execution.build({ price, horizon, action: finalAction, technical, landscape: rawLandscape, context: { risk, exhaustionScore: exhaustion.score, marketModifiers, profile: horizonProfile } });
     const guardrails = unique([...(rawLandscape.debug?.guardrails || []), ...(familyDecision.guardrails || []), ...(execution.debug?.guardrails || [])]);
     return {
       horizon,
+      backgroundOnly, signalAsOf: technical.signalAsOf, quoteAsOf: metadata?.asOf || metadata?.as_of || null,
       action: finalAction,
       actionLabel: localized(finalAction, language),
       confidence: confidence.score,
-      executionIntent: execution.executionIntent,
+      executionIntent: backgroundOnly ? "background" : execution.executionIntent,
       priceLandscape: execution.priceLandscape,
       states: {
         direction: { score: technical.directionScore, label: directionLabel(technical.directionScore) },
@@ -181,11 +122,10 @@
         marketRegime: market.regime, marketModifiers,
         appliedTraits: horizonProfile.companyTraits || [], appliedModifiers: horizonProfile.appliedModifiers || [], effectiveProfileModifiers: horizonProfile.effectiveModifiers,
         etfUnderlying: underlying,
-        rawEdge: Math.round(edge.rawEdge), adjustedEdge: Math.round(edge.adjustedEdge), edgeBeforeMarket: Math.round(edgeBeforeMarket.adjustedEdge), edgeAfterMarket: Math.round(edge.adjustedEdge), directionalOpportunity: Math.round(edge.directional), priceOpportunityContribution: Math.round(edge.price), contrarianContribution: Math.round(edge.contrarian), riskPenalty: Math.round(edge.riskPenalty),
         candidateAction: familyDecision.action, actionBeforeStability, finalAction,
         priceState: rawLandscape.priceState, actionFamily: familyDecision.actionFamily, landscapeQuality: rawLandscape.landscapeQuality, finalDecision: familyDecision,
         stability, guardrails, materialChangeReasons,
-        modelVersion: engine.config.version, pathVersion: engine.config.version, policyFamily: `${horizonProfile.isETF ? "etf" : "stock"}_${horizon}`, widthTransform: rawLandscape.debug?.widthTransform,
+        modelVersion: engine.config.version, pathVersion: engine.config.version, policyFamily: `${horizonProfile.isETF ? "etf" : "stock"}_${horizon}`,
         confidenceComponents: confidence, priceLandscapeInputs: execution.debug?.priceLandscapeInputs || {}, invalidationInputs: execution.debug?.invalidationInputs || {},
         dataQuality: technical.dataQuality,
       },

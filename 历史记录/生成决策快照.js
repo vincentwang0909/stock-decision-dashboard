@@ -17,11 +17,11 @@ const profiles = require(path.join(ROOT, "profile-definitions.js"));
 
 for (const file of [
   "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "etf-profile.js", "company-profile.js",
-  "planning-width.js", "execution-engine.js", "short-model-v2.js", "confidence-engine.js", "stability-engine.js", "horizon-model-v2.js", "decision-engine.js",
+  "execution-engine.js", "confidence-engine.js", "stability-engine.js", "horizon-model-v2.js", "decision-engine.js",
 ]) require(path.join(ROOT, "decision-engine", file));
 
 const engine = globalThis.DecisionEngine;
-const HORIZONS = ["short", "mid", "long"];
+const HORIZONS = ["daily", "weekly"];
 const RAW_SERIES_KEYS = new Set([
   "completed", "bar_end_timestamps", "timestamps", "opens", "highs", "lows", "closes", "volumes", "bars", "series", "macd_series", "signal_series", "histogram_series",
 ]);
@@ -43,7 +43,7 @@ function availableQuote(quote, marketDate) {
 }
 
 function featureFor(quote, market, recordedAtEt) {
-  return buildTechnicalFeatures({ ...featureInputs(quote, market), calculatedAt: quote.updatedAt || recordedAtEt });
+  return buildTechnicalFeatures({ ...featureInputs(quote, market), calculatedAt: recordedAtEt });
 }
 
 function compact(value, depth = 0) {
@@ -68,7 +68,7 @@ function compact(value, depth = 0) {
 function horizonFeature(features, horizon) {
   const technicalKey = engine.config.horizons[horizon]?.technicalKey;
   const set = features?.horizons?.[technicalKey] || {};
-  const fibonacciKey = { short: "short_term", mid: "mid_term", long: "long_term" }[horizon];
+  const fibonacciKey = horizon;
   const fib = features?.fibonacci_structure?.[fibonacciKey] || set.fibonacci || {};
   return compact({
     schema_version: features?.schema_version,
@@ -86,7 +86,7 @@ function horizonFeature(features, horizon) {
     participation: set.participation,
     relative_strength: set.relative_strength,
     volume: features?.volume,
-    price_position: features?.price_position,
+    price_position: set.price_position || (horizon === "daily" ? features?.price_position : null),
     fibonacci: fib,
     missing_families: set.missing_families,
   });
@@ -157,7 +157,7 @@ function unavailableRecord({ marketDate, recordedAtEt, ticker, classification, h
   };
 }
 
-function recordFor({ marketDate, recordedAtEt, ticker, quote, classification, features, decision, horizon, market, shadow = null }) {
+function recordFor({ marketDate, recordedAtEt, ticker, quote, classification, features, decision, horizon, market }) {
   const value = decision.horizons[horizon];
   const daily = quote.history || {};
   const lastIndex = (daily.timestamps || []).length - 1;
@@ -189,7 +189,8 @@ function recordFor({ marketDate, recordedAtEt, ticker, quote, classification, fe
     market_context: compactMarket(market, value),
     technical_features: { ...horizonFeature(features, horizon), current_observation: observation, model_diagnostics: { model_version: engine.config.version, path_version: value.debug?.pathVersion || engine.config.version, policy_family: value.debug?.policyFamily || null, feature_version: features.schema_version,
       indicator_policy: { version: engine.config.indicators.version, structure_levels_enabled: engine.config.indicators.integration.structureLevelsEnabled, structure_retention_gate: engine.config.indicators.integration.structureRetentionGate },
-      confidence: compact(value.debug?.confidenceComponents), quality: compact(value.debug?.dataQuality), width_comparison: horizon === "short" ? shadow : null } },
+      execution_plan: compact(value.priceLandscape), background_only: Boolean(value.backgroundOnly), signal_as_of:value.signalAsOf,
+      confidence: compact(value.debug?.confidenceComponents), quality: compact(value.debug?.dataQuality) } },
     supporting_reasons: value.reasons?.supporting || [],
     limiting_reasons: value.reasons?.limiting || [],
     material_change: value.debug?.materialChangeReasons || [],
@@ -207,7 +208,7 @@ function* iterateRecords(input) {
   const byTicker = new Map(items.map((item) => [String(item.ticker || "").toUpperCase(), item]));
   const readQuote = (item) => fileInput ? JSON.parse(fs.readFileSync(item.path, "utf8")) : quoteFromItem(item);
   // Keep features only for actual shared underlying symbols. Own features
-  // are used for three horizons and then released; no duplicate normalization.
+  // are used for two horizons and then released; no duplicate normalization.
   const underlyingTickers = new Set(Object.values(profiles.etfs || {}).map((p) => p.underlyingTicker).filter(Boolean));
   const featuresByUnderlying = new Map();
   function underlyingFor(ticker) {
@@ -239,20 +240,11 @@ function* iterateRecords(input) {
     }
     const decision = engine.decide({
       ticker, price: finite(quote.price), technicalFeatures: ownFeatures, marketContext: market,
-      classification, metadata: quote.metadata || {}, language: "en",
+      classification, metadata: { ...(quote.metadata || {}), quoteStale: Boolean(quote.stale), asOf: quote.last_quote_time || quote.updatedAt || quote.metadata?.asOf || null }, language: "en",
       underlyingTechnicalFeatures: underlying?.features || null,
       underlyingPrice: underlying?.price ?? null,
     });
-    // Frozen daily shadow only. It never supplies a live action and performs
-    // no parameter search; canonical features/market/underlying are reused.
-    const shortInput = { ticker, horizon: "short", price: finite(quote.price), technicalFeatures: ownFeatures, market: decision.horizons.short.market, profile: engine.profile.build(classification, ticker), metadata: quote.metadata || {}, underlyingTechnicalFeatures: underlying?.features || null, underlyingPrice: underlying?.price ?? null, language: "en" };
-    if (engine.config.shortReduceWidth.enabled) engine.stability.clear();
-    const base = engine.config.shortReduceWidth.enabled ? engine.decideHorizon({ ...shortInput, modelOptions: { widthTransformEnabled: false } }) : decision.horizons.short;
-    engine.stability.clear(); // Compare the candidate at the same cold EOD state.
-    const candidate = engine.decideHorizon({ ticker, horizon: "short", price: finite(quote.price), technicalFeatures: ownFeatures, market: base.market, profile: engine.profile.build(classification, ticker), metadata: quote.metadata || {}, underlyingTechnicalFeatures: underlying?.features || null, underlyingPrice: underlying?.price ?? null, language: "en", modelOptions: { widthTransformEnabled: true } });
-    const diagnosis = (value) => compact({ action: value.action, confidence: value.confidence, state: value.debug?.priceState, landscape: value.priceLandscape, direction: value.debug?.directionScore, confirmation: value.debug?.confirmationScore, risk: value.debug?.riskScore, exhaustion: value.debug?.exhaustionScore, room_atr: value.debug?.roomAtr, reward_risk: value.debug?.rewardRisk, width_transform: value.debug?.widthTransform });
-    const shadow = { shadow_only: true, factor: engine.config.shortReduceWidth.factor, production_enabled: engine.config.shortReduceWidth.enabled, version: engine.config.shortReduceWidth.version, frozen_short_policy: engine.config.shortV2.policy, baseline: diagnosis(base), candidate: diagnosis(candidate) };
-    for (const horizon of HORIZONS) yield recordFor({ marketDate, recordedAtEt, ticker, quote, classification, features: ownFeatures, decision, horizon, market, shadow });
+    for (const horizon of HORIZONS) yield recordFor({marketDate,recordedAtEt,ticker,quote,classification,features:ownFeatures,decision,horizon,market});
   }
 }
 

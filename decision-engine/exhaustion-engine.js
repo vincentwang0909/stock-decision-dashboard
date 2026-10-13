@@ -8,11 +8,11 @@
   const boolLabel = (value, expected) => String(value || "").toLowerCase().includes(expected);
 
   function scaledHigh(value, start, extreme) {
-    return !Number.isFinite(value) ? 0 : clamp((value - start) / Math.max(1, extreme - start), 0, 1) * 100;
+    return !Number.isFinite(value) ? 0 : clamp((value - start) / Math.max(Number.EPSILON, extreme - start), 0, 1) * 100;
   }
 
   function scaledLow(value, start, extreme) {
-    return !Number.isFinite(value) ? 0 : clamp((start - value) / Math.max(1, start - extreme), 0, 1) * 100;
+    return !Number.isFinite(value) ? 0 : clamp((start - value) / Math.max(Number.EPSILON, start - extreme), 0, 1) * 100;
   }
 
   function evaluate({ technical = {}, market = {}, profile = {} } = {}) {
@@ -24,9 +24,9 @@
     const maDistance = finite(technical.riskComponents?.extension) || 0;
     const rs = finite(technical.confirmationComponents?.relativeStrength?.score) || 0;
     const participation = finite(technical.confirmationComponents?.participation?.score) || 0;
-    const histogramChange = (finite(raw.macd?.histogram_change_1) || 0) * 0.5
-      + (finite(raw.macd?.histogram_change_3) || 0) * 0.3
-      + (finite(raw.macd?.histogram_change_5) || 0) * 0.2;
+    const atr=finite(technical.atr);
+    const histogramChange = atr>0 ? ((finite(raw.macd?.histogram_change_1) || 0)*0.5
+      +(finite(raw.macd?.histogram_change_3) || 0)*0.3+(finite(raw.macd?.histogram_change_5) || 0)*0.2)/atr : 0;
     const macdImproving = boolLabel(raw.macd?.improving_or_deteriorating, "improv") || boolLabel(raw.macd?.state, "recover") || raw.macd?.crossover_state === "bullish_cross";
     const macdDeteriorating = boolLabel(raw.macd?.improving_or_deteriorating, "deterior") || boolLabel(raw.macd?.state, "decelerating_bullish") || raw.macd?.crossover_state === "bearish_cross";
     const obvBullishDivergence = raw.obv?.divergence === "bullish_divergence";
@@ -46,7 +46,7 @@
       0, 100,
     );
     const bullishDeterioration = clamp(
-      (histogramChange < 0 ? scaledHigh(-histogramChange, 0.01, 0.35) : 0) * 0.28
+      (histogramChange < 0 ? scaledHigh(-histogramChange, config.histogramChangeAtr.start, config.histogramChangeAtr.extreme) : 0) * 0.28
       + (macdDeteriorating ? 28 : 0)
       + (obvBearishDivergence ? 24 : 0)
       + (participation < -20 ? 18 : 0)
@@ -68,7 +68,7 @@
       0, 100,
     );
     const bearishRepair = clamp(
-      (histogramChange > 0 ? scaledHigh(histogramChange, 0.01, 0.35) : 0) * 0.28
+      (histogramChange > 0 ? scaledHigh(histogramChange, config.histogramChangeAtr.start, config.histogramChangeAtr.extreme) : 0) * 0.28
       + (macdImproving ? 28 : 0)
       + (obvBullishDivergence ? 24 : 0)
       + (participation > 15 ? 18 : 0)
@@ -100,12 +100,12 @@
         bullishEvidence: {
           rsiExtreme: Math.round(scaledHigh(rsi, config.highRsi, config.extremeRsi)), kdjExtreme: Math.round(scaledHigh(kdj, config.highKdj, 110)),
           bollingerExtension: Math.round(scaledHigh(percentB, config.extensionPercentB, 1.35)), maExtension: Math.round(scaledHigh(maDistance, 42, 90)), relativeStrengthExtreme: Math.round(scaledHigh(rs, 48, 90)),
-          histogramDeterioration: Math.round(histogramChange < 0 ? scaledHigh(-histogramChange, 0.01, 0.35) : 0), macdDeteriorating, obvBearishDivergence, participationWeak: participation < -20,
+          histogramDeterioration: Math.round(histogramChange < 0 ? scaledHigh(-histogramChange, config.histogramChangeAtr.start, config.histogramChangeAtr.extreme) : 0), macdDeteriorating, obvBearishDivergence, participationWeak: participation < -20,
         },
         bearishEvidence: {
           rsiExtreme: Math.round(scaledLow(rsi, config.lowRsi, config.extremeLowRsi)), kdjExtreme: Math.round(scaledLow(kdj, config.lowKdj, -10)),
           bollingerExtension: Math.round(scaledLow(percentB, config.downsidePercentB, -0.35)), maExtension: Math.round(scaledHigh(maDistance, 42, 90)), relativeStrengthExtreme: Math.round(scaledHigh(-rs, 48, 90)),
-          histogramRepair: Math.round(histogramChange > 0 ? scaledHigh(histogramChange, 0.01, 0.35) : 0), macdImproving, obvBullishDivergence, participationImproving: participation > 15,
+          histogramRepair: Math.round(histogramChange > 0 ? scaledHigh(histogramChange, config.histogramChangeAtr.start, config.histogramChangeAtr.extreme) : 0), macdImproving, obvBullishDivergence, participationImproving: participation > 15,
         },
       },
     };

@@ -13,6 +13,8 @@ services:
     envVars:
       - key: WATCHLIST_DB_PATH
         value: /var/data/watchlist.db
+      - key: EOD_HISTORY_ENABLED
+        value: "false"
       - key: DECISION_HISTORY_DB_PATH
         value: /var/data/历史记录.sqlite
       - key: EOD_DECISION_NODE_PATH
@@ -31,8 +33,6 @@ services:
         value: "true"
       - key: TECHNICAL_DAILY_HISTORY_PERIOD
         value: "10y"
-      - key: TECHNICAL_FOUR_HOUR_HISTORY_PERIOD
-        value: "365d"
       - key: MARKET_CACHE_DIR
         value: /var/data/cache
       - key: MARKET_DATA_MAX_TICKERS

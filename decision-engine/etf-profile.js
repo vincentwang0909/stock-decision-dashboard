@@ -6,9 +6,9 @@
 
   function blankModifiers() {
     return {
-      directionWeights: {}, confirmationWeights: {}, riskSensitivity: 1, exhaustionSensitivity: 1,
-      marketSensitivity: 1, normalAtrTolerance: 1, strongBuyOpportunity: 1, rateSensitivity: 1,
-      eventSensitivity: 1, longStability: 1, confidenceScale: 1,
+      confirmationWeights: {}, riskSensitivity: 1, exhaustionSensitivity: 1,
+      marketSensitivity: 1, normalAtrTolerance: 1, rateSensitivity: 1,
+      eventSensitivity: 1, weeklyStability: 1, confidenceScale: 1,
       actionGates: { buyDirection: 0, buyConfirmation: 0, strongBuyDirection: 0, strongBuyConfirmation: 0 },
       benchmarkWeights: { spy: 0.5, qqq: 0.5 },
     };

@@ -52,6 +52,19 @@ def initialize(path: str | os.PathLike[str] | None = None) -> Path:
             # rewritten; only subsequent EOD snapshots populate this field.
             conn.execute("ALTER TABLE decision_history ADD COLUMN size_class TEXT")
         conn.commit()
+        definition = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='decision_history'").fetchone()[0]
+        if "'daily'" not in definition:
+            # Expand only the horizon constraint. Copy all old values verbatim in one transaction; never relabel historical rows.
+            conn.execute("BEGIN IMMEDIATE")
+            create = schema[schema.index("CREATE TABLE IF NOT EXISTS decision_history"):schema.index("CREATE INDEX")].strip()
+            conn.execute(create.replace("IF NOT EXISTS decision_history", "decision_history_v2"))
+            names = [row[1] for row in conn.execute("PRAGMA table_info(decision_history)")]
+            quoted = ",".join('"'+name+'"' for name in names)
+            conn.execute(f"INSERT INTO decision_history_v2 ({quoted}) SELECT {quoted} FROM decision_history")
+            conn.execute("DROP TABLE decision_history")
+            conn.execute("ALTER TABLE decision_history_v2 RENAME TO decision_history")
+            conn.execute("CREATE INDEX idx_decision_history_ticker_date ON decision_history(ticker,market_date)")
+        conn.commit()
     finally:
         conn.close()
     return db_path

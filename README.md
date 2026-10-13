@@ -1,174 +1,89 @@
-# Stock Dashboard Render Deployment
+# Stock Decision Dashboard
 
-This dashboard uses `server.py` as the single backend. The shared watchlist is stored in a SQLite database on the server, while browser `localStorage` is only used as a fast cache.
+共享股票清单，完整 Technical / Market 数据，以及独立 **Daily / Weekly** 决策。
+当前内部引擎版本是 `V2`；界面不显示版本号。原 Short/Mid/Long、1H/4H和旧模型
+已移除。Company Profile 的 `2.1` 是独立画像格式，继续保留。
 
-## Local Development
+[当前模型、参数和验收](docs/daily-weekly-engine-proposal-2026-10-12.md) ·
+[开发约束](AGENTS.md) · [历史记录操作](历史记录/README-历史记录.md)
 
-The dashboard is a same-origin web application. Start `server.py` and open the
-HTTP address it serves; do **not** double-click `index.html` or open it with
-`file://`.
+## 本地运行
+
+同源应用，从本地服务访问，不能双击HTML。
 
 ```bash
 cd "/Users/vincentwang/Documents/Stock Dashboard Project"
-python3 -m venv .venv           # first time only
-source .venv/bin/activate       # each new terminal session
-pip install -r requirements.txt # first time only
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 python3 server.py
 ```
 
-The Company Profile classifier and the offline EOD recorder run the same
-canonical JavaScript modules as the Dashboard Decision Engine. Ensure
-`node --version` works in this terminal. If Node is installed outside `PATH`,
-set `EOD_DECISION_NODE_PATH` to its executable before starting the server.
+打开 `http://127.0.0.1:4173/`。Node 必须可用；不在PATH时设置
+`EOD_DECISION_NODE_PATH`为其实际可执行路径，供共享画像分类/序列化使用。
+不要把密码或密钥写入源码。缓存和SQLite不提交Git。
 
-Open:
+## 使用与数据
 
-```text
-http://127.0.0.1:4173/
-```
+- Daily使用完成日线，Weekly使用交易所实际完整周；盘中只更新正常交易报价、执行位置和风险。无固定“30天”持有期限。
+- Daily信号可在盘后/下一交易日使用，但成交前应核对当时价格仍在合格区间、收益风险比和风险边界；跳空或重大事件能让昨日Buy变成Hold。Weekly在该周最后实际交易日收盘确认。
+- 七个Action：Strong Buy、Buy、Accumulate、Hold、Trim、Sell、Short Sell。Buy须右侧确认；Accumulate/Trim允许更早的有证据变化。没有必须逐级变化的序列。
+- Short Sell仅普通股票Daily，独立开空区/上方失效位。Sell不等于可以开空；不接持仓、不增加Cover。
+- 普通非杠杆ETF采用同样左侧/右侧语义。杠杆ETF以Daily执行，Weekly只展示背景；首版无左侧预测底部加仓。
+- Confidence是证据一致性与稳定性，不是上涨概率。所有进入有真实结构位置和初始1.5R/2R门槛；费用、滑点与借券成本未核验。
+- 只用已完成Daily成交量。Weekly量由Daily合成；短周RVOL按实际交易日数归一化，OBV仍用真实总量。未完成日线量仅展示。
+- 默认请求最多十年Daily；上市时间较短的证券允许缺长背景，但必要Weekly结构/EMA50等不足会明确等待。SPY/QQQ共用完整基准历史。
+- 宏观接官方Fed/FRED日历及BLS实际发布。CPI/就业比较月度变化与连续背景；失业率升高不自动当利好。稳定免费FedWatch概率尚不可用，明确显示缺口。
+- SMC：已知结构BOS/CHoCH、扫回Sweep和同结构Premium/Discount。FVG先影子观察，不改变Action/Confidence/区间。
+- 股票四tag为元数据画像；Direction规则相同，tag只修饰确认、风险、衰竭、市场/事件和周线稳定性。不会改原始ATR。
 
-`server.py` serves the dashboard HTML, JavaScript, CSS, and API on that one
-origin. This is also how the Render deployment works, so local development
-does not need CORS configuration or a separate frontend server.
+Technical保持完整数据，辅助项在各自相关组内封顶，不逐个投票。
+Fundamental、options、news独立数据不进入推荐；仍可按已有服务功能保留。
 
-Local watchlist database and market-data cache:
+## 刷新、清单与存储
 
-```text
-data/watchlist.db
-data/cache/
-```
+手动与自动刷新执行同一全量清单事务。浏览器和服务在
+`America/New_York`的每小时10/40分刷新，DST安全；不是打开页面后每30分钟。
+Last Refresh在全部数据、两周期计算、界面渲染和浏览器paint完成后提交，使用ET。
+失败时保留上一成功页面/时间，下次定时继续。
 
-Chinese mode localizes indicator labels/states, profile categories, market
-states and Fibonacci explanations through the presentation-only
-`ui-translations.js` catalog. Stock symbols, issuer names and standard
-indicator abbreviations remain identifiable. Switching languages only
-rerenders the applied decision; it does not refetch or recalculate it.
+当前清单唯一来源为共享`watchlist`表。空清单也有权威性；旧缓存、画像、
+历史不能恢复已删除证券。Company Profile V2.1保存于同一数据库，完整画像
+不随正常刷新改变；每年3月31日ET复核，稀疏数据不抹掉已知值。
 
-Automatic refresh runs **every 30 minutes at :10 and :40 in America/New_York**,
-including 09:10, 09:40 and 10:10 ET. The browser and server use the same schedule; manual
-refreshes do not shift it. Optional quote/company enrichment has a bounded
-wait alongside intraday history. If no valid prices are returned, the browser
-keeps its previous successful snapshot and Last Refresh and shows a notice.
-Without a `MARKET_CACHE_DIR` override, quote cache lives beside
-`WATCHLIST_DB_PATH`; a persistent Render database therefore uses persistent
-cache too. The EOD recorder still runs at 16:30 ET.
+本地默认 `data/watchlist.db`、`data/cache/`。Render优先使用持久盘：
+`WATCHLIST_DB_PATH`、`MARKET_CACHE_DIR`。缓存默认放清单数据库旁，重启保留
+数据来源但按现行源校验/模型重算。老三周期浏览器快照不再使用。
 
-Multi-year history normalization reuses one calendar for its frame and a
-temporary session lookup, preserving the same holiday/half-day and completion
-rules. A first visit waits for an already-running full refresh with the live
-deadline (extended once on an explicit busy response), displays watchlist
-placeholders while warming, and identifies partial price availability.
+## Render与历史
 
-The three-indicator integration, horizon weights, causal completion rules,
-Price State constraints and replay results are documented in
-[the current indicator model](docs/indicator-model-2026-10-04.md). New Squeeze,
-break/retest and Bollinger+RSI features are shared by the UI and EOD engine.
-The separate expansion of structure-based price-zone candidates is disabled
-after its offline return-retention check failed.
+`render.yaml`保持轻量单服务和持久盘配置，目标512MB RAM、0.5CPU、1GB磁盘。
+不增加常驻行情/推荐历史或大型图表库。Node一次性序列化预算为旧生代128MB、
+半空间4MB；它们不等于进程RSS/整个服务上限。
 
-All stock and ETF horizons are policies of the same unified V2 release.
-`decision-engine/decision-engine.js` is the shared entry; stock Short uses
-`short-model-v2.js`, and stock Mid/Long plus ETF horizons use
-`horizon-model-v2.js` with their preserved rules. No production V1 fallback
-remains. `decision-engine/config.js` supplies the single model version.
+**历史保持暂停**：`EOD_HISTORY_ENABLED=false`，本次不自动开启、不部署。
+未来启用后，服务16:30ET刷新并写每证券Daily/Weekly两行；旧Short/Mid/Long
+内容/模型版本保持原样。正式历史不被Dashboard读取。
 
-`decision-api/emit-decision.js` serves the existing external `decision.v1`
-data format through this same engine. `/api/decision/<ticker>` and
-`/api/decisions?tickers=...` keep their URLs and payload shape. The format
-version is independent of `modelVersion`; the old `decision-v1/` directory
-has been removed. Dashboard, API, EOD and health metadata identify the same
-current model release.
+## 接口
 
-## Render Deployment
+- `GET /api/watchlist`，共享清单；原POST/DELETE路径保留。
+- `GET /api/market-data?format=compact`，同源规范行情；`force=true&full_refresh=true`强制刷新请求清单。
+- 既有 `/api/decision-v1` URL保留，序列化格式更新为 `decision.v2`，周期键`daily/weekly`，同一内部`V2`。用户确认无外部旧格式调用方。
+- `/api/health`反映内部版本、资源和历史开关；版本不在Dashboard展示。
 
-1. Push code to GitHub.
-2. In Render, create a new Web Service.
-3. Connect the GitHub repo.
-4. Runtime: Python.
-5. Build Command:
+## 验证
 
 ```bash
-pip install -r requirements.txt
+python3 -m unittest discover -s tests -p '*_test.py'
 ```
 
-6. Start Command:
+逐个运行`node tests/*.test.js`文件（不把多个文件当一个Node入口）。
+全部引擎/特征/API/EOD/刷新/语言测试使用同一生产模块；临时数据输出应放
+项目外。真实数据审计入口：`scripts/indicator-audit-values.js`、
+`verify-indicator-math.py`、`decision-audit.js`、`fibonacci-audit.js`、
+`indicator-replay.js`；各工具不下载/启用生产历史，参数见脚本Usage。
 
-```bash
-gunicorn -c gunicorn.conf.py server:app
-```
-
-7. Environment Variables:
-
-```text
-WATCHLIST_DB_PATH=/var/data/watchlist.db
-MARKET_CACHE_DIR=/var/data/cache
-PYTHON_VERSION=3.12.14
-NODE_VERSION=24.19.0
-```
-
-For an existing Render service, check **Settings → Start Command** and
-**Environment** explicitly: editing `render.yaml` alone does not update a
-service created manually. The checked-in Gunicorn configuration also loads
-with the older `gunicorn server:app` command. It uses one worker, two web
-threads, a 120-second worker timeout, and no application preloading. Do not
-increase workers on the 512 MB instance. Build with the pinned Python version
-and `requirements.txt`; an Environment override takes priority over
-`.python-version`.
-
-Startup logs now include the actual Python/dependency versions and effective
-worker settings. A native `SIGSEGV` emits a fatal stack trace for diagnosis;
-it is not proof of an OOM. `/api/health` must respond during refreshes. Its
-`service_version` identifies the deployed service fix. If a worker still
-crashes, retain the first fatal stack trace and the preceding startup lines.
-
-8. Health Check Path: `/api/health`.
-
-9. To persist the shared watchlist and market-data cache across redeploys/restarts, add a Render Disk:
-
-```text
-Mount Path: /var/data
-```
-
-If you do not attach a persistent disk, the default SQLite database and market-data cache can still work, but they may be lost after redeploys or restarts.
-
-## Market Data API
-
-```text
-GET /api/market-data?tickers=NVDA,MSFT
-GET /api/market-data?tickers=NVDA,MSFT&force=true
-GET /api/debug/quote/NVDA
-```
-
-`/api/market-data` is cache-first for initial/cache hydration. Manual and scheduled
-automatic Dashboard refreshes use the shared full-refresh transaction with
-`force=true&full_refresh=true`, which refreshes the complete requested watchlist
-before the response is applied. The `_refresh` query string only bypasses browser
-cache; it does not force a provider refresh.
-
-The browser uses `format=compact`. This serializes one complete quote at a
-time into an anonymous temporary file, with 64 KiB writes and optional gzip
-when accepted by the client. Serialization finishes before HTTP headers are
-sent, and the refresh lock is released before network delivery. Files close
-on completion or disconnect. A concurrent refresh/EOD returns a complete
-`503` JSON with `error_code=refresh_in_progress` and `Retry-After: 3`; the
-Dashboard retries the same request within a bounded deadline. Failure keeps
-the last good Dashboard/Last Refresh and displays a retry message. This
-changes transport and availability, not indicators, rules or history rows.
-
-Focused checks for this path:
-
-```bash
-python3 -m unittest discover -s tests -p 'market_snapshot_test.py'
-node tests/dashboard-network.test.js
-```
-
-## Shared Watchlist API
-
-```text
-GET    /api/watchlist
-POST   /api/watchlist
-DELETE /api/watchlist?ticker=MSFT&market_type=US
-DELETE /api/watchlist/MSFT?market_type=US
-```
-
-The API does not require login, authorization headers, admin tokens, or `added_by`.
+本地公式、集成、资源检查通过仍不等于行情供应商全部原始值获得独立认证，
+也不等于1.5R/2R、顶底预判或策略收益已得到效果证明。历史材料位于
+`docs/final-model-2026-10-01/`，只证明原版本，复现使用其冻结源码。

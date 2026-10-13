@@ -1,6 +1,10 @@
+> 历史版本说明：本文保留原日期/结果。2026-10-12当前模型已改为独立Daily / Weekly、完成数据及V2门禁，见[现行V2](daily-weekly-engine-proposal-2026-10-12.md)。本文的旧三周期/分时/参数描述不再是生产规则。
+
 # 三指标接入后的完整模型与验证
 
-当前统一版本：`decision-engine-v2.2-unified`；技术特征：`technical-features-v5-structure-momentum`。参数统一放在 `decision-engine/config.js`。
+本文件记录 2026-10-04 版本；现行数据政策另见 [2026-10-09 数据修复](data-quality-repair-2026-10-09.md) 与 [2026-10-10 Daily 量政策](daily-volume-policy-2026-10-10.md)，现行参数以 `config.js` 为准。
+
+本次记录的统一版本：`decision-engine-v2.2-unified`；技术特征：`technical-features-v5-structure-momentum`。参数统一放在 `decision-engine/config.js`。
 
 ## 统一生产版本
 

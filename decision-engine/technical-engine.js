@@ -58,29 +58,30 @@
     const set = features?.horizons?.[config.technicalKey] || {};
     const primary = config.primaryInterval;
     const maInterval = config.maInterval || primary;
-    const early = config.earlyInterval;
     const first = (group = {}, key) => group[key] || { availability: "unavailable", interval: primary };
     const byInterval = (group = {}, interval) => Object.values(group).filter((item) => item?.interval === interval);
     return {
       config,
+      horizon,
       set,
       primary,
-      early,
-      ma: (set.trend?.moving_averages ? byInterval(set.trend.moving_averages, maInterval) : []),
-      earlyMa: (set.trend?.moving_averages ? byInterval(set.trend.moving_averages, early) : []),
+      ma: (set.trend?.moving_averages ? byInterval(set.trend.moving_averages, maInterval).filter((item) => config.primaryMaPeriods.includes(item.period)) : []),
+      backgroundMa: (set.trend?.moving_averages ? byInterval(set.trend.moving_averages, maInterval) : []),
       rsi: first(set.momentum?.rsi, `rsi_${config.rsiPeriod}_${primary}`),
+      auxiliaryRsi: Object.values(set.momentum?.rsi || {}).filter((item)=>item?.period!==config.rsiPeriod && item?.interval===primary && availability(item)),
       macd: first(set.momentum?.macd, `macd_${primary}`),
-      earlyMacd: first(set.momentum?.macd, `macd_${early}`),
       adx: first(set.trend?.adx, `adx_14_${primary}`),
       atr: first(set.volatility?.atr, `atr_14_${primary}`),
       bands: first(set.volatility?.bollinger, `bollinger_${primary}`),
       kdj: first(set.momentum?.kdj, `kdj_9_${primary}`),
-      obv: first(set.participation?.obv, `obv_${primary}`),
+      obv: first(set.participation?.obv, `obv_${engine.config.indicators.volume.obv[config.technicalKey].interval}`),
       relativeStrength: set.relative_strength || { availability: "unavailable" },
-      volume: features?.volume || { availability: "unavailable" },
+      volume: set.participation?.volume || { availability: "unavailable" },
       dailyFreshness: features?.data_quality?.daily_freshness || null,
-      primaryVolumeConflict: (features?.data_quality?.volume_conflicts || []).includes(primary),
-      position: features?.price_position || { availability: "unavailable" },
+      requiredHistoryGap: features?.data_quality?.required_history_gaps?.[horizon]===true,
+      unverifiedPriceBasis: features?.data_quality?.price_basis_unverified===true,
+      dailyVolumeConflict: (features?.data_quality?.decision_volume_conflicts ?? features?.data_quality?.volume_conflicts ?? []).includes("1d") || features?.volume?.unavailable_reason === "source_data_conflict",
+      position: set.price_position || (horizon==="daily"?features?.price_position:null) || { availability: "unavailable" },
       fibonacci: features?.fibonacci_structure?.[config.fibonacciKey] || { status: "unavailable", retracement_levels: {}, extension_levels: {} },
       maStructure: set.trend?.ma_structure || {},
     };
@@ -184,7 +185,10 @@
     const confirmation = obv.price_obv_confirmation === "confirming_uptrend" || volume.trend?.price_volume_confirmation === "bullish_confirmation" ? 100
       : obv.price_obv_confirmation === "confirming_downtrend" || volume.trend?.price_volume_confirmation === "bearish_confirmation" ? -100 : 0;
     const rvol = finite(volume.relative_volume?.displayed_rvol ?? volume.relative_volume?.rvol_20d);
-    const rvolScore = !Number.isFinite(rvol) ? 0 : rvol >= 1.2 ? sign((trend + confirmation) || direction) * clamp((rvol - 1) * 70, 0, 100) : rvol < 0.7 ? -sign(direction || trend) * 30 : 0;
+    const suffix = volume.interval === "1w" ? "w" : "d";
+    const aux = mean([5,60].map((n)=>finite(volume.relative_volume?.[`rvol_${n}${suffix}`])));
+    const relativeActivity = rvol == null ? null : rvol * .8 + (aux ?? rvol) * .2;
+    const rvolScore = relativeActivity == null ? 0 : relativeActivity >= 1.2 ? sign((trend + confirmation) || direction) * clamp((relativeActivity - 1) * 70, 0, 100) : relativeActivity < .7 ? -sign(direction || trend) * 30 : 0;
     const volumeTrend = volume.trend?.volume_trend === "expanding" ? sign((trend + confirmation) || direction) * 65 : volume.trend?.volume_trend === "contracting" ? -sign(direction || trend) * 45 : 0;
     const signedScore = clamp(trend * weights.obvWeight + divergence * weights.divergenceWeight + confirmation * weights.confirmationWeight + rvolScore * weights.rvolWeight + volumeTrend * weights.volumeTrendWeight, -100, 100);
     return { score: signedScore, confirmation: directionalAgreement(direction, signedScore), available: true, components: { obvTrend: trend, divergence, priceVolume: confirmation, rvol, volumeTrend, signedScore: Math.round(signedScore) } };
@@ -217,7 +221,8 @@
     const config = engine.config.risk;
     const atrPct = finite(parts.atr.atr_pct);
     const atrPercentile = finite(parts.atr.atr_percentile_pct);
-    const atrPctSeverity = percentileSeverity(atrPct, config.atrPct.mild, config.atrPct.extreme);
+    const atrPctPolicy = config.atrPct[parts.horizon];
+    const atrPctSeverity = percentileSeverity(atrPct, atrPctPolicy.mild, atrPctPolicy.extreme);
     const atrPercentileSeverity = percentileSeverity(atrPercentile, config.atrPercentile.elevated, config.atrPercentile.extreme);
     const volatilityRegimeSeverity = config.volatilityRegime[String(parts.atr.volatility_regime || "unavailable").toLowerCase()] || 0;
     const percentB = finite(parts.bands.percent_b);
@@ -300,18 +305,12 @@
     };
     Object.values(parts.fibonacci.retracement_levels || {}).forEach((item) => add(item?.price, "fib", engine.config.componentScales.opportunity.structuralLevelWeight.fib, `Fib retracement ${item?.label || ""}`, fibRole(parts.fibonacci, "retracement"), parts.fibonacci.source_timeframe || null));
     Object.values(parts.fibonacci.extension_levels || {}).forEach((item) => add(item?.price, "fib", engine.config.componentScales.opportunity.structuralLevelWeight.fib, `Fib extension ${item?.label || ""}`, fibRole(parts.fibonacci, "extension"), parts.fibonacci.source_timeframe || null));
-    // Short 4H Fibonacci may use independently-derived Daily anchors only as
-    // secondary confirmation.  They carry deliberately lower structural
-    // weight and never replace the horizon's primary Fibonacci source.
-    const dailyConfirmation = parts.fibonacci.secondary_confirmation || {};
-    Object.values(dailyConfirmation.retracement_levels || {}).forEach((item) => add(item?.price, "daily_fib_confirmation", engine.config.componentScales.opportunity.structuralLevelWeight.daily_fib_confirmation, `Daily Fib confirmation ${item?.label || ""}`, fibRole(dailyConfirmation, "retracement"), dailyConfirmation.source_timeframe || null));
-    Object.values(dailyConfirmation.extension_levels || {}).forEach((item) => add(item?.price, "daily_fib_confirmation", engine.config.componentScales.opportunity.structuralLevelWeight.daily_fib_confirmation, `Daily Fib confirmation extension ${item?.label || ""}`, fibRole(dailyConfirmation, "extension"), dailyConfirmation.source_timeframe || null));
     add(parts.fibonacci.swing_low, "swing", engine.config.componentScales.opportunity.structuralLevelWeight.swing, "Swing low", "support", parts.fibonacci.source_timeframe || null);
     add(parts.fibonacci.swing_high, "swing", engine.config.componentScales.opportunity.structuralLevelWeight.swing, "Swing high", "reduce", parts.fibonacci.source_timeframe || null);
-    add(parts.position.high_52w, "price_structure", engine.config.componentScales.opportunity.structuralLevelWeight.price_structure, "52-week high", "reduce", "1d");
-    add(parts.position.low_52w, "price_structure", engine.config.componentScales.opportunity.structuralLevelWeight.price_structure, "52-week low", "support", "1d");
-    add(parts.position.all_time_high, "price_structure", engine.config.componentScales.opportunity.structuralLevelWeight.price_structure, "All-time high", "reduce", "1d");
-    [...parts.ma, ...parts.earlyMa].forEach((item) => add(item.value, "moving_average", engine.config.componentScales.opportunity.structuralLevelWeight.moving_average, `${String(item.indicator || "MA").toUpperCase()} ${item.period} (${item.interval || ""})`, movingAverageRole(item), item.interval || null));
+    add(parts.position.high_52w, "price_structure", engine.config.componentScales.opportunity.structuralLevelWeight.price_structure, "52-week high", "reduce", parts.position.interval || parts.primary);
+    add(parts.position.low_52w, "price_structure", engine.config.componentScales.opportunity.structuralLevelWeight.price_structure, "52-week low", "support", parts.position.interval || parts.primary);
+    add(parts.position.all_time_high, "price_structure", engine.config.componentScales.opportunity.structuralLevelWeight.price_structure, "All-time high", "reduce", parts.position.interval || parts.primary);
+    parts.backgroundMa.forEach((item) => add(item.value, "moving_average", engine.config.componentScales.opportunity.structuralLevelWeight.moving_average, `${String(item.indicator || "MA").toUpperCase()} ${item.period} (${item.interval || ""})`, movingAverageRole(item), item.interval || null));
     add(parts.bands.lower_band, "bollinger", engine.config.componentScales.opportunity.structuralLevelWeight.bollinger, "Bollinger lower", "support", parts.primary);
     add(parts.bands.middle_band, "bollinger", engine.config.componentScales.opportunity.structuralLevelWeight.bollinger, "Bollinger middle", "both", parts.primary);
     add(parts.bands.upper_band, "bollinger", engine.config.componentScales.opportunity.structuralLevelWeight.bollinger, "Bollinger upper", "reduce", parts.primary);
@@ -327,6 +326,11 @@
         if (matching.length) matching.forEach((level) => { level.role = item.role; });
         else add(item.price, "swing", engine.config.componentScales.opportunity.structuralLevelWeight.swing, `Confirmed structure ${item.id}`, item.role, item.interval);
       }
+    }
+    const smc = parts.set.trend?.smc || {};
+    for (const level of levels) {
+      if (level.type === "swing" && smc.bullish_confirmed && Math.abs(level.price - smc.last_bos?.reference_price) < 1e-8) level.role = "support";
+      if (level.type === "swing" && smc.bearish_confirmed && Math.abs(level.price - smc.last_bos?.reference_price) < 1e-8) level.role = "reduce";
     }
     return levels.filter((level, index, all) => !all.slice(0, index).some((prior) => prior.type === level.type && prior.label === level.label && Math.abs(prior.price - level.price) < 0.000001));
   }
@@ -360,7 +364,7 @@
     };
   }
 
-  function clusterLevels(levels, price, atr, side) {
+  function clusterLevels(levels, price, atr, side, referencePrice = price) {
     if (!Number.isFinite(price) || !Number.isFinite(atr) || atr <= 0) return null;
     const config = engine.config.componentScales.opportunity;
     // Relative location decides whether a level can be considered below or
@@ -369,14 +373,14 @@
     // breakout while preventing an opposite-role level from winning merely
     // because current price crossed it.
     const candidates = levels.filter((level) => side === "support"
-      ? level.price <= price + atr * config.supportEligibilityAtr
-      : level.price >= price + atr * config.reduceEligibilityAtr);
+      ? level.role !== "reduce" && level.price <= price + atr * config.supportEligibilityAtr
+      : level.role !== "support" && level.price >= referencePrice - atr * engine.config.execution.landscape.contextualSelection.reduceReferenceAtr);
     const ranked = candidates.map((seed) => {
       const members = candidates.filter((item) => Math.abs(item.price - seed.price) <= atr * config.confluenceBandAtr);
       const evidence = categoryEvidence(members, seed.price);
       const roleWeight = members.reduce((sum, item) => sum + Math.max(0.01, item.weight), 0) || 1;
       const roleAlignment = members.reduce((sum, item) => {
-        const alignment = item.role === side ? 1 : item.role === "both" ? 0.7 : 0.25;
+        const alignment = item.role === (side==="resistance"?"reduce":side) ? 1 : item.role === "both" ? 0.7 : 0.25;
         return sum + alignment * Math.max(0.01, item.weight);
       }, 0) / roleWeight;
       const quality = evidence.quality * (1 - config.unifiedConfluence.roleAlignmentWeight + roleAlignment * config.unifiedConfluence.roleAlignmentWeight);
@@ -392,7 +396,7 @@
   function priceOpportunity(parts, price, atr) {
     const levels = structuralLevels(parts);
     const supportClusters = clusterLevels(levels, price, atr, "support") || [];
-    const resistanceClusters = clusterLevels(levels, price, atr, "resistance") || [];
+    const resistanceClusters = clusterLevels(levels, price, atr, "resistance", parts.set.trend_reference_price) || [];
     const support = supportClusters[0] || null;
     const resistance = resistanceClusters[0] || null;
     const config = engine.config.componentScales.opportunity;
@@ -410,16 +414,15 @@
   }
 
   function dataQuality(parts, directionComponents, confirmationComponents) {
-    const coreDirection = [directionComponents.ma.available, directionComponents.macd.available, directionComponents.adx.available, directionComponents.early.available];
-    const coreConfirmation = [confirmationComponents.relativeStrength.available, confirmationComponents.participation.available, confirmationComponents.rsi.available, confirmationComponents.adx.available];
-    const technical = mean([...coreDirection, ...coreConfirmation].map(Boolean).map(Number)) * 100;
-    const structure = parts.fibonacci.status === "available" || parts.fibonacci.status === "stale_swing" ? 100 : 45;
-    const volume = availability(parts.volume) ? 100 : 0;
-    const missingCore = [...coreDirection, ...coreConfirmation].flatMap((value, index) => value ? [] : [["ma", "macd", "adx", "early", "relative_strength", "participation", "rsi", "adx_confirmation"][index]]);
-    const stale = parts.dailyFreshness?.state === "stale";
+    const essential={ma:parts.ma.length===parts.config.primaryMaPeriods.length && directionComponents.ma.available && parts.ma.every(availability),macd:directionComponents.macd.available,adx:directionComponents.adx.available,atr:availability(parts.atr),rsi:availability(parts.rsi),volume:availability(parts.volume),obv:availability(parts.obv),structure:availability(parts.set.trend?.support_resistance)};
+    const missingCore=Object.entries(essential).filter(([,value])=>!value).map(([key])=>key);
+    const stale=parts.dailyFreshness?.state === "stale" || parts.dailyFreshness?.state === "unavailable";
     if (stale) missingCore.push("stale_daily_history");
-    if (parts.primaryVolumeConflict) missingCore.push("source_data_conflict");
-    return { score: stale || parts.primaryVolumeConflict ? 0 : Math.round(technical * 0.76 + structure * 0.14 + volume * 0.10), missingCore, dailyFreshness: parts.dailyFreshness, optionalWindowsDoNotPenalizeCore: true, components: { primaryDirection: coreDirection, confirmation: coreConfirmation, fibonacci: structure, volume } };
+    if (parts.dailyVolumeConflict) missingCore.push("source_data_conflict");
+    if (parts.requiredHistoryGap) missingCore.push("missing_required_history_sessions");
+    if (parts.unverifiedPriceBasis) missingCore.push("unverified_price_basis");
+    // Benchmark absence blocks confirmation-dependent entries, but cannot suppress a verified defensive exit.
+    return {score:missingCore.length?0:100,missingCore,entryMissing:confirmationComponents.relativeStrength.available?[]:["relative_strength"],dailyFreshness:parts.dailyFreshness,optionalWindowsDoNotPenalizeCore:true,components:essential};
   }
 
   function signalPersistence(ma, macd, adx, relativeStrength) {
@@ -459,51 +462,43 @@
     return items.filter((item) => item && item.score > 0).sort((left, right) => right.score - left.score).slice(0, 5).map((item) => item.text || `${polarity}: ${item.label}`);
   }
 
-  function evaluate(features = {}, horizon = "short", price = null, profile = { effectiveModifiers: blankProfileModifiers() }) {
+  function evaluate(features = {}, horizon = "daily", price = null, profile = { effectiveModifiers: blankProfileModifiers() }) {
     const parts = horizonParts(features, horizon);
     const profileModifiers = profile.effectiveModifiers || blankProfileModifiers();
     const atr = finite(parts.atr.value);
-    const trendPrice = horizon === "long" && Number.isFinite(parts.set.trend_reference_price) ? parts.set.trend_reference_price : price;
+    const trendPrice = parts.set.trend_reference_price;
     const ma = maStructureScore(parts.ma, parts.maStructure, trendPrice, atr);
     const originalMacd = macdStructureScore(parts.macd, atr);
     const macd = { ...originalMacd, score: mixSqueeze(originalMacd.score, parts.set.momentum?.squeeze, atr, horizon), components: { ...originalMacd.components, squeeze: squeezeEvidence(parts.set.momentum?.squeeze, atr) } };
     const adx = adxDirectionScore(parts.adx);
-    const earlyMa = maStructureScore(parts.earlyMa, {}, price, atr);
-    const earlyMacd = macdStructureScore(parts.earlyMacd, atr);
-    // Long-term MA structure already uses long Daily data.  Its small Daily
-    // early-signal sleeve is MACD-only so the same MA regime is not counted twice.
-    const early = horizon === "long"
-      ? { score: clamp(earlyMacd.score || 0, -100, 100), available: earlyMacd.available, components: { ma: null, macd: Math.round(earlyMacd.score || 0) } }
-      : { score: clamp((earlyMa.score || 0) * 0.55 + (earlyMacd.score || 0) * 0.45, -100, 100), available: earlyMa.available || earlyMacd.available, components: { ma: Math.round(earlyMa.score || 0), macd: Math.round(earlyMacd.score || 0) } };
-    const directionWeights = normalizeWeights(parts.config.directionWeights, profileModifiers.directionWeights);
-    const directionComponents = { ma, macd, adx, early };
-    const baselineDirectionScore = clamp(Object.entries(directionWeights).reduce((sum, [key, weight]) => sum + (key === "macd" ? originalMacd.score || 0 : directionComponents[key].score || 0) * weight, 0), -100, 100);
-    const directionScore = clamp(Object.entries(directionWeights).reduce((sum, [key, weight]) => sum + (directionComponents[key].score || 0) * weight, 0), -100, 100);
-
+    const directionWeights = normalizeWeights(parts.config.directionWeights);
+    const directionComponents = { ma, macd, adx };
+    const directionScore = clamp(Object.entries(directionWeights).reduce((sum,[key,weight])=>sum+(directionComponents[key].score || 0)*weight,0),-100,100);
     const relativeStrength = relativeStrengthEvidence(parts.relativeStrength, directionScore, profile);
     const participation = participationEvidence(parts.obv, parts.volume, directionScore);
-    const rsi = compositeConfirmation(rsiConfirmation(parts.rsi, directionScore), parts.set.volatility?.bollinger_rsi, directionScore);
+    const primaryRsi=rsiConfirmation(parts.rsi,directionScore), auxiliaries=parts.auxiliaryRsi.map((item)=>rsiConfirmation(item,directionScore)).filter((item)=>item.available);
+    const auxiliaryShare=auxiliaries.length?engine.config.componentScales.rsi.auxiliaryShare:0;
+    const groupedRsi={...primaryRsi,confirmation:primaryRsi.confirmation*(1-auxiliaryShare)+(mean(auxiliaries.map((item)=>item.confirmation)) || 0)*auxiliaryShare,components:{...primaryRsi.components,auxiliaryShare}};
+    const rsi = compositeConfirmation(groupedRsi, parts.set.volatility?.bollinger_rsi, directionScore);
     const originalAdxConfirmation = adxConfirmation(adx, directionScore);
     const adxConfirmationState = { ...originalAdxConfirmation, confirmation: originalAdxConfirmation.available ? eventConfirmation(originalAdxConfirmation.confirmation, parts.set.trend?.support_resistance, sign(directionScore)) : originalAdxConfirmation.confirmation };
-    const momentum = { confirmation: directionalAgreement(directionScore, earlyMacd.score || 0), available: earlyMacd.available, components: earlyMacd.components || {} };
+    const momentum = { confirmation: directionalAgreement(directionScore, originalMacd.score || 0), available: originalMacd.available, components: originalMacd.components || {} };
     const confirmationComponents = { relativeStrength, participation, rsi, adx: adxConfirmationState, momentum };
     const confirmationWeights = normalizeWeights(parts.config.confirmationWeights, profileModifiers.confirmationWeights);
     const confirmationScore = clamp(Object.entries(confirmationWeights).reduce((sum, [key, weight]) => sum + (confirmationComponents[key].confirmation || 0) * weight, 0), 0, 100);
-    const baselineParts = { relativeStrength: relativeStrengthEvidence(parts.relativeStrength, baselineDirectionScore, profile), participation: participationEvidence(parts.obv, parts.volume, baselineDirectionScore), rsi: rsiConfirmation(parts.rsi, baselineDirectionScore), adx: adxConfirmation(adx, baselineDirectionScore), momentum: { confirmation: directionalAgreement(baselineDirectionScore, earlyMacd.score || 0) } };
-    const baselineConfirmationScore = clamp(Object.entries(confirmationWeights).reduce((sum, [key, weight]) => sum + (baselineParts[key].confirmation || 0) * weight, 0), 0, 100);
     const persistence = signalPersistence(ma, originalMacd, adx, relativeStrength);
 
     const risk = riskState(parts, price, parts.ma);
     const opportunity = priceOpportunity(parts, price, atr);
     const quality = dataQuality(parts, directionComponents, confirmationComponents);
-    const agreementScores = [ma.score, macd.score, adx.score, early.score].filter(Number.isFinite).map((score) => directionScore === 0 ? 50 : score === 0 ? 50 : sign(score) === sign(directionScore) ? 100 : 0);
+    const agreementScores = [ma.score, macd.score, adx.score].filter(Number.isFinite).map((score) => directionScore === 0 ? 50 : score === 0 ? 50 : sign(score) === sign(directionScore) ? 100 : 0);
     const signalAgreement = Math.round(mean(agreementScores) || 0);
     const supporting = rankReasons([
       ma.score > 22 ? { score: Math.abs(ma.score), text: "Primary moving-average structure is constructive." } : null,
       originalMacd.score > 22 ? { score: Math.abs(originalMacd.score), text: "Primary MACD structure supports the current upside direction." } : null,
       availability(parts.set.momentum?.squeeze) && parts.set.momentum.squeeze.momentum > 0 && parts.set.momentum.squeeze.change_3 > 0 ? { score: Math.abs(macd.components.squeeze || 0) * engine.config.indicators.integration.squeezeShare[horizon], text: { code: "squeeze_momentum_supports_upside", text: "Squeeze momentum is positive and strengthening." } } : null,
       relativeStrength.score > 20 ? { score: Math.abs(relativeStrength.score), text: "Relative Strength is confirming versus the selected benchmarks." } : null,
-      participation.score > 20 ? { score: Math.abs(participation.score), text: "OBV and volume participation are confirming accumulation." } : null,
+      participation.score > 20 ? { score: Math.abs(participation.score), text: { code: "obv_and_volume_participation_are_confirming_accumulation", text: "Completed Daily volume and Daily-derived OBV support accumulation." } } : null,
       opportunity.score > 20 ? { score: Math.abs(opportunity.score), text: "Several technical structures form nearby support confluence." } : null,
     ], "supporting");
     const limiting = rankReasons([
@@ -517,10 +512,20 @@
     ], "limiting");
     const materialSignals = [];
     if (risk.components.shock >= engine.config.stability.material.atrShock) materialSignals.push("atr_volume_shock");
-    if (directionScore <= engine.config.stability.material.majorBreakdown && (ma.score < -45 || opportunity.score < -30)) materialSignals.push("major_support_breakdown");
-    if (directionScore >= engine.config.stability.material.majorBreakout && participation.score > 30) materialSignals.push("major_breakout");
+    if (parts.set.trend?.smc?.last_choch?.kind === "choch_down" && parts.set.trend.smc.last_choch.age_bars === 0) materialSignals.push("major_support_breakdown");
+    if (parts.set.trend?.smc?.last_bos?.sign === 1 && parts.set.trend.smc.last_bos.age_bars === 0) materialSignals.push("major_breakout");
     return {
-      baselineDirectionScore: Math.round(baselineDirectionScore), baselineConfirmationScore: Math.round(baselineConfirmationScore),
+      nextExecutionClose: features.execution_window_end || null, latestDailyEnd: features.source_intervals?.["1d"]?.last_bar_end || null,
+      horizon, structureSupport: parts.set.trend?.support_resistance?.support || null, structureLevels: parts.set.trend?.support_resistance?.levels || [],
+      signalAsOf: parts.set.signal_as_of || null, trendPrice,
+      smc: parts.set.trend?.smc || { availability:"unavailable" },
+      entryEvidence: {
+        improvingBars: parts.set.momentum?.improving_bars || 0, weakeningBars: parts.set.momentum?.weakening_bars || 0,
+        independentImprovement: participation.score > 0 && (parts.obv.divergence === "bullish_divergence" || parts.volume.trend?.price_volume_confirmation === "bullish_confirmation") || relativeStrength.score > 0 && parts.relativeStrength.consistency_state === "improving",
+        independentWeakening: participation.score < 0 || parts.relativeStrength.consistency_state === "deteriorating",
+        bearishMomentum: originalMacd.score < 0 && parts.macd.histogram_change_3 < 0,
+        bearishConfirmation: participation.score < 0 || relativeStrength.score < 0,
+      },
       directionScore: Math.round(directionScore), directionComponents,
       confirmationScore: Math.round(confirmationScore), confirmationComponents,
       riskScore: Math.round(risk.score), riskComponents: risk.components,
@@ -534,7 +539,7 @@
       // tab; attaching them to every decision would waste Render memory.
       raw: {
         rsi: scalarFeature(parts.rsi, ["value", "state", "slope", "divergence", "overbought_oversold"]),
-        macd: scalarFeature(parts.macd, ["macd_line", "signal_line", "histogram", "histogram_change_1", "histogram_change_3", "histogram_change_5", "above_or_below_zero", "crossover_state", "improving_or_deteriorating", "state"]),
+        macd: scalarFeature(parts.macd, ["improving_bars", "weakening_bars", "macd_line", "signal_line", "histogram", "histogram_change_1", "histogram_change_3", "histogram_change_5", "above_or_below_zero", "crossover_state", "improving_or_deteriorating", "state"]),
         adx: scalarFeature(parts.adx, ["adx", "plus_di", "minus_di", "slope", "trend_strength", "state"]),
         atr: scalarFeature(parts.atr, ["value", "atr_pct", "atr_percentile_pct", "atr_percentile_60", "atr_percentile_120", "atr_percentile_250", "volatility_regime", "expansion_state", "slope"]),
         bands: scalarFeature(parts.bands, ["upper_band", "middle_band", "lower_band", "percent_b", "bandwidth_pct", "bandwidth_percentile", "squeeze_state", "price_position", "state"]),
@@ -554,7 +559,7 @@
   }
 
   function blankProfileModifiers() {
-    return { directionWeights: {}, confirmationWeights: {}, benchmarkWeights: { spy: 0.5, qqq: 0.5 } };
+    return { confirmationWeights: {}, benchmarkWeights: { spy: 0.5, qqq: 0.5 } };
   }
 
   function scalarFeature(feature, keys) {

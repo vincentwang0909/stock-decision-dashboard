@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS decision_history (
     recorded_at_et TEXT NOT NULL,
     ticker TEXT NOT NULL,
     asset_type TEXT NOT NULL CHECK (asset_type IN ('stock', 'ETF')),
-    horizon TEXT NOT NULL CHECK (horizon IN ('short', 'mid', 'long')),
+    horizon TEXT NOT NULL CHECK (horizon IN ('short', 'mid', 'long', 'daily', 'weekly')),
     data_status TEXT NOT NULL CHECK (data_status IN ('available', 'partial', 'unavailable')),
     action TEXT,
     confidence REAL,

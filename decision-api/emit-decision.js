@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 "use strict";
 
-// Serializes the production Decision Engine's output as `decision.v1`, the
+// Serializes the production Decision Engine's output as `decision.v2`, the
 // data contract Ryan's finance-monorepo consumes over HTTP.
 //
 // This is a SERIALIZER, not a second recommendation implementation. It loads
 // the same production modules the Dashboard and the EOD recorder load,
-// including all unified V2 horizon policies. `decision.v1` versions the API payload
+// including all unified V2 horizon policies. `decision.v2` versions the API payload
 // format; `modelVersion` identifies the current engine independently. It
 // calls the same `engine.decide`, and only reshapes the result. No scoring,
 // thresholds or price levels are computed here — per AGENTS.md, a final
@@ -14,7 +14,7 @@
 // decision has already been made by the time this file sees it.
 //
 // Shape difference worth naming: the engine nests the bands under
-// `priceLandscape`; decision.v1 hoists them to the top of each horizon object
+// `priceLandscape`; decision.v2 hoists them to the top of each horizon object
 // so a consumer needs no knowledge of the engine's internals.
 
 const fs = require("node:fs");
@@ -27,17 +27,17 @@ const { finite, featureInputs, quoteFromItem } = require(path.join(ROOT, "decisi
 
 for (const file of [
   "config.js", "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "etf-profile.js", "company-profile.js",
-  "planning-width.js", "execution-engine.js", "short-model-v2.js", "confidence-engine.js", "stability-engine.js", "horizon-model-v2.js", "decision-engine.js",
+  "execution-engine.js", "confidence-engine.js", "stability-engine.js", "horizon-model-v2.js", "decision-engine.js",
 ]) require(path.join(ROOT, "decision-engine", file));
 
 const engine = globalThis.DecisionEngine;
 
-const CONTRACT_VERSION = "decision.v1";
+const CONTRACT_VERSION = "decision.v2";
 const PRODUCER = "vincent-stock-decision-dashboard";
-const HORIZONS = ["short", "mid", "long"];
+const HORIZONS = ["daily", "weekly"];
 
 // A band is emitted only when both edges are real numbers. A half-known band is
-// not a band, and decision.v1 requires every price field to be nullable rather
+// not a band, and decision.v2 requires every price field to be nullable rather
 // than filled with a plausible-looking placeholder.
 function band(range) {
   const low = finite(range?.low);
@@ -68,11 +68,14 @@ function horizonPayload(decision, horizon, quote) {
 
   const landscape = value.priceLandscape || {};
   const priceState = value.debug?.priceState || "INVALID_LANDSCAPE";
-  const usable = priceState !== "INVALID_LANDSCAPE";
+  const usable = priceState !== "INVALID_LANDSCAPE" && !value.backgroundOnly;
 
   return {
+    backgroundOnly: Boolean(value.backgroundOnly), signalAsOf: value.signalAsOf, quoteAsOf: value.quoteAsOf,
+    shortEntryRange: band(landscape.shortEntryRange), shortInvalidation: finite(landscape.shortInvalidation),
+    rewardRisk: finite(value.action === "short_sell" ? landscape.shortRewardRisk : landscape.rewardRisk), costsIncluded: false,
     action: value.action,
-    // The engine's confidence is already 0-100, which is decision.v1's scale.
+    // The engine's confidence is already 0-100, which is decision.v2's scale.
     // Do not rescale here; consumers on a 0.0-1.0 scale divide on their side.
     confidence: finite(value.confidence),
     priceState,
@@ -98,7 +101,7 @@ function decisionFor({ ticker, quote, market, features = null, underlying = null
     technicalFeatures: features,
     marketContext: market,
     classification,
-    metadata: quote?.metadata || {},
+    metadata: { ...(quote?.metadata || {}), quoteStale: Boolean(quote?.stale), asOf: quote?.last_quote_time || quote?.updatedAt || quote?.metadata?.asOf || null },
     language: "en",
     underlyingTechnicalFeatures: underlying?.features || null,
     underlyingPrice: underlying?.price ?? null,
@@ -166,6 +169,6 @@ function main() {
 try {
   main();
 } catch (error) {
-  console.error(`[decision.v1] serialization failed: ${error?.stack || error}`);
+  console.error(`[decision.v2] serialization failed: ${error?.stack || error}`);
   process.exitCode = 1;
 }

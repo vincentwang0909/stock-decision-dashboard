@@ -81,11 +81,11 @@ assert.ok(refreshFailure > lastRefreshCommit, "A failed refresh cannot commit a 
 assert.match(executionEngine, /NEAR_OPPORTUNITY_ZONE", "NEUTRAL_ZONE", "NEAR_REDUCE_ZONE"/);
 assert.match(executionEngine, /state === "IN_OPPORTUNITY_ZONE"/);
 assert.match(executionEngine, /\["IN_REDUCE_ZONE", "BEYOND_REDUCE_ZONE"\]/);
-for (const action of ["strong_buy", "buy", "accumulate", "hold", "trim", "sell", "avoid"]) assert.ok(presentation.actionTone[action], `Homepage action tone missing: ${action}`);
+for (const action of ["strong_buy", "buy", "accumulate", "hold", "trim", "sell", "short_sell"]) assert.ok(presentation.actionTone[action], `Homepage action tone missing: ${action}`);
 assert.match(main, /decision\??\.actionLabel/);
 assert.match(main, /row\.ready && decision \? decisionActionLabel\(decision\) : t\("unavailable"\)/);
-assert.match(featureInputs, /stock_vs_spy_\$\{days\}d/);
-assert.match(featureInputs, /stock_vs_qqq_\$\{days\}d/);
+assert.match(featureInputs, /benchmarkContext: market/);
+assert.doesNotMatch(featureInputs, /relativeStrengthFromBars/);
 assert.match(main, /EMA 9|item\.indicator/);
 assert.match(main, /change_5d/);
 assert.match(main, /change_20d/);
@@ -102,8 +102,8 @@ for (const renderedTechnicalField of [
   "Bandwidth percentile",
   "K / D / J slope",
   "Relative Strength",
-  "vs QQQ · 20 / 60 / 120D",
-  "Horizon OBV · 4H / 1D / 1W",
+
+  "Horizon OBV · Daily 20D / Weekly 12W",
 ]) assert.match(main, new RegExp(renderedTechnicalField.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Technical render field is missing: ${renderedTechnicalField}`);
 assert.match(main, /fibonacciLevelTable/);
 assert.match(main, /fib\.retracement_levels/);
@@ -120,7 +120,7 @@ for (const presentationClass of ["stock-item-body", "decision-hero", "decision-c
 }
 assert.match(marketEngine, /source\.market_context/);
 assert.doesNotMatch(marketEngine, /directionAdjustment/);
-assert.match(executionEngine, /Stateless by contract/);
+assert.match(executionEngine, /function buildLandscape/);
 assert.doesNotMatch(executionEngine, /previousLandscape|previousCluster|clusterSwitchingMargin|_landscapeCache/);
 assert.match(technicalEngine, /unified_category_confluence/);
 assert.match(technicalEngine, /categoryContributionCap/);
@@ -130,7 +130,6 @@ assert.match(main, /executionIntent/);
 assert.match(main, /priceLandscape/);
 assert.match(main, /recommendedBuyAddRange/);
 assert.match(main, /potentialReduceRange/);
-assert.match(main, /execution-avoid-note/);
 assert.doesNotMatch(main, /noExecutionPlan/);
 assert.match(main, /recommendationConfidence/);
 assert.match(main, /decisionHorizon/);
@@ -161,8 +160,8 @@ assert.doesNotMatch(main, /decision\.confidence}%/);
 assert.match(html, /profile-definitions\.js/);
 assert.match(html, /etf-profile\.js/);
 assert.match(html, /decision-presentation\.js/);
-assert.match(html, /20261009-data-trust/);
-for (const token of ["--action-strong-buy", "--action-buy", "--action-accumulate", "--action-hold", "--action-trim", "--action-sell", "--action-avoid", "--space-xs", "--radius-lg"]) assert.match(css, new RegExp(token), `UI token is missing: ${token}`);
+assert.match(html, /20261012-v2/);
+for (const token of ["--action-strong-buy", "--action-buy", "--action-accumulate", "--action-hold", "--action-trim", "--action-sell", "--action-short-sell", "--space-xs", "--radius-lg"]) assert.match(css, new RegExp(token), `UI token is missing: ${token}`);
 assert.match(css, /price-map-label\.top\.lane-1/);
 assert.match(css, /price-map-label\.bottom\.lane-2/);
 assert.match(css, /decision-core-card\.is-active/);

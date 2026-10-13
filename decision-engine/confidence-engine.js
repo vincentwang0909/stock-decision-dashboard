@@ -4,10 +4,11 @@
   const engine = root.DecisionEngine || (root.DecisionEngine = {});
   const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 
-  function calculate({ action, edge = 0, technical = {}, marketModifiers = {}, exhaustion = {}, profile = {}, stability = null, finalDecision = null, landscapeQuality = null } = {}) {
+  function calculate({ action, technical = {}, marketModifiers = {}, exhaustion = {}, profile = {}, stability = null, finalDecision = null, landscapeQuality = null } = {}) {
     const config = engine.config.confidence;
     const agreement = clamp(technical.signalAgreement || 0, 0, 100);
-    const actionStrength = clamp(Math.abs(edge), 0, 100);
+    const directionalAction = ["buy","strong_buy","sell","short_sell"].includes(action);
+    const actionStrength = directionalAction ? clamp(technical.confirmationScore || 0,0,100) : action === "accumulate" || action === "trim" ? clamp(Math.max(technical.confirmationScore || 0,Math.abs(exhaustion.score || 0)),0,100) : clamp(technical.dataQuality?.score || 0,0,100);
     const stabilityScore = stability?.score
       ?? technical.signalPersistence?.score
       ?? engine.config.stability.noHistory.unavailable;
@@ -23,8 +24,8 @@
     const penalties = {};
     const direction = technical.directionScore || 0;
     if ((marketModifiers.regime === "risk_off" || marketModifiers.regime === "shock") && direction > 30) penalties.marketConflict = config.penalties.marketConflict * (marketModifiers.regime === "shock" ? 1 : 0.55);
-    if ((exhaustion.score || 0) <= -42 && edge > 25) penalties.exhaustionConflict = config.penalties.exhaustionConflict * clamp(Math.abs(exhaustion.score) / 100, 0.35, 1);
-    if ((exhaustion.score || 0) >= 42 && edge < -25) penalties.exhaustionConflict = config.penalties.exhaustionConflict * clamp(Math.abs(exhaustion.score) / 100, 0.35, 1);
+    if ((exhaustion.score || 0) <= -42 && ["buy","strong_buy"].includes(action)) penalties.exhaustionConflict = config.penalties.exhaustionConflict * clamp(Math.abs(exhaustion.score) / 100, 0.35, 1);
+    if ((exhaustion.score || 0) >= 42 && ["sell","short_sell"].includes(action)) penalties.exhaustionConflict = config.penalties.exhaustionConflict * clamp(Math.abs(exhaustion.score) / 100, 0.35, 1);
     if ((marketModifiers.confidencePenalty || 0) > 0) penalties.eventUncertainty = Math.min(config.penalties.eventUncertainty, marketModifiers.confidencePenalty);
     const majorConflict = Math.abs(direction) >= 42 && technical.confirmationScore <= 42;
     if (majorConflict) penalties.internalConflict = config.penalties.internalConflict * 0.72;
