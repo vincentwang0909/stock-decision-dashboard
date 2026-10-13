@@ -33,6 +33,7 @@ const EASTERN_REFRESH_FORMATTER = new Intl.DateTimeFormat("en-CA", {
 const DEFAULT_WATCHLIST = ["NVDA", "TSLA", "AMD", "BABA", "GOOGL", "AMZN", "AAPL", "META", "MSFT", "QQQ"];
 const I18N = {
   en: {
+    lowerObservationRange: "Lower observation zone", upperObservationRange: "Upper observation zone", observationPriceMap: "Technical observation zones", holdNoExecutionRange: "No actionable entry or reduction range at present.", observationRangeHelp: "These are technical candidates for observation. Entering a zone does not authorize buying or reducing; follow the final Action.",
     signalAsOf: "Signal close", shortEntryRange: "Short Entry Range", shortInvalidation: "Short Invalidation (above)", structuralSpace: "Structural reward / risk",
     appTitle: "Stock Decision Dashboard", stocks: "Stocks", search: "Search symbol or name", add: "Add selected", refresh: "Refresh now", refreshing: "Refreshing…", lastRefresh: "Last refresh", autoRefresh: "Auto refresh every 30 min at :10 / :40 (ET)",
     shared: "Shared Watchlist: everyone viewing this Dashboard sees the same stock list.", syncFailed: "Shared list sync failed. Showing cached data.", localServerRequired: "This dashboard must be opened through the local server. Run python3 server.py, then open",
@@ -60,6 +61,7 @@ const I18N = {
     serviceUpdating: "The service is updating data. Waiting for the complete snapshot…",
   },
   zh: {
+    lowerObservationRange: "下方观察区", upperObservationRange: "上方观察区", observationPriceMap: "技术观察区间", holdNoExecutionRange: "当前没有可执行的建仓或减仓建议。", observationRangeHelp: "以下是技术候选位置，进入区间不代表可以买入或减仓；操作以最终 Action 为准。",
     signalAsOf: "信号收盘时间", shortEntryRange: "独立开空区", shortInvalidation: "空头上方失效位", structuralSpace: "结构空间／风险",
     appTitle: "股票决策仪表盘", stocks: "股票", search: "搜索代码或名称", add: "添加所选", refresh: "立即刷新", refreshing: "刷新中…", lastRefresh: "上次刷新", autoRefresh: "每半小时自动刷新：10／40 分（美东时间）",
     shared: "共享自选列表：所有查看此仪表盘的用户看到相同的股票列表。", syncFailed: "共享列表同步失败，正在显示缓存数据。", localServerRequired: "此仪表盘必须通过本地服务打开。请运行 python3 server.py，然后访问",
@@ -361,6 +363,7 @@ function executionFields(row, decision) {
   const current = Number.isFinite(landscape.currentPrice) ? landscape.currentPrice : row.price;
   const common = `${field("currentPrice", Number.isFinite(current) ? formatPrice(current, row.currency) : "")}`;
   if (decision.backgroundOnly) return `${common}<p class="decision-no-data">${state.language === "zh" ? "杠杆 ETF 以日线执行；周线用于观察自身趋势。" : "Use Daily for leveraged ETF execution; Weekly describes its trend."}</p>`;
+  if (decision.action === "hold") return `${common}${Number.isFinite(landscape.invalidation) ? field("riskInvalidation", formatPrice(landscape.invalidation, row.currency)) : ""}${Number.isFinite(landscape.hardInvalidation) ? field("hardInvalidation", formatPrice(landscape.hardInvalidation, row.currency)) : ""}<p class="detail-line-note">${t("holdNoExecutionRange")}</p>`;
   if (decision.action === "short_sell") return `${field("shortEntryRange",formatRange(landscape.shortEntryRange,row.currency))}${common}${field("shortInvalidation",formatPrice(landscape.shortInvalidation,row.currency))}${field("structuralSpace",`${Number.isFinite(landscape.shortRewardRisk)?landscape.shortRewardRisk.toFixed(2):"—"}R`)}`;
   return `${field(presentation.opportunity, validPriceRange(landscape.opportunityRange) ? formatRange(landscape.opportunityRange, row.currency) : "")}${common}${field(presentation.reduce, validPriceRange(landscape.reduceRange) ? formatRange(landscape.reduceRange, row.currency) : "")}${field(presentation.invalidation, Number.isFinite(landscape.invalidation) ? formatPrice(landscape.invalidation, row.currency) : "")}${Number.isFinite(landscape.hardInvalidation) ? field("hardInvalidation", formatPrice(landscape.hardInvalidation, row.currency)) : ""}${Number.isFinite(landscape.rewardRisk) ? field("structuralSpace", `${landscape.rewardRisk.toFixed(2)}R`) : ""}`;
 }
@@ -421,6 +424,23 @@ function atrPercentileDisplay(atr, window) {
 function technicalCard(title, stateLabel, detail, rows = [], details = [], availability = null) {
   const availabilityNote = technicalAvailability(availability);
   return `<article class="decision-list-card technical-indicator-card"><div class="decision-list-title">${escapeHtml(uiLabel(title))}</div><div class="technical-indicator-state">${escapeHtml(technicalState(stateLabel))}</div>${detail ? `<div class="detail-line-note">${escapeHtml(uiLabel(detail))}</div>` : ""}${availabilityNote ? `<div class="detail-line-note">${escapeHtml(availabilityNote)}</div>` : ""}<div class="detail-line-list">${rows.join("") || technicalLine(title, t("unavailable"))}</div>${details.length ? `<div class="detail-disclosure"><div class="detail-line-list">${details.join("")}</div></div>` : ""}</article>`;
+}
+
+function relativeStrengthCard(rs, horizon, interval) {
+  const tl = (en, zh) => state.language === "zh" ? zh : en;
+  const suffix = horizon === "weekly" ? "w" : "d";
+  const diagnostic = (name, n) => {
+    const source = rs.diagnostics?.[name], item = source?.windows?.[`${suffix}${n}`];
+    if (!item || item.availability === "available") return "";
+    const reason = technicalState(item.reason);
+    if (item.reason === "insufficient_history") return `${reason} · ${tl("stock / aligned / required bars", "个股／对齐／所需根数")} ${item.stock_bars}/${item.aligned_bars}/${item.required_bars}`;
+    return `${reason} · ${tl("stock / benchmark close", "个股／基准收盘日期")} ${rs.as_of || "—"} / ${source.as_of || "—"}`;
+  };
+  const primary = rs.primary_lookback;
+  const rows = [technicalLine("Stock return", formatPct(rs.primary?.stock_return)), ...["spy", "qqq"].map((name) => technicalLine(`vs ${name.toUpperCase()}`, formatPct(rs.primary?.[`vs_${name}`]), diagnostic(name, primary)))];
+  const details = window.DecisionEngine.config.indicators.relativeStrength[horizon].windows.map((n) => technicalLine(`${n} ${intervalLabel(interval)}`, `${formatPct(rs.returns?.[`stock_${n}${suffix}`])} · SPY ${formatPct(rs.vs_spy?.[`${suffix}${n}`])} · QQQ ${formatPct(rs.vs_qqq?.[`${suffix}${n}`])}`, ["spy", "qqq"].map((name) => { const note = diagnostic(name, n); return note ? `${name.toUpperCase()}: ${note}` : ""; }).filter(Boolean).join(" · ")));
+  details.push(technicalLine("Consistency", rs.consistency_state === "unavailable" ? tl("Insufficient comparable windows", "可比较窗口不足") : technicalState(rs.consistency_state)));
+  return technicalCard("Relative Strength", rs.availability === "unavailable" ? "benchmark_comparison_unavailable" : rs.state, `${intervalLabel(interval)} · ${primary || "—"} ${tl("bars", "根")}`, rows, details);
 }
 
 function compactNumber(value) {
@@ -496,7 +516,7 @@ function technicalBlock(row, horizon) {
     [t("trendSummary"), technicalState(featureSet.trend?.ma_structure?.alignment)],
     [t("momentumSummary"), technicalState(macd.state)],
     [t("volatilitySummary"), technicalState(atr.volatility_regime)],
-    [t("relativeStrengthSummary"), technicalState(rs.state)],
+    [t("relativeStrengthSummary"), technicalState(rs.availability === "unavailable" ? "benchmark_comparison_unavailable" : rs.state)],
     [t("participationSummary"), technicalState(obv.trend)],
   ];
   return `
@@ -516,7 +536,7 @@ function technicalBlock(row, horizon) {
         ${technicalCard("ADX / DI", adx.trend_strength, `${intervalLabel(interval)} · ADX ${adx.period || 14}`, [technicalLine("ADX", indicatorValue(adx, "adx", (value) => value.toFixed(1))), technicalLine("+DI / −DI", `${indicatorValue(adx, "plus_di", (value) => value.toFixed(1))} / ${indicatorValue(adx, "minus_di", (value) => value.toFixed(1))}`)], [technicalLine("Trend strength", technicalState(adx.trend_strength)), technicalLine("Directional bias", technicalState(adx.directional_bias)), technicalLine("ADX slope", technicalState(adx.slope?.state), technicalAvailability(adx.slope))], adx)}
         ${technicalCard("ATR", atr.volatility_regime, `${intervalLabel(interval)} · ATR ${atr.period || 14}`, [technicalLine("Raw ATR", indicatorValue(atr, "value", (value) => formatPrice(value, row.currency))), technicalLine("ATR %", indicatorValue(atr, "atr_pct", (value) => percentValue(value, 2)))], [technicalLine("ATR percentile", indicatorValue(atr, "atr_percentile_pct", (value) => percentValue(value, 1)), technicalAvailability(atr.atr_percentile)), ...[60, 120, 250].map((window) => technicalLine(`${window}-bar percentile`, atrPercentileDisplay(atr, window))), technicalLine("Volatility regime", technicalState(atr.volatility_regime), technicalAvailability(atr.volatility_regime_availability)), technicalLine("Expanding / contracting", technicalState(atr.expansion_state)), technicalLine("ATR slope", technicalState(atr.slope?.state), technicalAvailability(atr.slope))], atr)}
         ${Object.keys(featureSet.momentum?.kdj || {}).length ? technicalCard("KDJ", kdj.crossover_state, `${intervalLabel(interval)} · KDJ ${kdj.period || 9}`, [technicalLine("K / D / J", `${indicatorValue(kdj, "k", (value) => value.toFixed(1))} / ${indicatorValue(kdj, "d", (value) => value.toFixed(1))} / ${indicatorValue(kdj, "j", (value) => value.toFixed(1))}`)], [technicalLine("Crossover", technicalState(kdj.crossover_state)), technicalLine("Direction", technicalState(kdj.direction)), technicalLine("K / D / J slope", `${technicalState(kdj.k_slope?.state)} / ${technicalState(kdj.d_slope?.state)} / ${technicalState(kdj.j_slope?.state)}`), technicalLine("Overbought / oversold", `${technicalBoolean(kdj.overbought)} / ${technicalBoolean(kdj.oversold)}`)], kdj) : ""}
-        ${technicalCard("Relative Strength",rs.state,`${intervalLabel(interval)} · ${rs.primary_lookback || "—"} ${tl("bars","根")}`,[technicalLine("Stock return",formatPct(rs.primary?.stock_return)),technicalLine("vs SPY",formatPct(rs.primary?.vs_spy)),technicalLine("vs QQQ",formatPct(rs.primary?.vs_qqq))],window.DecisionEngine.config.indicators.relativeStrength[horizon].windows.map((n)=>technicalLine(`${n} ${intervalLabel(interval)}`,`${formatPct(rs.returns?.[`stock_${n}${horizon === "weekly" ? "w" : "d"}`])} · SPY ${formatPct(rs.vs_spy?.[`${horizon === "weekly" ? "w" : "d"}${n}`])} · QQQ ${formatPct(rs.vs_qqq?.[`${horizon === "weekly" ? "w" : "d"}${n}`])}`)).concat([technicalLine("Consistency",technicalState(rs.consistency_state))]),rs)}
+        ${relativeStrengthCard(rs, horizon, interval)}
         ${technicalCard("OBV", obv.trend, `${intervalLabel(obvInterval)} OBV · ${obv.lookback ?? "—"} ${tl("bars", "根")} · ${tl("completed Daily background", "已完成日线背景")}`, [technicalLine("Raw OBV", compactNumber(obv.raw_value)), technicalLine("Trend", technicalState(obv.trend)), technicalLine("Divergence", technicalState(obv.divergence)), technicalLine("Price-volume confirmation", technicalState(obv.price_obv_confirmation))], [technicalLine("OBV slope", technicalState(obv.slope?.state), technicalAvailability(obv.slope))], obv)}
       </div>
     </section>
@@ -688,7 +708,7 @@ function renderDecisionPriceMap(row, horizon) {
   const labelMarkup = (point) => `<span class="price-map-label ${point.id} ${point.labelSide} lane-${point.labelLane}" style="left:${point.labelPosition}%"><i>${escapeHtml(t(point.labelKey))}</i><b>${escapeHtml(labelValue(point))}</b>${distance(point) ? `<small>${escapeHtml(distance(point))}</small>` : ""}</span>`;
   if (!decision || !model.points?.length) return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("decisionPriceMap")}</h3></div><p class="decision-no-data">${t("noDecision")}</p></section>`;
   const key = (model.legend || []).map((point) => `<span><i class="price-map-key ${point.id}"></i>${escapeHtml(t(point.labelKey))}</span>`).join("");
-  return `<section class="detail-section-card decision-price-map"><div class="detail-section-head"><h3>${t("decisionPriceMap")}</h3><span>${t(horizon)} · ${horizonLabel(horizon)}</span></div><div class="price-map-track" style="--price-map-height:${model.trackHeight || 140}px">${model.points.map(pointMarkup).join("")}<div class="price-map-axis"></div>${model.labels.map(labelMarkup).join("")}</div><div class="price-map-key-row">${key}</div></section>`;
+  return `<section class="detail-section-card decision-price-map"><div class="detail-section-head"><h3>${t(decision.action === "hold" ? "observationPriceMap" : "decisionPriceMap")}</h3><span>${t(horizon)} · ${horizonLabel(horizon)}</span></div>${decision.action === "hold" ? `<p class="detail-line-note">${t("observationRangeHelp")}</p>` : ""}<div class="price-map-track" style="--price-map-height:${model.trackHeight || 140}px">${model.points.map(pointMarkup).join("")}<div class="price-map-axis"></div>${model.labels.map(labelMarkup).join("")}</div><div class="price-map-key-row">${key}</div></section>`;
 }
 
 function renderWhyThisDecision(row, horizon) {

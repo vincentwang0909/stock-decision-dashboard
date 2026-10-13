@@ -24,7 +24,7 @@
     waiting_benchmark_confirmation: { en: "Aligned benchmark history is missing for this horizon.", zh: "缺少该周期日期一致的基准历史，等待确认。" },
     waiting_valid_landscape: { en: "No valid structural entry plan with sufficient reward/risk.", zh: "真实结构尚未形成空间足够的入场计划。" },
     price_outside_entry: { en: "Direction alone is insufficient: current price is outside the valid entry range.", zh: "方向信号本身不足以执行；当前价格不在有效入场区。" },
-    reduce_candidate_without_exhaustion: { en: "Price is in the reduce candidate area, but exhaustion is unconfirmed.", zh: "价格进入减仓候选区，但衰竭证据不足，继续观察。" },
+    reduce_candidate_without_exhaustion: { en: "Price is in the upper observation zone, but exhaustion is unconfirmed.", zh: "价格进入上方观察区，但衰竭证据不足，继续观察。" },
     waiting_entry_confirmation: { en: "Early repair or confirmed right-side entry requirements are incomplete.", zh: "早期修复或右侧入场条件尚未完整满足。" },
     waiting_strict_right_confirmation: { en: "Leveraged ETFs require stricter confirmed right-side structure.", zh: "杠杆 ETF 需要更严格的右侧结构确认。" },
     early_support_repair: { en: "Support rejection is completed, momentum is improving and independent evidence supports gradual entry.", zh: "完成周期出现止跌／收回支撑，动量持续改善并有独立证据，支持逐步加仓。" },
@@ -120,7 +120,7 @@
     const labels = {
       enter: { opportunity: "recommendedBuyAddRange", reduce: "potentialReduceRange", invalidation: "riskInvalidation" },
       add: { opportunity: "recommendedBuyAddRange", reduce: "potentialReduceRange", invalidation: "riskInvalidation" },
-      hold: { opportunity: "potentialAddRange", reduce: "potentialReduceRange", invalidation: "riskInvalidation" },
+      hold: { opportunity: "lowerObservationRange", reduce: "upperObservationRange", invalidation: "riskInvalidation" },
       reduce: { opportunity: "reevaluationRange", reduce: "recommendedReduceRange", invalidation: "riskInvalidation" },
       exit: { opportunity: "reevaluationRange", reduce: "recommendedExitRange", invalidation: "riskInvalidation" },
       short_enter: { opportunity: "shortEntryRange", reduce: null, invalidation: "shortInvalidation" },

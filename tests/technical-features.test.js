@@ -51,3 +51,26 @@ assert.equal(missingRS.horizons.weekly.relative_strength.availability,"unavailab
 assert.equal(t.emaSeries([1,2,3,4],3)[2],2);assert.equal(t.emaSeries([1,2,3,4],3)[3],3);
 assert.equal(t.rsiSeries([100,100,100,100],2).at(-1),50,"a flat price is RSI 50, not fake strength");
 console.log("Canonical features: two real frames, completion, independent ATR, RS, optional windows and frozen signals passed.");
+
+// RS compares identical completed endpoints and all intervening stock dates.
+const tailKeys=["timestamps","opens","highs","lows","closes","volumes","completed","bar_end_timestamps"];
+const buildRS=(spy,qqq=benchmark,history=raw)=>buildTechnicalFeatures({history,currentPrice:100,calculatedAt:raw.as_of,benchmarkContext:{market_context:{benchmark_history:{spy,qqq}}}});
+const dated=clone(benchmark);for(const key of tailKeys)dated[key].pop();
+const mismatch=buildRS(dated).horizons.daily.relative_strength;
+assert.equal(mismatch.primary.vs_spy,null);assert(Number.isFinite(mismatch.primary.vs_qqq));
+assert.equal(mismatch.diagnostics.spy.windows.d20.reason,"benchmark_date_mismatch");
+assert.equal(buildRS(dated).horizons.weekly.relative_strength.primary.vs_spy,null,"missing final session cannot form a complete benchmark week");
+const gap=clone(benchmark);for(const key of tailKeys)gap[key].splice(-10,1);
+assert.equal(buildRS(gap).horizons.daily.relative_strength.primary.vs_spy,null,"do not stretch 20 stock bars to 20 aligned benchmark bars");
+assert.equal(buildRS(gap).horizons.daily.relative_strength.diagnostics.spy.windows.d20.reason,"benchmark_window_gap");
+const shortHistory=clone(raw);for(const key of tailKeys)shortHistory[key]=shortHistory[key].slice(-80);
+const shortRS=buildRS(benchmark,benchmark,shortHistory).horizons.daily.relative_strength;
+assert(Number.isFinite(shortRS.primary.vs_spy));assert.equal(shortRS.vs_spy.d120,null);
+assert.equal(shortRS.diagnostics.spy.windows.d120.reason,"insufficient_history");assert.equal(shortRS.diagnostics.spy.windows.d120.stock_bars,80);
+assert.equal(missingRS.horizons.daily.relative_strength.diagnostics.spy.windows.d20.reason,"benchmark_source_unavailable");
+const untrusted=clone(benchmark);untrusted.adjustment_basis="unknown";
+assert.equal(buildRS(untrusted).horizons.daily.relative_strength.primary.vs_spy,null);
+assert.equal(buildRS(untrusted).horizons.daily.relative_strength.diagnostics.spy.windows.d20.reason,"unverified_price_basis");
+const spyReturn=(benchmark.closes.at(-1)/benchmark.closes.at(-21)-1)*100;
+assert(Math.abs(f.horizons.daily.relative_strength.primary.vs_spy-((raw.closes.at(-1)/raw.closes.at(-21)-1)*100-spyReturn))<1e-10);
+console.log("RS: exact completed date/window, missing session, optional long history, source trust and independent formula passed.");

@@ -67,6 +67,7 @@ Strong Buy/Short Sell >=2R, before unverified fees/slippage/borrow. Evaluate all
 a failed top pair must not suppress the remaining valid zones. Clip each
 unqualified candidate entry price against the nearest legitimate obstacle.
 Display rounding must not cause a threshold pass.
+Hold cards show current price and risk boundaries without actionable entry/reduction ranges. Their separate landscape uses lower/upper observation labels; candidate zones never authorize execution.
 
 Near/Neutral is Hold. Opportunity can Hold if its independent gates fail.
 Reduce/Beyond Reduce can Hold without exhaustion; otherwise Trim or confirmed
@@ -105,6 +106,7 @@ no invented/free-scraped/paid feed, no claim of a verified expectation surprise.
 
 - Render target: 512 MB RAM, 0.5 CPU, 1 GB disk. Reuse bounded normalized input, avoid deep clones/unbounded caches/heavy chart dependencies. Temporary clusters/series go out of scope after calculation. Company review cache remains capped at300; no Action/range cache is needed.
 - Manual/auto share a single in-flight promise and generation. Both request force=true/full watchlist; provider-safe batches must refresh every active ticker. Fetch shared Market once per full transaction.
+Force the shared Market refresh on the first manual/auto batch; later batches reuse it. When live reads are allowed, cached benchmark history must cover the latest actual completed XNYS session, regardless of cache write age. RS uses identical completed stock/benchmark window dates; missing intervening sessions or unverified benchmark price bases stay unavailable with explicit per-window diagnostics.
 - Browser/server refresh at ET :10/:40, DST-safe wall-clock slots, not page-anchored intervals. A completed refresh means snapshot → both frames/Confidence/landscape → DOM → browser paint → loading ends/Last Refresh commits.
 - Last Refresh uses applied server freshness in America/New_York, explicitly ET. Failed/empty responses retain prior successful page/time and release loading; retry next slot. Explicit busy response may extend a bounded first-load deadline once.
 - Unverified alternate price adjustment bases cannot replace Daily data or borrow a trusted timestamp.

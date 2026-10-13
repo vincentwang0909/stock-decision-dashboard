@@ -4,6 +4,7 @@
 
   const STATES = Object.freeze({
     available: "可用", partial: "部分可用", stale: "数据较旧", unverified: "尚未核实",
+    benchmark_comparison_unavailable: "基准比较不可用", benchmark_source_unavailable: "基准历史缺失", benchmark_completion_unavailable: "缺少已完成基准数据", benchmark_date_mismatch: "基准日期不一致", benchmark_window_gap: "基准窗口存在缺口",
     source_unavailable: "来源不可用", insufficient_history: "历史不足", calculation_error: "计算错误",
     dependency_unavailable: "必要输入不可用", not_applicable: "不适用", market_session_incomplete: "交易时段未完成",
     invalid_source_data: "源数据无效", previous_refresh_generation: "来自较早刷新批次",
@@ -41,6 +42,7 @@
     weekly_history_unavailable: "周线历史不可用",
   });
   const EN_STATES = Object.freeze({
+    benchmark_comparison_unavailable: "Benchmark comparison unavailable", benchmark_source_unavailable: "Benchmark history missing", benchmark_completion_unavailable: "Completed benchmark data missing", benchmark_date_mismatch: "Benchmark dates do not match", benchmark_window_gap: "Benchmark window has a gap",
     source_unavailable: "Source unavailable", insufficient_history: "Insufficient history", calculation_error: "Calculation error",
     dependency_unavailable: "Required input unavailable", not_applicable: "Not applicable", market_session_incomplete: "Session unfinished",
     invalid_source_data: "Invalid source data", previous_refresh_generation: "Earlier refresh generation",

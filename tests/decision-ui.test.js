@@ -13,10 +13,10 @@ const plan = (action, overrides = {}) => ({
 
 assert.equal(presentation.executionSemantics(plan("buy")).opportunity, "recommendedBuyAddRange");
 assert.equal(presentation.executionSemantics(plan("accumulate")).opportunity, "recommendedBuyAddRange");
-assert.equal(presentation.executionSemantics(plan("hold")).opportunity, "potentialAddRange");
+assert.equal(presentation.executionSemantics(plan("hold")).opportunity, "lowerObservationRange");
 assert.equal(presentation.executionSemantics(plan("trim")).reduce, "recommendedReduceRange");
 assert.equal(presentation.executionSemantics(plan("sell")).reduce, "recommendedExitRange");
-assert.equal(presentation.executionSemantics(plan("hold")).reduce, "potentialReduceRange");
+assert.equal(presentation.executionSemantics(plan("hold")).reduce, "upperObservationRange");
 assert.deepEqual(presentation.actionTone, {
   strong_buy: "strong-buy", buy: "buy", accumulate: "accumulate", hold: "hold", trim: "trim", sell: "sell", short_sell: "short-sell",
 });

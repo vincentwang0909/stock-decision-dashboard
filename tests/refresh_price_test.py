@@ -42,6 +42,49 @@ class RefreshPriceTests(unittest.TestCase):
             self.assertIs(server.recover_latest_completed_daily(raw,'TEST',datetime(2026,10,12,19,tzinfo=timezone.utc)),raw)
             fetch.assert_not_called()
 
+    def test_benchmark_cache_checks_completed_session_not_cache_write_time(self):
+        at = datetime(2026, 10, 12, 21, tzinfo=timezone.utc)
+        h = {'timestamps':['2026-10-09'], 'completed':[True], 'bar_end_timestamps':['2026-10-09T20:00:00Z'],
+             'source_validation_version':server.SOURCE_VALIDATION_VERSION,
+             'adjustment_basis':'provider_ohlc_auto_adjust_false'}
+        def payload(history):
+            return {'market_context':{'vix':{'value':18},
+                'benchmark_history':{name:history for name in ('spy','qqq')},
+                'equity_trend':{name:{'value':100,'change_60d_pct':1,'change_120d_pct':2} for name in ('spy','qqq')}}}
+        old = payload(h)
+        current = payload({**h, 'timestamps':['2026-10-09','2026-10-12'], 'completed':[True,True], 'bar_end_timestamps':['2026-10-09T20:00:00Z','2026-10-12T20:00:00Z']})
+        self.assertFalse(server.market_context_has_current_benchmarks(old,at))
+        self.assertTrue(server.market_context_has_current_benchmarks(current,at))
+        self.assertTrue(server.market_context_has_current_benchmarks(old,datetime(2026,10,12,19,tzinfo=timezone.utc)), 'prior close is current before session close')
+        self.assertFalse(server.market_context_has_current_benchmarks(payload({**h,'timestamps':['2026-10-12'],'completed':[False]}),at))
+        self.assertFalse(server.market_context_has_current_benchmarks(payload({**h,'timestamps':['2026-10-12'],'bar_end_timestamps':[]}),at))
+        self.assertFalse(server.market_context_has_current_benchmarks(payload({**h,'timestamps':['2026-10-12'],'bar_end_timestamps':['2026-10-13T20:00:00Z']}),at))
+        check = server.market_context_has_current_benchmarks
+        with patch.object(server,'MARKET_CONTEXT_CACHE',{'value':current,'expiresAt':server.time.time()+3600}), \
+             patch.object(server,'market_context_has_current_benchmarks',side_effect=lambda p:check(p,at)), \
+             patch.object(server,'_run_with_timeout') as fetch:
+            self.assertIs(server._get_market_context_cached_snapshot(allow_live=True)[0],current)
+            fetch.assert_not_called()
+        for layer in ('memory','disk'):
+            with self.subTest(layer=layer), patch.object(server,'MARKET_CONTEXT_CACHE',{'value':old if layer=='memory' else None,'expiresAt':server.time.time()+3600}), \
+                 patch.object(server,'read_market_context_cache',return_value={'payload':old,'cache_age_seconds':0}), \
+                 patch.object(server,'market_context_has_current_benchmarks',side_effect=lambda p:check(p,at)), \
+                 patch.object(server,'_run_with_timeout',return_value=current) as fetch, \
+                 patch.object(server,'write_market_context_cache',return_value='2026-10-12T21:00:00Z'):
+                result, meta=server._get_market_context_cached_snapshot(allow_live=True)
+                self.assertIs(result,current); self.assertFalse(meta['cache_used']); fetch.assert_called_once()
+        with patch.object(server,'MARKET_CONTEXT_CACHE',{'value':old,'expiresAt':server.time.time()+3600}), \
+             patch.object(server,'_run_with_timeout') as fetch:
+            self.assertIs(server._get_market_context_cached_snapshot(allow_live=False)[0],old)
+            fetch.assert_not_called()
+
+    def test_full_transaction_forces_shared_market_only_on_refresh_batch(self):
+        for force, auto, first, expected in ((True,False,True,True),(False,True,True,True),(True,False,False,False),(False,False,True,False)):
+            with self.subTest(force=force,auto=auto,first=first), patch.object(server,'get_market_context_cached_snapshot',return_value=({},{})) as market:
+                server.build_market_data_payload([],force=force,auto_refresh=auto,refresh_market_context=first)
+                self.assertEqual(market.call_args.kwargs['force'],expected)
+                self.assertEqual(market.call_args.kwargs['allow_live'],expected)
+
     def test_rejection_dates_are_bounded_and_preserved_across_validation(self):
         raw=pd.DataFrame({'Open':[100.,101.],'High':[102.,103.],'Low':[99.,100.],'Close':[101.,float('nan')],'Volume':[1000.,1200.]},index=pd.to_datetime(['2026-10-09','2026-10-12']))
         clean,audit=validation.validate_us_daily_frame(raw)

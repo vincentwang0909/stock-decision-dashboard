@@ -613,30 +613,47 @@
     const cfg = indicatorConfig().relativeStrength[horizon], suffix = horizon === "weekly" ? "w" : "d", interval = horizon === "weekly" ? "1w" : "1d";
     const core = benchmarkContext.market_context || benchmarkContext.market_engine || benchmarkContext || {};
     const benchmarks = core.benchmark_history || {};
-    const stockByDate = new Map(bars.map((bar) => [bar.timestamp.slice(0,10),bar.close]));
     const asOf = bars.at(-1)?.timestamp.slice(0,10);
-    const returns = {}, vsSpy = {}, vsQqq = {};
+    const returns = {}, vsSpy = {}, vsQqq = {}, diagnostics = {};
     const ownReturn = (items,n) => items.length > n && items.at(-n-1)?.close > 0 ? (items.at(-1).close/items.at(-n-1).close-1)*100 : null;
+    // Normalize each shared source once, and compare the exact stock window.
+    // Removing a missing benchmark session must never stretch a 20-bar return.
+    const sources = Object.fromEntries(["spy","qqq"].map((name) => {
+      const source = benchmarks[name] || {};
+      let series = normalizeBars(source, { priceOnly:true }).filter((bar) => confirmedBy(bar, calculatedAt));
+      if (horizon === "weekly") series = completedWeeklyBars(series,{ asOf:calculatedAt,calendar });
+      const trusted = ["provider_ohlc_auto_adjust_false","provider_chart_quote_ohlc"].includes(source.adjustment_basis || source.adjustmentBasis);
+      diagnostics[name] = { as_of:series.at(-1)?.timestamp.slice(0,10) || null, available_bars:series.length, windows:{} };
+      return [name,{source,series,trusted,byDate:new Map(series.map((bar)=>[bar.timestamp.slice(0,10),bar.close]))}];
+    }));
     for (const n of cfg.windows) {
-      returns[`stock_${n}${suffix}`] = ownReturn(bars,n);
+      const stockReturn = ownReturn(bars,n), window = bars.slice(-n-1);
+      returns[`stock_${n}${suffix}`] = stockReturn;
       for (const name of ["spy","qqq"]) {
-        let series = normalizeBars(benchmarks[name] || {}, { priceOnly:true }).filter((bar) => confirmedBy(bar, calculatedAt));
-        if (horizon === "weekly") series = completedWeeklyBars(series,{ asOf:calculatedAt,calendar });
-        const aligned = series.filter((bar) => stockByDate.has(bar.timestamp.slice(0,10)) && bar.timestamp.slice(0,10) <= asOf);
-        let excess = null;
-        if (aligned.at(-1)?.timestamp.slice(0,10) === asOf && aligned.length > n) {
-          const start = aligned.at(-n-1).timestamp.slice(0,10), base = stockByDate.get(start);
-          if (base > 0) excess = (stockByDate.get(asOf)/base-1)*100 - ownReturn(aligned,n);
+        const {source,series,trusted,byDate} = sources[name];
+        let excess = null, reason = null;
+        if (stockReturn == null) reason = "insufficient_history";
+        else if (!Object.keys(source).length) reason = "benchmark_source_unavailable";
+        else if (!trusted) reason = "unverified_price_basis";
+        else if (!series.length) reason = "benchmark_completion_unavailable";
+        else if (!byDate.has(asOf)) reason = "benchmark_date_mismatch";
+        else if (series.length <= n) reason = "insufficient_history";
+        else if (window.some((bar)=>!byDate.has(bar.timestamp.slice(0,10)))) reason = "benchmark_window_gap";
+        else {
+          const start = window[0].timestamp.slice(0,10), base = byDate.get(start);
+          if (base > 0) excess = stockReturn - (byDate.get(asOf)/base-1)*100;
+          else reason = "invalid_source_data";
         }
         // Named Daily return inputs are allowed only at the identical completed close.
         if (excess == null && horizon === "daily" && input.as_of === asOf) excess = finite(input[`stock_vs_${name}_${n}d`]);
         (name === "spy" ? vsSpy : vsQqq)[`${suffix}${n}`] = excess;
+        diagnostics[name].windows[`${suffix}${n}`] = { availability:excess == null ? "unavailable" : "available", reason:excess == null ? reason : null, required_bars:n+1, stock_bars:Math.min(bars.length,n+1), aligned_bars:window.filter((bar)=>byDate.has(bar.timestamp.slice(0,10))).length };
       }
     }
     const n = cfg.primary, spy = vsSpy[`${suffix}${n}`], qqq = vsQqq[`${suffix}${n}`], average = mean([spy,qqq]);
     const fast = mean([vsSpy[`${suffix}${cfg.windows[0]}`],vsQqq[`${suffix}${cfg.windows[0]}`]]), slow = mean([vsSpy[`${suffix}${cfg.windows.at(-1)}`],vsQqq[`${suffix}${cfg.windows.at(-1)}`]]);
     const consistency = fast == null || slow == null ? "unavailable" : fast > slow + 1 ? "improving" : fast < slow - 1 ? "deteriorating" : "stable";
-    return { interval, period:`${n}${suffix}`, primary_lookback: n, as_of: asOf || null, source:"aligned_completed_stock_and_benchmark_bars", availability:average == null ? "unavailable" : "available", returns, vs_spy:vsSpy,vs_qqq:vsQqq,
+    return { interval, period:`${n}${suffix}`, primary_lookback: n, as_of: asOf || null, source:"aligned_completed_stock_and_benchmark_bars", availability:average == null ? "unavailable" : "available", unavailable_reason:average == null ? "benchmark_comparison_unavailable" : null, diagnostics, returns, vs_spy:vsSpy,vs_qqq:vsQqq,
       primary:{ stock_return:returns[`stock_${n}${suffix}`],vs_spy:spy,vs_qqq:qqq,average }, consistency:{ value:consistency,state:consistency },consistency_state:consistency,
       state:average == null ? "unavailable" : average > 3 ? "outperforming" : average < -3 ? "underperforming" : "neutral" };
   }

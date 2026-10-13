@@ -4633,6 +4633,26 @@ def market_context_has_index_lookbacks(payload):
     return all(spy.get(field) is not None for field in required_fields) and all(qqq.get(field) is not None for field in required_fields)
 
 
+def market_context_has_current_benchmarks(payload, as_of=None):
+    """A recent cache write cannot make an old benchmark close current."""
+    histories = ((payload or {}).get("market_context") or {}).get("benchmark_history") or {}
+    now = as_of or datetime.now(timezone.utc)
+    for symbol in ("spy", "qqq"):
+        history = histories.get(symbol) or {}
+        if history.get("source_validation_version") != SOURCE_VALIDATION_VERSION:
+            return False
+        if history.get("adjustment_basis") not in ("provider_ohlc_auto_adjust_false", "provider_chart_quote_ohlc"):
+            return False
+        if not history.get("bar_end_timestamps"):
+            return False
+        try:
+            if daily_history_freshness(history, now).get("state") != "current":
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
 def flatten_market_context_payload(payload, meta=None):
     market_context = (payload or {}).get("market_context") or {}
     equity_trend = market_context.get("equity_trend") or {}
@@ -4802,6 +4822,7 @@ def _get_market_context_cached_snapshot(force=False, allow_live=True):
         and MARKET_CONTEXT_CACHE.get("expiresAt", 0) > now
         and (market_context_payload_valid(cached_memory) or not allow_live)
         and (market_context_has_index_lookbacks(cached_memory) or not allow_live)
+        and (market_context_has_current_benchmarks(cached_memory) or not allow_live)
     ):
         attempts.append({"source": "memory_cache", "success": True, "fresh": True})
         return cached_memory, {
@@ -4834,6 +4855,7 @@ def _get_market_context_cached_snapshot(force=False, allow_live=True):
             and cache_is_fresh
             and (market_context_payload_valid(cached_disk_payload) or not allow_live)
             and (disk_has_required_index_lookbacks or not allow_live)
+            and (market_context_has_current_benchmarks(cached_disk_payload) or not allow_live)
         ):
             MARKET_CONTEXT_CACHE["value"] = cached_disk_payload
             MARKET_CONTEXT_CACHE["expiresAt"] = now + NEWS_CACHE_SECONDS
@@ -5180,7 +5202,7 @@ def build_market_data_payload(tickers, force=False, auto_refresh=False, cache_on
     # Fetch real market data for display. The frontend deliberately does not
     # convert this payload into a market-environment or macro score.
     market_context, market_context_meta = get_market_context_cached_snapshot(
-        force=False,
+        force=bool((force or auto_refresh) and refresh_market_context),
         # A complete watchlist refresh runs in small quote batches. Fetch the
         # shared market context once for that transaction, rather than once per
         # batch; later batches and the final cache snapshot reuse it.
