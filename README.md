@@ -26,6 +26,8 @@ python3 server.py
 ## 使用与数据
 
 - Daily使用完成日线，Weekly使用交易所实际完整周；盘中只更新正常交易报价、执行位置和风险。无固定“30天”持有期限。
+- 盘中Daily继续使用上一交易日的完成信号；Weekly独立使用上一完整周，不被本周尚未完成／缺失的日线连带阻断。各自必要完成周期缺失仍等待。
+- Yahoo长历史缺少最新已收盘日线时，有界补取真实单日日线并校验完整OHLCV；不会拿Quote补造Close。等待提示区分日线／周线缺失、必要数据不足和有效区间未成立，并显示具体原因。
 - Daily信号可在盘后/下一交易日使用，但成交前应核对当时价格仍在合格区间、收益风险比和风险边界；跳空或重大事件能让昨日Buy变成Hold。Weekly在该周最后实际交易日收盘确认。
 - 七个Action：Strong Buy、Buy、Accumulate、Hold、Trim、Sell、Short Sell。Buy须右侧确认；Accumulate/Trim允许更早的有证据变化。没有必须逐级变化的序列。
 - Short Sell仅普通股票Daily，独立开空区/上方失效位。Sell不等于可以开空；不接持仓、不增加Cover。

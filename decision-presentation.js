@@ -6,6 +6,19 @@
   const validRange = (range) => finite(range?.low) > 0 && finite(range?.high) > finite(range?.low);
   const actionIntent = Object.freeze({ strong_buy: "enter", buy: "enter", accumulate: "add", hold: "hold", trim: "reduce", sell: "exit", short_sell: "short_enter" });
   const actionTone = Object.freeze({ strong_buy: "strong-buy", buy: "buy", accumulate: "accumulate", hold: "hold", trim: "trim", sell: "sell", short_sell: "short-sell" });
+  function waitingPresentation(decision, language = "en") {
+    if (decision?.action !== "hold" || decision?.backgroundOnly || decision?.debug?.actionFamily !== "unavailable") return null;
+    const zh = language === "zh", quality = decision.debug.dataQuality || {}, missing = quality.missingCore || [];
+    if (!missing.length) return { label: zh ? "等待 · 区间未成立" : "Hold · No entry plan", detail: translateReason({ code: decision.debug.finalDecision?.reasonCode || "waiting_valid_landscape" }, language) };
+    const staleDaily = missing.includes("stale_daily_history"), staleWeekly = missing.includes("stale_weekly_history");
+    const label = staleDaily ? (zh ? "等待 · 日线缺失" : "Hold · Daily missing") : staleWeekly ? (zh ? "等待 · 周线缺失" : "Hold · Weekly missing") : (zh ? "等待 · 必要数据不足" : "Hold · Data missing");
+    const labels = { ma: ["primary moving averages", "主均线"], macd: ["MACD", "MACD"], adx: ["ADX", "ADX"], atr: ["ATR", "ATR"], rsi: ["RSI", "RSI"], volume: ["completed volume", "完成周期成交量"], obv: ["OBV", "OBV"], structure: ["confirmed structure", "确认结构"], source_data_conflict: ["trusted volume", "可信成交量"], missing_required_history_sessions: ["required historical sessions", "必要历史交易周期"], unverified_price_basis: ["verified price basis", "已核验价格口径"], untrusted_quote: ["trusted current quote", "可信当前报价"] };
+    const fields = missing.filter((key)=>!key.startsWith("stale_")).map((key)=>labels[key]?.[zh?1:0] || (zh?"未识别的必要数据缺口":"unmapped required data gap"));
+    const freshness = quality.frameFreshness || quality.dailyFreshness || {};
+    const latest = freshness.latest_date || freshness.latest_week || "—", expected = freshness.expected_completed_date || freshness.expected_completed_week || "—";
+    const dateDetail = staleDaily ? (zh ? `已完成日线应到 ${expected}，实际到 ${latest}。` : `Completed Daily expected through ${expected}; available through ${latest}.`) : staleWeekly ? (zh ? `应有 ${expected} 开始的完整周，最新完整周起始日为 ${latest}。` : `Expected completed week starting ${expected}; latest completed week starts ${latest}.`) : "";
+    return { label, detail: `${dateDetail}${fields.length ? `${dateDetail?" ":""}${zh?"缺少／不可信：":"Missing/untrusted: "}${fields.join(zh?"、":", ")}${zh?"。":"."}` : ""}` };
+  }
   const REASONS = Object.freeze({
     waiting_required_data: { en: "Required completed-bar data or structure is missing or untrusted.", zh: "必要的完成周期数据或结构不足／不可信，等待更新。" },
     waiting_benchmark_confirmation: { en: "Aligned benchmark history is missing for this horizon.", zh: "缺少该周期日期一致的基准历史，等待确认。" },
@@ -226,7 +239,7 @@
     return messages[action]?.[language === "zh" ? "zh" : "en"] || messages.hold[language === "zh" ? "zh" : "en"];
   }
 
-  const api = Object.freeze({ actionIntent, actionTone, executionSemantics, normalizeReason, translateReason, reasonList, profileGroups, layoutPriceMap, nearestRangeDistance, priceMapModel, positionGuidance });
+  const api = Object.freeze({ actionIntent, actionTone, waitingPresentation, executionSemantics, normalizeReason, translateReason, reasonList, profileGroups, layoutPriceMap, nearestRangeDistance, priceMapModel, positionGuidance });
   root.DecisionPresentation = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 }(globalThis));

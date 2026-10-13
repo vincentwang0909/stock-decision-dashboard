@@ -66,11 +66,13 @@
     const arrays = Object.fromEntries(["opens", "highs", "lows", "closes", "volumes"].map((key) => [key, Array.isArray(source[key]) ? source[key] : []]));
     const timestamps = Array.isArray(source.timestamps) ? source.timestamps : (Array.isArray(source.dates) ? source.dates : []);
     const length = Math.max(timestamps.length, ...Object.values(arrays).map((array) => array.length));
-    const bars = [], reasons = {};
+    const bars = [], reasons = {}, rejectedSamples = [];
     let previous = null;
-    const reject = (reason) => { reasons[reason] = (reasons[reason] || 0) + 1; };
+    let rowDate = null;
+    const reject = (reason) => { reasons[reason] = (reasons[reason] || 0) + 1; if (rejectedSamples.length < 64) rejectedSamples.push({ date: rowDate, reason }); };
     for (let index = 0; index < length; index += 1) {
       const stamp = timestampMillis(timestamps[index]);
+      rowDate = stamp == null ? null : new Date(stamp).toISOString().slice(0,10);
       if (stamp == null) { reject("invalid_timestamp"); continue; }
       if (previous != null && stamp <= previous) { reject("duplicate_or_unordered_timestamp"); continue; }
       previous = stamp;
@@ -94,7 +96,7 @@
       if (index === length - 1 && typeof completed === "boolean") bar.completed = typeof perBarCompletion === "boolean" ? perBarCompletion && completed : completed;
       bars.push(bar);
     }
-    Object.defineProperty(bars, "validation", { value: { source_rows: length, rejected_rows: length - bars.length, reasons }, enumerable: false });
+    Object.defineProperty(bars, "validation", { value: { source_rows: length, rejected_rows: length - bars.length, reasons, rejected_samples: rejectedSamples }, enumerable: false });
     return bars;
   }
 
@@ -1098,22 +1100,33 @@
     calculatedAt=calculatedAt || history.as_of || timestampNow();
     if (Number.isFinite(timestampMillis(history.as_of)) && timestampMillis(history.as_of)<timestampMillis(calculatedAt)) calculatedAt=history.as_of;
     const rawDaily=pickBars(history,"1d"), daily=rawDaily.filter((bar)=>confirmedBy(bar,calculatedAt));
-    const unknown=rawDaily.some((bar)=>bar.completed==null || (bar.completed===true && !bar.end_timestamp)), rejected=(rawDaily.validation?.rejected_rows || history.excluded_invalid_rows || 0)>0;
+    const unknown=rawDaily.some((bar)=>bar.completed==null || (bar.completed===true && !bar.end_timestamp));
     const weekly=completedWeeklyBars(daily,{asOf:calculatedAt,calendar:history.session_calendar}),sources={"1d":daily,"1w":weekly};
     const calendar=history.session_calendar || {},neededDaily=engineConfig().horizons.daily.primaryMaPeriods.at(-1),neededWeekly=engineConfig().horizons.weekly.primaryMaPeriods.at(-1);
     const dailyGaps=(calendar.missing_session_dates || []).some((date)=>date>=daily.at(-neededDaily)?.timestamp?.slice(0,10));
     const completeWeeks=new Set(calendar.completed_week_keys || []);
     const weeklyGaps=(calendar.closed_week_keys || []).slice(-neededWeekly).some((key)=>!completeWeeks.has(key));
     const price=finite(currentPrice) ?? last(daily)?.close ?? null, fibonacci=fibonacciFeatures(daily,weekly,price);
-    const validVolume=unknown || rejected?[]:daily,volume=canonicalVolumeFeature(validVolume,finite(shareBase),calculatedAt),weeklyVolume=canonicalVolumeFeature(unknown || rejected?[]:weekly,finite(shareBase),calculatedAt,"1w");
-    if (unknown || rejected) {volume.unavailable_reason=weeklyVolume.unavailable_reason=unknown?"completion_metadata_unavailable":"invalid_source_data";}
+    // Removed source rows retain their date. A rejected unfinished day, or a
+    // day outside the completed Weekly frame, cannot poison valid prior bars.
+    // Legacy/unscoped rejection provenance remains conservative.
+    const rejectionSources=[{count:rawDaily.validation?.rejected_rows || 0,samples:rawDaily.validation?.rejected_samples || []},{count:history.excluded_invalid_rows || 0,samples:history.rejected_samples || []}];
+    const frameRejected=(bars)=>rejectionSources.some(({count,samples})=>count>0 && (samples.length!==count || samples.some((sample)=>!sample.date || (sample.date>=bars[0]?.timestamp?.slice(0,10) && sample.date<=last(bars)?.timestamp?.slice(0,10)))));
+    const frameUnknown=(bars)=>rawDaily.some((bar)=>(bar.completed==null || (bar.completed===true && !bar.end_timestamp)) && bar.timestamp?.slice(0,10)<=last(bars)?.timestamp?.slice(0,10));
+    const dailyRejected=frameRejected(daily),weeklyRejected=frameRejected(weekly),dailyUnknown=frameUnknown(daily) || (unknown && !daily.length),weeklyUnknown=frameUnknown(weekly) || (unknown && !weekly.length);
+    const volume=canonicalVolumeFeature(dailyUnknown || dailyRejected?[]:daily,finite(shareBase),calculatedAt),weeklyVolume=canonicalVolumeFeature(weeklyUnknown || weeklyRejected?[]:weekly,finite(shareBase),calculatedAt,"1w");
+    if (dailyUnknown || dailyRejected) volume.unavailable_reason=dailyUnknown?"completion_metadata_unavailable":"invalid_source_data";
+    if (weeklyUnknown || weeklyRejected) weeklyVolume.unavailable_reason=weeklyUnknown?"completion_metadata_unavailable":"invalid_source_data";
+    const expectedWeek=Object.entries(calendar.week_ends || {}).filter(([,end])=>timestampMillis(end)<=timestampMillis(calculatedAt)).sort(([a],[b])=>a.localeCompare(b)).at(-1)?.[0];
+    const latestWeek=last(weekly)?.timestamp?.slice(0,10),latestWeekKey=latestWeek?new Date(Date.parse(latestWeek)-((new Date(latestWeek).getUTCDay()+6)%7)*86400000).toISOString().slice(0,10):null;
+    const weeklyFreshness=history.weekly_freshness || {state:!latestWeekKey || !expectedWeek?"unavailable":latestWeekKey===expectedWeek?"current":"stale",latest_week:latestWeekKey,expected_completed_week:expectedWeek,checked_at:calculatedAt,calendar_source:calendar.source || "unavailable"};
     const latest=last(rawDaily);
     volume.current_session=latest?.completed===false && timestampMillis(latest.timestamp)<=timestampMillis(calculatedAt)?{date:latest.timestamp,volume:latest.volume_available===false?null:latest.volume,availability:latest.volume_available===false?"unavailable":"provisional",used_for_decision:false}:null;
     return {schema_version:SCHEMA_VERSION,calculated_at:calculatedAt,execution_window_end:history.execution_window_end || null,
-      source_intervals:Object.fromEntries(Object.entries(sources).map(([interval,bars])=>[interval,{interval,bar_count:bars.length,availability:bars.length?"available":"unavailable",available:!!bars.length,source:interval==="1w"?"completed_weekly_from_daily":history.source || "unverified_provider",first_bar_timestamp:bars[0]?.timestamp || null,last_bar_timestamp:last(bars)?.timestamp || null,last_bar_end:last(bars)?.end_timestamp || null,last_bar_completed:bars.length?true:null,as_of:history.as_of || calculatedAt,provider_as_of:history.provider_as_of || null,active_bar_usage:"completed_only",adjustment_basis:history.adjustment_basis || "unverified",volume_validation:history.volume_validation || null,freshness:history.freshness || null,validation:rawDaily.validation,weekly_completion:interval==="1w"?{source:history.session_calendar?.source || "unavailable"}:null}])),
+      source_intervals:Object.fromEntries(Object.entries(sources).map(([interval,bars])=>[interval,{interval,bar_count:bars.length,availability:bars.length?"available":"unavailable",available:!!bars.length,source:interval==="1w"?"completed_weekly_from_daily":history.source || "unverified_provider",first_bar_timestamp:bars[0]?.timestamp || null,last_bar_timestamp:last(bars)?.timestamp || null,last_bar_end:last(bars)?.end_timestamp || null,last_bar_completed:bars.length?true:null,as_of:history.as_of || calculatedAt,provider_as_of:history.provider_as_of || null,active_bar_usage:"completed_only",adjustment_basis:history.adjustment_basis || "unverified",volume_validation:history.volume_validation || null,freshness:interval==="1w"?weeklyFreshness:history.freshness || null,validation:rawDaily.validation,weekly_completion:interval==="1w"?{source:history.session_calendar?.source || "unavailable"}:null}])),
       horizons:Object.fromEntries(Object.keys(HORIZON_CONFIG).map((key)=>[key,horizonFeatureSet(key,sources,price,relativeStrength,fibonacci,calculatedAt,key==="weekly"?weeklyVolume:volume,benchmarkContext,history.session_calendar)])),
       volume,weekly_volume:weeklyVolume,price_position:pricePositionFeatures(daily,price,calculatedAt,history.daily_history_metadata || {}),fibonacci:{daily:fibonacci.daily,weekly:fibonacci.weekly},fibonacci_structure:fibonacci.structure,
-      data_quality:{price_basis_unverified:!["provider_ohlc_auto_adjust_false","provider_chart_quote_ohlc"].includes(history.adjustment_basis || history.adjustmentBasis),required_history_gaps:{daily:dailyGaps,weekly:weeklyGaps},daily_freshness:history.freshness || null,decision_volume_conflicts:daily.some((bar)=>bar.volume_available===false)?["1d"]:[],volume_conflicts:daily.some((bar)=>bar.volume_available===false)?["1d"]:[],completion_unavailable:unknown,rejected_daily_rows:rawDaily.validation?.rejected_rows || 0,daily_history:daily.length>=252?"available":daily.length?"partial":"unavailable",all_time_history:daily.length?"available_history":"unavailable",missing_intervals:Object.entries(sources).filter(([,bars])=>!bars.length).map(([interval])=>interval)} };
+      data_quality:{price_basis_unverified:!["provider_ohlc_auto_adjust_false","provider_chart_quote_ohlc"].includes(history.adjustment_basis || history.adjustmentBasis),required_history_gaps:{daily:dailyGaps,weekly:weeklyGaps},daily_freshness:history.freshness || null,frame_freshness:{daily:history.freshness || null,weekly:weeklyFreshness},frame_volume_conflicts:{daily:daily.some((bar)=>bar.volume_available===false),weekly:weekly.some((bar)=>bar.volume_available===false)},frame_rejected_rows:{daily:dailyRejected,weekly:weeklyRejected},decision_volume_conflicts:daily.some((bar)=>bar.volume_available===false)?["1d"]:[],volume_conflicts:daily.some((bar)=>bar.volume_available===false)?["1d"]:[],completion_unavailable:unknown,rejected_daily_rows:(rawDaily.validation?.rejected_rows || 0)+(history.excluded_invalid_rows || 0),daily_history:daily.length>=252?"available":daily.length?"partial":"unavailable",all_time_history:daily.length?"available_history":"unavailable",missing_intervals:Object.entries(sources).filter(([,bars])=>!bars.length).map(([interval])=>interval)} };
   }
 
   const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, _test: { squeezeFeature, bollingerRsiFeature, supportResistanceFeature, fvgFeature, relativeStrengthFeatures, regressionEndpoint, smaSeries, normalizeBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, atrFeature, kdjFeature, macdFeature, adxFeature, bollingerFeature, obvFeature, pricePositionFeatures, canonicalVolumeFeature, canonicalFibonacciHorizon, canonicalFibonacciStructure } };

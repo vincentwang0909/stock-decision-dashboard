@@ -285,7 +285,8 @@ function decisionFor(row, horizon) {
 
 function decisionActionLabel(decision) {
   if (decision?.backgroundOnly) return state.language === "zh" ? "背景 · 不执行" : "Background · No entry plan";
-  if (decision?.action === "hold" && decision?.debug?.actionFamily === "unavailable") return state.language === "zh" ? "等待 · 数据／结构不足" : "Hold · Await data / structure";
+  const waiting = window.DecisionPresentation.waitingPresentation(decision, state.language);
+  if (waiting) return waiting.label;
   return window.DecisionEngine.config.actionLabels[decision?.action]?.[state.language]
     || (state.language === "en" ? decision?.actionLabel : null) || t("unavailable");
 }
@@ -378,7 +379,7 @@ function horizonCoreCard(row, horizon) {
       <strong>${escapeHtml(decisionActionLabel(decision))}</strong>
       <div class="decision-confidence"><span>${t("recommendationConfidence")} <button type="button" class="decision-confidence-help" title="${escapeHtml(t("confidenceHelp"))}" aria-label="${escapeHtml(t("confidenceHelp"))}">i</button></span><b>${escapeHtml(decision.confidence)} / 100</b></div>
       <p class="decision-signal-time">${t("signalAsOf")} ${escapeHtml(formatDataTime(decision.signalAsOf) || "—")}</p>
-      <p class="decision-gate-reason">${escapeHtml(window.DecisionPresentation.translateReason({code:decision.debug?.finalDecision?.reasonCode}, state.language))}</p>
+      <p class="decision-gate-reason">${escapeHtml(window.DecisionPresentation.waitingPresentation(decision, state.language)?.detail || window.DecisionPresentation.translateReason({code:decision.debug?.finalDecision?.reasonCode}, state.language))}</p>
       <div class="decision-card-execution">${executionFields(row, decision)}</div>
     </article>
   `;
@@ -579,9 +580,10 @@ function renderTechnicalPanel(row) {
   const completion = source.last_bar_completed === false ? (state.language === "zh" ? "最新 K 线未完成；指标与结构仍使用上一根完成 K 线。" : "Latest bar is unfinished; indicators and structure use the last completed bar.") : source.last_bar_completed === true ? (state.language === "zh" ? "最新 K 线已完成。" : "Latest bar is completed.") : (state.language === "zh" ? "历史快照未记录 K 线完成状态。" : "Bar completion was not recorded in this snapshot.");
   const duration = Number.isFinite(source.last_bar_duration_minutes) ? ` · ${source.last_bar_duration_minutes} ${state.language === "zh" ? "分钟" : "minutes"}` : "";
   const tl = (en, zh) => state.language === "zh" ? zh : en;
-  const freshness = source.freshness || row.technicalFeatures.data_quality?.daily_freshness;
-  const freshState = freshness?.state === "stale" ? tl("Stale: decisions wait for current data.", "已过期：等待有效新数据后再决策。") : freshness?.state === "current" ? tl("Current Daily coverage.", "日线覆盖至应有交易日。") : tl("Daily freshness unavailable.", "日线时效核验不可用。");
-  const freshNote = freshness ? `${tl("Latest Daily / expected completed session", "最新日线／应有已收盘交易日")} ${freshness.latest_date || "—"} / ${freshness.expected_completed_date || "—"} · ${freshState}` : tl("Daily freshness was not recorded.", "未记录日线时效核验。");
+  const weekly = state.technicalHorizon === "weekly";
+  const freshness = source.freshness || row.technicalFeatures.data_quality?.frame_freshness?.[state.technicalHorizon] || (!weekly ? row.technicalFeatures.data_quality?.daily_freshness : null);
+  const freshState = freshness?.state === "stale" ? tl("Stale: this horizon waits for current data.", "已过期：该周期等待有效新数据。") : freshness?.state === "current" ? (weekly ? tl("Current completed Weekly coverage.", "完成周线覆盖至应有完整周。") : tl("Current Daily coverage.", "日线覆盖至应有交易日。")) : tl("Horizon freshness unavailable.", "该周期时效核验不可用。");
+  const freshNote = freshness ? `${weekly ? tl("Latest complete week / expected week (Monday)", "最新完整周／应有完整周（周起始日）") : tl("Latest Daily / expected completed session", "最新日线／应有已收盘交易日")} ${freshness.latest_date || freshness.latest_week || "—"} / ${freshness.expected_completed_date || freshness.expected_completed_week || "—"} · ${freshState}` : tl("Horizon freshness was not recorded.", "未记录该周期时效核验。");
   const validation = source.volume_validation;
   const volumeNote = tl("Only completed Daily volume is consumed; Weekly totals use the same validated rows. Unfinished volume is display-only.","决策只使用完成日线成交量，周总量由同一有效日线汇总；未完成量仅展示。");
   const provenance = `${tl("Fetched / provider history cutoff", "获取时间／供应商历史截止时间")} ${source.as_of || "—"} / ${source.provider_as_of || tl("Not provided", "未提供")}`;

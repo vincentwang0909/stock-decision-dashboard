@@ -12,6 +12,58 @@ import market_data_validation as validation
 
 
 class RefreshPriceTests(unittest.TestCase):
+    def test_missing_latest_close_recovers_only_real_completed_daily(self):
+        raw = pd.DataFrame({'Open': [100., 101.], 'High': [102., 103.], 'Low': [99., 100.],
+                            'Close': [101., float('nan')], 'Volume': [1000., 1200.]},
+                           index=pd.to_datetime(['2026-10-09', '2026-10-12']))
+        raw.attrs.update(source='yfinance', adjustment_basis='provider_ohlc_auto_adjust_false', request={'period':'10y'})
+        day = raw.iloc[-1:].copy(); day['Close'] = 102.
+        at = datetime(2026,10,12,21,tzinfo=timezone.utc)
+        with patch.object(server,'fetch_completed_daily_tail',return_value=day) as fetch:
+            result = server.recover_latest_completed_daily(raw,'TEST',at)
+        self.assertEqual(result['Close'].tolist(),[101.,102.])
+        self.assertEqual(result.attrs['request']['tail_recovery']['date'],'2026-10-12')
+        self.assertEqual(validation.validate_us_daily_frame(result)[1]['rejected_rows'],0)
+        fetch.assert_called_once_with('TEST')
+        revised=day.copy();revised['Low']=98.;revised['Volume']=1250.
+        with patch.object(server,'fetch_completed_daily_tail',return_value=revised):
+            final=server.recover_latest_completed_daily(raw,'TEST',at)
+            self.assertEqual(final.iloc[-1]['Low'],98.)
+            self.assertEqual(final.iloc[-1]['Volume'],1250.,'replace a rejected provisional row with a whole real final Daily candle')
+        for invalid in ('missing_close','missing_volume','bad_envelope','wrong_date'):
+            candidate=day.copy()
+            if invalid=='missing_close': candidate['Close']=float('nan')
+            if invalid=='missing_volume': candidate['Volume']=float('nan')
+            if invalid=='bad_envelope': candidate['High']=100.
+            if invalid=='wrong_date': candidate.index=pd.to_datetime(['2026-10-09'])
+            with patch.object(server,'fetch_completed_daily_tail',return_value=candidate):
+                self.assertIs(server.recover_latest_completed_daily(raw,'TEST',at),raw,invalid)
+        with patch.object(server,'fetch_completed_daily_tail') as fetch:
+            self.assertIs(server.recover_latest_completed_daily(raw,'TEST',datetime(2026,10,12,19,tzinfo=timezone.utc)),raw)
+            fetch.assert_not_called()
+
+    def test_rejection_dates_are_bounded_and_preserved_across_validation(self):
+        raw=pd.DataFrame({'Open':[100.,101.],'High':[102.,103.],'Low':[99.,100.],'Close':[101.,float('nan')],'Volume':[1000.,1200.]},index=pd.to_datetime(['2026-10-09','2026-10-12']))
+        clean,audit=validation.validate_us_daily_frame(raw)
+        self.assertEqual(audit['rejected_samples'],[{'date':'2026-10-12','reason':'missing_or_nonfinite_ohlcv'}])
+        self.assertEqual(validation.validate_us_daily_frame(clean)[1],audit)
+
+    def test_incremental_tail_recovery_preserves_seed_without_ten_year_redownload(self):
+        seed=pd.DataFrame({'Open':100.,'High':102.,'Low':99.,'Close':101.,'Volume':1000.},index=pd.bdate_range('2026-10-01','2026-10-09'))
+        cached={'lookback':'10y','source':'yfinance','adjustment_basis':'provider_ohlc_auto_adjust_false','timestamps':[x.date().isoformat() for x in seed.index],**{out:seed[field].tolist() for field,out in [('Open','opens'),('High','highs'),('Low','lows'),('Close','closes'),('Volume','volumes')]}}
+        recent=pd.concat([seed.loc['2026-10-05':],pd.DataFrame({'Open':[100.],'High':[102.],'Low':[99.],'Close':[float('nan')],'Volume':[1000.]},index=pd.to_datetime(['2026-10-12']))])
+        final=recent.iloc[-1:].copy();final['Close']=101.
+        class Instrument:
+            def history(self,**kwargs):return recent.copy()
+        recover=server.recover_latest_completed_daily
+        for succeeds in (True,False):
+            with patch.object(server,'read_market_cache',return_value={'quote':{'history':cached}}),patch.object(server,'recover_latest_completed_daily',side_effect=lambda f,s:recover(f,s,datetime(2026,10,12,21,tzinfo=timezone.utc))),patch.object(server,'fetch_completed_daily_tail',return_value=final if succeeds else pd.DataFrame()) as tail,patch.object(server,'load_yfinance_history_frame') as backfill:
+                merged=server.load_incremental_daily_history(Instrument(),'TEST','TEST')
+                tail.assert_called_once();backfill.assert_not_called()
+                self.assertEqual(len(merged),len(seed)+(1 if succeeds else 0))
+                self.assertEqual(merged.attrs['validation']['rejected_rows'],0 if succeeds else 1)
+                if not succeeds:self.assertEqual(merged.attrs['validation']['rejected_samples'][0]['date'],'2026-10-12')
+
     def test_duplicate_ohlcv_columns_are_unavailable_instead_of_crashing_fast_iteration(self):
         raw = pd.DataFrame([[100, 101, 99, 100, 100, 1000]],
                            columns=['Open', 'High', 'Low', 'Close', 'Close', 'Volume'],

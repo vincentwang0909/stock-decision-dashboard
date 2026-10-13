@@ -92,5 +92,12 @@ assert.equal(presentation.translateReason("Current price is in the neutral space
 assert.equal(presentation.reasonList(["a", "b", "c", "d", "e", "f"], "en", 5).length, 5);
 assert.match(presentation.positionGuidance("hold", "en"), /not enough evidence/i);
 assert.match(presentation.positionGuidance("short_sell", "zh"), /开空/);
+const waiting=(missing,reason="waiting_required_data")=>plan("hold",{debug:{actionFamily:"unavailable",dataQuality:{missingCore:missing,frameFreshness:{latest_date:"2026-10-09",expected_completed_date:"2026-10-12"}},finalDecision:{reasonCode:reason}}});
+assert.equal(presentation.waitingPresentation(waiting(["stale_daily_history"]),"zh").label,"等待 · 日线缺失");
+assert.match(presentation.waitingPresentation(waiting(["stale_daily_history","volume"]),"zh").detail,/2026-10-12.*2026-10-09.*成交量/);
+assert.equal(presentation.waitingPresentation(waiting(["ma"]),"en").label,"Hold · Data missing");
+assert.equal(presentation.waitingPresentation(waiting([],"waiting_valid_landscape"),"zh").label,"等待 · 区间未成立");
+assert.equal(presentation.waitingPresentation(plan("buy"),"zh"),null);
+assert.equal(presentation.waitingPresentation({...waiting(["ma"]),backgroundOnly:true}),null);
 
 console.log("decision-ui.test.js: Price Landscape, execution semantics, profile presentation, and bilingual fallback assertions passed");

@@ -21,7 +21,7 @@ for (const classification of [{}, { isETF: true, leveraged: false, direction: "w
     assert.equal(decision.priceLandscape.opportunityRange, null);
     assert.equal(decision.priceLandscape.reduceRange, null);
     assert(decision.confidence <= e.config.confidence.unavailableMaximum);
-    assert(decision.debug.dataQuality.missingCore.includes("stale_daily_history"));
+    assert(decision.debug.dataQuality.missingCore.includes(decision.horizon==="weekly"?"stale_weekly_history":"stale_daily_history"));
   }
 }
 const conflicted = featureSet(); conflicted.data_quality = { daily_freshness: fresh, volume_conflicts: ["4h"] };

@@ -78,9 +78,10 @@
       relativeStrength: set.relative_strength || { availability: "unavailable" },
       volume: set.participation?.volume || { availability: "unavailable" },
       dailyFreshness: features?.data_quality?.daily_freshness || null,
+      frameFreshness: features?.data_quality?.frame_freshness?.[horizon] || features?.data_quality?.daily_freshness || null,
       requiredHistoryGap: features?.data_quality?.required_history_gaps?.[horizon]===true,
       unverifiedPriceBasis: features?.data_quality?.price_basis_unverified===true,
-      dailyVolumeConflict: (features?.data_quality?.decision_volume_conflicts ?? features?.data_quality?.volume_conflicts ?? []).includes("1d") || features?.volume?.unavailable_reason === "source_data_conflict",
+      dailyVolumeConflict: features?.data_quality?.frame_volume_conflicts ? features.data_quality.frame_volume_conflicts[horizon]===true : (features?.data_quality?.decision_volume_conflicts ?? features?.data_quality?.volume_conflicts ?? []).includes("1d") || features?.volume?.unavailable_reason === "source_data_conflict",
       position: set.price_position || (horizon==="daily"?features?.price_position:null) || { availability: "unavailable" },
       fibonacci: features?.fibonacci_structure?.[config.fibonacciKey] || { status: "unavailable", retracement_levels: {}, extension_levels: {} },
       maStructure: set.trend?.ma_structure || {},
@@ -416,13 +417,13 @@
   function dataQuality(parts, directionComponents, confirmationComponents) {
     const essential={ma:parts.ma.length===parts.config.primaryMaPeriods.length && directionComponents.ma.available && parts.ma.every(availability),macd:directionComponents.macd.available,adx:directionComponents.adx.available,atr:availability(parts.atr),rsi:availability(parts.rsi),volume:availability(parts.volume),obv:availability(parts.obv),structure:availability(parts.set.trend?.support_resistance)};
     const missingCore=Object.entries(essential).filter(([,value])=>!value).map(([key])=>key);
-    const stale=parts.dailyFreshness?.state === "stale" || parts.dailyFreshness?.state === "unavailable";
-    if (stale) missingCore.push("stale_daily_history");
+    const stale=parts.frameFreshness?.state === "stale" || parts.frameFreshness?.state === "unavailable";
+    if (stale) missingCore.push(parts.horizon==="weekly"?"stale_weekly_history":"stale_daily_history");
     if (parts.dailyVolumeConflict) missingCore.push("source_data_conflict");
     if (parts.requiredHistoryGap) missingCore.push("missing_required_history_sessions");
     if (parts.unverifiedPriceBasis) missingCore.push("unverified_price_basis");
     // Benchmark absence blocks confirmation-dependent entries, but cannot suppress a verified defensive exit.
-    return {score:missingCore.length?0:100,missingCore,entryMissing:confirmationComponents.relativeStrength.available?[]:["relative_strength"],dailyFreshness:parts.dailyFreshness,optionalWindowsDoNotPenalizeCore:true,components:essential};
+    return {score:missingCore.length?0:100,missingCore,entryMissing:confirmationComponents.relativeStrength.available?[]:["relative_strength"],dailyFreshness:parts.dailyFreshness,frameFreshness:parts.frameFreshness,optionalWindowsDoNotPenalizeCore:true,components:essential};
   }
 
   function signalPersistence(ma, macd, adx, relativeStrength) {

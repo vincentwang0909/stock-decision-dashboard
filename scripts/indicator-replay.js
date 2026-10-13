@@ -8,7 +8,7 @@ const e=globalThis.DecisionEngine,{buildTechnicalFeatures,_test:t}=require("../t
 const [input,output]=process.argv.slice(2);if(!input||!output)throw new Error("Usage: indicator-replay.js <snapshot.json> <output.json>");
 const s=JSON.parse(fs.readFileSync(input)),core=s.marketContext?.market_context || {},rows=[],issues=[];
 const slice=(h,i,at)=>{
- const q={...h};delete q.intervals;
+ const q={...h};delete q.intervals;delete q.weekly_freshness;
  for(const k of ['timestamps','opens','highs','lows','closes','volumes','completed','bar_end_timestamps'])q[k]=(h[k] || []).slice(0,i+1);
  q.as_of=at;q.freshness={state:'current',latest_date:q.timestamps.at(-1),expected_completed_date:q.timestamps.at(-1)};
  const calendar=h.session_calendar || {},knownWeeks=Object.keys(calendar.week_ends || {}).filter(k=>Date.parse(calendar.week_ends[k])<=Date.parse(at));

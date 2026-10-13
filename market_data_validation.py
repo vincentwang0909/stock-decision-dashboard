@@ -8,7 +8,32 @@ from zoneinfo import ZoneInfo
 
 ET = ZoneInfo('America/New_York')
 
-SOURCE_VALIDATION_VERSION = 2
+SOURCE_VALIDATION_VERSION = 3
+
+
+def weekly_history_freshness(history, as_of=None):
+    """Compare only fully closed exchange weeks, including weeks absent from a cache."""
+    now = as_of or datetime.now(timezone.utc)
+    today = now.astimezone(ET).date()
+    calendar = exchange_calendar(today.year)
+    end = today + timedelta(days=6 - today.weekday())
+    schedule = calendar.schedule.loc[:end.isoformat()]
+    weeks = {}
+    for stamp, close in schedule[['close']].itertuples(index=True, name=None):
+        date = stamp.date()
+        key = (date - timedelta(days=date.weekday())).isoformat()
+        weeks[key] = close.to_pydatetime()
+    closed = [key for key, close in weeks.items() if close <= now]
+    expected = closed[-1] if closed else None
+    provenance = history.get('session_calendar') or {}
+    complete = set(provenance.get('completed_week_keys') or [])
+    available = [key for key in closed if key in complete
+                 and provenance.get('week_ends', {}).get(key)
+                 and datetime.fromisoformat(provenance['week_ends'][key].replace('Z', '+00:00')) <= now]
+    latest = available[-1] if available else None
+    return {'state': 'unavailable' if not latest else 'current' if latest == expected else 'stale',
+            'latest_week': latest, 'expected_completed_week': expected,
+            'checked_at': now.isoformat(), 'calendar_source': 'exchange_calendars:XNYS'}
 
 
 def daily_history_freshness(history, as_of=None):
@@ -54,6 +79,11 @@ def validate_frame(frame):
     if frame is None:
         return pd.DataFrame(), {'source_rows': 0, 'rejected_rows': 0, 'reasons': {}}
     reasons = Counter()
+    rejected_samples = []
+    def reject(reason, stamp):
+        reasons[reason] += 1
+        if len(rejected_samples) < 64:
+            rejected_samples.append({'date': stamp.date().isoformat() if not pd.isna(stamp) else None, 'reason': reason})
     indices = []
     previous = None
     required = ('Open', 'High', 'Low', 'Close', 'Volume')
@@ -64,7 +94,7 @@ def validate_frame(frame):
     for index, entry in enumerate(frame[list(required)].itertuples(index=True, name=None)):
         stamp = entry[0]
         if pd.isna(stamp) or (previous is not None and stamp <= previous):
-            reasons['duplicate_or_unordered_timestamp'] += 1
+            reject('duplicate_or_unordered_timestamp', stamp)
             continue
         # Use source order even when the price row is rejected; an invalid row
         # must not make a later duplicate timestamp look like a fresh sample.
@@ -78,20 +108,21 @@ def validate_frame(frame):
             values.append(value)
         o, h, l, c, v = values
         if not all(math.isfinite(x) for x in values):
-            reasons['missing_or_nonfinite_ohlcv'] += 1
+            reject('missing_or_nonfinite_ohlcv', stamp)
         elif min(o, h, l, c) <= 0:
-            reasons['nonpositive_price'] += 1
+            reject('nonpositive_price', stamp)
         elif not l <= min(o, c) <= max(o, c) <= h:
-            reasons['ohlc_envelope'] += 1
+            reject('ohlc_envelope', stamp)
         elif v < 0:
-            reasons['negative_volume'] += 1
+            reject('negative_volume', stamp)
         else:
             indices.append(index)
     clean = frame.iloc[indices].copy()
     prior = frame.attrs.get('validation') or {}
     audit = {'source_rows': max(len(frame), prior.get('source_rows', 0)),
              'rejected_rows': len(frame) - len(clean) + prior.get('rejected_rows', 0),
-             'reasons': dict(Counter(prior.get('reasons') or {}) + reasons)}
+             'reasons': dict(Counter(prior.get('reasons') or {}) + reasons),
+             'rejected_samples': (prior.get('rejected_samples', []) + rejected_samples)[-64:]}
     clean.attrs['validation'] = audit
     return clean, audit
 
@@ -138,11 +169,16 @@ def validate_us_daily_frame(frame):
     # A multi-row intraday session cannot masquerade as one Daily observation.
     mask = [stamp.date() in expected and counts[stamp.date()] == 1 for stamp in clean.index]
     rejected = len(mask) - sum(mask)
+    session_rejections = [
+        {'date': stamp.date().isoformat(), 'reason': 'exchange_closed_daily_bar' if stamp.date() not in expected else 'multiple_bars_in_daily_session'}
+        for stamp, keep in zip(clean.index, mask) if not keep
+    ]
     clean = clean.loc[mask].copy()
     audit['rejected_rows'] += rejected
     if closed:
         audit['reasons']['exchange_closed_daily_bar'] = closed
     if duplicate:
         audit['reasons']['multiple_bars_in_daily_session'] = duplicate
+    audit['rejected_samples'] = (audit.get('rejected_samples', []) + session_rejections)[-64:]
     clean.attrs['validation'] = audit
     return clean, audit

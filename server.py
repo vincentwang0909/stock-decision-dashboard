@@ -54,7 +54,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 from 历史记录 import 历史记录数据库 as eod_history_db
 from server_resources import BoundedTaskPool, BoundedTTLCache, ApplyToken, TaskBudgetExceeded, memory_snapshot
-from market_data_validation import validate_frame, validate_us_daily_frame, completed_week_metadata, exchange_calendar, session as exchange_session, daily_history_freshness, SOURCE_VALIDATION_VERSION
+from market_data_validation import validate_frame, validate_us_daily_frame, completed_week_metadata, exchange_calendar, session as exchange_session, daily_history_freshness, weekly_history_freshness, SOURCE_VALIDATION_VERSION
 
 ENV_FILE = os.path.join(ROOT, ".env")
 if os.path.exists(ENV_FILE):
@@ -3992,7 +3992,7 @@ def load_yfinance_history_frame(instrument, symbol, period="1y", interval="1d"):
         history = instrument.history(period=period, interval=interval, auto_adjust=False, timeout=PROVIDER_READ_TIMEOUT_SECONDS)
         if history is not None and not history.empty:
             history.attrs.update({"source": "yfinance", "adjustment_basis": "provider_ohlc_auto_adjust_false", "request": {"period": period, "interval": interval, "auto_adjust": False}})
-            return history
+            return recover_latest_completed_daily(history, symbol) if interval == "1d" else history
     except Exception:
         pass
 
@@ -4009,7 +4009,7 @@ def load_yfinance_history_frame(instrument, symbol, period="1y", interval="1d"):
         downloaded = _normalize_download_history_frame(downloaded)
         if downloaded is not None and not downloaded.empty:
             downloaded.attrs.update({"source": "yfinance_download", "adjustment_basis": "provider_ohlc_auto_adjust_false", "request": {"period": period, "interval": interval, "auto_adjust": False}})
-            return downloaded
+            return recover_latest_completed_daily(downloaded, symbol) if interval == "1d" else downloaded
     except Exception:
         pass
 
@@ -4017,11 +4017,71 @@ def load_yfinance_history_frame(instrument, symbol, period="1y", interval="1d"):
     yahoo_frame = fetch_yahoo_chart_frame(symbol, range_value=period, interval=interval, limit=fallback_limit)
     if yahoo_frame is not None and not yahoo_frame.empty:
         yahoo_frame.attrs.update({"source": "yahoo_chart", "adjustment_basis": "provider_chart_quote_ohlc", "request": {"period": period, "interval": interval}})
-        return yahoo_frame
+        return recover_latest_completed_daily(yahoo_frame, symbol) if interval == "1d" else yahoo_frame
 
     # Stooq's adjustment/volume basis has not been independently verified.
     # It remains a diagnostic source, not an automatic Daily replacement.
     return pd.DataFrame()
+
+
+def fetch_completed_daily_tail(symbol):
+    """Use the existing deadline-limited Yahoo session for one real Daily candle."""
+    try:
+        return provider_ticker(symbol).history(period='1d', interval='1d', auto_adjust=False,
+                                               timeout=PROVIDER_READ_TIMEOUT_SECONDS)
+    except Exception:
+        return pd.DataFrame()
+
+
+def recover_latest_completed_daily(frame, symbol, as_of=None):
+    """One bounded real Daily retry; never substitute Quote or intraday OHLCV."""
+    now = as_of or datetime.now(timezone.utc)
+    clean, audit = validate_us_daily_frame(frame)
+    if clean.empty:
+        return frame
+    freshness = daily_history_freshness({'timestamps': [stamp.date().isoformat() for stamp in clean.index]}, now)
+    expected = freshness.get('expected_completed_date')
+    if not expected or freshness['state'] != 'stale':
+        return frame
+    calendar = exchange_calendar(now.astimezone(ZoneInfo('America/New_York')).year)
+    # A single-day response cannot repair older/multiple missing sessions.
+    if clean.index[-1].date().isoformat() != calendar.previous_session(expected).date().isoformat():
+        return frame
+    if frame.attrs.get('adjustment_basis') not in ('provider_ohlc_auto_adjust_false', 'provider_chart_quote_ohlc'):
+        return frame
+    candidate = fetch_completed_daily_tail(symbol)
+    candidate, candidate_audit = validate_us_daily_frame(candidate)
+    candidate = candidate.loc[[stamp.date().isoformat() == expected for stamp in candidate.index]]
+    if len(candidate) != 1 or candidate_audit['rejected_rows'] or exchange_session(candidate.index[0].date(), calendar)['close'] > now:
+        return frame
+    old_rows = frame.loc[[stamp.date().isoformat() == expected for stamp in frame.index]]
+    if len(old_rows) > 1:
+        return frame
+    if len(old_rows) and not validate_us_daily_frame(old_rows)[0].empty:
+        return frame
+    # Replace the entire rejected candle. Its partially filled fields are not
+    # trusted, and Yahoo can revise same-day high/low/volume after the close.
+    # Never splice a Quote or a field from an incomplete response into it.
+    original = frame.loc[[stamp.date().isoformat() != expected for stamp in frame.index]].copy()
+    original.index = pd.DatetimeIndex([stamp.date() for stamp in original.index])
+    candidate.index = pd.DatetimeIndex([stamp.date() for stamp in candidate.index])
+    merged = pd.concat([original, candidate]).sort_index().tail(TECHNICAL_DAILY_MAX_BARS)
+    merged.attrs = {key: value for key, value in frame.attrs.items() if key != 'validation'}
+    # Previously removed invalid rows stay diagnostic unless this exact day
+    # has now been recovered from a complete provider Daily candle.
+    prior = frame.attrs.get('validation') or {}
+    samples = prior.get('rejected_samples', [])
+    unresolved = [sample for sample in samples if sample.get('date') != expected]
+    if prior.get('rejected_rows', 0):
+        if len(samples) != prior['rejected_rows']:
+            merged.attrs['validation'] = prior
+        elif unresolved:
+            merged.attrs['validation'] = {'source_rows': prior['source_rows'], 'rejected_rows': len(unresolved),
+                                          'reasons': {reason: sum(x['reason'] == reason for x in unresolved) for reason in {x['reason'] for x in unresolved}}, 'rejected_samples': unresolved}
+    merged.attrs['request'] = {**frame.attrs.get('request', {}), 'tail_recovery': {
+        'source': 'yfinance', 'period': '1d', 'interval': '1d', 'date': expected,
+        'adjustment_basis': 'provider_ohlc_auto_adjust_false', 'method': 'validated_complete_daily_no_quote_substitution'}}
+    return merged
 
 
 def load_incremental_daily_history(instrument, symbol, ticker):
@@ -4035,16 +4095,25 @@ def load_incremental_daily_history(instrument, symbol, ticker):
             # overlap comparisons rather than joining midnight to UTC bars.
             old.index = pd.DatetimeIndex([stamp.date() for stamp in old.index])
             recent = instrument.history(period="1mo", interval="1d", auto_adjust=False, timeout=PROVIDER_READ_TIMEOUT_SECONDS)
+            recent.attrs.update({"source": "yfinance", "adjustment_basis": basis,
+                                 "request": {"period": "1mo", "interval": "1d", "auto_adjust": False}})
+            recent = recover_latest_completed_daily(recent, symbol)
             recent, audit = validate_us_daily_frame(recent)
             recent.index = pd.DatetimeIndex([stamp.date() for stamp in recent.index])
             overlap = old.index.intersection(recent.index)
             completed_overlap = overlap[overlap < old.index[-1]]
-            if len(completed_overlap) and not audit["rejected_rows"]:
+            samples = audit.get("rejected_samples", [])
+            only_pending_tail_rejected = len(recent) and len(samples) == audit["rejected_rows"] and all(
+                sample.get("date") and sample["date"] > recent.index[-1].date().isoformat() for sample in samples)
+            if len(completed_overlap) and (not audit["rejected_rows"] or only_pending_tail_rejected):
                 changed = any(abs(float(old.loc[stamp, key]) - float(recent.loc[stamp, key])) > max(1e-7, abs(float(old.loc[stamp, key])) * 1e-7) for stamp in completed_overlap for key in ("Open", "High", "Low", "Close", "Volume"))
                 if not changed:
                     combined = pd.concat([old.loc[old.index < recent.index[0]], recent]).tail(TECHNICAL_DAILY_MAX_BARS)
-                    combined.attrs.update({"source": "yfinance", "adjustment_basis": basis,
+                    combined.attrs.update({"source": "yfinance", "adjustment_basis": basis, "validation": audit,
                         "request": {"period": "1mo", "interval": "1d", "auto_adjust": False, "method": "incremental_validated_overlap", "seed_period": TECHNICAL_DAILY_HISTORY_PERIOD, "overlap_bars": len(completed_overlap)}})
+                    recovery = recent.attrs.get("request", {}).get("tail_recovery")
+                    if recovery:
+                        combined.attrs["request"]["tail_recovery"] = recovery
                     return combined
         except Exception:
             pass
@@ -4065,7 +4134,7 @@ def _history_payload(frame, timestamp_format="%Y-%m-%d"):
         **{name: [_safe_float(value) for value in clean[column].tolist()] if len(clean) else [] for name, column in [("opens","Open"),("highs","High"),("lows","Low"),("closes","Close"),("volumes","Volume")]},
         "availability": "available" if len(clean) else "unavailable", "available": bool(len(clean)),
         "unavailable_reason": None if len(clean) else "invalid_source_data" if audit["source_rows"] else "source_unavailable",
-        "source_rows": audit["source_rows"], "available_bars": len(clean), "excluded_invalid_rows": audit["rejected_rows"], "rejected_reasons": audit["reasons"],
+        "source_rows": audit["source_rows"], "available_bars": len(clean), "excluded_invalid_rows": audit["rejected_rows"], "rejected_reasons": audit["reasons"], "rejected_samples": audit.get("rejected_samples", []),
         "as_of": as_of.isoformat(), "source": attrs.get("source", "unverified_provider"), "adjustment_basis": attrs.get("adjustment_basis", "unverified"), "currency": attrs.get("currency"),
         "request": attrs.get("request", {}), "retention_limit_bars": TECHNICAL_DAILY_MAX_BARS,
         "requested_history": attrs.get("request", {}).get("seed_period") or attrs.get("request", {}).get("period"),
@@ -4080,6 +4149,7 @@ def _history_payload(frame, timestamp_format="%Y-%m-%d"):
         next_day=calendar.next_session(completed_ends[-1].astimezone(ZoneInfo("America/New_York")).date().isoformat())
         result["execution_window_end"]=calendar.schedule.loc[next_day]["close"].to_pydatetime().isoformat()
     result["freshness"] = daily_history_freshness(result,as_of)
+    result["weekly_freshness"] = weekly_history_freshness(result,as_of)
     return result
 
 
@@ -4482,6 +4552,7 @@ def normalize_cached_market_quote(ticker, cached, stale=False):
     history = normalized.get("history")
     if isinstance(history, dict) and history.get("timestamps"):
         history["freshness"] = daily_history_freshness(history)
+        history["weekly_freshness"] = weekly_history_freshness(history)
     if isinstance(history, dict):
         history.pop("intervals", None)
     normalized.pop("optionsMarket", None)

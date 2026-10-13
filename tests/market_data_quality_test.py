@@ -6,10 +6,19 @@ import tempfile
 from unittest.mock import patch
 from datetime import datetime,timezone
 from lxml import html
-from market_data_validation import daily_history_freshness
+from market_data_validation import daily_history_freshness, weekly_history_freshness
 import server
 
 class DataQualityTests(unittest.TestCase):
+    def test_weekly_freshness_is_independent_and_detects_an_entire_missing_week(self):
+        h={'session_calendar':{'completed_week_keys':['2026-10-05'],'week_ends':{'2026-10-05':'2026-10-09T20:00:00+00:00'}}}
+        for at,state,expected in [('2026-10-12T21:00:00+00:00','current','2026-10-05'),('2026-10-16T19:59:00+00:00','current','2026-10-05'),('2026-10-16T20:01:00+00:00','stale','2026-10-12')]:
+            r=weekly_history_freshness(h,datetime.fromisoformat(at));self.assertEqual(r['state'],state);self.assertEqual(r['expected_completed_week'],expected)
+        h={'session_calendar':{'completed_week_keys':['2026-11-23'],'week_ends':{'2026-11-23':'2026-11-27T18:00:00+00:00'}}}
+        self.assertEqual(weekly_history_freshness(h,datetime.fromisoformat('2026-11-27T18:01:00+00:00'))['state'],'current')
+        h={'session_calendar':{'completed_week_keys':['2026-03-30'],'week_ends':{'2026-03-30':'2026-04-02T20:00:00+00:00'}}}
+        self.assertEqual(weekly_history_freshness(h,datetime.fromisoformat('2026-04-02T20:01:00+00:00'))['state'],'current','Good Friday means Thursday is the final session')
+
     def test_corrupt_or_future_macro_cache_cannot_bypass_loader(self):
         now=datetime(2026,10,12,21,tzinfo=timezone.utc).timestamp()
         for cached in ([1], {"expires_at":now+600,"value":{"status":"available","as_of":None}}, {"expires_at":now+600,"value":{"status":"available","as_of":"2026-10-13T21:00:00+00:00","events":[]}}, {"expires_at":now+600,"value":{"status":"available","as_of":"2026-10-12T20:00:00+00:00","events":None}}):
