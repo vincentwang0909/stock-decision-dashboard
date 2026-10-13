@@ -33,7 +33,7 @@ const EASTERN_REFRESH_FORMATTER = new Intl.DateTimeFormat("en-CA", {
 const DEFAULT_WATCHLIST = ["NVDA", "TSLA", "AMD", "BABA", "GOOGL", "AMZN", "AAPL", "META", "MSFT", "QQQ"];
 const I18N = {
   en: {
-    signalAsOf: "Signal close", shortEntryRange: "Short Entry Range", shortInvalidation: "Short Invalidation (above)", structuralSpace: "Structural reward / risk", costsUnverified: "Before fees, slippage and borrow costs.",
+    signalAsOf: "Signal close", shortEntryRange: "Short Entry Range", shortInvalidation: "Short Invalidation (above)", structuralSpace: "Structural reward / risk",
     appTitle: "Stock Decision Dashboard", stocks: "Stocks", search: "Search symbol or name", add: "Add selected", refresh: "Refresh now", refreshing: "Refreshing…", lastRefresh: "Last refresh", autoRefresh: "Auto refresh every 30 min at :10 / :40 (ET)",
     shared: "Shared Watchlist: everyone viewing this Dashboard sees the same stock list.", syncFailed: "Shared list sync failed. Showing cached data.", localServerRequired: "This dashboard must be opened through the local server. Run python3 server.py, then open",
     all: "All", us: "US", growth: "Growth", speculative: "Speculative", dividend: "Dividend", value: "Value",
@@ -60,7 +60,7 @@ const I18N = {
     serviceUpdating: "The service is updating data. Waiting for the complete snapshot…",
   },
   zh: {
-    signalAsOf: "信号收盘时间", shortEntryRange: "独立开空区", shortInvalidation: "空头上方失效位", structuralSpace: "结构空间／风险", costsUnverified: "未计手续费、滑点及借券成本。",
+    signalAsOf: "信号收盘时间", shortEntryRange: "独立开空区", shortInvalidation: "空头上方失效位", structuralSpace: "结构空间／风险",
     appTitle: "股票决策仪表盘", stocks: "股票", search: "搜索代码或名称", add: "添加所选", refresh: "立即刷新", refreshing: "刷新中…", lastRefresh: "上次刷新", autoRefresh: "每半小时自动刷新：10／40 分（美东时间）",
     shared: "共享自选列表：所有查看此仪表盘的用户看到相同的股票列表。", syncFailed: "共享列表同步失败，正在显示缓存数据。", localServerRequired: "此仪表盘必须通过本地服务打开。请运行 python3 server.py，然后访问",
     all: "全部", us: "美股", growth: "成长型", speculative: "投机型", dividend: "分红型", value: "价值型",
@@ -361,8 +361,8 @@ function executionFields(row, decision) {
   const current = Number.isFinite(landscape.currentPrice) ? landscape.currentPrice : row.price;
   const common = `${field("currentPrice", Number.isFinite(current) ? formatPrice(current, row.currency) : "")}`;
   if (decision.backgroundOnly) return `${common}<p class="decision-no-data">${state.language === "zh" ? "杠杆 ETF 以日线执行；周线用于观察自身趋势。" : "Use Daily for leveraged ETF execution; Weekly describes its trend."}</p>`;
-  if (decision.action === "short_sell") return `${field("shortEntryRange",formatRange(landscape.shortEntryRange,row.currency))}${common}${field("shortInvalidation",formatPrice(landscape.shortInvalidation,row.currency))}${field("structuralSpace",`${Number.isFinite(landscape.shortRewardRisk)?landscape.shortRewardRisk.toFixed(2):"—"}R`)}<small>${t("costsUnverified")}</small>`;
-  return `${field(presentation.opportunity, validPriceRange(landscape.opportunityRange) ? formatRange(landscape.opportunityRange, row.currency) : "")}${common}${field(presentation.reduce, validPriceRange(landscape.reduceRange) ? formatRange(landscape.reduceRange, row.currency) : "")}${field(presentation.invalidation, Number.isFinite(landscape.invalidation) ? formatPrice(landscape.invalidation, row.currency) : "")}${Number.isFinite(landscape.hardInvalidation) ? field("hardInvalidation", formatPrice(landscape.hardInvalidation, row.currency)) : ""}${Number.isFinite(landscape.rewardRisk) ? field("structuralSpace", `${landscape.rewardRisk.toFixed(2)}R`) : ""}${landscape.costsIncluded === false ? `<small>${t("costsUnverified")}</small>` : ""}`;
+  if (decision.action === "short_sell") return `${field("shortEntryRange",formatRange(landscape.shortEntryRange,row.currency))}${common}${field("shortInvalidation",formatPrice(landscape.shortInvalidation,row.currency))}${field("structuralSpace",`${Number.isFinite(landscape.shortRewardRisk)?landscape.shortRewardRisk.toFixed(2):"—"}R`)}`;
+  return `${field(presentation.opportunity, validPriceRange(landscape.opportunityRange) ? formatRange(landscape.opportunityRange, row.currency) : "")}${common}${field(presentation.reduce, validPriceRange(landscape.reduceRange) ? formatRange(landscape.reduceRange, row.currency) : "")}${field(presentation.invalidation, Number.isFinite(landscape.invalidation) ? formatPrice(landscape.invalidation, row.currency) : "")}${Number.isFinite(landscape.hardInvalidation) ? field("hardInvalidation", formatPrice(landscape.hardInvalidation, row.currency)) : ""}${Number.isFinite(landscape.rewardRisk) ? field("structuralSpace", `${landscape.rewardRisk.toFixed(2)}R`) : ""}`;
 }
 
 function validPriceRange(range) {
