@@ -35,13 +35,19 @@ for(const [ticker,q] of quotes) {
  for(const [h,d] of Object.entries(decision.horizons)) {
   const p=d.priceLandscape,entry=["strong_buy","buy","accumulate"].includes(d.action);
   const fail=(code)=>issues.push({ticker,horizon:h,code});
+  const inputs=d.debug.priceLandscapeInputs || {},reference=inputs.invalidationReference,math=inputs.rewardRiskInputs;
+  const atr=features.get(ticker).horizons[h].volatility.atr[`atr_14_${h==="daily"?"1d":"1w"}`].value;
+  if(p.opportunityRange && (!reference || reference.interval!==(h==="daily"?"1d":"1w") || !(reference.atrAtKnown>0) || Date.parse(reference.knownAt)>Date.parse(d.signalAsOf)))fail("untrusted_long_risk_reference");
+  if(p.opportunityRange && (!(math?.invalidation<p.opportunityRange.low) || !(math?.target>p.opportunityRange.high) || (math.target-p.opportunityRange.high)/(p.opportunityRange.high-math.invalidation)<engine.config.execution.rewardRisk.accumulate))fail("rounded_range_reward_risk");
   if(entry && !(p.opportunityRange&&q.price>=p.opportunityRange.low&&q.price<=p.opportunityRange.high&&p.rewardRisk>=engine.config.execution.rewardRisk[d.action]))fail("invalid_long_entry");
   if(p.opportunityRange&&p.reduceRange&&p.opportunityRange.high>=p.reduceRange.low)fail("overlapping_ranges");
   if(d.action==="short_sell"&&!(h==="daily"&&!classification.isETF&&p.shortEntryRange&&q.price>=p.shortEntryRange.low&&q.price<=p.shortEntryRange.high&&p.shortInvalidation>q.price&&p.shortRewardRisk>=2))fail("invalid_short_entry");
   if(d.debug.dataQuality.score===0&&(d.action!=="hold"||p.opportunityRange||p.reduceRange))fail("untrusted_action_or_plan");
   if(classification.leveraged&&h==="weekly"&&(!d.backgroundOnly||d.executionIntent!=="background"))fail("leveraged_weekly_execution");
   if(d.debug.confidenceComponents.action!==d.action)fail("pre_action_confidence");
-  rows.push({ticker,horizon:h,action:d.action,signalAsOf:d.signalAsOf,quoteAsOf:d.quoteAsOf,direction:d.states.direction.score,confirmation:d.states.confirmation.score,risk:d.states.risk.score,confidence:d.confidence,priceState:d.debug.priceState,landscape:p,neutralGapAtr:p.opportunityRange&&p.reduceRange?(p.reduceRange.low-p.opportunityRange.high)/features.get(ticker).horizons[h].volatility.atr[`atr_14_${h==="daily"?"1d":"1w"}`].value:null,missing:d.debug.dataQuality.missingCore,entryMissing:d.debug.dataQuality.entryMissing,reason:d.debug.finalDecision.reasonCode});
+  const r=p.opportunityRange,original=inputs.originalOpportunity;
+  const width=r?r.high-r.low:null,reduce=p.reduceRange;
+  rows.push({ticker,horizon:h,action:d.action,backgroundOnly:Boolean(d.backgroundOnly),signalAsOf:d.signalAsOf,quoteAsOf:d.quoteAsOf,direction:d.states.direction.score,confirmation:d.states.confirmation.score,risk:d.states.risk.score,confidence:d.confidence,priceState:d.debug.priceState,landscape:p,neutralGapAtr:r&&reduce?(reduce.low-r.high)/atr:null,rangeDiagnostics:{atr,opportunityWidth:width,widthAtr:width!==null&&atr>0?width/atr:null,widthPct:r?width/((r.low+r.high)/2)*100:null,retainedFraction:r&&original?width/(original.high-original.low):null,reduceWidthAtr:reduce&&atr>0?(reduce.high-reduce.low)/atr:null,originalOpportunity:original || null,invalidationReference:reference || null,rewardRiskInputs:math || null,selectedSupport:inputs.selectedSupport || null,selectedReduce:inputs.selectedReduce || null,landscapeReason:d.debug.landscapeQuality.reason,rejectedRiskPairs:inputs.candidateCounts?.rejectedRiskPairs || 0,missingRiskReferencePairs:inputs.candidateCounts?.missingRiskReferencePairs || 0},missing:d.debug.dataQuality.missingCore,entryMissing:d.debug.dataQuality.entryMissing,reason:d.debug.finalDecision.reasonCode});
   if(options.includes("--accumulate-study") && !classification.leveraged && !d.profile.highRiskRepair) {
    const current=engine.technical.evaluate(features.get(ticker),h,q.price,d.profile),previous=previousTechnical(q,h,d.profile);
    const volumeImproves=t=>t.confirmationComponents.participation.score>0 && (t.raw.obv.divergence==="bullish_divergence" || t.raw.volume.trend?.price_volume_confirmation==="bullish_confirmation");

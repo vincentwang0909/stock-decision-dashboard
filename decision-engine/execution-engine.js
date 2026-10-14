@@ -36,12 +36,6 @@
     return "unavailable";
   }
 
-  function nearestLevel(levels, center, side) {
-    const candidates = (levels || []).filter((level) => Number.isFinite(level.price)
-      && (side === "above" ? level.price > center : level.price < center));
-    return candidates.sort((left, right) => Math.abs(left.price - center) - Math.abs(right.price - center))[0] || null;
-  }
-
   function rangeDistance(price, value) {
     if (!value || !Number.isFinite(price)) return { available: false, within: false, edge: null, distancePct: null };
     if (price >= value.low && price <= value.high) return { available: true, within: true, edge: price, distancePct: 0 };
@@ -149,9 +143,17 @@
     return separation + 0.000001 >= buffer ? { ...pair, opportunity, reduce, buffer, separation, valid: true, rebuilt: "compressed_to_preserve_neutral_buffer" } : null;
   }
 
+  function knownReference(reference, technical) {
+    const interval=technical.horizon==="daily"?"1d":technical.horizon==="weekly"?"1w":null;
+    const at=Date.parse(technical.signalAsOf),known=Date.parse(reference?.known_at);
+    return reference?.active===true && Number.isFinite(reference.price) && reference.price>0
+      && Number.isFinite(reference.atr_at_known) && reference.atr_at_known>0
+      && interval && reference.interval===interval && Number.isFinite(at) && Number.isFinite(known) && known<=at;
+  }
+
   function riskBoundary(technical = {}) {
     const reference=technical.smc?.protected_low;
-    if (!(reference?.price>0) || !(reference?.atr_at_known>0) || reference.active===false) return null;
+    if (!knownReference(reference,technical)) return null;
     const cfg=engine.config.indicators.smc;
     return {reference:reference.price,knownAt:reference.known_at,atrAtKnown:reference.atr_at_known,
       ordinary:reference.price-cfg.ordinaryInvalidationAtr*reference.atr_at_known,
@@ -166,27 +168,42 @@
     return Boolean(ordinary || hard);
   }
 
-  function preliminaryInvalidation({technical,opportunityRange,atr}) {
+  function preliminaryInvalidation({technical,pair,atr}) {
     const boundary=riskBoundary(technical);
-    if (boundary) return roundPrice(boundary.ordinary);
-    const known=technical.structureSupport;
-    if (known?.price>0 && known.atr_at_known>0 && known.price<=opportunityRange?.low+atr*engine.config.indicators.structure.retestAtr) return roundPrice(known.price-engine.config.indicators.smc.ordinaryInvalidationAtr*known.atr_at_known);
-    const supports=(technical.executionContext?.levels || []).filter((item)=>item.role==="support" || item.role==="both");
-    const level=Number.isFinite(opportunityRange?.low)?nearestLevel(supports,opportunityRange.low,"below"):null;
-    return level ? roundPrice(level.price-atr*engine.config.execution.invalidationAtrBuffer):null;
+    const compact=(reference,source)=>({source,id:reference.id || null,price:reference.price,knownAt:reference.known_at,roleKnownAt:reference.role_known_at || reference.known_at,interval:reference.interval,atrAtKnown:reference.atr_at_known});
+    if (boundary) return {value:roundPrice(boundary.ordinary),rawValue:boundary.ordinary,reference:compact(technical.smc.protected_low,"protected_low")};
+    const initial=pair.opportunity.range,tolerance=atr*engine.config.indicators.structure.retestAtr;
+    const ids=new Set((pair.support.members || []).map(member=>member.structureId).filter(Boolean));
+    const supports=[technical.structureSupport,...(technical.structureLevels || [])].filter(reference=>knownReference(reference,technical)
+      && reference.role==="support" && reference.role_confirmed===true
+      && Date.parse(reference.role_known_at || reference.known_at)<=Date.parse(technical.signalAsOf)
+      && reference.price>=initial.low-tolerance && reference.price<=initial.high+tolerance);
+    // Use an already-known price structure associated with this real cluster.
+    // Its own fixed ATR is retained. Fib/MA/BB geometry cannot create a stop.
+    const known=supports.sort((a,b)=>Number(ids.has(b.id))-Number(ids.has(a.id))
+      || Math.abs(a.price-pair.support.center)-Math.abs(b.price-pair.support.center)
+      || Date.parse(b.known_at)-Date.parse(a.known_at) || String(a.id).localeCompare(String(b.id)))[0];
+    const value=known?known.price-engine.config.indicators.smc.ordinaryInvalidationAtr*known.atr_at_known:null;
+    return known?{value:roundPrice(value),rawValue:value,reference:compact(known,"confirmed_support")}:null;
   }
 
   function entryPlanForPair(pair,technical,atr) {
-    const initial=pair.opportunity.range,invalidation=preliminaryInvalidation({technical,opportunityRange:initial,atr});
+    const initial=pair.opportunity.range,risk=preliminaryInvalidation({technical,pair,atr}),invalidation=risk?.value || null;
     const low=invalidation>0?Math.max(initial.low,roundPrice(invalidation+.01)):initial.low;
     // A live protected reference is not replaced by a lower stop just to make
     // a different cluster pass. Check every price in the remaining real zone.
     const raw=technical.executionContext || {};
     const obstacles=(raw.hardObstacles || raw.levels || []).filter((level)=>level.role==="reduce" && level.price>low).map((item)=>item.price);
-    const target=roundPrice(Math.min(pair.reduce.range.low,...obstacles)),minimumR=engine.config.execution.rewardRisk.accumulate;
-    const highest=invalidation>0 && pair.support.center>invalidation?Math.floor((target+minimumR*invalidation)/(1+minimumR)*100)/100:null;
+    const rawTarget=Math.min(pair.reduce.range.low,...obstacles),target=roundPrice(rawTarget),minimumR=engine.config.execution.rewardRisk.accumulate;
+    // Display rounding may only make the test more conservative, never pass R.
+    const invalidationForRisk=risk?Math.min(invalidation,risk.rawValue):null,targetForRisk=Math.min(target,rawTarget);
+    const supported=pair.support.center>invalidation || risk?.reference.source==="confirmed_support" && risk.reference.price>=initial.low && risk.reference.price<=initial.high;
+    let highest=invalidation>0 && supported?Math.floor((targetForRisk+minimumR*invalidationForRisk)/(1+minimumR)*100)/100:null;
+    // The analytical bound can land microscopically above R through floating
+    // arithmetic. Recheck the actual cent; never round R up or add a tolerance.
+    if (highest!==null && (targetForRisk-highest)/(highest-invalidationForRisk)<minimumR) highest=roundPrice(highest-.01);
     const opportunity=highest==null?null:range(low,Math.min(initial.high,highest));
-    return {pair,initial,invalidation,target,opportunity};
+    return {pair,initial,invalidation,target,opportunity,invalidationForRisk,targetForRisk,invalidationReference:risk?.reference || null,rejectionReason:opportunity?null:risk?"insufficient_reward_risk":"missing_reliable_invalidation"};
   }
 
   function shortPlan({technical,price,horizon,profile}) {
@@ -252,12 +269,12 @@
     // remaining independent structures; no centre or R threshold is changed.
     const selectedPlan=plans.find(plan=>plan.opportunity && price>=plan.opportunity.low && price<=plan.opportunity.high) || plans.find((plan)=>plan.opportunity) || plans[0];
     if (!selectedPlan) return invalid("no_independent_support_resistance_pair");
-    const {pair:selected,initial,invalidation,target,opportunity}=selectedPlan;
+    const {pair:selected,initial,invalidation,target,opportunity,invalidationForRisk,targetForRisk,invalidationReference,rejectionReason}=selectedPlan;
     const state=priceStateFor({price,horizon,atr,opportunityRange:opportunity,reduceRange:selected.reduce.range,neutralBuffer:selected.buffer,invalidation});
-    const rr=opportunity && price>invalidation && price<target?(target-price)/(price-invalidation):null;
+    const rr=opportunity && price>invalidation && price<targetForRisk?(targetForRisk-price)/(price-invalidationForRisk):null;
     return {priceLandscape:{opportunityRange:opportunity,reduceRange:selected.reduce.range,invalidation,hardInvalidation:boundary?roundPrice(boundary.hard):null,currentPrice:roundPrice(price),entryTarget:roundPrice(target),rewardRisk:rr,...short,costsIncluded:false},priceState:state,actionFamily:actionFamilyForState(state),
-      landscapeQuality:{state:opportunity?selected.rebuilt?"rebuilt":"high":"invalid",score:round(selected.quality),penalty:opportunity?0:engine.config.execution.landscape.invalidQualityPenalty,reason:opportunity?null:"insufficient_reward_risk",neutralBuffer:roundPrice(selected.buffer),separation:opportunity?roundPrice(selected.reduce.range.low-opportunity.high):null},
-      debug:{priceLandscapeInputs:{structureModel:raw.structureModel,opportunity:selected.opportunity.inputs,reduce:selected.reduce.inputs,selectedSupport:compactCluster(selected.support),selectedReduce:compactCluster(selected.resistance),neutralBuffer:roundPrice(selected.buffer),originalOpportunity:initial,riskClipped:opportunity?.low!==initial.low || opportunity?.high!==initial.high,boundary,obstacles:{hard:(raw.hardObstacles || []).length,warning:(raw.warningLevels || []).length},candidateCounts:{opportunity:supportClusters.length,reduce:resistanceClusters.length,rejectedRiskPairs:plans.filter((plan)=>!plan.opportunity).length}},guardrails:opportunity?[]:["insufficient_reward_risk"]}};
+      landscapeQuality:{state:opportunity?selected.rebuilt?"rebuilt":"high":"invalid",score:round(selected.quality),penalty:opportunity?0:engine.config.execution.landscape.invalidQualityPenalty,reason:rejectionReason,neutralBuffer:roundPrice(selected.buffer),separation:opportunity?roundPrice(selected.reduce.range.low-opportunity.high):null},
+      debug:{priceLandscapeInputs:{structureModel:raw.structureModel,opportunity:selected.opportunity.inputs,reduce:selected.reduce.inputs,selectedSupport:compactCluster(selected.support),selectedReduce:compactCluster(selected.resistance),neutralBuffer:roundPrice(selected.buffer),originalOpportunity:initial,invalidationReference,rejectionReason,rewardRiskInputs:{invalidation:invalidationForRisk,target:targetForRisk},riskClipped:opportunity?.low!==initial.low || opportunity?.high!==initial.high,boundary,obstacles:{hard:(raw.hardObstacles || []).length,warning:(raw.warningLevels || []).length},candidateCounts:{opportunity:supportClusters.length,reduce:resistanceClusters.length,rejectedRiskPairs:plans.filter((plan)=>!plan.opportunity).length,missingRiskReferencePairs:plans.filter(plan=>plan.rejectionReason==="missing_reliable_invalidation").length}},guardrails:opportunity?[]:[rejectionReason]}};
   }
 
   function decisionForPriceState({landscape,technical={},exhaustionScore=0,risk=0,marketModifiers={},profile={}}={}) {
@@ -275,7 +292,7 @@
     const reduce=["IN_REDUCE_ZONE","BEYOND_REDUCE_ZONE"].includes(state) || inRange(plans.reduceRange);
     const weakening=evidence.weakeningBars>=engine.config.indicators.smc.momentumRepairBars && (evidence.independentWeakening || smc.resistance_failure_bars>=engine.config.indicators.smc.repairBars || (smc.sweeps || []).some((item)=>item.sign<0));
     if (reduce && weakening) return result("trim","early_upside_exhaustion");
-    if (state!=="IN_OPPORTUNITY_ZONE") return result("hold",reduce?"reduce_candidate_without_exhaustion":plans.opportunityRange?"price_outside_entry":"waiting_valid_landscape");
+    if (state!=="IN_OPPORTUNITY_ZONE") return result("hold",reduce?"reduce_candidate_without_exhaustion":plans.opportunityRange?"price_outside_entry":landscape?.landscapeQuality?.reason==="missing_reliable_invalidation"?"waiting_reliable_invalidation":"waiting_valid_landscape");
     if (technical.dataQuality?.entryMissing?.length) return result("hold","waiting_benchmark_confirmation");
     if (marketModifiers.marketUnavailable) return result("hold","waiting_market_context");
     if (marketModifiers.shock) return result("hold","market_shock_blocks_entry");
@@ -295,7 +312,7 @@
 
   function build({price,horizon,action="hold",technical={},landscape=null,context={}}={}) {
     const base=landscape || buildLandscape({price,horizon,technical,context});
-    return {priceLandscape:{...base.priceLandscape,currentPrice:roundPrice(price)},executionIntent:executionIntent(action),priceState:base.priceState,actionFamily:action==="short_sell"?"short_entry":base.actionFamily,landscapeQuality:base.landscapeQuality,debug:{...base.debug,invalidationInputs:{source:action==="short_sell"?"independent_short_structure":"known_long_structure"}}};
+    return {priceLandscape:{...base.priceLandscape,currentPrice:roundPrice(price)},executionIntent:executionIntent(action),priceState:base.priceState,actionFamily:action==="short_sell"?"short_entry":base.actionFamily,landscapeQuality:base.landscapeQuality,debug:{...base.debug,invalidationInputs:{source:action==="short_sell"?"independent_short_structure":base.debug?.priceLandscapeInputs?.invalidationReference?.source || (base.debug?.priceLandscapeInputs?.boundary?"protected_low":null)}}};
   }
 
   engine.execution = Object.freeze({

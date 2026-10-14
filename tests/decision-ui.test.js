@@ -17,6 +17,8 @@ assert.equal(presentation.executionSemantics(plan("hold")).opportunity, "lowerOb
 assert.equal(presentation.executionSemantics(plan("trim")).reduce, "recommendedReduceRange");
 assert.equal(presentation.executionSemantics(plan("sell")).reduce, "recommendedExitRange");
 assert.equal(presentation.executionSemantics(plan("hold")).reduce, "upperObservationRange");
+assert.match(presentation.translateReason({code:"waiting_reliable_invalidation"},"zh"),/已确认且仍有效/);
+assert.match(presentation.translateReason({code:"waiting_reliable_invalidation"},"en"),/confirmed active support/);
 assert.deepEqual(presentation.actionTone, {
   strong_buy: "strong-buy", buy: "buy", accumulate: "accumulate", hold: "hold", trim: "trim", sell: "sell", short_sell: "short-sell",
 });

@@ -89,6 +89,13 @@ beyond the fixed hard boundary plus material buffer can exit immediately.
 ATR expansion cannot continually widen the same boundary. Retired broken
 references cannot permanently suppress a genuinely new repaired structure.
 No automatic left buy merely because a prior invalidation is now lower priced.
+Without an active protected low, a long entry stop requires an associated,
+confirmed active own-frame support with valid known/role-known times and fixed
+ATR at confirmation. Isolated Fib extensions, MA/BB lines or an unconfirmed
+historical low cannot create it. Keep the existing cluster centre; clip only
+its legitimate candidate prices above that stop and against the nearest target.
+Missing trustworthy stop evidence removes the entry plan with an explicit
+reason. Stop/target display rounding must not improve the R qualification.
 Event freshness and structural lifetime are separate: old intact structure needs
 a new completed valid pullback repair to renew Buy support, never age-only Buy.
 An advancing repaired break may promote a newly confirmed higher low after its

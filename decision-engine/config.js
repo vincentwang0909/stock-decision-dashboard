@@ -120,7 +120,6 @@
       gates: freeze({ strongBuy: freeze({ direction: 62, confirmation: 76, riskMaximum: 42, bullishExhaustionMaximum: 28,  }), buy: freeze({ direction: 30, confirmation: 57, riskMaximum: 64 }), accumulate: freeze({ riskMaximum: 76 }), sell: freeze({ direction: -55, confirmation: 58 }), shortSell: freeze({ direction: -62, confirmation: 76, riskMaximum: 42 }) }),
     }),
     execution: freeze({
-      invalidationAtrBuffer: 0.55,
       rewardRisk: freeze({ buy: 1.5, accumulate: 1.5, strong_buy: 2, short_sell: 2 }),
       exitHalfWidthAtr: 0.20,
       newEntryExhaustionMaximum: 55,

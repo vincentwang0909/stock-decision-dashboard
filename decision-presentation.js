@@ -23,6 +23,7 @@
     waiting_required_data: { en: "Required completed-bar data or structure is missing or untrusted.", zh: "必要的完成周期数据或结构不足／不可信，等待更新。" },
     waiting_benchmark_confirmation: { en: "Aligned benchmark history is missing for this horizon.", zh: "缺少该周期日期一致的基准历史，等待确认。" },
     waiting_valid_landscape: { en: "No valid structural entry plan with sufficient reward/risk.", zh: "真实结构尚未形成空间足够的入场计划。" },
+    waiting_reliable_invalidation: { en: "No confirmed active support provides a reliable entry risk boundary for this zone.", zh: "该区域缺少已确认且仍有效的支撑失效依据，暂不生成入场计划。" },
     price_outside_entry: { en: "Direction alone is insufficient: current price is outside the valid entry range.", zh: "方向信号本身不足以执行；当前价格不在有效入场区。" },
     reduce_candidate_without_exhaustion: { en: "Price is in the upper observation zone, but exhaustion is unconfirmed.", zh: "价格进入上方观察区，但衰竭证据不足，继续观察。" },
     waiting_entry_confirmation: { en: "Early repair or confirmed right-side entry requirements are incomplete.", zh: "早期修复或右侧入场条件尚未完整满足。" },

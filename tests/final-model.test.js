@@ -2,7 +2,7 @@
 const assert=require("node:assert/strict");
 const {loadEngine,clone}=require("./fixtures/decision-scenarios.js");const e=loadEngine();
 const {featureSet}=require("./fixtures/decision-scenarios.js");
-const technical=()=>({horizon:"daily",directionScore:40,confirmationScore:70,trendPrice:100,atr:2,dataQuality:{score:100,entryMissing:[]},smc:{availability:"available",bullish_confirmed:true,support_repair_bars:1},entryEvidence:{improvingBars:2,weakeningBars:0,independentImprovement:true,bearishMomentum:false}});
+const technical=()=>({horizon:"daily",signalAsOf:"2026-10-13T20:00:00Z",directionScore:40,confirmationScore:70,trendPrice:100,atr:2,dataQuality:{score:100,entryMissing:[]},smc:{availability:"available",bullish_confirmed:true,support_repair_bars:1},entryEvidence:{improvingBars:2,weakeningBars:0,independentImprovement:true,bearishMomentum:false}});
 const landscape=()=>({priceState:"IN_OPPORTUNITY_ZONE",priceLandscape:{currentPrice:100,opportunityRange:{low:99,high:101},reduceRange:{low:110,high:112},invalidation:94,rewardRisk:1.7}});
 const apply=(t=technical(),p=landscape(),extra={})=>e.execution.decisionForPriceState({technical:t,landscape:p,risk:20,...extra});
 assert.equal(apply().action,"buy");
@@ -29,7 +29,7 @@ l.priceLandscape.currentPrice=90;assert.equal(apply(t,l).action,"sell","decline 
 l.priceLandscape.currentPrice=100;l.priceLandscape.shortRewardRisk=1.999999;assert.equal(apply(t,l).action,"sell");
 t.smc.bearish_confirmed=false;assert.equal(apply(t,l).action,"hold","one unconfirmed CHoCH cannot open a short");
 t.dataQuality.score=0;t.smc.bearish_confirmed=true;assert.equal(apply(t,l).action,"hold","missing data precedes any sell path");
-t=technical();t.smc.protected_low={price:96,known_at:"2026-10-01T20:00:00Z",atr_at_known:2,active:true};
+t=technical();t.smc.protected_low={interval:"1d",price:96,known_at:"2026-10-01T20:00:00Z",atr_at_known:2,active:true};
 assert.deepEqual(e.execution.riskBoundary(t),{reference:96,knownAt:"2026-10-01T20:00:00Z",atrAtKnown:2,ordinary:95.5,hard:94,materialBuffer:.5});
 assert.equal(e.execution.confirmedBreakdown(t,95),false,"small intraday break waits for close");
 assert.equal(e.execution.confirmedBreakdown(t,93.4),true,"material hard boundary acts immediately");
@@ -46,7 +46,7 @@ assert.equal(apply(technical(),landscape(),{profile:{leveraged:true},marketModif
 assert.equal(apply(technical(),landscape(),{marketModifiers:{entryPaused:true,confirmationAdd:5}}).action,"buy","ordinary stocks raise gates without banning all entries");
 // A stronger-looking but unusable pair must not suppress another legitimate
 // pair. All candidates keep the same protected stop and the same R gate.
-t=technical();t.smc.protected_low={price:94,atr_at_known:2,known_at:"2026-10-01",active:true};
+t=technical();t.smc.protected_low={interval:"1d",price:94,atr_at_known:2,known_at:"2026-10-01",active:true};
 const cluster=(center,quality)=>({center,quality,confluence:quality,independentStructures:2,members:[],categoryBreakdown:[]});
 t.executionContext={atr:2,supportClusters:[cluster(100,6),cluster(96,2)],resistanceClusters:[cluster(110,2)],levels:[{price:92,role:"support",type:"swing"},{price:99,role:"reduce",type:"swing"}]};
 const feasible=e.execution.buildLandscape({price:94.8,horizon:"daily",technical:t});
@@ -78,7 +78,7 @@ frame.trend.support_resistance.levels[0].active=false;
 frame.trend.support_resistance.inactive_levels=[frame.trend.support_resistance.levels.shift()];
 assert(!e.technical.evaluate(anchored,"daily",100,{effectiveModifiers:{benchmarkWeights:{spy:.5,qqq:.5}}}).executionContext.levels.some(x=>x.price===94 && ["swing","fib"].includes(x.type)),"retired endpoint cannot resurrect through Fib");
 // A warning is observable but cannot independently clip an entry or invent a target.
-t=technical();t.smc.protected_low={price:94,atr_at_known:2,known_at:"2026-10-01",active:true};
+t=technical();t.smc.protected_low={interval:"1d",price:94,atr_at_known:2,known_at:"2026-10-01",active:true};
 t.executionContext={atr:2,supportClusters:[cluster(98,2)],resistanceClusters:[{...cluster(100,2),hardObstacle:false},{...cluster(110,2),hardObstacle:true}],levels:[{price:99,role:"reduce",type:"moving_average"}],hardObstacles:[{price:110,role:"reduce",type:"swing"}]};
 const warningPlan=e.execution.buildLandscape({price:98,horizon:"daily",technical:t});
 assert.equal(warningPlan.debug.priceLandscapeInputs.selectedReduce.center,110);
@@ -96,4 +96,44 @@ rejectionFrame.trend.support_resistance.resistance_rejections=[{known_at:rejecti
 assert(inspectObstacles().some(c=>Math.abs(c.center-100)<1 && c.hardObstacle && c.obstacleReason==="confluence_price_rejection"),"independent confluence plus observed rejection is a real obstacle");
 rejectionFrame.trend.support_resistance.resistance_rejections[0].known_at="2026-10-12T20:00:00Z";
 assert(inspectObstacles().filter(c=>Math.abs(c.center-100)<1).every(c=>!c.hardObstacle),"a future rejection cannot restrict an earlier plan");
+// A Fib extension below a cluster is observation geometry, not stop evidence.
+const supportReference={id:"1d:known-support",interval:"1d",price:66.54000091552734,atr_at_known:1.849909821857553,known_at:"2026-10-09T20:00:00Z",role_known_at:"2026-10-09T20:00:00Z",role:"support",role_confirmed:true,active:true};
+t=technical();t.atr=1.7561978417539295;t.trendPrice=70.46;
+t.structureSupport=supportReference;t.structureLevels=[];
+t.executionContext={atr:t.atr,supportClusters:[{...cluster(65.87,3.35),members:[{price:supportReference.price,structureId:supportReference.id}]}],resistanceClusters:[cluster(83.43,2)],levels:[{price:61.89968157958984,role:"support",type:"fib"}],hardObstacles:[{price:70.92617402217219,role:"reduce",type:"confluence"}]};
+const repaired=e.execution.buildLandscape({price:70.46,horizon:"daily",technical:t});
+assert.equal(repaired.priceLandscape.invalidation,66.08);
+assert.deepEqual(repaired.priceLandscape.opportunityRange,{low:66.09,high:67.27});
+assert.equal(repaired.debug.priceLandscapeInputs.invalidationReference.id,supportReference.id);
+assert.equal(repaired.debug.priceLandscapeInputs.invalidationReference.source,"confirmed_support");
+assert.equal(apply(t,repaired).action,"hold","valid entry geometry still does not authorize entry outside the zone");
+for(const mutation of [{active:false},{interval:"1w"},{interval:null},{known_at:"2026-10-14T20:00:00Z"},{known_at:null},{role_known_at:"2026-10-14T20:00:00Z"},{role:"reduce"},{role_confirmed:false},{atr_at_known:null},{atr_at_known:true},{price:true},{price:40}]) {
+ t.structureSupport={...supportReference,...mutation};
+ const rejected=e.execution.buildLandscape({price:65,horizon:"daily",technical:t});
+ assert.equal(rejected.priceLandscape.opportunityRange,null,JSON.stringify(mutation));
+ assert.equal(rejected.priceLandscape.invalidation,null,"never fall back to isolated Fib/MA/BB or a remote support");
+ assert.equal(rejected.landscapeQuality.reason,"missing_reliable_invalidation");
+ assert.equal(apply(t,rejected).reasonCode,"waiting_reliable_invalidation");
+}
+t.structureSupport=null;
+t.structureLevels=[supportReference];
+assert.equal(e.execution.buildLandscape({price:70.46,horizon:"daily",technical:t}).priceLandscape.invalidation,66.08,"known associated support is usable even if it is not the latest support selector");
+t.atr=2.2;t.executionContext.atr=2.2;
+assert.equal(e.execution.buildLandscape({price:70.46,horizon:"daily",technical:t}).priceLandscape.invalidation,66.08,"fallback price structure also freezes its known ATR");
+t=technical();t.smc.protected_low={...supportReference,price:96.008,atr_at_known:2};
+t.executionContext={atr:2,supportClusters:[cluster(102,2)],resistanceClusters:[cluster(120,2)],hardObstacles:[{price:110.005,role:"reduce",type:"swing"}]};
+const rounded=e.execution.buildLandscape({price:101.31,horizon:"daily",technical:t});
+assert.equal(rounded.priceLandscape.opportunityRange.high,101.30,"rounding stop/target upward cannot make an extra cent pass R");
+const math=rounded.debug.priceLandscapeInputs.rewardRiskInputs;
+assert((math.target-rounded.priceLandscape.opportunityRange.high)/(rounded.priceLandscape.opportunityRange.high-math.invalidation)>=1.5);
+t.smc.protected_low={...supportReference,price:99.5,atr_at_known:2};
+t.executionContext.supportClusters=[cluster(103.5,2)];t.executionContext.hardObstacles=[{price:110,role:"reduce",type:"swing"}];
+const centBoundary=e.execution.buildLandscape({price:103.4,horizon:"daily",technical:t});
+assert.equal(centBoundary.priceLandscape.opportunityRange.high,103.39,"direct floating arithmetic at 103.40 yields slightly less than 1.5R; recheck the cent instead of allowing tolerance");
+assert(centBoundary.priceLandscape.rewardRisk<1.5);
+for(const mutation of [{active:false},{interval:"1w"},{known_at:"2026-10-14T20:00:00Z"},{atr_at_known:true}]) {
+ t.smc.protected_low={...supportReference,...mutation};t.trendPrice=20;
+ assert.equal(e.execution.riskBoundary(t),null);
+ assert.equal(e.execution.confirmedBreakdown(t,20),false,"untrusted references cannot fabricate Sell");
+}
 console.log("Execution policy: early actions, 1.5R/2R, independent shorts, invalidation, events and missing data passed.");
