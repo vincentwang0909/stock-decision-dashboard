@@ -51,7 +51,7 @@ const I18N = {
     trendSummary: "Trend", momentumSummary: "Momentum", volatilitySummary: "Volatility", relativeStrengthSummary: "Relative Strength", participationSummary: "Participation", marketStatus: "Market Status", current: "Current", change5d: "5D Change", change20d: "20D Change", expanded: "Expanded", collapsed: "Collapsed", primaryInterval: "Primary interval", supportingIntervals: "Each frame uses its own completed bars.",
     supporting: "Supporting evidence", limiting: "Limiting evidence", marketState: "Market state",
     technicalData: "Canonical Technical Data", dataStatus: "Data status", trend: "Trend", momentum: "Momentum", volatility: "Volatility", participation: "Participation",
-    close: "Close", remove: "Remove", risk: "Risk", opportunity: "Price opportunity", confirmation: "Confirmation", direction: "Direction",
+    close: "Close", remove: "Remove", confirmRemove: "Remove {ticker} from the shared watchlist? This affects everyone viewing this Dashboard.", risk: "Risk", opportunity: "Price opportunity", confirmation: "Confirmation", direction: "Direction",
     noData: "Waiting for market data. No action is shown until the technical feature set is available.",
     refreshTimeout: "The service did not respond in time. Please retry shortly.",
     refreshInterrupted: "The market response was interrupted. Please retry.",
@@ -76,7 +76,7 @@ const I18N = {
     technicalOverview: "技术概览", fibonacciStructure: "斐波那契结构", fibonacciDescription: "已确认的摆动锚点与回撤／扩展水平；仅作技术数据展示。", historicalVolume: "52 周／历史位置与成交量", advancedSwingMetadata: "高级摆动元数据", retracement: "回撤", extension: "扩展", level: "级别", distance: "距离", swingHigh: "摆动高点", swingLow: "摆动低点", swingRange: "摆动区间", currentPosition: "当前位置", nearestBelow: "最近下方水平", nearestAbove: "最近上方水平", sourceTimeframe: "来源周期", lookbackBars: "回看 K 线数", fallbackUsed: "已使用回退", fallbackReason: "回退原因", primaryClassification: "主要分类", technicalUnavailable: "技术数据暂不可用。", trendSummary: "趋势", momentumSummary: "动量", volatilitySummary: "波动", relativeStrengthSummary: "相对强弱", participationSummary: "参与度", marketStatus: "市场状态", current: "当前", change5d: "5 日变化", change20d: "20 日变化", expanded: "展开", collapsed: "收起", primaryInterval: "主周期", supportingIntervals: "各周期独立使用完成 K 线。",
     supporting: "支持证据", limiting: "限制因素", marketState: "市场状态", marketRegimeHelp: "由 VIX 以及 SPY／QQQ 趋势背景综合判断的市场风险环境，不是个股买卖信号。", marketImpactHelp: "该周期市场环境对这只股票执行风险的修正，不会单独产生买入或卖出。", benchmarkNeutralHelp: "在当前市场规则下，基准指数尚未形成明确上涨或下跌趋势。", vixHelp: "VIX 当前水平及近期变化，用于描述市场波动背景。", fearGreedHelp: "市场情绪背景指标，不是单独的买入或卖出信号。", yieldHelp: "10 年期收益率背景会影响利率敏感型股票的执行风险。", earningsHelp: "财报临近可能提高事件不确定性。", marketBasis: "判定依据",
     technicalData: "标准化技术数据", dataStatus: "数据状态", trend: "趋势", momentum: "动量", volatility: "波动", participation: "参与度",
-    close: "关闭", remove: "移除", risk: "风险", opportunity: "价格机会", confirmation: "确认度", direction: "方向",
+    close: "关闭", remove: "移除", confirmRemove: "确定要从共享自选列表中移除 {ticker} 吗？此操作会影响所有查看此仪表盘的用户。", risk: "风险", opportunity: "价格机会", confirmation: "确认度", direction: "方向",
     noData: "正在等待市场数据；技术特征可用前不显示操作建议。",
     refreshTimeout: "服务响应超时，请稍后重试。",
     refreshInterrupted: "行情响应中断，请重试。",
@@ -1064,6 +1064,7 @@ async function addTicker(ticker) {
 }
 
 async function removeTicker(ticker) {
+  if (!window.confirm(t("confirmRemove").replace("{ticker}", ticker))) return;
   try { await fetch(`${WATCHLIST_API_URL}/${encodeURIComponent(ticker)}`, { method: "DELETE" }); } catch { $("#watchlistSyncWarning").hidden = false; }
   state.watchlist = state.watchlist.filter((item) => item !== ticker);
   state.rows = state.rows.filter((item) => item.ticker !== ticker);
