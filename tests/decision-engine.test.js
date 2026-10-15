@@ -2,6 +2,11 @@
 const assert=require("node:assert/strict");
 const {loadEngine,featureSet,market,clone}=require("./fixtures/decision-scenarios.js");
 const e=loadEngine();
+// YoY is exact-month display context, not a second directional/risk vote.
+const macroBase=market(),macroAnnual=clone(macroBase);
+macroAnnual.market_context.macro_actuals.cpi.headline.yoy_pct=8;
+macroAnnual.market_context.macro_actuals.cpi.core.yoy_pct=5;
+assert.deepEqual(e.market.forHorizon(e.market.evaluate(macroBase),"daily",{},{}),e.market.forHorizon(e.market.evaluate(macroAnnual),"daily",{},{}));
 const decide=(features=featureSet(),price=99,classification={},context=market(),metadata={})=>e.decide({ticker:"TEST",price,classification,technicalFeatures:features,marketContext:context,metadata});
 let result=decide();
 assert.deepEqual(Object.keys(result.horizons),["daily","weekly"]);

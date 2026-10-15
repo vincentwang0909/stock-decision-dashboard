@@ -615,21 +615,30 @@ function marketLine(label, value, note = "") {
 }
 
 function macroReleaseLines(core) {
-  const actual=core.macro_actuals || {}, cpi=actual.cpi || {}, jobs=actual.employment || {};
-  const percent=(v)=>Number.isFinite(v)?`${v.toFixed(2)}%`:t("unavailable");
-  const thousands=(v)=>Number.isFinite(v)?`${v>=0?"+":""}${v.toFixed(0)}K`:t("unavailable");
-  const comparison=(v)=>`${uiLabel("Previous / 3-month mean / YoY")} ${percent(v?.previous_mom_pct)} / ${percent(v?.three_month_mean_pct)} / ${percent(v?.yoy_pct)}`;
-  return [
-    marketLine("CPI MoM",percent(cpi.headline?.mom_pct),`${cpi.headline?.period || ""} · ${comparison(cpi.headline)}`),
-    marketLine("Core CPI MoM",percent(cpi.core?.mom_pct),`${cpi.core?.period || ""} · ${comparison(cpi.core)}`),
-    marketLine("Payroll change",thousands(jobs.payroll_change_thousands),`${jobs.period || ""} · ${uiLabel("Previous / 3-month mean")} ${thousands(jobs.previous_payroll_change_thousands)} / ${thousands(jobs.payroll_three_month_mean_thousands)}`),
-    marketLine("Unemployment",percent(jobs.unemployment_rate_pct),`${uiLabel("Month change")} ${Number.isFinite(jobs.unemployment_change_pp)?`${jobs.unemployment_change_pp.toFixed(2)} pp`:t("unavailable")}`),
-    marketLine("Wage MoM / participation",`${percent(jobs.wage_mom_pct)} / ${percent(jobs.participation_rate_pct)}`),
-    marketLine("Previous month payroll revision",thousands(jobs.previous_month_revision_thousands)),
-    marketLine("FOMC",core.event_calendar?.fomc_decision?.statement || t("unavailable")),
-    marketLine("FedWatch",core.fomc_expectations?.status === "available" ? JSON.stringify(core.fomc_expectations.probabilities) : state.language === "zh" ? "免费概率来源尚未通过可靠性核验" : "Verified free probability feed unavailable"),
-    marketLine(t("dataStatus"),technicalState(actual.status),`${formatDataTime(actual.as_of)} · BLS`),
-  ].join("");
+  const actual = core.macro_actuals || {}, cpi = actual.cpi || {}, jobs = actual.employment || {};
+  const zh = state.language === "zh", text = (en, cn) => zh ? cn : en;
+  const missing = text("Unavailable", "暂不可用");
+  const percent = (v) => Number.isFinite(v) ? `${v.toFixed(2)}%` : missing;
+  const thousands = (v) => Number.isFinite(v) ? zh ? `${v > 0 ? "+" : ""}${(v / 10).toFixed(1)}万人` : `${v > 0 ? "+" : ""}${v.toFixed(0)}K` : missing;
+  const month = (period, offset = 0) => {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period || "")) return missing;
+    const [year, number] = period.split("-").map(Number);
+    const index = year * 12 + number - 1 + offset;
+    return `${Math.floor(index / 12)}-${String((index % 12 + 12) % 12 + 1).padStart(2, "0")}`;
+  };
+  const windowLabel = (period) => `${month(period, -2)} → ${month(period)}`;
+  const cell = (label, period, value) => `<div class="macro-comparison-cell"><span>${escapeHtml(label)}</span><small>${escapeHtml(period)}</small><strong>${escapeHtml(value)}</strong></div>`;
+  const comparison = (period, values, currentLabel) => `<div class="macro-comparison">${cell(currentLabel, month(period), values[0])}${cell(text("Previous month", "上月"), month(period, -1), values[1])}${cell(text("3-month mean", "近3个月均值"), windowLabel(period), values[2])}</div>`;
+  const inflation = (label, data = {}) => {
+    const annualTrusted = data.yoy_basis === "not_seasonally_adjusted" && data.yoy_period === data.period && data.yoy_base_period === month(data.period, -12);
+    const annual = annualTrusted ? percent(data.yoy_pct) : missing;
+    const annualReason = !annualTrusted ? text("Waiting for same-month unadjusted data", "等待同月非季调数据") : Number.isFinite(data.yoy_pct) ? text("Not seasonally adjusted", "非季调") : data.yoy_unavailable_reason === "missing_year_ago_period" ? text("Prior-year month missing", "缺少去年同月指数") : data.yoy_unavailable_reason === "invalid_index" ? text("Index data invalid", "指数数据无效") : text("Current month index missing", "缺少本月指数");
+    return `<section class="macro-indicator"><h4>${escapeHtml(label)}</h4>${comparison(data.period, [percent(data.mom_pct), percent(data.previous_mom_pct), percent(data.three_month_mean_pct)], text("This month · MoM", "本月环比"))}<div class="macro-annual"><span>${text("Year-over-year", "同比")} <small>${escapeHtml(`${month(data.period)} ↔ ${month(data.period, -12)}`)}</small></span><strong>${escapeHtml(annual)}</strong></div><p class="macro-context-note">${escapeHtml(annualReason)}</p></section>`;
+  };
+  const signedPoints = (v) => Number.isFinite(v) ? `${v > 0 ? "+" : ""}${v.toFixed(2)} ${text("percentage points", "个百分点")}` : missing;
+  const revision = jobs.revision_available === true ? thousands(jobs.previous_month_revision_thousands) : missing;
+  const fomc = core.event_calendar?.fomc_decision || {};
+  return `<div class="macro-indicator-grid">${inflation(text("CPI", "CPI"), cpi.headline)}${inflation(text("Core CPI", "核心 CPI"), cpi.core)}<section class="macro-indicator"><h4>${text("Nonfarm payroll change", "新增非农就业")}</h4>${comparison(jobs.period, [thousands(jobs.payroll_change_thousands), thousands(jobs.previous_payroll_change_thousands), thousands(jobs.payroll_three_month_mean_thousands)], text("This month", "本月"))}<p class="macro-context-note">${text("Previous month revision", "上月就业总量修订")}：${escapeHtml(revision)}</p></section><section class="macro-indicator"><h4>${text("Labour market", "劳动力市场")} <small>${escapeHtml(month(jobs.period))}</small></h4><div class="detail-line-list">${marketLine(text("Unemployment rate", "失业率"), percent(jobs.unemployment_rate_pct), `${text("Change from previous month", "较上月变化")}：${signedPoints(jobs.unemployment_change_pp)}`)}${marketLine(text("Wage growth · MoM", "工资环比"), percent(jobs.wage_mom_pct))}${marketLine(text("Labour force participation", "劳动参与率"), percent(jobs.participation_rate_pct))}</div></section></div><p class="macro-context-note">${text("Monthly inflation changes are seasonally adjusted. The 3-month mean includes this month; YoY compares unadjusted indexes for the same month one year apart.", "通胀环比采用季调数据；近3个月均值包含本月。同比比较本月与去年同月的非季调指数。")}</p><div class="macro-policy-grid"><section class="macro-indicator"><h4>${text("FOMC decision", "FOMC 决议")}</h4><p>${escapeHtml(fomc.status === "available" ? text("Published · see the full official statement", "已发布 · 查看官方完整声明") : missing)}</p><p class="macro-context-note">${escapeHtml(formatDataTime(fomc.released_at))}</p><a href="https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm" target="_blank" rel="noopener noreferrer">${text("Federal Reserve statements", "美联储官方声明")}</a></section><section class="macro-indicator"><h4>${text("FOMC market expectations", "FOMC 市场预期")} · FedWatch</h4><p>${text("Not connected · excluded from decisions", "未接入 · 暂不参与判断")}</p><a href="https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html" target="_blank" rel="noopener noreferrer">${text("View CME FedWatch", "查看 CME FedWatch")}</a></section></div><p class="macro-context-note macro-source-status">${text("Data status", "数据状态")}：${actual.status === "available" ? text("Core comparisons available; individual gaps shown above", "核心比较可用；单项缺口见上方") : missing} · ${text("Fetched", "获取时间")} ${escapeHtml(formatDataTime(actual.as_of))} · BLS</p>`;
 }
 
 function renderMarketPanel(row) {
@@ -646,7 +655,7 @@ function renderMarketPanel(row) {
         <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>VIX</h3></div><div class="detail-line-list">${marketLine(t("current"), Number.isFinite(finite(engine.vix?.value)) ? finite(engine.vix.value).toFixed(2) : t("unavailable"), uiText(engine.vix?.impact || ""))}${marketLine(t("change5d"), vixChange(engine.vix?.change_5d))}${marketLine(t("change20d"), vixChange(engine.vix?.change_20d))}${marketLine(t("trend"), technicalState(engine.vix?.trend))}</div></section>
         <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>SPY / QQQ</h3></div><div class="detail-line-list">${marketLine("SPY", priceTrend(engine.equity_trend?.spy), indexHistory(engine.equity_trend?.spy))}${marketLine("QQQ", priceTrend(engine.equity_trend?.qqq), indexHistory(engine.equity_trend?.qqq))}</div></section>
         <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>${escapeHtml(uiLabel("Fear & Greed / US 10Y Yield"))}</h3></div><div class="detail-line-list">${marketLine("Fear & Greed", technicalState(engine.fear_greed?.label || engine.fearGreed?.label), engine.fear_greed?.value == null ? "" : `${Math.round(engine.fear_greed.value)}/100`)}${marketLine("US 10Y Yield", engine.ten_year_yield?.value == null ? t("unavailable") : `${Number(engine.ten_year_yield.value).toFixed(2)}%`, `${dayLabel(5)} ${engine.ten_year_yield?.change_5d_bps ?? t("unavailable")} ${state.language === "zh" ? "基点" : "bps"} · ${dayLabel(20)} ${engine.ten_year_yield?.change_20d_bps ?? t("unavailable")} ${state.language === "zh" ? "基点" : "bps"}`)}</div></section>
-        <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>${state.language === "zh" ? "宏观实际发布" : "Macro releases"}</h3></div><div class="detail-line-list">${macroReleaseLines(engine)}</div></section>
+        <section class="detail-section-card market-compact-card macro-release-card"><div class="detail-section-head"><h3>${state.language === "zh" ? "宏观实际发布" : "Macro releases"}</h3></div>${macroReleaseLines(engine)}</section>
         <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>${state.language === "zh" ? "重大发布日历" : "Major release calendar"}</h3></div><div class="detail-line-list">${(engine.event_calendar?.events || []).filter((event)=>Date.parse(event.at)>=Date.now()).slice(0,5).map((event)=>marketLine(uiLabel(event.type),formatDataTime(event.at))).join("") || marketLine(t("dataStatus"),technicalState("unavailable"))}${marketLine(t("updated"),formatDataTime(engine.event_calendar?.as_of))}</div></section>
       </div>
     </section>

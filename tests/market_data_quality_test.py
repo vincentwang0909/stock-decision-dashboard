@@ -72,4 +72,46 @@ class DataQualityTests(unittest.TestCase):
         result=server.parse_bls_actuals(payload,datetime(2026,4,8,tzinfo=timezone.utc))
         self.assertEqual(result['status'],'unavailable')
         self.assertIsNone(result['employment']['unemployment_change_pp'])
+
+    def test_bls_yoy_uses_exact_year_ago_month_despite_intervening_gap(self):
+        def series(name, observations):
+            return {'seriesID':name,'data':[{'year':p[:4],'period':'M'+p[5:],'value':str(v)} for p,v in observations]}
+        adjusted=[('2025-09',100),('2025-11',101),('2026-06',102),('2026-07',103),('2026-08',104),('2026-09',105)]
+        unadjusted=[('2025-08',80),('2025-09',100),('2025-11',101),('2026-08',106),('2026-09',108)]
+        payload={'status':'REQUEST_SUCCEEDED','Results':{'series':[series(name, observations) for name,observations in [('CUSR0000SA0',adjusted),('CUSR0000SA0L1E',adjusted),('CUUR0000SA0',unadjusted),('CUUR0000SA0L1E',unadjusted)]]}}
+        result=server.parse_bls_actuals(payload,datetime(2026,10,14,tzinfo=timezone.utc))
+        for data in result['cpi']['headline'],result['cpi']['core']:
+            self.assertEqual(data['period'],'2026-09')
+            self.assertEqual(data['yoy_base_period'],'2025-09')
+            self.assertEqual(data['yoy_basis'],'not_seasonally_adjusted')
+            self.assertAlmostEqual(data['yoy_pct'],8)
+            self.assertAlmostEqual(data['mom_pct'],(105/104-1)*100)
+            self.assertAlmostEqual(data['previous_mom_pct'],(104/103-1)*100)
+            self.assertAlmostEqual(data['three_month_mean_pct'],sum([(103/102-1)*100,(104/103-1)*100,(105/104-1)*100])/3)
+            self.assertIsNone(data['yoy_unavailable_reason'])
+        # Never substitute August or another row when September is absent.
+        for item in payload['Results']['series'][2:]:
+            item['data']=[r for r in item['data'] if not(r['year']=='2025' and r['period']=='M09')]
+        missing=server.parse_bls_actuals(payload,datetime(2026,10,14,tzinfo=timezone.utc))['cpi']['headline']
+        self.assertIsNone(missing['yoy_pct'])
+        self.assertEqual(missing['yoy_unavailable_reason'],'missing_year_ago_period')
+        self.assertEqual(missing['mom_pct'],result['cpi']['headline']['mom_pct'])
+        for item in payload['Results']['series'][2:]:
+            item['data'].append({'year':'2025','period':'M09','value':'0'})
+        invalid=server.parse_bls_actuals(payload,datetime(2026,10,14,tzinfo=timezone.utc))['cpi']['headline']
+        self.assertIsNone(invalid['yoy_pct']);self.assertEqual(invalid['yoy_unavailable_reason'],'invalid_index')
+        for item in payload['Results']['series'][2:]:
+            item['data']=[r for r in item['data'] if not(r['year']=='2026' and r['period']=='M09')]
+        self.assertEqual(server.parse_bls_actuals(payload,datetime(2026,10,14,tzinfo=timezone.utc))['cpi']['headline']['yoy_unavailable_reason'],'missing_current_period')
+
+    def test_legacy_macro_cache_is_refetched_for_exact_period_schema(self):
+        now=datetime(2026,10,14,23,tzinfo=timezone.utc).timestamp()
+        for version,expected_calls in [(None,1),(2,0)]:
+            cache={'expires_at':now+600,'value':{'status':'available','as_of':'2026-10-14T22:00:00+00:00','schema_version':version}}
+            with tempfile.TemporaryDirectory() as folder, patch.object(server,'MARKET_CACHE_DIR',folder), patch.object(server,'MACRO_OFFICIAL_CACHE',{'actuals':cache}), patch.object(server.time,'time',return_value=now):
+                calls=[]
+                def loader():
+                    calls.append(1);return {'status':'available','as_of':'2026-10-14T23:00:00+00:00','schema_version':2}
+                self.assertEqual(server._official_macro_cached('actuals',loader,1800)['schema_version'],2)
+                self.assertEqual(len(calls),expected_calls)
 if __name__=='__main__':unittest.main()

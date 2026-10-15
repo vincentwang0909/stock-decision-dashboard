@@ -3013,6 +3013,24 @@ tbody tr.selected-row td {
 .market-compact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); }
 .market-compact-card { padding: 14px var(--space-lg); }
 .market-compact-card .detail-section-head { margin-bottom: 4px; }
+.macro-release-card { grid-column: 1 / -1; }
+.macro-indicator-grid, .macro-policy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.macro-indicator { min-width: 0; padding: 14px; border: 1px solid var(--border-subtle); border-radius: 12px; }
+.macro-indicator h4 { margin: 0 0 14px; font-size: .85rem; color: #e9f1fb; }
+.macro-indicator h4 small { color: var(--muted); font-size: .7rem; font-weight: 500; }
+.macro-comparison { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.macro-comparison-cell { min-width: 0; display: grid; align-content: start; gap: 6px; }
+.macro-comparison-cell span, .macro-annual span { color: #c7d4e4; font-size: .72rem; }
+.macro-comparison-cell small, .macro-annual small { display: block; color: var(--muted); font-size: .65rem; overflow-wrap: anywhere; }
+.macro-comparison-cell small { min-height: 2.6em; line-height: 1.3; }
+.macro-comparison-cell strong { color: #e9f1fb; font-size: .92rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.macro-comparison-cell:first-child strong { color: #a6d2ec; }
+.macro-annual { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-subtle); }
+.macro-annual strong { font-size: .85rem; }
+.macro-context-note { color: var(--muted); font-size: .7rem; line-height: 1.6; margin: 9px 0 0; overflow-wrap: anywhere; }
+.macro-policy-grid p, .macro-policy-grid a { font-size: .76rem; line-height: 1.6; overflow-wrap: anywhere; }
+.macro-policy-grid a { color: #a6d2ec; }
+.macro-source-status { padding-top: 10px; border-top: 1px solid var(--border-subtle); }
 
 @media (max-width: 980px) {
   .detail-sheet { width: min(1080px, calc(100vw - 24px)); }
@@ -3030,6 +3048,7 @@ tbody tr.selected-row td {
   .technical-overview-section > .detail-section-head, .technical-horizon-tabs { padding-right: 14px; padding-left: 14px; }
   .technical-horizon-section { margin-right: 14px; margin-bottom: 14px; margin-left: 14px; }
   .market-status-primary { grid-template-columns: 1fr; }
+  .macro-indicator-grid, .macro-policy-grid { grid-template-columns: 1fr; }
   .price-map-label { width: min(116px, 34vw); font-size: 0.62rem; }
 }
 

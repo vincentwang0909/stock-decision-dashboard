@@ -114,3 +114,21 @@ assert.match(missingCard,/基准比较不可用/);assert.match(missingCard,/基�
 vm.runInContext('state.language="en"',context);
 assert.match(vm.runInContext('executionFields(sampleRow,holdDecision)',context),/No actionable entry or reduction range/);
 assert.match(vm.runInContext('relativeStrengthCard(rsMissing,"daily","1d")',context),/Benchmark dates do not match/);
+
+context.macroCore={macro_actuals:{status:"available",as_of:"2026-10-14T23:00:00Z",cpi:{headline:{period:"2026-09",mom_pct:.65,previous_mom_pct:.4,three_month_mean_pct:.37,yoy_pct:8,yoy_period:"2026-09",yoy_base_period:"2025-09",yoy_basis:"not_seasonally_adjusted"},core:{period:"2026-09",yoy_basis:"not_seasonally_adjusted",yoy_period:"2026-09",yoy_base_period:"2025-09",yoy_unavailable_reason:"missing_year_ago_period"}},employment:{period:"2026-09",payroll_change_thousands:29,previous_payroll_change_thousands:133,payroll_three_month_mean_thousands:51,unemployment_rate_pct:4.2,unemployment_change_pp:.1,revision_available:false}},event_calendar:{fomc_decision:{status:"available",statement:"target range for the federal funds rate by 1/4 percent",released_at:"2026-09-16T18:00:00Z"}}};
+const macroOriginal=JSON.stringify(context.macroCore);
+vm.runInContext('state.language="zh"',context);
+let macroHtml=vm.runInContext('macroReleaseLines(macroCore)',context);
+assert.match(macroHtml,/本月环比/);assert.match(macroHtml,/近3个月均值/);
+assert.match(macroHtml,/2026-07 → 2026-09/);assert.match(macroHtml,/2026-09 ↔ 2025-09/);
+assert.match(macroHtml,/8\.00%/);assert.match(macroHtml,/缺少去年同月指数/);
+assert.match(macroHtml,/\+2\.9万人/);assert.match(macroHtml,/\+0\.10 个百分点/);
+assert.match(macroHtml,/未接入 · 暂不参与判断/);assert.match(macroHtml,/获取时间/);
+assert.doesNotMatch(macroHtml,/target range|上月／三月均值|\+0K|undefined|NaN/);
+vm.runInContext('state.language="en"',context);
+assert.match(vm.runInContext('macroReleaseLines(macroCore)',context),/This month · MoM/);
+assert.match(vm.runInContext('macroReleaseLines(macroCore)',context),/\+29K/);
+assert.equal(JSON.stringify(context.macroCore),macroOriginal,"macro localization never mutates market inputs");
+context.macroCore.macro_actuals.cpi.headline.yoy_base_period="2025-08";
+assert.doesNotMatch(vm.runInContext('macroReleaseLines(macroCore)',context),/8\.00%/,"wrong-month cached YoY cannot be displayed as verified");
+assert.doesNotMatch(vm.runInContext('macroReleaseLines({})',context),/undefined|NaN|0\.00%/);

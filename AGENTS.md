@@ -107,7 +107,12 @@ production keeps existing persistence/independent-improvement gates and asset ru
 
 Official Fed/FRED calendars use IANA ET/Central conversion. BLS actual CPI and
 employment use consecutive monthly observations, correct units/periods,
-3-month context and known revision snapshots. Missing comparison stays null;
+3-month context and known revision snapshots. CPI MoM uses seasonally adjusted
+indexes; YoY uses unadjusted indexes at the exact current and prior-year month
+(`CUUR0000SA0` / `CUUR0000SA0L1E`), independent of intervening gaps. No
+row-offset or seasonally adjusted fallback for YoY. The 3-month mean includes
+the release month. Official macro actuals use schema 2; older caches refetch
+within the existing bounded transaction. Missing comparison stays null;
 rising unemployment alone is not automatically bullish. Latest fetched macro
 vintages never enter past replay as if they were known then.
 

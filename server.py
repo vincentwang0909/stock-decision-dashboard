@@ -2199,7 +2199,8 @@ def _official_macro_cached(key, loader, ttl):
     if not (isinstance(cache_value, dict) and cache_value.get("status") == "available"
             and cache_as_of is not None and cache_as_of <= now
             and isinstance(cached.get("expires_at"), (int, float))
-            and (key != "calendar" or isinstance(cache_value.get("events"), list))):
+            and (key != "calendar" or isinstance(cache_value.get("events"), list))
+            and (key != "actuals" or cache_value.get("schema_version") == 2)):
         cached = None
         MACRO_OFFICIAL_CACHE.pop(key, None)
     if cached:
@@ -2356,11 +2357,24 @@ def parse_bls_actuals(payload, now, previous=None):
         if not contiguous(rows, lag):
             return None
         recent,base = rows[-1]["value"],rows[-1-lag]["value"]
-        return (recent/base-1)*100 if percent and base else recent-base
-    def inflation(name):
+        if percent:
+            return _safe_float((recent/base-1)*100) if recent>0 and base>0 else None
+        return recent-base
+    def shifted_period(period, months):
+        index = month_index(period) - 1 + months
+        return f"{index // 12:04d}-{index % 12 + 1:02d}"
+    def inflation(name, annual_name):
         rows=values(name)
-        changes=[(rows[i]["value"]/rows[i-1]["value"]-1)*100 if rows[i-1]["value"]>0 and month_index(rows[i]["period"])-month_index(rows[i-1]["period"])==1 else None for i in range(1,len(rows))]
-        return {"period":rows[-1]["period"] if rows else None,"mom_pct":change(rows,percent=True),"previous_mom_pct":changes[-2] if len(changes)>1 else None,"three_month_mean_pct":sum(changes[-3:])/3 if len(changes)>=3 and all(x is not None for x in changes[-3:]) else None,"yoy_pct":change(rows,12,True)}
+        changes=[_safe_float((rows[i]["value"]/rows[i-1]["value"]-1)*100) if rows[i]["value"]>0 and rows[i-1]["value"]>0 and month_index(rows[i]["period"])-month_index(rows[i-1]["period"])==1 else None for i in range(1,len(rows))]
+        period=rows[-1]["period"] if rows else None
+        base_period=shifted_period(period,-12) if period else None
+        annual={row["period"]:row["value"] for row in values(annual_name)}
+        current,base=annual.get(period),annual.get(base_period)
+        # YoY compares the same calendar month in the same unadjusted series.
+        # Missing intervening months cannot shift the denominator or erase it.
+        yoy=_safe_float((current/base-1)*100) if current is not None and current>0 and base is not None and base>0 else None
+        reason=None if yoy is not None else "missing_current_period" if current is None else "missing_year_ago_period" if base is None else "invalid_index"
+        return {"period":period,"mom_pct":change(rows,percent=True),"previous_mom_pct":changes[-2] if len(changes)>1 and contiguous(rows,2) else None,"three_month_mean_pct":sum(changes[-3:])/3 if len(changes)>=3 and all(x is not None for x in changes[-3:]) else None,"yoy_pct":yoy,"yoy_period":period,"yoy_base_period":base_period,"yoy_basis":"not_seasonally_adjusted","yoy_unavailable_reason":reason}
     payroll=values("CES0000000001");unemployment=values("LNS14000000");wages=values("CES0500000003");participation=values("LNS11300000")
     changes=[payroll[i]["value"]-payroll[i-1]["value"] if month_index(payroll[i]["period"])-month_index(payroll[i-1]["period"])==1 else None for i in range(1,len(payroll))]
     period=payroll[-1]["period"] if payroll else None
@@ -2370,15 +2384,15 @@ def parse_bls_actuals(payload, now, previous=None):
     old={row["period"]:row["value"] for row in old_rows}
     revised=payroll[-2] if len(payroll)>1 else None
     revision=revised["value"]-old[revised["period"]] if revised and revised["period"] in old else None
-    return {"status":"available" if aligned_jobs and aligned_cpi else "unavailable","source":"https://api.bls.gov/publicAPI/v2/timeseries/data/","as_of":now.isoformat(),"vintage":"latest_as_fetched; not a historical point-in-time vintage","series":series,
-      "cpi":{"headline":inflation("CUSR0000SA0"),"core":inflation("CUSR0000SA0L1E"),"seasonally_adjusted":True},
+    return {"schema_version":2,"status":"available" if aligned_jobs and aligned_cpi else "unavailable","source":"https://api.bls.gov/publicAPI/v2/timeseries/data/","as_of":now.isoformat(),"vintage":"latest_as_fetched; not a historical point-in-time vintage","series":series,
+      "cpi":{"headline":inflation("CUSR0000SA0","CUUR0000SA0"),"core":inflation("CUSR0000SA0L1E","CUUR0000SA0L1E"),"seasonally_adjusted":True},
       "employment":{"period":period,"payroll_change_thousands":change(payroll),"previous_payroll_change_thousands":changes[-2] if len(changes)>1 else None,"payroll_three_month_mean_thousands":sum(changes[-3:])/3 if len(changes)>=3 and all(x is not None for x in changes[-3:]) else None,"unemployment_rate_pct":unemployment[-1]["value"] if aligned_jobs else None,"unemployment_change_pp":change(unemployment) if aligned_jobs else None,"previous_month_revision_thousands":revision,"revision_available":revision is not None,"wage_mom_pct":change(wages,percent=True) if wages and wages[-1]["period"]==period else None,"participation_rate_pct":participation[-1]["value"] if participation and participation[-1]["period"]==period else None}}
 
 
 def fetch_official_macro_actuals():
     now = datetime.now(timezone.utc)
     def load():
-        names=["CUSR0000SA0","CUSR0000SA0L1E","CES0000000001","LNS14000000","CES0500000003","LNS11300000"]
+        names=["CUSR0000SA0","CUSR0000SA0L1E","CUUR0000SA0","CUUR0000SA0L1E","CES0000000001","LNS14000000","CES0500000003","LNS11300000"]
         payload={"seriesid":names,"startyear":str(now.year-2),"endyear":str(now.year)}
         req=Request("https://api.bls.gov/publicAPI/v2/timeseries/data/",data=json.dumps(payload).encode(),headers={"Content-Type":"application/json"},method="POST")
         with urlopen(req,timeout=6) as response:
