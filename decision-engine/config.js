@@ -113,7 +113,7 @@
       earnings: freeze({ nearDays: 7, immediateDays: 2, nearRiskAdd: 12, immediateRiskAdd: 20, confidencePenalty: 10 }),
       fearGreed: freeze({ extremeGreed: 80, extremeFear: 20 }),
       events: freeze({ majorTypes: freeze(["fomc", "cpi", "employment"]), ordinaryConfirmationAdd: 5, ordinaryRiskAdd: 8 }),
-      macro: freeze({ cpiStep: 0.10, unemploymentStep: 0.20, payrollDeteriorationShare: 0.25, riskAddMaximum: 8, riskUnit: 4 }),
+      macro: freeze({ cpiStep: 0.10, unemploymentStep: 0.20, payrollDeteriorationShare: 0.25, fomcStepPp: 0.25, riskAddMaximum: 8, riskUnit: 4 }),
     }),
     actionPolicy: freeze({
       minimumDataQuality: 38, earlyConfirmation: 45,

@@ -111,10 +111,14 @@ assert.match(main, /fib\.extension_levels/);
 assert.match(main, /sourceTimeframe/);
 assert.match(main, /lookbackBars/);
 assert.match(main, /fallbackUsed/);
-assert.match(main, /technical-accordion/);
+assert.match(main, /technical-foundation-section/);
+assert.match(main, /renderTechnicalChart/);
+assert.match(main, /TechnicalChart\?\.destroy/);
 assert.match(main, /data-technical-horizon/);
-assert.match(main, /data-fibonacci-horizon/);
-assert.match(main, /data-technical-toggle/);
+assert.doesNotMatch(main, /data-fibonacci-horizon/, "one selector keeps Fibonacci aligned with the chart frame");
+assert.match(main, /technical-advanced/);
+assert.match(html, /technical-chart\.js/);
+assert.doesNotMatch(html, /<script[^>]+vendor\/lightweight/, "chart library loads only for selected technical detail");
 for (const presentationClass of ["stock-item-body", "decision-hero", "decision-core-grid", "detail-section-card", "decision-price-map", "profile-summary-strip"]) {
   assert.match(main, new RegExp(presentationClass), `restored presentation structure is missing: ${presentationClass}`);
 }

@@ -27,7 +27,7 @@ for(const item of s.items || []) {
   for(let j=start;j<bars.length-windows.at(-1) && count<28;j+=(horizon==='daily'?5:2),count++) {
    const b=bars[j],i=h.timestamps.indexOf(b.timestamp),at=b.end_timestamp;if(i<0)continue;
    const past=slice(h,i,at),benchmarks=Object.fromEntries(Object.entries(core.benchmark_history || {}).map(([k,v])=>[k,benchmarkAt(v,at)]));
-   const market={market_context:{as_of:at,source:'historical_technical_only',equity_trend:Object.fromEntries(Object.entries(benchmarks).map(([k,h])=>[k,indexAt(h)])),benchmark_history:benchmarks,event_calendar:{status:'unavailable',events:[]},macro_actuals:{status:'unavailable'},fomc_expectations:{status:'unavailable'}}};
+   const market={market_context:{as_of:at,source:'historical_technical_only',equity_trend:Object.fromEntries(Object.entries(benchmarks).map(([k,h])=>[k,indexAt(h)])),benchmark_history:benchmarks,event_calendar:{status:'unavailable',events:[]},macro_actuals:{status:'unavailable'}}};
    const f=buildTechnicalFeatures({history:past,currentPrice:b.close,benchmarkContext:market,calculatedAt:at});
    const d=e.decide({ticker:item.ticker,price:b.close,technicalFeatures:f,marketContext:market,classification,metadata:{asOf:at}}).horizons[horizon],p=d.priceLandscape,atr=f.horizons[horizon].volatility.atr[`atr_14_${horizon==='daily'?'1d':'1w'}`].value;
    const smc=f.horizons[horizon].trend.smc || {};

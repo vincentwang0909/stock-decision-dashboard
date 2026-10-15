@@ -444,7 +444,7 @@
     return count;
   }
 
-  function adxFeature(bars, interval, period, calculatedAt) {
+  function adxFeature(bars, interval, period, calculatedAt, includeSeries = false) {
     const args={indicator:"adx",interval,period,lookback:period*2,bars,calculatedAt};
     if (bars.length<args.lookback) return unavailableFeature(args);
     const tr=[],plus=[],minus=[];
@@ -454,7 +454,7 @@
     const dx=diPlus.map((value,i)=>Number.isFinite(value)&&Number.isFinite(diMinus[i])?value+diMinus[i]>0?100*Math.abs(value-diMinus[i])/(value+diMinus[i]):0:null);
     const adxValues=new Array(period-1).fill(null).concat(smooth(dx.slice(period-1))),adx=last(adxValues),plusDi=last(diPlus),minusDi=last(diMinus);
     if (![adx,plusDi,minusDi].every(Number.isFinite)) return unavailableFeature({...args,unavailableReason:"dependency_unavailable"});
-    return {adx,plus_di:plusDi,minus_di:minusDi,trend_strength:adx<15?"no_trend":adx<22?"weak":adx<30?"developing":adx<40?"strong":"very_strong",directional_bias:plusDi>minusDi?"bullish":minusDi>plusDi?"bearish":"neutral",slope:slopeState(adxValues,3),smoothing:"wilder",...metadata(args)};
+    return {...(includeSeries ? {adx_series:[null,...adxValues],plus_di_series:[null,...diPlus],minus_di_series:[null,...diMinus]} : {}),adx,plus_di:plusDi,minus_di:minusDi,trend_strength:adx<15?"no_trend":adx<22?"weak":adx<30?"developing":adx<40?"strong":"very_strong",directional_bias:plusDi>minusDi?"bullish":minusDi>plusDi?"bearish":"neutral",slope:slopeState(adxValues,3),smoothing:"wilder",...metadata(args)};
   }
 
   function atrFeature(bars, interval, period, calculatedAt) {
@@ -494,7 +494,7 @@
     return { value, atr_pct: atrPct, atr_percentile_pct: percentileValue, atr_percentile_60: percentile60.value, atr_percentile_120: percentile120.value, atr_percentile_250: percentile250.value, atr_percentile: primaryPercentile, atr_percentiles: { d60: percentile60, d120: percentile120, d250: percentile250 }, volatility_regime: state, volatility_regime_availability: regimeAvailability, expansion_state: slope.state === "rising" ? "expanding" : slope.state === "falling" ? "contracting" : slope.state, slope, series, ...metadata({ indicator: "atr", interval, period, lookback: period, bars, calculatedAt }) };
   }
 
-  function kdjFeature(bars, interval, period, calculatedAt) {
+  function kdjFeature(bars, interval, period, calculatedAt, includeSeries = false) {
     if (bars.length < period + 3) return unavailableFeature({ indicator: "kdj", interval, period, lookback: period, requiredBars: period + 3, bars, calculatedAt });
     const kSeries = []; const dSeries = []; const jSeries = [];
     let k = 50; let d = 50;
@@ -509,10 +509,10 @@
     const kValue = last(kSeries); const dValue = last(dSeries); const jValue = last(jSeries);
     const previousK = valueAgo(kSeries, 1); const previousD = valueAgo(dSeries, 1);
     const crossover = Number.isFinite(previousK) && Number.isFinite(previousD) && (kValue >= dValue) !== (previousK >= previousD) ? kValue > dValue ? "bullish_cross" : "bearish_cross" : "none";
-    return { k: kValue, d: dValue, j: jValue, crossover_state: crossover, direction: slopeState(jSeries, 3).state, overbought: jValue >= 80, oversold: jValue <= 20, k_slope: slopeState(kSeries, 3), d_slope: slopeState(dSeries, 3), j_slope: slopeState(jSeries, 3), ...metadata({ indicator: "kdj", interval, period, lookback: period, requiredBars: period + 3, bars, calculatedAt }) };
+    return { ...(includeSeries ? {k_series:kSeries,d_series:dSeries,j_series:jSeries} : {}), k: kValue, d: dValue, j: jValue, crossover_state: crossover, direction: slopeState(jSeries, 3).state, overbought: jValue >= 80, oversold: jValue <= 20, k_slope: slopeState(kSeries, 3), d_slope: slopeState(dSeries, 3), j_slope: slopeState(jSeries, 3), ...metadata({ indicator: "kdj", interval, period, lookback: period, requiredBars: period + 3, bars, calculatedAt }) };
   }
 
-  function bollingerFeature(bars, interval, parameters, calculatedAt) {
+  function bollingerFeature(bars, interval, parameters, calculatedAt, includeSeries = false) {
     const [period, multiple] = parameters;
     if (bars.length < period) return unavailableFeature({ indicator: "bollinger", interval, period, lookback: period, bars, calculatedAt });
     const closes = bars.map((bar) => bar.close); const sample = closes.slice(-period);
@@ -537,10 +537,15 @@
       unavailableReason: "dependency_unavailable",
       source: "bollinger_bandwidth_percentile",
     });
-    return { middle_band: middle, upper_band: upper, lower_band: lower, percent_b: percentB, bandwidth_pct: bandwidth, bandwidth_percentile: percentile, bandwidth_percentile_availability: bandwidthPercentile, squeeze_state: percentile == null ? "unavailable" : percentile <= 20 ? "squeeze" : percentile >= 80 ? "expanded" : "normal", squeeze_state_availability: squeezeAvailability, price_position: percentB == null ? "unavailable" : percentB >= 1 ? "above_upper" : percentB <= 0 ? "below_lower" : percentB >= 0.8 ? "upper" : percentB <= 0.2 ? "lower" : "middle", ...metadata({ indicator: "bollinger", interval, period, lookback: period, bars, calculatedAt }) };
+    const chartBands = includeSeries ? closes.map((_, i) => {
+      if (i+1 < period) return null;
+      const values=closes.slice(i-period+1,i+1),mid=mean(values),spread=multiple*standardDeviation(values);
+      return {middle:mid,upper:mid+spread,lower:mid-spread};
+    }) : null;
+    return { ...(includeSeries ? {middle_series:chartBands.map(b=>b?.middle ?? null),upper_series:chartBands.map(b=>b?.upper ?? null),lower_series:chartBands.map(b=>b?.lower ?? null)} : {}), middle_band: middle, upper_band: upper, lower_band: lower, percent_b: percentB, bandwidth_pct: bandwidth, bandwidth_percentile: percentile, bandwidth_percentile_availability: bandwidthPercentile, squeeze_state: percentile == null ? "unavailable" : percentile <= 20 ? "squeeze" : percentile >= 80 ? "expanded" : "normal", squeeze_state_availability: squeezeAvailability, price_position: percentB == null ? "unavailable" : percentB >= 1 ? "above_upper" : percentB <= 0 ? "below_lower" : percentB >= 0.8 ? "upper" : percentB <= 0.2 ? "lower" : "middle", ...metadata({ indicator: "bollinger", interval, period, lookback: period, bars, calculatedAt }) };
   }
 
-  function obvFeature(bars, interval, lookback, calculatedAt) {
+  function obvFeature(bars, interval, lookback, calculatedAt, includeSeries = false) {
     if (bars.some((bar) => bar.volume_available === false)) return unavailableFeature({ indicator: "obv", interval, period: null, lookback, bars, calculatedAt, unavailableReason: "source_data_conflict" });
     if (bars.length < lookback + 1 || bars.some((bar) => !Number.isFinite(bar.volume))) return unavailableFeature({ indicator: "obv", interval, period: null, lookback, bars, calculatedAt });
     const series = [0];
@@ -548,7 +553,7 @@
     const slope = slopeState(series, lookback);
     const priceReturn = (last(bars).close / bars[bars.length - 1 - lookback].close - 1) * 100;
     const divergence = priceReturn > 0 && slope.change < 0 ? "bearish_divergence" : priceReturn < 0 && slope.change > 0 ? "bullish_divergence" : "none";
-    return { raw_value: last(series), slope, trend: slope.state, divergence, price_obv_confirmation: divergence === "none" ? slope.state === "rising" ? "confirming_uptrend" : slope.state === "falling" ? "confirming_downtrend" : "neutral" : "divergent", ...metadata({ indicator: "obv", interval, period: null, lookback, bars, calculatedAt }) };
+    return { ...(includeSeries ? {series} : {}), raw_value: last(series), slope, trend: slope.state, divergence, price_obv_confirmation: divergence === "none" ? slope.state === "rising" ? "confirming_uptrend" : slope.state === "falling" ? "confirming_downtrend" : "neutral" : "divergent", ...metadata({ indicator: "obv", interval, period: null, lookback, bars, calculatedAt }) };
   }
 
   function canonicalVolumeFeature(bars, shareBase, calculatedAt, interval = "1d") {
@@ -893,7 +898,7 @@
 
   // LazyBear's corrected BB multiplier and SMA(True Range) KC convention.
   // The regression is evaluated at the observed window endpoint, never ahead.
-  function squeezeFeature(bars, interval, calculatedAt) {
+  function squeezeFeature(bars, interval, calculatedAt, includeSeries = false) {
     const cfg = indicatorConfig().squeeze, n = cfg.length, required = n + cfg.regressionLength - 1;
     const args = { indicator: "squeeze_momentum", interval, period: n, lookback: required, bars, calculatedAt };
     if (bars.length < required) return unavailableFeature(args);
@@ -917,7 +922,7 @@
     });
     const value = last(momentum), change = (age) => Number.isFinite(valueAgo(momentum, age)) ? value - valueAgo(momentum, age) : null;
     const delta = change(1);
-    return { ...metadata(args), value, momentum: value, change_1: delta, change_3: change(3), change_5: change(5),
+    return { ...(includeSeries ? {series:momentum} : {}), ...metadata(args), value, momentum: value, change_1: delta, change_3: change(3), change_5: change(5),
       state: last(states), momentum_state: value >= 0 ? delta == null ? "positive" : delta >= 0 ? "positive_increasing" : "positive_decreasing" : delta == null ? "negative" : delta < 0 ? "negative_decreasing" : "negative_increasing",
       release: lastRelease, release_count: releaseCount, release_now: confirmedBy(last(bars), calculatedAt) && last(states) === "squeeze_off" && valueAgo(states, 1) === "squeeze_on",
       parameters: { bb_length: n, bb_multiplier: cfg.bbMultiplier, kc_length: n, kc_multiplier: cfg.kcMultiplier, kc_range_method: "sma_true_range", regression_length: cfg.regressionLength }, ...lastChannels };
@@ -1160,7 +1165,52 @@
       data_quality:{price_basis_unverified:!["provider_ohlc_auto_adjust_false","provider_chart_quote_ohlc"].includes(history.adjustment_basis || history.adjustmentBasis),required_history_gaps:{daily:dailyGaps,weekly:weeklyGaps},daily_freshness:history.freshness || null,frame_freshness:{daily:history.freshness || null,weekly:weeklyFreshness},frame_volume_conflicts:{daily:daily.some((bar)=>bar.volume_available===false),weekly:weekly.some((bar)=>bar.volume_available===false)},frame_rejected_rows:{daily:dailyRejected,weekly:weeklyRejected},decision_volume_conflicts:daily.some((bar)=>bar.volume_available===false)?["1d"]:[],volume_conflicts:daily.some((bar)=>bar.volume_available===false)?["1d"]:[],completion_unavailable:unknown,rejected_daily_rows:(rawDaily.validation?.rejected_rows || 0)+(history.excluded_invalid_rows || 0),daily_history:daily.length>=252?"available":daily.length?"partial":"unavailable",all_time_history:daily.length?"available_history":"unavailable",missing_intervals:Object.entries(sources).filter(([,bars])=>!bars.length).map(([interval])=>interval)} };
   }
 
-  const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, _test: { squeezeFeature, bollingerRsiFeature, supportResistanceFeature, fvgFeature, relativeStrengthFeatures, regressionEndpoint, smaSeries, normalizeBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, atrFeature, kdjFeature, macdFeature, adxFeature, bollingerFeature, obvFeature, pricePositionFeatures, canonicalVolumeFeature, canonicalFibonacciHorizon, canonicalFibonacciStructure } };
+  // Selected-detail chart adapter only. No chart arrays enter engine inputs or
+  // live serialization. Same completed sources and indicator functions as V2.
+  function buildChartData({history={},features={},horizon="daily",oscillator="macd"}={}) {
+    if (!HORIZON_CONFIG[horizon]) throw new Error("Unknown chart horizon");
+    const at=features.calculated_at || history.as_of,interval=horizon==="weekly"?"1w":"1d";
+    const daily=pickBars(history,"1d").filter(bar=>confirmedBy(bar,at));
+    const bars=horizon==="weekly"?completedWeeklyBars(daily,{asOf:at,calendar:history.session_calendar}):daily;
+    const frame=features.horizons?.[horizon] || {}, cfg=engineConfig().horizons[horizon].features;
+    const cap=horizon==="weekly"?650:3000,start=Math.max(0,bars.length-cap),selected=bars.slice(start);
+    const points=(values=[])=>selected.map((bar,i)=>Number.isFinite(values[start+i])?{time:bar.timestamp.slice(0,10),value:values[start+i]}:{time:bar.timestamp.slice(0,10)});
+    const lines=[];
+    for (const item of Object.values(frame.trend?.moving_averages || {})) lines.push({name:`${item.indicator.toUpperCase()}${item.period}`,kind:"ma",data:points(item.series)});
+    const bb=bollingerFeature(bars,interval,cfg.bollinger[interval],at,true);
+    for(const [name,key] of [["BB upper","upper_series"],["BB middle","middle_series"],["BB lower","lower_series"]]) lines.push({name,kind:"bb",data:points(bb[key])});
+    let sub=[];
+    if (oscillator==="macd") {
+      const m=frame.momentum?.macd?.[`macd_${interval}`] || {};
+      sub=[{name:"MACD",data:points(m.macd_series)},{name:"Signal",data:points(m.signal_series)},{name:"Histogram",histogram:true,data:points(m.histogram_series)}];
+    } else if (oscillator==="rsi") {
+      sub=Object.values(frame.momentum?.rsi || {}).map(r=>({name:`RSI${r.period}`,data:points(r.series)}));
+    } else if (oscillator==="adx") {
+      const a=adxFeature(bars,interval,cfg.adx[interval],at,true);
+      sub=[["ADX","adx_series"],["+DI","plus_di_series"],["−DI","minus_di_series"]].map(([name,key])=>({name,data:points(a[key])}));
+    } else if (oscillator==="kdj") {
+      const k=kdjFeature(bars,interval,cfg.kdj[interval],at,true);
+      sub=[["K","k_series"],["D","d_series"],["J","j_series"]].map(([name,key])=>({name,data:points(k[key])}));
+    } else if (oscillator==="obv") {
+      const o=obvFeature(bars,interval,indicatorConfig().volume.obv[horizon].lookback,at,true);
+      sub=[{name:"OBV",data:points(o.series)}];
+    } else if (oscillator==="atr") {
+      sub=[{name:"ATR14",data:points(frame.volatility?.atr?.[`atr_14_${interval}`]?.series)}];
+    } else if (oscillator==="squeeze") {
+      sub=[{name:"Squeeze",histogram:true,data:points(squeezeFeature(bars,interval,at,true).series)}];
+    }
+    // Gaps remain whitespace, never zero-volume candles. Weekly total is the
+    // actual completed total; its RVOL policy remains separate and unchanged.
+    const volumes=bars.map(b=>b.volume_available===false?null:b.volume);
+    const volumeAverage=volumes.map((_,i)=>i>=19 && volumes.slice(i-19,i+1).every(Number.isFinite)?mean(volumes.slice(i-19,i+1)):null);
+    return {horizon,interval,asOf:frame.signal_as_of || null,totalBars:bars.length,
+      candles:selected.map(b=>({time:b.timestamp.slice(0,10),open:b.open,high:b.high,low:b.low,close:b.close})),
+      volume:selected.map(b=>b.volume_available!==false && Number.isFinite(b.volume)?{time:b.timestamp.slice(0,10),value:b.volume,color:b.close>=b.open?"#36b99188":"#e2798588"}:{time:b.timestamp.slice(0,10)}),
+      volumeAverage:points(volumeAverage),lines,oscillator:sub,
+      barEnds:selected.map(b=>b.end_timestamp),volumeAvailable:frame.participation?.volume?.availability==="available",sourceState:features.source_intervals?.[interval]?.freshness?.state || "unavailable"};
+  }
+
+  const api = { SCHEMA_VERSION, AVAILABILITY_REASONS, HORIZON_CONFIG, RVOL_THRESHOLDS, buildTechnicalFeatures, buildChartData, _test: { squeezeFeature, bollingerRsiFeature, supportResistanceFeature, fvgFeature, relativeStrengthFeatures, regressionEndpoint, smaSeries, normalizeBars, completedWeeklyBars, rsiSeries, emaSeries, atrSeries, atrFeature, kdjFeature, macdFeature, adxFeature, bollingerFeature, obvFeature, pricePositionFeatures, canonicalVolumeFeature, canonicalFibonacciHorizon, canonicalFibonacciStructure } };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.CanonicalTechnicalFeatures = api;
 }(typeof globalThis !== "undefined" ? globalThis : window));

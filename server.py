@@ -1556,42 +1556,6 @@ def fetch_fear_greed_snapshot():
     }
 
 
-def summarize_fomc_rate_path(series_points):
-    if not series_points:
-        return None
-    latest = series_points[-1]
-    latest_value = latest.get("value")
-    if latest_value is None:
-        return None
-    baseline = None
-    for point in reversed(series_points[:-1]):
-        if point.get("value") is None:
-            continue
-        if abs(point["value"] - latest_value) >= 0.05:
-            baseline = point
-            break
-    if baseline is None:
-        return {
-            "current_rate": latest_value,
-            "last_change": 0.0,
-            "direction": "unchanged",
-            "summary": f"Fed funds rate is {latest_value:.2f}% and has not changed recently.",
-            "last_change_date": latest.get("date"),
-        }
-    delta = round(latest_value - baseline["value"], 2)
-    direction = "hike" if delta > 0 else "cut"
-    summary = (
-        f"Fed funds rate is {latest_value:.2f}%. Latest FOMC path points to a {direction} of {abs(delta):.2f}% versus {baseline['date']}."
-    )
-    return {
-        "current_rate": latest_value,
-        "last_change": delta,
-        "direction": direction,
-        "summary": summary,
-        "last_change_date": baseline.get("date"),
-    }
-
-
 def parse_google_news_rss(query, market="us", limit=6):
     if not query:
         return []
@@ -2200,6 +2164,7 @@ def _official_macro_cached(key, loader, ttl):
             and cache_as_of is not None and cache_as_of <= now
             and isinstance(cached.get("expires_at"), (int, float))
             and (key != "calendar" or isinstance(cache_value.get("events"), list))
+            and (key != "calendar" or cache_value.get("schema_version") == 2)
             and (key != "actuals" or cache_value.get("schema_version") == 2)):
         cached = None
         MACRO_OFFICIAL_CACHE.pop(key, None)
@@ -2247,6 +2212,46 @@ def _read_official_html(url):
         return html.fromstring(bytes(body))
 
 
+def parse_fomc_target_range(document):
+    """Extract an actual target interval, not the earlier 'by 1/4 percent'."""
+    text=re.sub(r'\s+',' ',' '.join(document.xpath('//div[@id="article"]//text()') or document.xpath('//body//text()') or document.itertext()))
+    number=r'(?:\d+/\d+|\d+(?:\.\d+)?(?:\s*-\s*\d+/\d+)?)'
+    match=re.search(r'target range for the federal funds rate[^.]{0,180}?('+number+r')\s+to\s+('+number+r')\s+percent',text,re.I)
+    if not match:
+        return None
+    from fractions import Fraction
+    def rate(value):
+        parts=re.split(r'\s*-\s*',value)
+        return float(Fraction(parts[0]))+(float(Fraction(parts[1])) if len(parts)>1 else 0)
+    try:
+        low,high=map(rate,match.group(1,2))
+    except (ValueError,ZeroDivisionError,OverflowError):
+        return None
+    return {"low":low,"high":high} if 0<=low<high<=100 else None
+
+
+
+def fetch_completed_fomc_actuals(events, now):
+    """Only the latest two completed official decisions; no market estimates."""
+    completed=sorted((event for event in events if event.get('type')=='fomc' and datetime.fromisoformat(event['at'])<=now),key=lambda event:event['at'])[-2:]
+    decisions=[]
+    for event in reversed(completed):
+        actual={'status':'unavailable','meeting_id':event['id'],'released_at':event['at'],'source':event.get('statement_url')}
+        url=event.get('statement_url') or ''
+        if url.startswith('https://www.federalreserve.gov/newsevents/pressreleases/monetary'):
+            try:
+                target=parse_fomc_target_range(_read_official_html(url))
+                if target:
+                    actual.update(status='available',target_range=target,as_of=datetime.now(timezone.utc).isoformat())
+            except Exception:
+                pass
+        decisions.append(actual)
+        if len(decisions)==1 and actual['status']!='available':
+            break
+    latest=decisions[0] if decisions else {'status':'unavailable'}
+    return {**latest,'previous_decision':decisions[1] if len(decisions)>1 else None}
+
+
 def parse_fomc_calendar(document, now):
     events = []
     for panel in document.xpath('//div[contains(concat(" ",normalize-space(@class)," ")," panel ")]'):
@@ -2271,7 +2276,7 @@ def parse_fomc_calendar(document, now):
                     continue
             day = int(numbers[-1])
             when = datetime(year,month,day,14,0,tzinfo=ZoneInfo("America/New_York"))
-            if abs((when-now).days) <= 70:
+            if -70 <= (now-when).days <= 140:
                 statement_links=row.xpath('.//a[contains(@href,"/newsevents/pressreleases/monetary")]/@href')
                 events.append({"statement_url":"https://www.federalreserve.gov"+statement_links[0] if statement_links else None,"id":f"fomc-{when.date()}","type":"fomc","at":when.isoformat(),"source":MACRO_CALENDAR_SOURCES["fomc"],"time_basis":"scheduled_14:00_ET_decision"})
     return events
@@ -2318,18 +2323,9 @@ def fetch_official_event_calendar():
                 except Exception as error:
                     failures.append({"source":url,"reason":str(error)[:140]})
         events = sorted({event["id"]:event for event in events}.values(),key=lambda event:event["at"])
-        last_fomc=next((event for event in reversed(events) if event["type"]=="fomc" and event["at"]<=now.isoformat()),None)
-        decision={"status":"unavailable"}
-        if last_fomc and last_fomc.get("statement_url"):
-            try:
-                doc=_read_official_html(last_fomc["statement_url"])
-                text=" ".join(doc.xpath('//div[@id="article"]//text()') or doc.xpath('//body//text()'))
-                rate=re.search(r"target range for the federal funds rate.{0,160}?percent",text,re.I)
-                decision={"status":"available" if rate else "unavailable","statement":rate.group(0) if rate else None,"meeting_id":last_fomc["id"],"released_at":last_fomc["at"],"source":last_fomc["statement_url"],"as_of":now.isoformat()}
-            except Exception:
-                pass
+        decision=fetch_completed_fomc_actuals(events,now)
         valid = all(any(event["type"]==kind and datetime.fromisoformat(event["at"])>now for event in events) for kind in MACRO_CALENDAR_SOURCES)
-        return {"status":"available" if valid else "unavailable","events":events,"as_of":now.isoformat(),"valid_through":months[-1].replace(day=28).date().isoformat(),"source":"Federal Reserve + FRED official release calendar","fomc_decision":decision,"source_failures":failures}
+        return {"schema_version":2,"status":"available" if valid else "unavailable","events":events,"as_of":datetime.now(timezone.utc).isoformat(),"valid_through":months[-1].replace(day=28).date().isoformat(),"source":"Federal Reserve + FRED official release calendar","fomc_decision":decision,"source_failures":failures}
     return _official_macro_cached("calendar",load,86400)
 
 
@@ -2486,8 +2482,6 @@ def fetch_market_context_payload():
     yield_5d_change_bps = round(yield_5d_change * 100, 1) if yield_5d_change is not None else None
     yield_20d_change_bps = round(yield_20d_change * 100, 1) if yield_20d_change is not None else None
     yield_trend = classify_change_trend(yield_5d_change_bps, yield_20d_change_bps, 10.0, 25.0)
-    fed_funds_value = None
-    fomc_rate_path = None
     fear_greed_snapshot = core_sources["fear_greed_snapshot"]
     fear_greed = fear_greed_snapshot.get("value")
     fear_greed_label_value = fear_greed_snapshot.get("label") or fear_greed_label(fear_greed)
@@ -2571,8 +2565,6 @@ def fetch_market_context_payload():
         macro_summary_bits.append(f"Fear & Greed {fear_greed:.0f}/100 ({fear_greed_label_value})")
     if treasury_yield is not None:
         macro_summary_bits.append(f"10Y {treasury_yield:.2f}%")
-    if fed_funds_value is not None:
-        macro_summary_bits.append(f"Fed funds {fed_funds_value:.2f}%")
     macro_summary_bits.append(market_summary)
     if active_event.get("active") and active_event.get("summary"):
         macro_summary_bits.append(active_event["summary"])
@@ -2618,7 +2610,6 @@ def fetch_market_context_payload():
         "benchmark_history": benchmark_history,
         "event_calendar": calendar,
         "macro_actuals": actuals,
-        "fomc_expectations": {"status":"unavailable","source":"CME FedWatch","source_url":"https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html","meeting_id":None,"as_of":None,"probabilities":None,"reason":"No verified stable free probability feed; no inferred or paid data."},
         "summary": market_summary,
         "source_info": {
             "vix": build_source_info("Live" if vix is not None else "Data unavailable", missing_source="Cboe / FRED / Yahoo Finance", suggested_source="FRED VIXCLS / Yahoo Finance ^VIX / Cboe", source_name=(vix_points[-1].get("source") or "Unverified") if vix_points else "Unavailable"),
@@ -2640,8 +2631,6 @@ def fetch_market_context_payload():
             "vix": vix,
             "fear_greed": fear_greed,
             "treasury_yield": treasury_yield,
-            "fed_funds_rate": fed_funds_value,
-            "fomc_rate_path": fomc_rate_path,
             "summary": " · ".join(macro_summary_bits) if macro_summary_bits else "Macro data is neutral due to missing live feeds.",
             "source_info": {
                 "vix": build_source_info("Live" if vix is not None else "Data unavailable", missing_source="Cboe / FRED / Yahoo Finance", suggested_source="FRED VIXCLS / Yahoo Finance ^VIX / Cboe", source_name=(vix_points[-1].get("source") or "Unverified") if vix_points else "Unavailable"),
@@ -2652,8 +2641,6 @@ def fetch_market_context_payload():
                     source_name=fear_greed_snapshot.get("source_name") or "Fear & Greed",
                 ),
                 "treasury_yield": build_source_info("Live" if treasury_yield is not None else "Data unavailable", missing_source="FRED / Yahoo Finance ^TNX", suggested_source="FRED DGS10 / Yahoo Finance ^TNX / Alpha Vantage", source_name=(treasury_points[-1].get("source") or "Unverified") if treasury_points else "Unavailable"),
-                "fed_funds_rate": build_source_info("Live" if fed_funds_value is not None else "Data unavailable", missing_source="FRED DFF / FEDFUNDS", suggested_source="FRED DFF / FEDFUNDS", source_name="FRED"),
-                "fomc_rate_path": build_source_info("Live" if fomc_rate_path is not None else "Data unavailable", missing_source="Federal Reserve / FRED", suggested_source="Federal Reserve FOMC / FRED DFF", source_name="FRED / Federal Reserve"),
                 "market_events": build_source_info("Live", missing_source="Economic calendar / market_events.json", suggested_source="FMP Economic Calendar / Alpha Vantage / market_events.json", source_name="market_events.json"),
                 "equity_trend": build_source_info("Live" if spy_trend.get("value") is not None or qqq_trend.get("value") is not None else "Data unavailable", missing_source="Yahoo Finance SPY / QQQ", suggested_source="Yahoo Finance SPY / QQQ", source_name="Yahoo Finance"),
             },

@@ -16,6 +16,7 @@ historical, not current configuration. Preserve its referenced reproduction mate
 - `company-profile-classifier.js` and `profile-definitions.js`: metadata-only Company Profile V2.1 and isolated ETF definitions.
 - `decision-api/emit-decision.js`: current `decision.v2` serialization; existing HTTP URLs remain, with no external legacy consumer. Format version and profile schema are independent of engine release.
 - `main.js`: state/data integration and DOM only; never calculate an Action. `decision-presentation.js` and `ui-translations.js`: bilingual rendering only; never mutate engine inputs on language changes.
+- `technical-chart.js`: selected-detail rendering only, with lazy local Lightweight Charts 5.2.0 (`vendor/` license/notice). One chart instance; dispose charts, markers, observers and handlers on tab/stock/close. The canonical producer's optional chart adapter alone emits bounded completed-bar series (3000 Daily / 650 Weekly); no chart series/cache enters engine inputs or serialization. All Technical/Fibonacci/history panels share the selected frame. Current snapshot zones are a right-edge reference, hidden when panning away from the latest candle; never backfill historical Actions. Structure lines start at known/role-known time. Quote is a separate line, not a synthetic candle. Preserve text/data-table fallback and missing/stale labels.
 - `scripts/`: bounded read-only/offline verification. Temporary rows, provider payloads, screenshots and logs belong outside the repository. `docs/` holds specifications and compact dated evidence.
 - `历史记录/`: offline history infrastructure, **paused** (`EOD_HISTORY_ENABLED=false`). No live request reads the history database.
 
@@ -126,8 +127,18 @@ Major FOMC/CPI/jobs crossing the latest Daily close → next real session close
 pauses leveraged new entry and Short Sell until the first completed post-release
 Daily and verified actual. Ordinary stocks raise requirements, not a blanket
 ban. Sell is not blocked. Missing actuals do not become safe through elapsed
-time. FedWatch probability source is currently unavailable: show this explicitly;
-no invented/free-scraped/paid feed, no claim of a verified expectation surprise.
+time. Market-expectation/FedWatch/Investing inputs and UI placeholders are removed.
+Only official actual releases and their prior historical observations are used.
+FOMC compares the latest two completed official target ranges, with release,
+observation, source and meeting identity checks; neither future decisions nor
+unverified old fragments can release an entry pause. Its positive actual rate
+change contributes bounded macro risk at the centralized 0.25pp step and shared
+4-unit/8-cap policy, combined by max with CPI/jobs and existing rate/regime risk.
+Unchanged/easing decisions never create a bullish vote or automatic entry.
+Missing previous actual is explicitly unavailable, never inferred as zero.
+Calendar actual-history schema 2 refetches older caches; at most two statements
+are fetched with a 140-day past/70-day future calendar window. No probability
+fetch, pre-release probability archive, surprise rule or extra worker is used.
 
 ## Refresh transaction and resource constraints
 

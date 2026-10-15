@@ -40,6 +40,7 @@
     waiting_market_context: { en: "The market risk context required for a new entry is missing or stale.", zh: "新进入所需的市场风险数据缺失或已过期。" },
     market_shock_blocks_entry: { en: "Market shock blocks new entries.", zh: "市场冲击阻止新进入。" },
     macro_actuals_unavailable: { en: "Official macro actuals are unavailable; no favourable assumption is made.", zh: "官方宏观实际发布暂不可用，不假设为利好。" },
+    fomc_actual_tightening: { en: "The actual FOMC target range rose versus the previous decision, raising rate-risk context.", zh: "FOMC 实际目标利率较上次上调，提高利率风险背景。" },
     leveraged_weekly_background: { en: "Leveraged ETF Weekly is trend background; execute using Daily.", zh: "杠杆 ETF 周线仅展示趋势背景，以日线执行。" },
     short_plan_invalidated: { en: "Price invalidates the upper boundary of the current short plan.", zh: "价格突破当前空头计划的上方失效位，该计划不再具备开空资格。" },
 

@@ -123,7 +123,7 @@ assert.match(macroHtml,/本月环比/);assert.match(macroHtml,/近3个月均值/
 assert.match(macroHtml,/2026-07 → 2026-09/);assert.match(macroHtml,/2026-09 ↔ 2025-09/);
 assert.match(macroHtml,/8\.00%/);assert.match(macroHtml,/缺少去年同月指数/);
 assert.match(macroHtml,/\+2\.9万人/);assert.match(macroHtml,/\+0\.10 个百分点/);
-assert.match(macroHtml,/未接入 · 暂不参与判断/);assert.match(macroHtml,/获取时间/);
+assert.doesNotMatch(macroHtml,/FedWatch|Investing|市场预期/);assert.match(macroHtml,/实际决议对比/);assert.match(macroHtml,/获取时间/);
 assert.doesNotMatch(macroHtml,/target range|上月／三月均值|\+0K|undefined|NaN/);
 vm.runInContext('state.language="en"',context);
 assert.match(vm.runInContext('macroReleaseLines(macroCore)',context),/This month · MoM/);
@@ -132,3 +132,8 @@ assert.equal(JSON.stringify(context.macroCore),macroOriginal,"macro localization
 context.macroCore.macro_actuals.cpi.headline.yoy_base_period="2025-08";
 assert.doesNotMatch(vm.runInContext('macroReleaseLines(macroCore)',context),/8\.00%/,"wrong-month cached YoY cannot be displayed as verified");
 assert.doesNotMatch(vm.runInContext('macroReleaseLines({})',context),/undefined|NaN|0\.00%/);
+
+context.fomcCompared={status:"available",current:{releasedAt:"2026-09-16T18:00:00Z",targetRange:{low:3.75,high:4}},previous:{releasedAt:"2026-07-29T18:00:00Z",targetRange:{low:3.5,high:3.75}},lowerChangePp:.25,upperChangePp:.25};
+vm.runInContext('state.language="zh"',context);
+const fomcHtml=vm.runInContext('renderFomcActuals(fomcCompared)',context);assert.match(fomcHtml,/本次实际/);assert.match(fomcHtml,/上次实际/);assert.match(fomcHtml,/\+25 基点/);assert.doesNotMatch(fomcHtml,/FedWatch|Investing|预期/);
+vm.runInContext('state.language="en"',context);assert.match(vm.runInContext('renderFomcActuals(fomcCompared)',context),/Previous actual/);

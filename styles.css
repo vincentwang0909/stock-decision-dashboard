@@ -2959,21 +2959,10 @@ tbody tr.selected-row td {
 .price-map-key.reduce { background: rgba(114, 158, 206, 0.8); }
 
 .technical-tab-panel { gap: var(--space-md); }
-.technical-accordion, .technical-overview-section { border: 1px solid var(--border-primary); border-radius: var(--radius-md); background: var(--surface-card); overflow: hidden; }
-.technical-accordion-toggle { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: var(--space-md); padding: 14px var(--space-lg); border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
-.technical-accordion-toggle:hover { background: rgba(255,255,255,0.025); }
-.technical-accordion-toggle > span:first-child { display: grid; gap: 3px; }
-.technical-accordion-toggle b { font-size: 0.95rem; }
-.technical-accordion-toggle small, .technical-accordion-state { color: var(--muted); font-size: 0.72rem; line-height: 1.35; }
-.technical-accordion-state { flex: 0 0 auto; font-weight: 750; text-transform: uppercase; letter-spacing: 0.06em; }
-.technical-accordion-body { padding: 0 var(--space-lg) var(--space-lg); border-top: 1px solid var(--border-subtle); }
-.technical-accordion-content { display: grid; gap: var(--space-md); padding-top: var(--space-md); }
-.technical-horizon-tabs, .fibonacci-horizon-tabs { display: flex; flex-wrap: wrap; gap: 7px; }
+.technical-horizon-tabs { display: flex; flex-wrap: wrap; gap: 7px; }
 .technical-horizon-tabs { padding: 0 var(--space-lg) var(--space-md); }
-.technical-horizon-tabs button, .fibonacci-horizon-tabs button { min-height: 30px; padding: 0 10px; border: 1px solid var(--border-subtle); border-radius: 999px; background: rgba(255,255,255,0.018); color: var(--muted); font: 750 0.73rem/1 var(--sans); cursor: pointer; }
-.technical-horizon-tabs button.active, .fibonacci-horizon-tabs button.active { color: #eaf3ff; border-color: rgba(139, 183, 216, 0.35); background: rgba(57, 93, 143, 0.3); }
-.technical-overview-section { padding-top: var(--space-lg); }
-.technical-overview-section > .detail-section-head { padding: 0 var(--space-lg); }
+.technical-horizon-tabs button { min-height: 30px; padding: 0 10px; border: 1px solid var(--border-subtle); border-radius: 999px; background: rgba(255,255,255,0.018); color: var(--muted); font: 750 0.73rem/1 var(--sans); cursor: pointer; }
+.technical-horizon-tabs button.active { color: #eaf3ff; border-color: rgba(139, 183, 216, 0.35); background: rgba(57, 93, 143, 0.3); }
 .technical-horizon-section { margin: 0 var(--space-lg) var(--space-lg); }
 .technical-overview-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 0 0 var(--space-md); padding: 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: rgba(255,255,255,0.015); }
 .technical-overview-strip div { display: grid; gap: 3px; min-width: 0; }
@@ -3030,6 +3019,7 @@ tbody tr.selected-row td {
 .macro-context-note { color: var(--muted); font-size: .7rem; line-height: 1.6; margin: 9px 0 0; overflow-wrap: anywhere; }
 .macro-policy-grid p, .macro-policy-grid a { font-size: .76rem; line-height: 1.6; overflow-wrap: anywhere; }
 .macro-policy-grid a { color: #a6d2ec; }
+.macro-policy-grid > :only-child { grid-column: 1 / -1; }
 .macro-source-status { padding-top: 10px; border-top: 1px solid var(--border-subtle); }
 
 @media (max-width: 980px) {
@@ -3043,9 +3033,6 @@ tbody tr.selected-row td {
   .profile-summary-strip, .profile-summary-etf { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .technical-overview-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fibonacci-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .technical-accordion-toggle { align-items: flex-start; padding: 13px 14px; }
-  .technical-accordion-body { padding-right: 14px; padding-bottom: 14px; padding-left: 14px; }
-  .technical-overview-section > .detail-section-head, .technical-horizon-tabs { padding-right: 14px; padding-left: 14px; }
   .technical-horizon-section { margin-right: 14px; margin-bottom: 14px; margin-left: 14px; }
   .market-status-primary { grid-template-columns: 1fr; }
   .macro-indicator-grid, .macro-policy-grid { grid-template-columns: 1fr; }
@@ -3057,3 +3044,93 @@ tbody tr.selected-row td {
 .stock-mini-chip.short-sell { color: #ff8890; }
 .price-map-range.short_entry { background: rgba(240, 106, 126, .3); border: 1px solid #f06a7e; }
 .price-map-key.short_entry { background: #f06a7e; }
+
+/* Selected-stock chart workspace: shared readable type, restrained signal colour. */
+.detail-sheet { background: #0b1320; color: var(--text); scrollbar-gutter: stable; }
+.detail-sheet button, .detail-sheet select, .detail-sheet summary { font-family: var(--sans); }
+.detail-sheet .detail-line-side strong, .decision-execution-field > strong, .fibonacci-level-table td:nth-child(2), .fibonacci-level-table td:nth-child(3), .macro-comparison-cell strong { font-family: var(--sans); font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.detail-sheet .detail-line-note { overflow-wrap: anywhere; }
+.detail-tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--border-primary); padding-bottom: 0; margin-bottom: 22px; }
+.detail-tab { border: 0; border-radius: 0; padding: 11px 2px; background: transparent; color: #9fb0c7; font-size: .86rem; box-shadow: none; }
+.detail-tab.active { color: #d9efff; background: transparent; box-shadow: inset 0 -2px #64cbe7; }
+.detail-tab:focus-visible, .technical-chart-card button:focus-visible, .technical-chart-card select:focus-visible, .technical-advanced summary:focus-visible { outline: 2px solid #79cbe4; outline-offset: 3px; }
+.technical-tab-panel { gap: 22px; }
+.technical-workspace-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.technical-workspace-head > div:first-child { display: grid; gap: 5px; }
+.technical-workspace-head h3, .technical-indicators-heading h3 { margin: 0; font-size: .97rem; font-weight: 700; }
+.technical-freshness { font-size: .73rem; color: #9fb0c7; }
+.technical-workspace-head .technical-horizon-tabs { padding: 0; }
+.technical-horizon-tabs button { min-height: 36px; border-radius: 7px; font-weight: 650; }
+.technical-horizon-section { border: 0; background: transparent; padding: 0; margin: 0; box-shadow: none; }
+.technical-overview-strip { margin: 0 0 14px; padding: 14px 18px; border-radius: 9px; background: #111e2d; gap: 14px; }
+.technical-overview-strip > div { border-left: 1px solid var(--border-subtle); padding-left: 16px; gap: 6px; }
+.technical-overview-strip > div:first-child { border-left: 0; padding-left: 0; }
+.technical-overview-strip span { font-size: .7rem; letter-spacing: 0; font-weight: 500; }
+.technical-overview-strip strong { font-size: .88rem; font-weight: 650; }
+.tone-positive { --signal-color: #75d5b2; }.tone-negative { --signal-color: #ec9ba5; }.tone-caution { --signal-color: #e7bf79; }.tone-neutral { --signal-color: #aac9e7; }.tone-muted { --signal-color: #93a4bb; }
+.technical-overview-strip strong, .technical-indicator-state { color: var(--signal-color, #cad8e9); }
+.technical-indicators-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 24px 0 12px; }
+.technical-indicators-heading > span { color: #91a6bf; font-size: .72rem; }
+.technical-family-grid { align-items: start; gap: 12px; }
+.technical-indicator-card { min-width: 0; padding: 17px 18px 12px; background: #101b2a; border: 1px solid #253449; border-radius: 10px; box-shadow: none; }
+.technical-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.technical-card-heading .decision-list-title { font-size: .84rem; line-height: 1.4; color: #d9e4f2; font-weight: 650; margin: 0; letter-spacing: 0; text-transform: none; }
+.technical-card-heading .technical-indicator-state { flex-shrink: 0; max-width: 48%; text-align: right; font-size: .76rem; font-weight: 600; padding-top: 1px; }
+.technical-indicator-card > .detail-line-note { font-size: .71rem; color: #95a9c0; margin: 0 0 8px; }
+.technical-indicator-card .detail-line-row { padding: 9px 0; grid-template-columns: minmax(0,1fr) minmax(0,auto); }
+.technical-indicator-card .detail-line-label { font-size: .77rem; font-weight: 500; color: #b7c6d8; }
+.technical-indicator-card .detail-line-side { min-width: 0; }
+.technical-indicator-card .detail-line-side strong { font-size: .8rem; font-weight: 600; line-height: 1.5; }
+.technical-indicator-card .detail-line-note { font-size: .7rem; line-height: 1.5; }
+.technical-advanced { padding: 9px 0 0; border-color: #26374c; margin-top: 8px; }
+.technical-advanced summary { font-size: .73rem; font-weight: 500; color: #8eb6d6; cursor: pointer; padding: 5px 0; }
+.technical-advanced[open] summary { margin-bottom: 8px; }
+.technical-data-warning { color: #dfbe83 !important; }
+.technical-foundation-section { border-top: 1px solid #263449; padding-top: 2px; }
+.technical-foundation-section .technical-indicators-heading { margin-top: 16px; }
+.fibonacci-card .decision-list-title { font-size: .84rem; color: #d4e1ef; }
+.fibonacci-summary-grid { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; padding: 12px 0 0; }
+.fibonacci-summary-grid > div { padding: 9px 0; border: 0; border-radius: 0; background: transparent; }
+.fibonacci-summary-grid span { text-transform: none; font-weight: 500; letter-spacing: 0; font-size: .71rem; }
+.fibonacci-summary-grid strong { font-family: var(--sans); font-weight: 600; font-size: .79rem; line-height: 1.6; }
+.history-position { display: flex; align-items: center; gap: 14px; margin: 0 0 14px; padding: 12px 16px; background: #101b2a; border-radius: 8px; font-size: .76rem; }
+.history-position > span { color: #b6c6d8; }.history-position > strong { font-variant-numeric: tabular-nums; }
+.history-position-track { position: relative; flex: 1; height: 4px; background: #3a516a; border-radius: 4px; }.history-position-track i { position: absolute; height: 10px; width: 10px; background: #91cee8; top: -3px; border-radius: 50%; transform: translateX(-50%); }
+.technical-source-details { padding: 12px 16px; background: #101b2a; border-radius: 8px; margin: 0; }
+.technical-source-details p { margin: 8px 0; font-size: .72rem; }
+.technical-chart-card { min-width: 0; padding: 12px; border: 1px solid #293a50; border-radius: 10px; background: #0c1522; }
+.chart-toolbar, .chart-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.chart-layers, .chart-ranges, .chart-navigation { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+.technical-chart-card button, .technical-chart-card select { min-height: 30px; border: 1px solid #30445d; background: #111f30; color: #b1c6df; border-radius: 5px; font-size: .71rem; font-weight: 500; padding: 4px 8px; cursor: pointer; }
+.technical-chart-card button[aria-pressed="true"] { background: #21445b; color: #d8f6ff; border-color: #4e8da8; }
+.chart-oscillator-label { font-size: .71rem; color: #97adc6; display: flex; align-items: center; gap: 8px; }
+.chart-readout { min-height: 26px; display: flex; gap: 8px 12px; flex-wrap: wrap; align-items: center; color: #91a8c2; font-size: .71rem; margin-top: 12px; font-variant-numeric: tabular-nums; }
+.chart-readout b { color: #d2e2f1; font-weight: 550; }.chart-readout time { color: #e3edf7; }.chart-pane-key { font-size: .67rem; }
+.chart-line-key { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 5px 0 12px; color: #a3b6cd; font-size: .68rem; font-variant-numeric: tabular-nums; }
+.chart-line-key > span { display: inline-flex; gap: 5px; align-items: center; }.chart-line-key i { width: 12px; height: 2px; background: var(--series-color); }.chart-line-key b { color: var(--series-color); font-weight: 500; }
+.chart-stage { position: relative; min-height: 340px; }.chart-canvas { width: 100%; }.chart-canvas canvas { outline: none; }
+.chart-overlays { position: absolute; inset: 0 67px 0 0; pointer-events: none; overflow: hidden; }
+.chart-zone { position: absolute; right: 0; width: 19%; min-width: 68px; border-top: 1px dashed var(--zone-color); border-bottom: 1px dashed var(--zone-color); background: color-mix(in srgb,var(--zone-color) 9%,transparent); }
+.chart-zone > span { position: absolute; top: 1px; right: 2px; max-width: 190px; color: var(--zone-color); font: 500 10px/1.5 var(--sans); white-space: nowrap; padding: 1px 4px; background: #0b1421e8; border-radius: 3px; }
+.chart-label-leader { position: absolute; right: 3px; width: 0; border-right: 1px solid var(--zone-color); opacity: .65; pointer-events: none; }
+.chart-level { width: 13%; border-bottom: 0; background: transparent; }.chart-level > span { top: -16px; }
+.chart-message { position: absolute; top: 30%; left: 16px; right: 16px; color: #b9cbe0; font-size: .8rem; text-align: center; }.chart-message[hidden] { display: none; }
+.chart-footer { padding-top: 10px; }.chart-attribution { color: #8ca4bf; font-size: .63rem; text-decoration: none; }.chart-attribution:hover { color: #d4e6f7; text-decoration: underline; }
+.chart-context { color: #91a8c2; font-size: .67rem; line-height: 1.6; margin: 10px 0 0; }
+.chart-data-table { font-size: .72rem; }.chart-data-table > div { overflow-x: auto; }.chart-data-table table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; white-space: nowrap; }.chart-data-table th,.chart-data-table td { padding: 7px; text-align: right; border-bottom: 1px solid #263449; }.chart-data-table th:first-child,.chart-data-table td:first-child { text-align: left; }
+.chart-decision-note { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; align-items: baseline; margin: 12px 0 0; padding: 12px 15px; border-left: 2px solid #6c9cbc; background: #112132; border-radius: 0 7px 7px 0; }
+.chart-decision-note > b { font-size: .8rem; color: #accfe9; }.chart-decision-note > span { font-size: .78rem; color: #c3d1e2; line-height: 1.6; }.chart-decision-note > small { grid-column: 2; font-size: .69rem; color: #93a9c0; }
+.market-compact-card .detail-line-side strong { font-size: .79rem; font-family: var(--sans); }.market-compact-card .detail-line-label { font-weight: 500; }.decision-gate-reason { line-height: 1.7; }.decision-core-card > strong { letter-spacing: -.01em; }
+@media (max-width: 700px) {
+  .detail-sheet { width: calc(100vw - 12px); margin: 6px auto; padding: 15px; max-height: calc(100dvh - 12px); }
+  .detail-tabs { gap: 20px; }.detail-tab { font-size: .8rem; }
+  .technical-workspace-head { align-items: flex-start; flex-wrap: wrap; }.technical-workspace-head .technical-horizon-tabs { gap: 5px; }.technical-horizon-tabs button { min-height: 34px; font-size: .71rem; }
+  .technical-overview-strip { grid-template-columns: repeat(3,minmax(0,1fr)); padding: 12px; gap: 12px 6px; }.technical-overview-strip > div { padding-left: 7px; }.technical-overview-strip > div:nth-child(4) { padding-left: 0; border-left: 0; }.technical-overview-strip strong { font-size: .78rem; }
+  .technical-family-grid { grid-template-columns: 1fr; }.technical-indicator-card { padding: 14px; }.technical-indicators-heading { align-items: flex-start; }.technical-indicators-heading > span { max-width: 44%; text-align: right; line-height: 1.5; }
+  .technical-indicator-card .detail-line-row { grid-template-columns: minmax(0,1fr) minmax(0,auto); }.technical-indicator-card .detail-line-side { justify-items: end; }
+  .fibonacci-summary-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 12px; }.history-position { padding: 10px; gap: 8px; }
+  .technical-chart-card { padding: 8px; margin: 0 -3px; }.chart-toolbar { gap: 9px; }.chart-layers { gap: 5px; }.technical-chart-card button { min-height: 32px; }.chart-footer { gap: 10px; }.chart-attribution { width: 100%; }.chart-readout { font-size: .67rem; gap: 5px 8px; }.chart-pane-key { flex-basis: 100%; }
+  .chart-decision-note { grid-template-columns: 1fr; padding: 11px; }.chart-decision-note > small { grid-column: 1; }.chart-zone { width: 24%; }.chart-zone > span { font-size: 9px; max-width: 120px; }
+}
+@media (prefers-reduced-motion: reduce) { .detail-sheet * { scroll-behavior: auto; transition: none !important; } }
+.chart-overlays { z-index: 5; }

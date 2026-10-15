@@ -57,6 +57,7 @@
     provisional: "Provisional", completed: "Completed", completion_unknown: "Completion unknown", completion_metadata_unavailable: "Completion metadata unavailable",
   });
   const LABELS = Object.freeze({
+    "Completed Weekly history": "完成周线历史", "Weekly totals; RVOL normalized per actual session": "周总量；RVOL按实际交易日归一比较", "Completed Weekly volume": "已完成周线成交量", "Average volume · 120W / 250W": "平均量 · 120周／250周", "Turnover · current / 5W / 20W / 60W": "换手率 · 当前／5周／20周／60周", "OBV trend · 5W / 20W / 60W": "OBV趋势 · 5周／20周／60周",
     "CPI MoM": "CPI 环比", "Core CPI MoM": "核心 CPI 环比", "Payroll change": "新增非农就业", "Unemployment": "失业率",
     "Previous / 3-month mean / YoY": "上月／三月均值／同比", "Previous / 3-month mean": "上月／三月均值", "Month change": "月度变化",
     "Wage MoM / participation": "工资环比／劳动参与率", "Previous month payroll revision": "上月就业总量修订",

@@ -74,3 +74,46 @@ assert.equal(buildRS(untrusted).horizons.daily.relative_strength.diagnostics.spy
 const spyReturn=(benchmark.closes.at(-1)/benchmark.closes.at(-21)-1)*100;
 assert(Math.abs(f.horizons.daily.relative_strength.primary.vs_spy-((raw.closes.at(-1)/raw.closes.at(-21)-1)*100-spyReturn))<1e-10);
 console.log("RS: exact completed date/window, missing session, optional long history, source trust and independent formula passed.");
+
+// Chart adapter uses the identical completed sources and optional canonical
+// series. Opening a chart cannot add arrays to normal engine features.
+const {buildChartData}=require("../technical-features.js");
+const unchangedFeatures=JSON.stringify(f);
+for(const horizon of ["daily","weekly"]) {
+ const interval=horizon==="daily"?"1d":"1w",frame=f.horizons[horizon];
+ const count=f.source_intervals[interval].bar_count;
+ const chart=buildChartData({history:raw,features:f,horizon});
+ assert.equal(chart.totalBars,count);
+ assert.equal(chart.candles.length,count);
+ assert.equal(chart.candles.at(-1).close,frame.trend_reference_price);
+ assert.equal(chart.asOf,frame.signal_as_of);
+ const macd=frame.momentum.macd[`macd_${interval}`];
+ assert.equal(chart.oscillator[0].data.at(-1).value,macd.macd_line);
+ assert.equal(chart.oscillator[1].data.at(-1).value,macd.signal_line);
+ assert.equal(chart.oscillator[2].data.at(-1).value,macd.histogram);
+ const bb=frame.volatility.bollinger[`bollinger_${interval}`];
+ assert.equal(chart.lines.find(l=>l.name==="BB upper").data.at(-1).value,bb.upper_band);
+ assert.equal(chart.lines.find(l=>l.name==="BB lower").data.at(-1).value,bb.lower_band);
+ for(const [oscillator,key,field] of [["adx","trend","adx"],["kdj","momentum","kdj"],["obv","participation","obv"],["atr","volatility","atr"]]) {
+  const c=buildChartData({history:raw,features:f,horizon,oscillator});
+  const feature=Object.values(frame[key][field])[0];
+  const value=oscillator==="adx"?feature.adx:oscillator==="kdj"?feature.k:oscillator==="obv"?feature.raw_value:feature.value;
+  assert.equal(c.oscillator[0].data.at(-1).value,value,`${horizon} ${oscillator} series matches canonical latest`);
+  assert.equal(c.oscillator[0].data.length,count);
+ }
+ const chartBars=t.normalizeBars(raw,{priceOnly:true});
+ const bars=horizon==="daily"?chartBars:t.completedWeeklyBars(chartBars,{asOf:raw.as_of,calendar:raw.session_calendar});
+ assert.equal(chart.volume.at(-1).value,bars.at(-1).volume,"Weekly chart shows actual total, not normalized RVOL volume");
+ assert.equal(chart.volumeAverage.at(-1).value,bars.slice(-20).reduce((sum,b)=>sum+b.volume,0)/20);
+}
+assert.equal(JSON.stringify(f),unchangedFeatures,"chart generation never mutates engine features");
+assert(!Object.hasOwn(f.horizons.daily.trend.adx.adx_14_1d,"adx_series"));
+assert(!Object.hasOwn(f.horizons.daily.momentum.kdj.kdj_9_1d,"k_series"));
+const futureChart=buildChartData({history:future,features:actual,horizon:"daily"});
+assert.equal(futureChart.candles.length,1099);assert(futureChart.candles.every(c=>c.high<1e6));
+assert.equal(buildChartData({history:noCalendar,features:build(noCalendar),horizon:"weekly"}).candles.length,0);
+const missingVolume=clone(raw);missingVolume.volumes[100]=null;
+const missingChart=buildChartData({history:missingVolume,features:build(missingVolume),horizon:"daily"});
+assert(!Object.hasOwn(missingChart.volume[100],"value"),"missing volume is whitespace, never zero");
+assert(!Object.hasOwn(missingChart.volumeAverage[110],"value"),"invalid volume cannot enter a rolling average");
+console.log("Chart: completed own-frame bars, independent series endpoints, Weekly totals, volume gaps and no feature mutation passed.");

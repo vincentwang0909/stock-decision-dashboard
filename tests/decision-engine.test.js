@@ -70,7 +70,7 @@ mod=e.market.forHorizon(e.market.evaluate(after),"daily",{},phase);assert.equal(
 after.market_context.macro_actuals.as_of="2026-10-20T20:00:00Z";
 assert.equal(e.market.forHorizon(e.market.evaluate(after),"daily",{},phase).macroRisk,0,"future vintages never enter macro risk");
 const meeting=market({asOf:"2026-10-14T20:30:00Z",events:[{id:"fomc-fixture",type:"fomc",at:"2026-10-14T18:00:00Z"}]});
-meeting.market_context.event_calendar.fomc_decision={meeting_id:"fomc-fixture",status:"available",as_of:null};
+meeting.market_context.event_calendar.fomc_decision={meeting_id:"fomc-fixture",status:"available",as_of:null,released_at:"2026-10-14T18:00:00Z",target_range:{low:3.75,high:4},source:"https://www.federalreserve.gov/newsevents/pressreleases/monetary20261014a.htm"};
 assert.equal(e.market.forHorizon(e.market.evaluate(meeting),"daily",{},phase).releaseDataPending,true,"undated FOMC actual cannot release the entry pause");
 meeting.market_context.event_calendar.fomc_decision.as_of="2026-10-14T19:00:00Z";
 assert.equal(e.market.forHorizon(e.market.evaluate(meeting),"daily",{},phase).releaseDataPending,false);
@@ -81,3 +81,18 @@ const undatedMarket=market();delete undatedMarket.market_context.as_of;
 assert.equal(decide(featureSet(),99,{},undatedMarket,{asOf:"2026-10-09T20:30:00Z"}).horizons.daily.action,"hold","Quote time cannot stand in for Market provenance");
 assert.equal(decide(featureSet({daily:"bear"}),99,{},{}).horizons.daily.action,"sell","real exit does not require fresh entry-market evidence");
 console.log("Decision engine: independent horizons, final confidence, price, contrarian, trust, tags and ETF boundaries passed.");
+
+// Only completed official actuals enter the historical comparison.
+const fomcHistory=market({asOf:"2026-10-14T20:30:00Z",events:[{id:"fomc-prior",type:"fomc",at:"2026-09-16T18:00:00Z"},{id:"fomc-current",type:"fomc",at:"2026-10-14T18:00:00Z"}]});
+const previousActual={status:"available",meeting_id:"fomc-prior",released_at:"2026-09-16T18:00:00Z",as_of:"2026-09-16T18:01:00Z",target_range:{low:3.5,high:3.75},source:"https://www.federalreserve.gov/newsevents/pressreleases/monetary20260916a.htm"};
+fomcHistory.market_context.event_calendar.fomc_decision={status:"available",meeting_id:"fomc-current",released_at:"2026-10-14T18:00:00Z",as_of:"2026-10-14T18:01:00Z",target_range:{low:3.75,high:4},source:"https://www.federalreserve.gov/newsevents/pressreleases/monetary20261014a.htm",previous_decision:previousActual};
+let observed=e.market.evaluate(fomcHistory);assert.equal(observed.fomcActualComparison.status,"available");assert.equal(observed.fomcActualComparison.upperChangePp,.25);assert.equal(observed.fomcActualComparison.direction,"raised");
+assert.equal(e.market.forHorizon(observed,"daily",{},phase).macroRisk,4);
+assert(e.market.forHorizon(observed,"daily",{},phase).reasons.some(r=>r.code==="fomc_actual_tightening"));
+const hugeHike=clone(fomcHistory);hugeHike.market_context.event_calendar.fomc_decision.target_range={low:5,high:5.25};assert.equal(e.market.forHorizon(e.market.evaluate(hugeHike),"daily",{},phase).macroRisk,e.config.market.macro.riskAddMaximum);
+const rateCut=clone(fomcHistory);rateCut.market_context.event_calendar.fomc_decision.target_range={low:3.25,high:3.5};assert.equal(e.market.forHorizon(e.market.evaluate(rateCut),"daily",{},phase).macroRisk,0);assert.equal(e.market.evaluate(rateCut).fomcActualComparison.direction,"lowered");
+assert.equal(decide(featureSet({daily:"neutral"}),99,{},rateCut).horizons.daily.action,"hold","actual easing alone cannot create an entry");
+for(const change of [v=>v.previous_decision=null,v=>v.previous_decision.as_of="2026-10-15T00:00:00Z",v=>v.target_range.low=null,v=>v.target_range.low=true,v=>v.previous_decision.meeting_id="wrong",v=>v.as_of="2026-10-15T00:00:00Z",v=>v.source="https://unverified.example/monetary"]){const broken=clone(fomcHistory);change(broken.market_context.event_calendar.fomc_decision);const result=e.market.evaluate(broken);assert.equal(result.fomcActualComparison.status,"unavailable");assert.equal(e.market.forHorizon(result,"daily",{},phase).fomcRisk,null);}
+const ignoredProbability=clone(fomcHistory);ignoredProbability.market_context.fomc_expectations={status:"available",probabilities:{cut:100}};assert.deepEqual(e.market.evaluate(ignoredProbability),observed,"obsolete probability data is ignored and not exposed");
+
+const overlappingHike=clone(fomcHistory);overlappingHike.market_context.ten_year_yield.value=6;const overlappingUnchanged=clone(overlappingHike);overlappingUnchanged.market_context.event_calendar.fomc_decision.previous_decision.target_range={low:3.75,high:4};assert.equal(e.market.forHorizon(e.market.evaluate(overlappingHike),"daily",{},phase).riskAdd,e.market.forHorizon(e.market.evaluate(overlappingUnchanged),"daily",{},phase).riskAdd,"overlapping rate risks are combined by max, not added twice");

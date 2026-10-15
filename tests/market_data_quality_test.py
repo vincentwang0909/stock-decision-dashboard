@@ -114,4 +114,41 @@ class DataQualityTests(unittest.TestCase):
                     calls.append(1);return {'status':'available','as_of':'2026-10-14T23:00:00+00:00','schema_version':2}
                 self.assertEqual(server._official_macro_cached('actuals',loader,1800)['schema_version'],2)
                 self.assertEqual(len(calls),expected_calls)
+
+    def test_fomc_actuals_use_latest_two_published_decisions_only(self):
+        now=datetime(2026,10,15,20,tzinfo=timezone.utc)
+        events=[{'id':f'fomc-{day}','type':'fomc','at':day+'T18:00:00+00:00','statement_url':'https://www.federalreserve.gov/newsevents/pressreleases/monetary'+day.replace('-','')+'a.htm'} for day in ['2026-07-29','2026-09-16','2026-10-28']]
+        seen=[]
+        def document(url):
+            seen.append(url)
+            rate='3-1/2 to 3-3/4' if '20260729' in url else '3-3/4 to 4'
+            return html.fromstring('<body>The target range for the federal funds rate is '+rate+' percent.</body>')
+        with patch.object(server,'_read_official_html',side_effect=document):
+            actual=server.fetch_completed_fomc_actuals(events,now)
+        self.assertEqual(actual['target_range'],{'low':3.75,'high':4})
+        self.assertEqual(actual['previous_decision']['target_range'],{'low':3.5,'high':3.75})
+        self.assertEqual(len(seen),2);self.assertFalse(any('20261028' in url for url in seen))
+        with patch.object(server,'_read_official_html',side_effect=ValueError('invalid actual')) as read:
+            bad=server.fetch_completed_fomc_actuals(events,now)
+        self.assertEqual(bad['meeting_id'],'fomc-2026-09-16');self.assertEqual(bad['status'],'unavailable');self.assertIsNone(bad['previous_decision']);self.assertEqual(read.call_count,1)
+        self.assertIsNone(server.parse_fomc_target_range(html.fromstring('<body>target range for the federal funds rate by 1/4 percent</body>')))
+        self.assertIsNone(server.parse_fomc_target_range(html.fromstring('<body>target range for the federal funds rate at 4 to 3 percent</body>')))
+        self.assertEqual(server.parse_fomc_target_range(html.fromstring('<body>target range for the federal funds rate at 0 to 1/4 percent</body>')),{'low':0,'high':.25})
+
+    def test_official_calendar_includes_previous_decision_outside_old_70_days(self):
+        doc=html.fromstring('<div class="panel"><h4>2026 FOMC Meetings</h4>'+''.join(f'<div class="fomc-meeting"><div class="fomc-meeting__month">{month}</div><div class="fomc-meeting__date">{days}</div></div>' for month,days in [('July','28-29'),('September','15-16'),('October','27-28')])+'</div>')
+        rows=server.parse_fomc_calendar(doc,datetime(2026,10,15,tzinfo=timezone.utc))
+        self.assertEqual([row['id'] for row in rows],['fomc-2026-07-29','fomc-2026-09-16','fomc-2026-10-28'])
+
+    def test_old_calendar_cache_is_refetched_for_actual_history_schema(self):
+        now=datetime(2026,10,15,20,tzinfo=timezone.utc).timestamp()
+        for schema,calls_expected in [(None,1),(2,0)]:
+            cached={'expires_at':now+600,'value':{'schema_version':schema,'status':'available','as_of':'2026-10-15T19:00:00+00:00','events':[]}}
+            with tempfile.TemporaryDirectory() as folder,patch.object(server,'MARKET_CACHE_DIR',folder),patch.object(server,'MACRO_OFFICIAL_CACHE',{'calendar':cached}),patch.object(server.time,'time',return_value=now):
+                calls=[]
+                def loader():
+                    calls.append(1);return {'schema_version':2,'status':'available','as_of':'2026-10-15T20:00:00+00:00','events':[]}
+                self.assertEqual(server._official_macro_cached('calendar',loader,600)['schema_version'],2)
+                self.assertEqual(len(calls),calls_expected)
+
 if __name__=='__main__':unittest.main()

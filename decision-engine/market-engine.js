@@ -10,6 +10,23 @@
     return source.market_context || source.market_engine || source || {};
   }
 
+  function compareFomcActuals(calendar = {}, asOf) {
+    const at=Date.parse(asOf);
+    const releases=(calendar.events || []).filter(event=>event.type==="fomc" && Number.isFinite(Date.parse(event.at)) && Date.parse(event.at)<=at).sort((a,b)=>Date.parse(a.at)-Date.parse(b.at));
+    const normalize=(actual,event)=>{
+      const low=finite(actual?.target_range?.low),high=finite(actual?.target_range?.high);
+      const released=Date.parse(actual?.released_at),known=Date.parse(actual?.as_of);
+      if (actual?.status!=="available" || !event || actual.meeting_id!==event.id || released!==Date.parse(event.at) || !Number.isFinite(at) || !Number.isFinite(known) || known<released || known>at || !Number.isFinite(low) || !Number.isFinite(high) || !(low>=0 && high>low && high<=100) || !String(actual.source || "").startsWith("https://www.federalreserve.gov/newsevents/pressreleases/monetary")) return null;
+      return {meetingId:actual.meeting_id,releasedAt:actual.released_at,asOf:actual.as_of,targetRange:{low,high},source:actual.source};
+    };
+    const current=normalize(calendar.fomc_decision,releases.at(-1));
+    const previous=current?normalize(calendar.fomc_decision?.previous_decision,releases.at(-2)):null;
+    if (!current || !previous) return {status:"unavailable",reason:current?"previous_actual_missing":"current_actual_unverified",current,previous:null,lowerChangePp:null,upperChangePp:null};
+    const lowerChangePp=current.targetRange.low-previous.targetRange.low,upperChangePp=current.targetRange.high-previous.targetRange.high;
+    const direction=lowerChangePp===0 && upperChangePp===0?"unchanged":lowerChangePp>=0 && upperChangePp>=0?"raised":lowerChangePp<=0 && upperChangePp<=0?"lowered":"range_changed";
+    return {status:"available",current,previous,lowerChangePp,upperChangePp,direction};
+  }
+
   function indexScore(index = {}) {
     const changes = [5, 20, 60, 120].map((days) => finite(index[`change_${days}d_pct`]));
     const weights = [0.18, 0.30, 0.30, 0.22];
@@ -86,7 +103,8 @@
       vix: { value: vix, change5d: vix5, change20d: vix20, trend: vixData.trend || "unavailable", shock: vixShock },
       spy, qqq, synchronizedBreakdown, synchronizedStrength, yield: yieldData,
       fearGreed: { value: fearGreedValue, label: fearGreed.label || "unavailable", trend: fearGreed.trend || "unavailable" },
-      eventCalendar: context.event_calendar || {status:"unavailable",events:[]}, macroActuals: context.macro_actuals || {status:"unavailable"}, fomcExpectations: context.fomc_expectations || {status:"unavailable"},
+      eventCalendar: context.event_calendar || {status:"unavailable",events:[]}, macroActuals: context.macro_actuals || {status:"unavailable"},
+      fomcActualComparison: compareFomcActuals(context.event_calendar || {},context.as_of || context.updated_at || marketContext.updatedAt || marketContext.updated_at),
       earnings: earningsRisk, reasons, provenance: { asOf: context.as_of || context.updated_at || marketContext.updatedAt || marketContext.updated_at || null, source: context.source || marketContext.source || "unverified", units: { vix: "index_points", yield: "percent", yieldChanges: "basis_points", equityChanges: "percent" }, availability: regime === "unavailable" ? "unavailable" : context.stale || marketContext.stale || marketContext.status === "stale" ? "stale" : "available", timestampAlignment: "per-field timestamps required; legacy snapshots may be unverified" },
       dataQuality: Math.round(([Number.isFinite(vix), spy.available, qqq.available, yieldData.available, Number.isFinite(fearGreedValue)].filter(Boolean).length / 5) * 100),
     };
@@ -109,15 +127,16 @@
     const actualValid=actual.status==="available" && Number.isFinite(Date.parse(actual.as_of)) && (!Number.isFinite(asOf) || Date.parse(actual.as_of)<=asOf);
     const inflationRisk=actualValid && Number.isFinite(core.mom_pct) && Number.isFinite(core.previous_mom_pct) ? Math.max(0,(core.mom_pct-core.previous_mom_pct)/macroCfg.cpiStep):0;
     const jobRisk=actualValid && Number.isFinite(jobs.unemployment_change_pp) && jobs.unemployment_change_pp>=macroCfg.unemploymentStep && Number.isFinite(jobs.payroll_change_thousands) && Number.isFinite(jobs.payroll_three_month_mean_thousands) && jobs.payroll_change_thousands<jobs.payroll_three_month_mean_thousands*(1-macroCfg.payrollDeteriorationShare)?1:0;
-    const macroRisk=Math.min(macroCfg.riskAddMaximum,Math.max(inflationRisk,jobRisk)*macroCfg.riskUnit);
+    const fomcComparison=market.fomcActualComparison || compareFomcActuals(calendar,market.provenance?.asOf);
+    const fomcRisk=fomcComparison.status==="available"?Math.max(0,fomcComparison.lowerChangePp,fomcComparison.upperChangePp)/macroCfg.fomcStepPp*rateSensitivity:null;
+    const macroRisk=Math.min(macroCfg.riskAddMaximum,Math.max(inflationRisk,jobRisk,fomcRisk ?? 0)*macroCfg.riskUnit);
     // Keep the latest known release of each type pending until its actual is
     // verified. Elapsed time alone cannot make an unavailable release safe.
     const recentReleases=eventCfg.majorTypes.map(type=>(calendar.events || []).filter(event=>event.type===type && Date.parse(event.at)<=start).sort((a,b)=>Date.parse(b.at)-Date.parse(a.at))[0]).filter(Boolean);
     const releaseDataPending=recentReleases.some((recentRelease)=>{
       const stamp=new Date(recentRelease.at),expected=new Date(Date.UTC(stamp.getUTCFullYear(),stamp.getUTCMonth()-1,1)).toISOString().slice(0,7);
       const period=recentRelease.type==="cpi"?actual.cpi?.headline?.period:actual.employment?.period;
-      const decisionAt=Date.parse(calendar.fomc_decision?.as_of);
-      return recentRelease.type==="fomc"?calendar.fomc_decision?.meeting_id!==recentRelease.id || calendar.fomc_decision?.status!=="available" || !Number.isFinite(decisionAt) || decisionAt<Date.parse(recentRelease.at) || decisionAt>asOf:!actualValid || !period || period<expected || Date.parse(actual.as_of)<Date.parse(recentRelease.at);
+      return recentRelease.type==="fomc"?fomcComparison.current?.meetingId!==recentRelease.id:!actualValid || !period || period<expected || Date.parse(actual.as_of)<Date.parse(recentRelease.at);
     });
     const eventRisk=majorEventWindow?eventCfg.ordinaryRiskAdd*eventSensitivity:0;
     // Overlapping market, rate and macro stress are one regime group; issuer/release event uncertainty is separate.
@@ -126,12 +145,12 @@
     const riskAdd=clamp(uncappedRiskAdd,-4,engine.config.market.maxRiskAdd[horizon]);
     return {
       marketUnavailable: market.regime==="unavailable" || market.provenance?.availability==="stale" || !Number.isFinite(Date.parse(market.provenance?.asOf)),
-      majorEventWindow, earningsNear: market.earnings?.near === true, entryPaused: majorEventWindow || releaseDataPending, releaseDataPending, calendarUnavailable, crossingEvents: crossing, macroRisk: Math.round(macroRisk),
+      majorEventWindow, earningsNear: market.earnings?.near === true, entryPaused: majorEventWindow || releaseDataPending, releaseDataPending, calendarUnavailable, crossingEvents: crossing, macroRisk: Math.round(macroRisk), fomcRisk,
       confirmationAdd: (majorEventWindow || releaseDataPending || calendarUnavailable || !actualValid) ? eventCfg.ordinaryConfirmationAdd * eventSensitivity : 0,
       regime: market.regime || "normal", sensitivity: baseSensitivity * modifier,
       riskAdd: Math.round(riskAdd), uncappedRiskAdd: Math.round(uncappedRiskAdd), marketRiskCap: engine.config.market.maxRiskAdd[horizon] ?? 24,
       confidencePenalty: Math.round((market.confidencePenaltyBase || 0) * baseSensitivity * modifier + (market.earnings?.confidencePenalty || 0) * eventSensitivity),
-      shock: market.regime === "shock", reasons: [...(market.reasons || []), ...(majorEventWindow ? [{code:"major_release_entry_pause",text:"major_release_entry_pause"}] : []), ...(actual.status !== "available" ? [{code:"macro_actuals_unavailable",text:"macro_actuals_unavailable"}] : [])],
+      shock: market.regime === "shock", reasons: [...(market.reasons || []), ...(fomcRisk>0 ? [{code:"fomc_actual_tightening",text:"fomc_actual_tightening"}] : []), ...(majorEventWindow ? [{code:"major_release_entry_pause",text:"major_release_entry_pause"}] : []), ...(actual.status !== "available" ? [{code:"macro_actuals_unavailable",text:"macro_actuals_unavailable"}] : [])],
     };
   }
 
