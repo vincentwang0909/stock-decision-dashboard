@@ -107,13 +107,35 @@ console.log("Dashboard language: all profile slots, technical horizons, Fibonacc
 context.holdDecision={action:"hold",priceLandscape:{currentPrice:100,opportunityRange:{low:95,high:101},reduceRange:{low:110,high:115},invalidation:92}};
 context.rsMissing={availability:"unavailable",state:"unavailable",primary_lookback:20,as_of:"2026-10-12",primary:{stock_return:-16.4,vs_spy:null,vs_qqq:null},returns:{stock_20d:-16.4},diagnostics:Object.fromEntries(["spy","qqq"].map(n=>[n,{as_of:"2026-10-09",windows:{d20:{availability:"unavailable",reason:"benchmark_date_mismatch"}}}]))};
 vm.runInContext('state.language="zh"',context);
-let holdFields=vm.runInContext('executionFields(sampleRow,holdDecision)',context);
-assert.match(holdFields,/当前没有可执行/);assert.doesNotMatch(holdFields,/潜在加仓|潜在减仓|95\.00|110\.00/);
+context.holdRow={...row,decision:{horizons:{daily:context.holdDecision}}};
+let holdFields=vm.runInContext('horizonCoreCard(holdRow,"daily")',context);
+assert.doesNotMatch(holdFields,/当前没有可执行|潜在加仓|潜在减仓|95\.00|110\.00|当前价格|风险／失效位/);
+assert.match(vm.runInContext('renderDecisionPriceMap(holdRow,"daily")',context),/下方观察区|上方观察区/);
 let missingCard=vm.runInContext('relativeStrengthCard(rsMissing,"daily","1d")',context);
 assert.match(missingCard,/基准比较不可用/);assert.match(missingCard,/基准日期不一致/);assert.match(missingCard,/2026-10-12 \/ 2026-10-09/);
 vm.runInContext('state.language="en"',context);
-assert.match(vm.runInContext('executionFields(sampleRow,holdDecision)',context),/No actionable entry or reduction range/);
+assert.doesNotMatch(vm.runInContext('horizonCoreCard(holdRow,"daily")',context),/No actionable entry or reduction range|Current Price|Risk \/ Invalidation/);
 assert.match(vm.runInContext('relativeStrengthCard(rsMissing,"daily","1d")',context),/Benchmark dates do not match/);
+
+// Presentation-only changes: no bilingual duplicate actions, no invented confidence,
+// and company metadata appears only in the explicitly enabled header.
+context.readyRow={...row,ready:true,decision:{horizons:{daily:{action:"hold",confidence:62,signalAsOf:"2026-10-09T20:00:00Z"}}}};
+vm.runInContext('state.language="zh"',context);
+const compactCard=vm.runInContext('horizonCoreCard(readyRow,"daily")',context);
+assert.ok(compactCard.includes(config.actionLabels.hold.zh));
+assert.doesNotMatch(compactCard,/Hold|Current Price|当前价格|结构空间|decision-card-execution|decision-gate-reason/);
+const confidenceRow=vm.runInContext('actionChip(readyRow,"daily")',context);
+assert.match(confidenceRow,/62\/100/);assert.doesNotMatch(confidenceRow,/Hold/);
+assert.doesNotMatch(vm.runInContext('actionChip({...readyRow,ready:false},"daily")',context),/62\/100/);
+assert.doesNotMatch(vm.runInContext('renderProfileHeader(readyRow,false)',context),/profile-summary-strip|企业软件|高成长|高波动|扩张期/);
+vm.runInContext('state.marketFilter="stocks"',context);
+assert.equal(vm.runInContext('matchesFilter({classification:{isETF:true}})',context),false);
+assert.equal(vm.runInContext('matchesFilter({classification:{isETF:false}})',context),true);
+vm.runInContext('state.marketFilter="etfs"',context);
+assert.equal(vm.runInContext('matchesFilter({classification:{isETF:true}})',context),true);
+assert.equal(vm.runInContext('matchesFilter({classification:{isETF:false}})',context),false);
+vm.runInContext('state.marketFilter="all"',context);
+assert.equal(vm.runInContext('marketImpact({market:{}})',context),'暂不可用',"missing market evidence cannot display neutral");
 
 context.macroCore={macro_actuals:{status:"available",as_of:"2026-10-14T23:00:00Z",cpi:{headline:{period:"2026-09",mom_pct:.65,previous_mom_pct:.4,three_month_mean_pct:.37,yoy_pct:8,yoy_period:"2026-09",yoy_base_period:"2025-09",yoy_basis:"not_seasonally_adjusted"},core:{period:"2026-09",yoy_basis:"not_seasonally_adjusted",yoy_period:"2026-09",yoy_base_period:"2025-09",yoy_unavailable_reason:"missing_year_ago_period"}},employment:{period:"2026-09",payroll_change_thousands:29,previous_payroll_change_thousands:133,payroll_three_month_mean_thousands:51,unemployment_rate_pct:4.2,unemployment_change_pp:.1,revision_available:false}},event_calendar:{fomc_decision:{status:"available",statement:"target range for the federal funds rate by 1/4 percent",released_at:"2026-09-16T18:00:00Z"}}};
 const macroOriginal=JSON.stringify(context.macroCore);

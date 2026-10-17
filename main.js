@@ -37,7 +37,7 @@ const I18N = {
     signalAsOf: "Signal close", shortEntryRange: "Short Entry Range", shortInvalidation: "Short Invalidation (above)", structuralSpace: "Structural reward / risk",
     appTitle: "Stock Decision Dashboard", stocks: "Stocks", search: "Search symbol or name", add: "Add selected", refresh: "Refresh now", refreshing: "Refreshing…", lastRefresh: "Last refresh", autoRefresh: "Auto refresh every 10 min at :05 / :15 / :25 / :35 / :45 / :55 (ET)",
     shared: "Shared Watchlist: everyone viewing this Dashboard sees the same stock list.", syncFailed: "Shared list sync failed. Showing cached data.", localServerRequired: "This dashboard must be opened through the local server. Run python3 server.py, then open",
-    all: "All", us: "US", growth: "Growth", speculative: "Speculative", dividend: "Dividend", value: "Value",
+    all: "All", etfs: "ETF",
     openMenu: "Open menu", language: "Language", sortStocks: "Sort stocks", filterStocks: "Filter stocks by market",
     sortTicker: "Sort by ticker", sortType: "Sort by stock type", sortChange: "Sort by day move",
     ticker: "Ticker", type: "Stock type", dayMove: "Day move", daily: "Daily", weekly: "Weekly",
@@ -61,16 +61,16 @@ const I18N = {
     serviceUpdating: "The service is updating data. Waiting for the complete snapshot…",
   },
   zh: {
-    lowerObservationRange: "下方观察区", upperObservationRange: "上方观察区", observationPriceMap: "技术观察区间", holdNoExecutionRange: "当前没有可执行的建仓或减仓建议。", observationRangeHelp: "以下是技术候选位置，进入区间不代表可以买入或减仓；操作以最终 Action 为准。",
+    lowerObservationRange: "下方观察区", upperObservationRange: "上方观察区", observationPriceMap: "技术观察区间", holdNoExecutionRange: "当前没有可执行的建仓或减仓建议。", observationRangeHelp: "以下是技术候选位置，进入区间不代表可以买入或减仓；操作以最终建议为准。",
     signalAsOf: "信号收盘时间", shortEntryRange: "独立开空区", shortInvalidation: "空头上方失效位", structuralSpace: "结构空间／风险",
     appTitle: "股票决策仪表盘", stocks: "股票", search: "搜索代码或名称", add: "添加所选", refresh: "立即刷新", refreshing: "刷新中…", lastRefresh: "上次刷新", autoRefresh: "每10分钟自动刷新：05／15／25／35／45／55 分（美东时间）",
     shared: "共享自选列表：所有查看此仪表盘的用户看到相同的股票列表。", syncFailed: "共享列表同步失败，正在显示缓存数据。", localServerRequired: "此仪表盘必须通过本地服务打开。请运行 python3 server.py，然后访问",
-    all: "全部", us: "美股", growth: "成长型", speculative: "投机型", dividend: "分红型", value: "价值型",
+    all: "全部", etfs: "ETF",
     openMenu: "打开菜单", language: "语言", sortStocks: "股票排序", filterStocks: "股票筛选",
     sortTicker: "按代码排序", sortType: "按股票类型排序", sortChange: "按当日涨跌排序",
     ticker: "代码", type: "股票类型", dayMove: "当日涨跌", daily: "日线", weekly: "周线",
     aiDecision: "AI 决策", technical: "技术面", market: "市场数据", price: "价格", dataTime: "数据时间", updated: "更新时间", unavailable: "—",
-    recommendation: "操作", confidence: "置信度", invalidation: "失效价", currentPrice: "当前价格",
+    recommendation: "操作", confidence: "可信度", invalidation: "失效价", currentPrice: "当前价格",
     recommendationConfidence: "推荐可信度", confidenceHelp: "推荐可信度表示当前数据对该操作建议的支持一致性和稳定程度，不代表未来上涨概率。", recommendedBuyAddRange: "推荐买入／加仓区", potentialAddRange: "潜在加仓区", reevaluationRange: "重新评估区", potentialReduceRange: "潜在减仓区", recommendedReduceRange: "推荐减仓区", recommendedExitRange: "推荐退出区", riskInvalidation: "风险／失效位", hardInvalidation: "硬风险边界 · 实质跌破", currentPrice: "当前价格", withinRange: "当前位于区间内", distanceToRange: "距离",
     finalDecision: "最终决策", decisionCardHint: "点击周期卡片查看对应的价格图和决策原因。", decisionPriceMap: "价格区间图", priceLandscape: "价格区间图", whyThisDecision: "为什么是这个决策", marketRiskRegime: "市场风险环境", marketImpact: "对该股票的影响", primaryClassification: "主要分类", companyTraits: "公司特征标签", businessTrait: "业务特征", riskTrait: "风险／行为特征", lifecycle: "生命周期", lastReview: "最近画像复核", etfProfile: "ETF 画像", leveraged: "杠杆", direction: "方向", underlying: "标的", yes: "是", no: "否", longDirection: "做多", inverseDirection: "反向", noDecision: "数据不足，暂无法生成该周期推荐。", dailyHorizon: "完成日线", weeklyHorizon: "完成周线", support: "支持当前推荐", limiting: "限制当前推荐", regime: "风险环境", earningsProximity: "财报临近", nextEarnings: "下一次财报", daysAgo: "天前", days: "天", supportive: "支持", neutral: "中性", restrictive: "限制", shockSensitive: "对冲击敏感",
     technicalOverview: "技术概览", fibonacciStructure: "斐波那契结构", fibonacciDescription: "已确认的摆动锚点与回撤／扩展水平；仅作技术数据展示。", historicalVolume: "52 周／历史位置与成交量", advancedSwingMetadata: "高级摆动元数据", retracement: "回撤", extension: "扩展", level: "级别", distance: "距离", swingHigh: "摆动高点", swingLow: "摆动低点", swingRange: "摆动区间", currentPosition: "当前位置", nearestBelow: "最近下方水平", nearestAbove: "最近上方水平", sourceTimeframe: "来源周期", lookbackBars: "回看 K 线数", fallbackUsed: "已使用回退", fallbackReason: "回退原因", primaryClassification: "主要分类", technicalUnavailable: "技术数据暂不可用。", trendSummary: "趋势", momentumSummary: "动量", volatilitySummary: "波动", relativeStrengthSummary: "相对强弱", participationSummary: "参与度", marketStatus: "市场状态", current: "当前", change5d: "5 日变化", change20d: "20 日变化", expanded: "展开", collapsed: "收起", primaryInterval: "主周期", supportingIntervals: "各周期独立使用完成 K 线。",
@@ -294,25 +294,20 @@ function decisionActionLabel(decision) {
 function actionChip(row, horizon) {
   const decision = decisionFor(row, horizon);
   const label = decision?.backgroundOnly ? (state.language === "zh" ? "仅背景" : "Background") : row.ready && decision ? decisionActionLabel(decision) : t("unavailable");
-  return `<span class="stock-mini-chip ${actionTone(decision?.action)}"><b>${t(horizon)}</b><span>${escapeHtml(label)}</span></span>`;
+  const confidence = row.ready && Number.isFinite(decision?.confidence) ? `${decision.confidence}/100` : t("unavailable");
+  return `<div class="stock-horizon-row"><b>${t(horizon)}</b><span class="stock-mini-chip ${actionTone(decision?.action)}">${escapeHtml(label)}</span><span class="stock-confidence" title="${escapeHtml(t("confidenceHelp"))}">${t("confidence")} <b>${escapeHtml(confidence)}</b></span></div>`;
 }
 
 function sortRows(rows) {
   const multiplier = state.sort.direction === "asc" ? 1 : -1;
   return [...rows].sort((left, right) => {
-    if (state.sort.key === "change") return ((left.changePercent ?? -Infinity) - (right.changePercent ?? -Infinity)) * multiplier;
-    if (state.sort.key === "type") return String(left.classification.category).localeCompare(String(right.classification.category)) * multiplier;
     return left.ticker.localeCompare(right.ticker) * multiplier;
   });
 }
 
 function matchesFilter(row) {
-  const tags = new Set(row.classification.tags || []);
-  if (state.marketFilter === "all" || state.marketFilter === "us") return true;
-  if (state.marketFilter === "growth") return tags.has("Growth") || tags.has("HighGrowth");
-  if (state.marketFilter === "speculative") return tags.has("Speculative") || tags.has("HighVolatility");
-  if (state.marketFilter === "dividend") return tags.has("Dividend");
-  if (state.marketFilter === "value") return tags.has("Value") || tags.has("CashCow");
+  if (state.marketFilter === "stocks") return !row.classification.isETF;
+  if (state.marketFilter === "etfs") return Boolean(row.classification.isETF);
   return true;
 }
 
@@ -350,26 +345,6 @@ function horizonLabel(horizon) {
   return { daily: t("dailyHorizon"), weekly: t("weeklyHorizon") }[horizon] || t("unavailable");
 }
 
-function executionFields(row, decision) {
-  if (!decision) return `<p class="decision-no-data">${t("noDecision")}</p>`;
-  const presentation = window.DecisionPresentation?.executionSemantics?.(decision) || { intent: decision.executionIntent || "hold" };
-  const landscape = decision.priceLandscape || {};
-  const invalidationMeaning = ["reduce", "exit"].includes(presentation.intent)
-    ? (state.language === "zh" ? "减持路径的结构重新审查阈值；不是等待远处反弹的退出目标。" : "Structural review threshold for the reduction path; execution follows the current plan.")
-    : (state.language === "zh" ? "机会规划的结构失效阈值；触及后需重新评估。" : "Structural invalidation threshold for the opportunity plan; reassess if reached.");
-  const field = (label, value) => value ? `<div class="decision-execution-field"${label === presentation.invalidation ? ` title="${escapeHtml(invalidationMeaning)}"` : ""}><span>${escapeHtml(t(label))}</span><strong>${value}</strong></div>` : "";
-  const current = Number.isFinite(landscape.currentPrice) ? landscape.currentPrice : row.price;
-  const common = `${field("currentPrice", Number.isFinite(current) ? formatPrice(current, row.currency) : "")}`;
-  if (decision.backgroundOnly) return `${common}<p class="decision-no-data">${state.language === "zh" ? "杠杆 ETF 以日线执行；周线用于观察自身趋势。" : "Use Daily for leveraged ETF execution; Weekly describes its trend."}</p>`;
-  if (decision.action === "hold") return `${common}${Number.isFinite(landscape.invalidation) ? field("riskInvalidation", formatPrice(landscape.invalidation, row.currency)) : ""}${Number.isFinite(landscape.hardInvalidation) ? field("hardInvalidation", formatPrice(landscape.hardInvalidation, row.currency)) : ""}<p class="detail-line-note">${t("holdNoExecutionRange")}</p>`;
-  if (decision.action === "short_sell") return `${field("shortEntryRange",formatRange(landscape.shortEntryRange,row.currency))}${common}${field("shortInvalidation",formatPrice(landscape.shortInvalidation,row.currency))}${field("structuralSpace",`${Number.isFinite(landscape.shortRewardRisk)?landscape.shortRewardRisk.toFixed(2):"—"}R`)}`;
-  return `${field(presentation.opportunity, validPriceRange(landscape.opportunityRange) ? formatRange(landscape.opportunityRange, row.currency) : "")}${common}${field(presentation.reduce, validPriceRange(landscape.reduceRange) ? formatRange(landscape.reduceRange, row.currency) : "")}${field(presentation.invalidation, Number.isFinite(landscape.invalidation) ? formatPrice(landscape.invalidation, row.currency) : "")}${Number.isFinite(landscape.hardInvalidation) ? field("hardInvalidation", formatPrice(landscape.hardInvalidation, row.currency)) : ""}${Number.isFinite(landscape.rewardRisk) ? field("structuralSpace", `${landscape.rewardRisk.toFixed(2)}R`) : ""}`;
-}
-
-function validPriceRange(range) {
-  return Number.isFinite(range?.low) && Number.isFinite(range?.high) && range.low > 0 && range.high > range.low;
-}
-
 function horizonCoreCard(row, horizon) {
   const decision = decisionFor(row, horizon);
   const active = horizon === state.decisionHorizon ? " is-active" : "";
@@ -380,8 +355,6 @@ function horizonCoreCard(row, horizon) {
       <strong>${escapeHtml(decisionActionLabel(decision))}</strong>
       <div class="decision-confidence"><span>${t("recommendationConfidence")} <button type="button" class="decision-confidence-help" title="${escapeHtml(t("confidenceHelp"))}" aria-label="${escapeHtml(t("confidenceHelp"))}">i</button></span><b>${escapeHtml(decision.confidence)} / 100</b></div>
       <p class="decision-signal-time">${t("signalAsOf")} ${escapeHtml(formatDataTime(decision.signalAsOf) || "—")}</p>
-      <p class="decision-gate-reason">${escapeHtml(window.DecisionPresentation.waitingPresentation(decision, state.language)?.detail || window.DecisionPresentation.translateReason({code:decision.debug?.finalDecision?.reasonCode}, state.language))}</p>
-      <div class="decision-card-execution">${executionFields(row, decision)}</div>
     </article>
   `;
 }
@@ -530,28 +503,28 @@ function technicalBlock(row, horizon, includeChart = false) {
     <section class="detail-section-card technical-horizon-section">
       <div class="technical-overview-strip">${overview.map(([label, value],i) => `<div class="tone-${technicalTone([featureSet.trend?.ma_structure?.alignment,macd.state,atr.volatility_regime,rs.state,obv.trend][i])}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div>
       ${includeChart ? renderTechnicalChart(row,horizon) : ""}
-      <div class="technical-indicators-heading"><h3>${tl("Trend & momentum", "趋势与动量")}</h3><span>${tl("Key values first · expand for evidence", "关键值直览 · 展开查看依据")}</span></div>
+      <div class="technical-data-columns"><section class="technical-data-group"><div class="technical-indicators-heading"><h3>${tl("Trend & momentum", "趋势与动量")}</h3><span>${tl("Key values first · expand for evidence", "关键值直览 · 展开查看依据")}</span></div>
       <div class="technical-family-grid">
         ${technicalCard("Moving averages", featureSet.trend?.ma_structure?.alignment, "Each value names its MA type, period and candle interval.", maRows, [technicalLine("Alignment", technicalState(featureSet.trend?.ma_structure?.alignment)), technicalLine("Compression / expansion", technicalState(featureSet.trend?.ma_structure?.compression_state))])}
         ${technicalCard("MACD", macd.state, `${intervalLabel(interval)} · MACD ${macd.period || "12/26/9"}`, [technicalLine("MACD line", technicalNumber(macd.macd_line, 3)), technicalLine("Signal line", technicalNumber(macd.signal_line, 3)), technicalLine("Histogram", technicalNumber(macd.histogram, 3))], [technicalLine("Histogram 1-bar Δ", technicalNumber(macd.histogram_change_1, 3)), technicalLine("Histogram 3-bar Δ", technicalNumber(macd.histogram_change_3, 3)), technicalLine("Histogram 5-bar Δ", technicalNumber(macd.histogram_change_5, 3)), technicalLine("Zero line", technicalState(macd.above_or_below_zero)), technicalLine("Improving / deteriorating", technicalState(macd.improving_or_deteriorating)), technicalLine("Crossover", technicalState(macd.crossover_state)), technicalLine("Histogram slope", technicalState(macd.histogram_slope?.state), technicalAvailability(macd.histogram_slope)), ...secondaryMacdRows], macd)}
         ${technicalCard("Bollinger＋RSI", combo.state, `${intervalLabel(interval)} · BB ${bands.period || 20}/2 · RSI ${combo.rsi_period || (horizon === "weekly" ? 21 : 14)}`, [...rsiRows, technicalLine("%B", indicatorValue(bands, "percent_b", (value) => value.toFixed(2))), technicalLine("Bandwidth", indicatorValue(bands, "bandwidth_pct", (value) => percentValue(value, 2))), technicalLine("Upper / middle / lower", `${formatPrice(bands.upper_band, row.currency)} / ${formatPrice(bands.middle_band, row.currency)} / ${formatPrice(bands.lower_band, row.currency)}`)], [technicalLine("Primary slope", technicalState(rsi.slope?.state), technicalAvailability(rsi.slope)), technicalLine("Primary divergence", technicalState(rsi.divergence)), technicalLine("Bandwidth percentile", indicatorValue(bands, "bandwidth_percentile", (value) => percentValue(value, 1)), technicalAvailability(bands.bandwidth_percentile_availability)), technicalLine("Squeeze / expanded state", technicalState(bands.squeeze_state), technicalAvailability(bands.squeeze_state_availability)), technicalLine("Price position", technicalState(bands.price_position)), technicalLine(tl("Combination state", "组合状态"), technicalState(combo.state)), technicalLine(tl("High / low extension", "高位／低位延伸"), `${technicalNumber(combo.high_extension, 1, { signed: false })} / ${technicalNumber(combo.low_extension, 1, { signed: false })}`), technicalLine(tl("RSI extension thresholds / repair window", "RSI延伸阈值／修复窗口"), `${combo.parameters?.low ?? "—"} / ${combo.parameters?.high ?? "—"} · ${combo.parameters?.repair_bars ?? "—"}`), technicalLine(tl("Repair event / age", "修复事件／距今K线数"), combo.repair ? `${technicalState(combo.repair.state)} · ${combo.repair.age_bars} · ${combo.repair.timestamp}` : t("unavailable")), technicalLine(tl("Input completion", "输入完成状态"), technicalState(combo.input_state))], combo)}
         ${technicalCard("ADX / DI", adx.trend_strength, `${intervalLabel(interval)} · ADX ${adx.period || 14}`, [technicalLine("ADX", indicatorValue(adx, "adx", (value) => value.toFixed(1))), technicalLine("+DI / −DI", `${indicatorValue(adx, "plus_di", (value) => value.toFixed(1))} / ${indicatorValue(adx, "minus_di", (value) => value.toFixed(1))}`)], [technicalLine("Trend strength", technicalState(adx.trend_strength)), technicalLine("Directional bias", technicalState(adx.directional_bias)), technicalLine("ADX slope", technicalState(adx.slope?.state), technicalAvailability(adx.slope))], adx)}
       </div>
-      <div class="technical-indicators-heading"><h3>${tl("Structure & participation", "结构与参与度")}</h3></div>
+      </section><section class="technical-data-group"><div class="technical-indicators-heading"><h3>${tl("Structure & participation", "结构与参与度")}</h3></div>
       <div class="technical-family-grid">
         ${technicalCard(tl("Support / resistance · breaks / retests", "支撑阻力 · 突破与回踩"), structure.state, `${intervalLabel(interval)} · ${tl("confirmed structure", "已确认结构")}`, [technicalLine(tl("Support / resistance", "支撑／阻力"), `${formatPrice(structure.support?.price, row.currency)} / ${formatPrice(structure.resistance?.price, row.currency)}`), technicalLine(tl("Volume oscillator", "成交量振荡器"), percentValue(structure.volume_oscillator)), technicalLine(tl("Latest confirmed event", "最近确认事件"), technicalState(structure.last_event?.kind)), technicalLine(tl("Event reference / confirmation", "事件参考／确认周期"), structure.last_event ? `${intervalLabel(structure.last_event.reference_interval)} / ${intervalLabel(structure.last_event.confirmation_interval)}` : t("unavailable"))], structureDetails, structure)}
         ${technicalCard("BOS / CHoCH / Sweep",featureSet.trend?.smc?.direction,intervalLabel(interval),[technicalLine("BOS",featureSet.trend?.smc?.last_bos ? `${technicalState(featureSet.trend.smc.last_bos.kind)} · ${formatPrice(featureSet.trend.smc.last_bos.reference_price,row.currency)}` : "—"),technicalLine("CHoCH",featureSet.trend?.smc?.last_choch ? `${technicalState(featureSet.trend.smc.last_choch.kind)} · ${formatPrice(featureSet.trend.smc.last_choch.reference_price,row.currency)}` : "—"),technicalLine("Sweep",(featureSet.trend?.smc?.sweeps || []).map((item)=>`${technicalState(item.kind)} ${formatPrice(item.price,row.currency)}`).join(" · ") || "—"),technicalLine("Premium / Discount",technicalState(featureSet.fibonacci?.premium_discount?.state))],[(featureSet.trend?.smc?.protected_low ? technicalLine(tl("Protected low / known at","保护低点／首次可知"),`${formatPrice(featureSet.trend.smc.protected_low.price,row.currency)} · ${featureSet.trend.smc.protected_low.known_at}`) : ""),(featureSet.trend?.smc?.protected_high ? technicalLine(tl("Protected high / known at","保护高点／首次可知"),`${formatPrice(featureSet.trend.smc.protected_high.price,row.currency)} · ${featureSet.trend.smc.protected_high.known_at}`) : "")],featureSet.trend?.smc)}
         ${technicalCard("Volume / RVOL",featureSet.participation?.volume?.availability,intervalLabel(interval),[technicalLine(tl("Completed volume","完成周期成交量"),compactNumber(featureSet.participation?.volume?.current_volume)),technicalLine("RVOL20",rvolValue(featureSet.participation?.volume?.relative_volume?.displayed_rvol)),technicalLine(tl("RVOL basis","相对量口径"),horizon === "weekly" ? tl("Per actual trading session in each week","每周按实际交易日平均") : tl("Completed Daily total","完成日线总量"))],window.DecisionEngine.config.indicators.volume.rvolWindows.map((n)=>technicalLine(`RVOL${n}`,rvolValue(featureSet.participation?.volume?.relative_volume?.[`rvol_${n}${horizon === "weekly" ? "w" : "d"}`]))),featureSet.participation?.volume)}
         ${relativeStrengthCard(rs, horizon, interval)}
       </div>
-      <div class="technical-indicators-heading"><h3>${tl("Volatility & supporting context", "波动与辅助观察")}</h3><span>${tl("Context does not create an independent vote", "辅助数据不重复投票")}</span></div>
+      </section><section class="technical-data-group"><div class="technical-indicators-heading"><h3>${tl("Volatility & supporting context", "波动与辅助观察")}</h3><span>${tl("Context does not create an independent vote", "辅助数据不重复投票")}</span></div>
       <div class="technical-family-grid">
         ${technicalCard("ATR", atr.volatility_regime, `${intervalLabel(interval)} · ATR ${atr.period || 14}`, [technicalLine("Raw ATR", indicatorValue(atr, "value", (value) => formatPrice(value, row.currency))), technicalLine("ATR %", indicatorValue(atr, "atr_pct", (value) => percentValue(value, 2)))], [technicalLine("ATR percentile", indicatorValue(atr, "atr_percentile_pct", (value) => percentValue(value, 1)), technicalAvailability(atr.atr_percentile)), ...[60, 120, 250].map((window) => technicalLine(`${window}-bar percentile`, atrPercentileDisplay(atr, window))), technicalLine("Volatility regime", technicalState(atr.volatility_regime), technicalAvailability(atr.volatility_regime_availability)), technicalLine("Expanding / contracting", technicalState(atr.expansion_state)), technicalLine("ATR slope", technicalState(atr.slope?.state), technicalAvailability(atr.slope))], atr)}
         ${technicalCard("OBV", obv.trend, `${intervalLabel(obvInterval)} OBV · ${obv.lookback ?? "—"} ${tl("bars", "根")} · ${tl("own-frame completed volume", "本周期完成成交量")}`, [technicalLine("Raw OBV", compactNumber(obv.raw_value)), technicalLine("Trend", technicalState(obv.trend)), technicalLine("Divergence", technicalState(obv.divergence)), technicalLine("Price-volume confirmation", technicalState(obv.price_obv_confirmation))], [technicalLine("OBV slope", technicalState(obv.slope?.state), technicalAvailability(obv.slope))], obv)}
         ${technicalCard("Squeeze Momentum", squeeze.state, `${intervalLabel(interval)} · BB20/2 · KC20/1.5 · ${tl("Linear regression", "线性回归")} 20`, [technicalLine(tl("Momentum", "动量"), technicalNumber(squeeze.momentum, 3)), technicalLine(tl("Momentum state", "动量状态"), technicalState(squeeze.momentum_state)), ...[1, 3, 5].map((n) => technicalLine(tl(`${n}-bar change`, `${n}根K线变化`), technicalNumber(squeeze[`change_${n}`], 3))), technicalLine(tl("Last confirmed release", "最近确认释放"), squeeze.release ? `${squeeze.release.timestamp} · ${squeeze.release.age_bars}` : t("unavailable"))], [technicalLine(tl("BB upper / middle / lower", "BB上／中／下轨"), `${formatPrice(squeeze.bb_upper, row.currency)} / ${formatPrice(squeeze.bb_middle, row.currency)} / ${formatPrice(squeeze.bb_lower, row.currency)}`), technicalLine(tl("KC upper / middle / lower", "KC上／中／下轨"), `${formatPrice(squeeze.kc_upper, row.currency)} / ${formatPrice(squeeze.kc_middle, row.currency)} / ${formatPrice(squeeze.kc_lower, row.currency)}`), technicalLine(tl("KC range method", "KC范围算法"), tl("SMA(True Range)", "真实波幅的简单移动平均")), technicalLine(tl("Confirmed releases / observed bars", "确认释放次数／已有K线数"), `${squeeze.release_count ?? "—"} / ${squeeze.available_bars ?? "—"}`), technicalLine(tl("Input completion", "输入完成状态"), technicalState(squeeze.input_state)), technicalLine(tl("Last bar / calculation", "最近K线／计算时间"), `${squeeze.last_bar_timestamp || "—"} / ${squeeze.calculation_timestamp || "—"}`)], squeeze)}
         ${Object.keys(featureSet.momentum?.kdj || {}).length ? technicalCard("KDJ", kdj.crossover_state, `${intervalLabel(interval)} · KDJ ${kdj.period || 9}`, [technicalLine("K / D / J", `${indicatorValue(kdj, "k", (value) => value.toFixed(1))} / ${indicatorValue(kdj, "d", (value) => value.toFixed(1))} / ${indicatorValue(kdj, "j", (value) => value.toFixed(1))}`)], [technicalLine("Crossover", technicalState(kdj.crossover_state)), technicalLine("Direction", technicalState(kdj.direction)), technicalLine("K / D / J slope", `${technicalState(kdj.k_slope?.state)} / ${technicalState(kdj.d_slope?.state)} / ${technicalState(kdj.j_slope?.state)}`), technicalLine("Overbought / oversold", `${technicalBoolean(kdj.overbought)} / ${technicalBoolean(kdj.oversold)}`)], kdj) : ""}
         ${technicalCard("FVG",featureSet.fvg?.availability,tl("Shadow observation · no decision contribution","影子观察 · 不影响决策"),(featureSet.fvg?.gaps || []).map((gap)=>technicalLine(technicalState(gap.side),formatRange(gap,row.currency),`${technicalState(gap.status)} · ${gap.known_at}`)),[],featureSet.fvg)}
-      </div>
+      </div></section></div>
     </section>
   `;
 }
@@ -607,7 +580,7 @@ function renderTechnicalFoundation(row) {
 function renderTechnicalChart(row,horizon) {
   const decision=decisionFor(row,horizon),tl=(en,zh)=>state.language==="zh"?zh:en;
   const reason=decision ? window.DecisionPresentation.waitingPresentation(decision,state.language)?.detail || window.DecisionPresentation.translateReason({code:decision.debug?.finalDecision?.reasonCode},state.language) : t("noDecision");
-  return `${window.TechnicalChart?.markup(state.language,horizon) || ""}<div class="chart-decision-note ${decision?actionTone(decision.action):"hold"}"><b>${escapeHtml(decision?decisionActionLabel(decision):t("unavailable"))}</b><span>${escapeHtml(reason)}</span><small>${tl("Observation zones are references; the final Action determines execution.","观察区是位置参考；操作以最终 Action 为准。")}</small></div>`;
+  return `${window.TechnicalChart?.markup(state.language,horizon) || ""}<div class="chart-decision-note ${decision?actionTone(decision.action):"hold"}"><b>${escapeHtml(decision?decisionActionLabel(decision):t("unavailable"))}</b><span>${escapeHtml(reason)}</span><small>${tl("Observation zones are references; the final Action determines execution.","观察区是位置参考；操作以最终建议为准。")}</small></div>`;
 }
 
 function renderTechnicalPanel(row) {
@@ -623,7 +596,7 @@ function renderTechnicalPanel(row) {
   const validation = source.volume_validation;
   const volumeNote = tl("Only completed Daily volume is consumed; Weekly totals use the same validated rows. Unfinished volume is display-only.","决策只使用完成日线成交量，周总量由同一有效日线汇总；未完成量仅展示。");
   const provenance = `${tl("Fetched / provider history cutoff", "获取时间／供应商历史截止时间")} ${source.as_of || "—"} / ${source.provider_as_of || tl("Not provided", "未提供")}`;
-  return `<section class="detail-tab-section technical-tab-panel"><div class="technical-workspace-head"><div><h3>${tl("Technical chart", "技术走势")}</h3><span class="technical-freshness tone-${freshness?.state==="current"?"neutral":"caution"}">${escapeHtml(freshState)}</span></div>${technicalTabSelector("technical-horizon", state.technicalHorizon)}</div>${technicalBlock(row, state.technicalHorizon,true)}${renderFibonacciStructure(row)}${renderTechnicalFoundation(row)}<details class="technical-source-details technical-advanced"><summary>${tl("Data status & sources", "数据状态与来源")}</summary><p class="detail-line-note">${escapeHtml(completion + duration)}</p><p class="detail-line-note">${escapeHtml(freshNote)}</p><p class="detail-line-note">${escapeHtml(volumeNote)}</p><p class="detail-line-note">${escapeHtml(provenance)}</p></details></section>`;
+  return `<section class="detail-tab-section technical-tab-panel"><div class="technical-workspace-head"><div><h3>${t("technicalOverview")}</h3><span class="technical-freshness tone-${freshness?.state==="current"?"neutral":"caution"}">${escapeHtml(freshState)}</span></div>${technicalTabSelector("technical-horizon", state.technicalHorizon)}</div>${technicalBlock(row, state.technicalHorizon,true)}<div class="technical-foundations">${renderFibonacciStructure(row)}${renderTechnicalFoundation(row)}</div><details class="technical-source-details technical-advanced"><summary>${tl("Data status & sources", "数据状态与来源")}</summary><p class="detail-line-note">${escapeHtml(completion + duration)}</p><p class="detail-line-note">${escapeHtml(freshNote)}</p><p class="detail-line-note">${escapeHtml(volumeNote)}</p><p class="detail-line-note">${escapeHtml(provenance)}</p></details></section>`;
 }
 
 function marketLine(label, value, note = "") {
@@ -636,7 +609,7 @@ function renderFomcActuals(comparison) {
   const current=comparison?.current,previous=comparison?.previous;
   const delta=comparison?.status==="available" ? comparison.lowerChangePp===comparison.upperChangePp ? `${comparison.upperChangePp>0?"+":""}${(comparison.upperChangePp*100).toFixed(0)} ${text("bp","基点")}` : text("Target range changed","目标区间调整") : text("Unavailable","暂不可用");
   const cell=(label,value,date)=>`<div class="macro-comparison-cell"><span>${text(label[0],label[1])}</span><small>${escapeHtml(date?formatDataTime(date):text("Unknown date","日期未知"))}</small><strong>${escapeHtml(value)}</strong></div>`;
-  return `<section class="macro-indicator"><h4>${text("FOMC · actual decisions","FOMC · 实际决议对比")}</h4><div class="macro-comparison fomc-actual-comparison">${cell(["Latest actual","本次实际"],rate(current),current?.releasedAt)}${cell(["Previous actual","上次实际"],rate(previous),previous?.releasedAt)}${cell(["Change from previous","较上次调整"],delta,current?.releasedAt)}</div>${comparison?.status!=="available"?`<p class="macro-context-note">${current?text("Previous verified decision unavailable; no assumed change.","缺少上次已核验决议，不假设利率变化。"):text("Latest actual decision is not verified yet.","本次实际决议尚未核验。")}</p>`:""}<p class="macro-context-note">${text("Official actuals vs history; a rate cut alone does not create Buy.","仅比较官方实际发布与历史；降息本身不会自动触发 Buy。")}</p><a href="https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm" target="_blank" rel="noopener noreferrer">${text("Federal Reserve statements","美联储官方声明")}</a></section>`;
+  return `<section class="macro-indicator"><h4>${text("FOMC · actual decisions","FOMC · 实际决议对比")}</h4><div class="macro-comparison fomc-actual-comparison">${cell(["Latest actual","本次实际"],rate(current),current?.releasedAt)}${cell(["Previous actual","上次实际"],rate(previous),previous?.releasedAt)}${cell(["Change from previous","较上次调整"],delta,current?.releasedAt)}</div>${comparison?.status!=="available"?`<p class="macro-context-note">${current?text("Previous verified decision unavailable; no assumed change.","缺少上次已核验决议，不假设利率变化。"):text("Latest actual decision is not verified yet.","本次实际决议尚未核验。")}</p>`:""}<p class="macro-context-note">${text("Official actuals vs history; a rate cut alone does not create Buy.","仅比较官方实际发布与历史；降息本身不会自动触发买入。")}</p><a href="https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm" target="_blank" rel="noopener noreferrer">${text("Federal Reserve statements","美联储官方声明")}</a></section>`;
 }
 
 function macroReleaseLines(core, fomcComparison = null) {
@@ -662,28 +635,53 @@ function macroReleaseLines(core, fomcComparison = null) {
   };
   const signedPoints = (v) => Number.isFinite(v) ? `${v > 0 ? "+" : ""}${v.toFixed(2)} ${text("percentage points", "个百分点")}` : missing;
   const revision = jobs.revision_available === true ? thousands(jobs.previous_month_revision_thousands) : missing;
-  return `<div class="macro-indicator-grid">${inflation(text("CPI", "CPI"), cpi.headline)}${inflation(text("Core CPI", "核心 CPI"), cpi.core)}<section class="macro-indicator"><h4>${text("Nonfarm payroll change", "新增非农就业")}</h4>${comparison(jobs.period, [thousands(jobs.payroll_change_thousands), thousands(jobs.previous_payroll_change_thousands), thousands(jobs.payroll_three_month_mean_thousands)], text("This month", "本月"))}<p class="macro-context-note">${text("Previous month revision", "上月就业总量修订")}：${escapeHtml(revision)}</p></section><section class="macro-indicator"><h4>${text("Labour market", "劳动力市场")} <small>${escapeHtml(month(jobs.period))}</small></h4><div class="detail-line-list">${marketLine(text("Unemployment rate", "失业率"), percent(jobs.unemployment_rate_pct), `${text("Change from previous month", "较上月变化")}：${signedPoints(jobs.unemployment_change_pp)}`)}${marketLine(text("Wage growth · MoM", "工资环比"), percent(jobs.wage_mom_pct))}${marketLine(text("Labour force participation", "劳动参与率"), percent(jobs.participation_rate_pct))}</div></section></div><p class="macro-context-note">${text("Monthly inflation changes are seasonally adjusted. The 3-month mean includes this month; YoY compares unadjusted indexes for the same month one year apart.", "通胀环比采用季调数据；近3个月均值包含本月。同比比较本月与去年同月的非季调指数。")}</p><div class="macro-policy-grid">${renderFomcActuals(fomcComparison)}</div><p class="macro-context-note macro-source-status">${text("Data status", "数据状态")}：${actual.status === "available" ? text("Core comparisons available; individual gaps shown above", "核心比较可用；单项缺口见上方") : missing} · ${text("Fetched", "获取时间")} ${escapeHtml(formatDataTime(actual.as_of))} · BLS</p>`;
+  const details = `<div class="macro-indicator-grid">${inflation(text("CPI", "CPI"), cpi.headline)}${inflation(text("Core CPI", "核心 CPI"), cpi.core)}<section class="macro-indicator"><h4>${text("Nonfarm payroll change", "新增非农就业")}</h4>${comparison(jobs.period, [thousands(jobs.payroll_change_thousands), thousands(jobs.previous_payroll_change_thousands), thousands(jobs.payroll_three_month_mean_thousands)], text("This month", "本月"))}<p class="macro-context-note">${text("Previous month revision", "上月就业总量修订")}：${escapeHtml(revision)}</p></section><section class="macro-indicator"><h4>${text("Labour market", "劳动力市场")} <small>${escapeHtml(month(jobs.period))}</small></h4><div class="detail-line-list">${marketLine(text("Unemployment rate", "失业率"), percent(jobs.unemployment_rate_pct), `${text("Change from previous month", "较上月变化")}：${signedPoints(jobs.unemployment_change_pp)}`)}${marketLine(text("Wage growth · MoM", "工资环比"), percent(jobs.wage_mom_pct))}${marketLine(text("Labour force participation", "劳动参与率"), percent(jobs.participation_rate_pct))}</div></section></div><p class="macro-context-note">${text("Monthly inflation changes are seasonally adjusted. The 3-month mean includes this month; YoY compares unadjusted indexes for the same month one year apart.", "通胀环比采用季调数据；近3个月均值包含本月。同比比较本月与去年同月的非季调指数。")}</p><p class="macro-context-note macro-source-status">${text("Data status", "数据状态")}：${actual.status === "available" ? text("Core comparisons available; individual gaps shown above", "核心比较可用；单项缺口见上方") : missing} · ${text("Fetched", "获取时间")} ${escapeHtml(formatDataTime(actual.as_of))} · BLS</p>`;
+  const summaryRow = (label, period, values) => `<tr><th scope="row">${escapeHtml(label)}<small>${escapeHtml(month(period))}</small></th>${values.map(value=>`<td>${escapeHtml(value)}</td>`).join("")}</tr>`;
+  return `<div class="market-table-scroll"><table class="market-data-table macro-summary-table"><thead><tr><th>${text("Metric", "指标")}</th><th>${text("Current month", "本期")}</th><th>${text("Previous month", "上期")}</th><th>${text("3-month mean", "近3个月均值")}</th></tr></thead><tbody>${summaryRow(text("CPI · MoM", "CPI 环比"), cpi.headline?.period, [percent(cpi.headline?.mom_pct), percent(cpi.headline?.previous_mom_pct), percent(cpi.headline?.three_month_mean_pct)])}${summaryRow(text("Core CPI · MoM", "核心 CPI 环比"), cpi.core?.period, [percent(cpi.core?.mom_pct), percent(cpi.core?.previous_mom_pct), percent(cpi.core?.three_month_mean_pct)])}${summaryRow(text("Nonfarm payroll change", "新增非农就业"), jobs.period, [thousands(jobs.payroll_change_thousands), thousands(jobs.previous_payroll_change_thousands), thousands(jobs.payroll_three_month_mean_thousands)])}</tbody></table></div><details class="technical-advanced macro-details"><summary>${text("YoY, labour market & release evidence", "同比、劳动力市场与发布依据")}</summary>${details}</details><div class="macro-policy-grid">${renderFomcActuals(fomcComparison)}</div>`;
+}
+
+// Presentation reads evaluated states; it never derives an action or a new risk score.
+function marketTone(value) {
+  if (["shock", "severe"].includes(value)) return "negative";
+  if (["cautious", "risk_off", "restrictive", "pending"].includes(value)) return "caution";
+  if (["risk_on", "supportive"].includes(value)) return "positive";
+  return technicalTone(value);
 }
 
 function renderMarketPanel(row) {
-  const market = state.snapshot?.marketContext || state.snapshot?.market_context || {};
-  const engine = marketCore(market);
-  const earnings = decisionFor(row, "daily")?.market?.earnings || {};
-  const priceTrend = (item) => item?.value == null ? t("unavailable") : `${formatPrice(item.value)} · ${technicalState(item.trend)}`;
-  const vixChange = (value) => Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${Number(value).toFixed(2)}` : t("unavailable");
-  const indexHistory = (item) => `${dayLabel(5)} ${formatPct(item?.change_5d_pct)} · ${dayLabel(20)} ${formatPct(item?.change_20d_pct)} · ${dayLabel(60)} ${formatPct(item?.change_60d_pct)} · ${dayLabel(120)} ${formatPct(item?.change_120d_pct)}`;
-  return `
-    <section class="detail-tab-section market-tab-panel">
-      <section class="detail-section-card market-status-card"><div class="detail-section-head"><h3>${t("marketStatus")}</h3></div><div class="market-status-primary"><div><span>${t("regime")}</span><strong>${escapeHtml(technicalState(engine.regime))}</strong></div><div><span>${t("earningsProximity")}</span><strong>${escapeHtml(earnings.date ? `${formatDate(earnings.date)}${Number.isFinite(earnings.daysToEarnings) ? ` · ${earnings.daysToEarnings} ${t("days")}` : ""}` : t("unavailable"))}</strong></div></div></section>
-      <div class="market-compact-grid">
-        <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>VIX</h3></div><div class="detail-line-list">${marketLine(t("current"), Number.isFinite(finite(engine.vix?.value)) ? finite(engine.vix.value).toFixed(2) : t("unavailable"), uiText(engine.vix?.impact || ""))}${marketLine(t("change5d"), vixChange(engine.vix?.change_5d))}${marketLine(t("change20d"), vixChange(engine.vix?.change_20d))}${marketLine(t("trend"), technicalState(engine.vix?.trend))}</div></section>
-        <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>SPY / QQQ</h3></div><div class="detail-line-list">${marketLine("SPY", priceTrend(engine.equity_trend?.spy), indexHistory(engine.equity_trend?.spy))}${marketLine("QQQ", priceTrend(engine.equity_trend?.qqq), indexHistory(engine.equity_trend?.qqq))}</div></section>
-        <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>${escapeHtml(uiLabel("Fear & Greed / US 10Y Yield"))}</h3></div><div class="detail-line-list">${marketLine("Fear & Greed", technicalState(engine.fear_greed?.label || engine.fearGreed?.label), engine.fear_greed?.value == null ? "" : `${Math.round(engine.fear_greed.value)}/100`)}${marketLine("US 10Y Yield", engine.ten_year_yield?.value == null ? t("unavailable") : `${Number(engine.ten_year_yield.value).toFixed(2)}%`, `${dayLabel(5)} ${engine.ten_year_yield?.change_5d_bps ?? t("unavailable")} ${state.language === "zh" ? "基点" : "bps"} · ${dayLabel(20)} ${engine.ten_year_yield?.change_20d_bps ?? t("unavailable")} ${state.language === "zh" ? "基点" : "bps"}`)}</div></section>
-        <section class="detail-section-card market-compact-card macro-release-card"><div class="detail-section-head"><h3>${state.language === "zh" ? "宏观实际发布" : "Macro releases"}</h3></div>${macroReleaseLines(engine, decisionFor(row, "daily")?.market?.fomcActualComparison)}</section>
-        <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>${state.language === "zh" ? "重大发布日历" : "Major release calendar"}</h3></div><div class="detail-line-list">${(engine.event_calendar?.events || []).filter((event)=>Date.parse(event.at)>=Date.now()).slice(0,5).map((event)=>marketLine(uiLabel(event.type),formatDataTime(event.at))).join("") || marketLine(t("dataStatus"),technicalState("unavailable"))}${marketLine(t("updated"),formatDataTime(engine.event_calendar?.as_of))}</div></section>
-      </div>
+  const core = marketCore(state.snapshot?.marketContext || state.snapshot?.market_context || {});
+  const daily = decisionFor(row, "daily"), weekly = decisionFor(row, "weekly");
+  const market = daily?.market || {}, modifiers = market.horizonModifiers || {};
+  const tl = (en, zh) => state.language === "zh" ? zh : en;
+  const calendar = core.event_calendar || {}, actual = core.macro_actuals || {};
+  const events = (calendar.events || []).filter(event => Date.parse(event.at) >= Date.now()).slice(0,5);
+  const sourceState = market.provenance?.availability;
+  const regime = modifiers.marketUnavailable || sourceState === "stale" ? "unavailable" : market.regime;
+  const datum = (label, value, tone = "neutral") => `<div class="tone-${tone}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+  const availability = value => value === "available" ? tl("Available", "可用") : tl("Unavailable", "暂不可用");
+  const eventState = modifiers.calendarUnavailable ? tl("Calendar unavailable", "日历不可用") : modifiers.releaseDataPending ? tl("Awaiting verified actuals", "等待实际值核验") : modifiers.majorEventWindow ? tl("Major release window", "重大发布窗口") : events.length ? tl("Upcoming releases", "有待发布事件") : tl("No upcoming release listed", "暂无待发布记录");
+  const regimeReasons = window.DecisionPresentation.reasonList(market.reasons, state.language, 3);
+  const vix = core.vix || {}, vixTone = market.vix?.shock ? "negative" : vix.trend === "rising" ? "caution" : "neutral";
+  const change = value => Number.isFinite(value) ? `${value > 0 ? "+" : ""}${value.toFixed(2)}` : t("unavailable");
+  const index = (key) => {
+    const value = core.equity_trend?.[key] || {};
+    return `<tr><th scope="row">${key.toUpperCase()}</th><td>${formatPrice(finite(value.value))}</td><td>${formatPct(value.change_5d_pct)}</td><td>${formatPct(value.change_20d_pct)}</td><td class="tone-${technicalTone(value.trend)}"><span class="signal-text">${escapeHtml(technicalState(value.trend))}</span></td></tr>`;
+  };
+  const yieldData = core.ten_year_yield || {}, sentiment = core.fear_greed || core.fearGreed || {};
+  return `<section class="detail-tab-section market-tab-panel">
+    <section class="detail-section-card market-status-card">
+      <div class="market-summary-heading"><div><h3>${tl("Market Overview", "市场概览")} <span class="status-label tone-${marketTone(regime)}">${escapeHtml(sourceState === "stale" ? tl("Stale · unavailable", "数据较旧 · 暂不可用") : regime === "unavailable" || !regime ? tl("Unavailable", "暂不可用") : technicalState(regime))}</span></h3>${regimeReasons.length ? `<p>${regimeReasons.map(escapeHtml).join(" · ")}</p>` : ""}<div class="market-impact-row">${datum(t("daily"), daily ? marketImpact(daily) : t("unavailable"))}${datum(t("weekly"), weekly ? marketImpact(weekly) : t("unavailable"))}</div></div><div class="market-issuer-event"><span>${tl("Issuer event", "本股事件")}</span><strong>${escapeHtml(earningsText(market.earnings))}</strong></div></div>
+      <div class="market-overview-strip">${datum(tl("Index trends", "指数趋势"), `SPY ${technicalState(core.equity_trend?.spy?.trend)} · QQQ ${technicalState(core.equity_trend?.qqq?.trend)}`)}${datum(tl("Volatility", "波动风险"), technicalState(vix.trend), vixTone)}${datum(tl("Rate environment", "利率环境"), market.yield?.available ? technicalState(market.yield.label) : t("unavailable"), marketTone(market.yield?.label))}${datum(tl("Macro actuals", "宏观实际值"), availability(actual.status), actual.status === "available" ? "neutral" : "muted")}${datum(tl("Release status", "事件状态"), eventState, modifiers.entryPaused || modifiers.calendarUnavailable ? "caution" : "neutral")}</div>
     </section>
-  `;
+    <div class="market-workspace"><div class="market-main-column">
+      <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>${tl("Indices & volatility", "指数与波动")}</h3></div><div class="market-table-scroll"><table class="market-data-table"><thead><tr><th>${tl("Metric", "指标")}</th><th>${t("current")}</th><th>${t("change5d")}</th><th>${t("change20d")}</th><th>${t("marketStatus")}</th></tr></thead><tbody>${index("spy")}${index("qqq")}<tr><th scope="row">VIX</th><td>${finite(vix.value)?.toFixed(2) ?? t("unavailable")}</td><td>${change(vix.change_5d)}</td><td>${change(vix.change_20d)}</td><td class="tone-${vixTone}"><span class="signal-text">${escapeHtml(technicalState(vix.trend))}</span></td></tr></tbody></table></div><details class="technical-advanced"><summary>${tl("60D / 120D changes", "60日／120日变化")}</summary>${["spy","qqq"].map(key=>marketLine(key.toUpperCase(), `${dayLabel(60)} ${formatPct(core.equity_trend?.[key]?.change_60d_pct)} · ${dayLabel(120)} ${formatPct(core.equity_trend?.[key]?.change_120d_pct)}`)).join("")}</details></section>
+      <section class="detail-section-card market-compact-card market-context-pair">${marketLine(uiLabel("US 10Y Yield"), finite(yieldData.value) == null ? t("unavailable") : `${finite(yieldData.value).toFixed(2)}%`, `${technicalState(market.yield?.label)} · ${dayLabel(5)} ${change(yieldData.change_5d_bps)} ${tl("bps", "基点")} · ${dayLabel(20)} ${change(yieldData.change_20d_bps)} ${tl("bps", "基点")}`)}${marketLine(uiLabel("Fear & Greed"), technicalState(sentiment.label), finite(sentiment.value) == null ? "" : `${Math.round(finite(sentiment.value))}/100`)}</section>
+      <section class="detail-section-card market-compact-card macro-release-card"><div class="detail-section-head"><h3>${tl("Official macro actuals", "官方宏观实际值")}</h3></div>${macroReleaseLines(core, market.fomcActualComparison)}</section>
+    </div><aside class="market-side-column">
+      <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>${tl("Major release calendar", "重大发布日历")}</h3></div><div class="market-event-list">${events.map(event=>`<div class="market-event"><time>${escapeHtml(formatDataTime(event.at))}</time><strong>${escapeHtml(uiLabel(event.type))}</strong></div>`).join("") || `<p class="detail-line-note">${escapeHtml(eventState)}</p>`}</div>${marketLine(t("updated"), formatDataTime(calendar.as_of))}</section>
+      <section class="detail-section-card market-compact-card"><div class="detail-section-head"><h3>${t("dataStatus")}</h3></div>${marketLine(t("market"), sourceState ? technicalState(sourceState) : t("unavailable"))}${marketLine(tl("Macro actuals", "宏观实际值"), availability(actual.status))}${marketLine(tl("Calendar", "发布日历"), availability(calendar.status))}${marketLine(t("updated"), formatDataTime(market.provenance?.asOf))}</section>
+    </aside></div>
+  </section>`;
 }
 
 function profileFromRow(row) {
@@ -699,12 +697,7 @@ function profileFromRow(row) {
   };
 }
 
-function tagPills(tags, className = "") {
-  const values = [...new Set((Array.isArray(tags) ? tags : []).filter(Boolean))];
-  return values.map((tag) => `<span class="profile-tag ${className}">${escapeHtml(profileLabel(tag))}</span>`).join("");
-}
-
-function renderProfileHeader(row) {
+function renderProfileHeader(row, showProfile = true) {
   const profile = profileFromRow(row);
   const groups = window.DecisionPresentation?.profileGroups?.(profile) || { traits: profile.companyTraits || [], lifecycle: profile.lifecycle || null, visible: {} };
   const profileMeta = profile.isETF ? [] : [
@@ -725,8 +718,8 @@ function renderProfileHeader(row) {
   const etfSummary = profile.isETF
     ? `<div class="profile-summary-strip profile-summary-etf"><div class="profile-summary-item"><span>${t("leveraged")}</span><b>${profile.leveraged ? t("yes") : t("no")}</b></div><div class="profile-summary-item"><span>${t("direction")}</span><b>${profile.direction === "inverse" ? t("inverseDirection") : t("longDirection")}</b></div>${profile.underlying ? `<div class="profile-summary-item"><span>${t("underlying")}</span><b>${escapeHtml(profileLabel(profile.underlying))}</b></div>` : ""}</div>`
     : "";
-  const profileSummary = stockSummary || etfSummary;
-  return `<section class="decision-hero"><div class="decision-hero-main"><div class="decision-code">${escapeHtml(row.ticker)}</div><div class="decision-company">${escapeHtml(row.companyName)}</div><div class="detail-consensus-mini"><span>${t("price")} ${formatPrice(row.price, row.currency)}</span><span class="daily-change ${row.changePercent >= 0 ? "positive" : "negative"}">${t("dayMove")} ${formatPct(row.changePercent)}</span></div></div>${profileSummary || profileMeta ? `<div class="decision-profile-header">${profileSummary}${profileMeta ? `<div class="profile-review-line">${profileMeta}</div>` : ""}</div>` : ""}</section>`;
+  const profileSummary = showProfile ? stockSummary || etfSummary : "";
+  return `<section class="decision-hero"><div class="decision-hero-main"><div class="decision-code">${escapeHtml(row.ticker)}</div><div class="decision-company">${escapeHtml(row.companyName)}</div><div class="detail-consensus-mini"><span>${t("price")} ${formatPrice(row.price, row.currency)}</span><span class="daily-change ${row.changePercent >= 0 ? "positive" : "negative"}">${t("dayMove")} ${formatPct(row.changePercent)}</span></div></div>${showProfile && (profileSummary || profileMeta) ? `<div class="decision-profile-header">${profileSummary}${profileMeta ? `<div class="profile-review-line">${profileMeta}</div>` : ""}</div>` : ""}</section>`;
 }
 
 function renderDecisionPriceMap(row, horizon) {
@@ -735,22 +728,23 @@ function renderDecisionPriceMap(row, horizon) {
   const model = decision ? window.DecisionPresentation?.priceMapModel?.({ currentPrice: row.price, decision }) || { points: [] } : { points: [] };
   const pointMarkup = (point) => (["opportunity","reduce","short_entry"].includes(point.id)
     ? `<span class="price-map-range ${point.id}" style="left:${point.start}%;width:${Math.max(1.2, point.end - point.start)}%"></span>`
-    : `<span class="price-map-marker ${point.id}" style="left:${point.position}%"><b>${point.id === "current" ? "▲" : "│"}</b></span>`);
+    : `<span class="price-map-marker ${point.id}" style="left:${point.position}%"><b>${point.id === "current" ? "●" : "│"}</b></span>`);
   const labelValue = (point) => ["opportunity","reduce","short_entry"].includes(point.id) ? formatRange({ low: point.low, high: point.high }, row.currency) : formatPrice(point.value, row.currency);
   const distance = (point) => point.distance ? point.distance.within ? t("withinRange") : `${t("distanceToRange")} ${formatPct(point.distance.percent)}` : "";
   const labelMarkup = (point) => `<span class="price-map-label ${point.id} ${point.labelSide} lane-${point.labelLane}" style="left:${point.labelPosition}%"><i>${escapeHtml(t(point.labelKey))}</i><b>${escapeHtml(labelValue(point))}</b>${distance(point) ? `<small>${escapeHtml(distance(point))}</small>` : ""}</span>`;
   if (!decision || !model.points?.length) return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("decisionPriceMap")}</h3></div><p class="decision-no-data">${t("noDecision")}</p></section>`;
   const key = (model.legend || []).map((point) => `<span><i class="price-map-key ${point.id}"></i>${escapeHtml(t(point.labelKey))}</span>`).join("");
-  return `<section class="detail-section-card decision-price-map"><div class="detail-section-head"><h3>${t(decision.action === "hold" ? "observationPriceMap" : "decisionPriceMap")}</h3><span>${t(horizon)} · ${horizonLabel(horizon)}</span></div>${decision.action === "hold" ? `<p class="detail-line-note">${t("observationRangeHelp")}</p>` : ""}<div class="price-map-track" style="--price-map-height:${model.trackHeight || 140}px">${model.points.map(pointMarkup).join("")}<div class="price-map-axis"></div>${model.labels.map(labelMarkup).join("")}</div><div class="price-map-key-row">${key}</div></section>`;
+  return `<section class="detail-section-card decision-price-map${decision.action === "hold" ? " observation-map" : ""}"><div class="detail-section-head"><h3>${t(decision.action === "hold" ? "observationPriceMap" : "decisionPriceMap")}</h3><span>${t(horizon)} · ${horizonLabel(horizon)}</span></div>${decision.action === "hold" ? `<p class="detail-line-note">${t("observationRangeHelp")}</p>` : ""}<div class="price-map-track" style="--price-map-height:${model.trackHeight || 140}px">${model.points.map(pointMarkup).join("")}<div class="price-map-axis"></div>${Array.from({length:5},(_,i)=>`<span class="price-map-tick" style="left:${i*25}%">${formatPrice(model.min+(model.max-model.min)*i/4,row.currency)}</span>`).join("")}${model.labels.map(labelMarkup).join("")}</div><div class="price-map-key-row">${key}</div></section>`;
 }
 
 function renderWhyThisDecision(row, horizon) {
   const decision = decisionFor(row, horizon);
-  return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("whyThisDecision")}</h3><span>${t(horizon)} · ${horizonLabel(horizon)}</span></div>${decision ? `<div class="decision-summary-grid decision-reason-grid"><div class="decision-list-card"><div class="decision-list-title">${t("support")}</div><div class="decision-bullets">${decisionBullets(decision.reasons?.supporting, "positive")}</div></div><div class="decision-list-card"><div class="decision-list-title">${t("limiting")}</div><div class="decision-bullets">${decisionBullets(decision.reasons?.limiting, "warning")}</div></div></div>` : `<p class="decision-no-data">${t("noDecision")}</p>`}</section>`;
+  return `<section class="detail-section-card"><div class="detail-section-head"><h3>${t("whyThisDecision")}</h3><span>${t(horizon)} · ${horizonLabel(horizon)}</span></div>${decision ? `<div class="decision-summary-grid decision-reason-grid"><div class="decision-list-card reason-support"><div class="decision-list-title">${t("support")}</div><div class="decision-bullets">${decisionBullets(decision.reasons?.supporting, "positive")}</div></div><div class="decision-list-card reason-limiting"><div class="decision-list-title">${t("limiting")}</div><div class="decision-bullets">${decisionBullets([...(decision.reasons?.limiting || []), ...(window.DecisionPresentation.waitingPresentation(decision, state.language)?.detail ? [{text:window.DecisionPresentation.waitingPresentation(decision, state.language).detail}] : [])], "warning")}</div></div></div>` : `<p class="decision-no-data">${t("noDecision")}</p>`}</section>`;
 }
 
 function marketImpact(decision) {
-  const modifiers = decision?.market?.horizonModifiers || {};
+  const modifiers = decision?.market?.horizonModifiers;
+  if (!modifiers || modifiers.marketUnavailable || finite(modifiers.riskAdd) == null) return state.language === "zh" ? "暂不可用" : "Unavailable";
   if (modifiers.shock) return t("shockSensitive");
   if ((modifiers.riskAdd || 0) >= 4) return t("restrictive");
   if ((modifiers.riskAdd || 0) < 0) return t("supportive");
@@ -803,9 +797,9 @@ function renderDetailModal() {
   $(".detail-sheet").innerHTML = `
     <button class="detail-close" type="button" aria-label="${t("close")}">×</button>
     ${dataTime ? `<div class="detail-sheet-header detail-sheet-header-dark"><div class="detail-sheet-stamp">${t("dataTime")} ${escapeHtml(dataTime)}</div></div>` : ""}
-    ${renderProfileHeader(row)}
-    <nav class="detail-tabs" role="tablist">${["summary", "technical", "market"].map((tab) => `<button class="detail-tab${state.activeTab === tab ? " active" : ""}" type="button" data-detail-tab="${tab}">${t(tab === "summary" ? "aiDecision" : tab)}</button>`).join("")}</nav>
-    <div class="detail-tab-panel">${(tabPanels[state.activeTab] || renderDecisionPanel)(row)}</div>
+    ${renderProfileHeader(row, state.activeTab === "summary")}
+    <nav class="detail-tabs" role="tablist" aria-label="${t("stocks")}">${["summary", "technical", "market"].map((tab) => `<button class="detail-tab${state.activeTab === tab ? " active" : ""}" id="detail-tab-${tab}" role="tab" tabindex="${state.activeTab === tab ? 0 : -1}" aria-selected="${state.activeTab === tab}" aria-controls="detail-content" type="button" data-detail-tab="${tab}">${t(tab === "summary" ? "aiDecision" : tab)}</button>`).join("")}</nav>
+    <div class="detail-tab-panel" id="detail-content" role="tabpanel" aria-labelledby="detail-tab-${state.activeTab}">${(tabPanels[state.activeTab] || renderDecisionPanel)(row)}</div>
   `;
   if (state.activeTab === "technical") window.TechnicalChart?.mount($("[data-chart-host]"),{history:row.quote?.history || {},features:row.technicalFeatures,horizon:state.technicalHorizon,language:state.language,decision:decisionFor(row,state.technicalHorizon),quotePrice:row.price});
 }
@@ -830,8 +824,6 @@ function applyLanguage() {
   refreshNotice.hidden = !state.refreshError && !state.serviceUpdating;
   refreshNotice.textContent = state.refreshError ? t(state.refreshError) : state.serviceUpdating ? t("serviceUpdating") : "";
   $("#sortTickerLabel").textContent = t("ticker");
-  $("#sortTypeLabel").textContent = t("type");
-  $("#sortChangeLabel").textContent = t("dayMove");
   document.querySelectorAll(".lang-btn").forEach((button) => {
     button.classList.toggle("active", button.dataset.lang === state.language);
     button.textContent = button.dataset.lang === "en" ? (state.language === "zh" ? "英文" : "English") : "中文";
@@ -1132,7 +1124,7 @@ function bindEvents() {
     const remove = event.target.closest("[data-remove-ticker]");
     if (remove) { event.stopPropagation(); removeTicker(remove.dataset.removeTicker); return; }
     const card = event.target.closest("[data-open-ticker]");
-    if (card) { state.selectedTicker = card.dataset.openTicker; state.modalOpen = true; state.activeTab = "summary"; state.decisionHorizon = "daily"; state.technicalHorizon = "daily"; state.fibonacciHorizon = "daily"; state.technicalSections = { fibonacci: false, foundation: false }; render(); }
+    if (card) { state.selectedTicker = card.dataset.openTicker; state.modalOpen = true; state.activeTab = "summary"; state.decisionHorizon = "daily"; state.technicalHorizon = "daily"; render(); }
   });
   document.querySelectorAll(".sort-btn").forEach((button) => button.addEventListener("click", () => {
     const key = button.dataset.sortKey;
@@ -1150,7 +1142,7 @@ function bindEvents() {
   $("#detailModal").addEventListener("click", (event) => {
     if (event.target.closest(".detail-close") || event.target.matches(".detail-backdrop")) { state.modalOpen = false; render(); return; }
     const tab = event.target.closest("[data-detail-tab]");
-    if (tab) { state.activeTab = tab.dataset.detailTab; renderDetailModal(); }
+    if (tab) { state.activeTab = tab.dataset.detailTab; renderDetailModal(); $(".detail-sheet").scrollTop = 0; return; }
     const horizon = event.target.closest("[data-decision-horizon]");
     if (horizon) { state.decisionHorizon = horizon.dataset.decisionHorizon; renderDetailModal(); return; }
     const technicalHorizon = event.target.closest("[data-technical-horizon]");
@@ -1158,6 +1150,15 @@ function bindEvents() {
 
   });
   document.addEventListener("keydown", (event) => {
+    if (event.target?.matches?.("[data-detail-tab]") && ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      const tabs = ["summary", "technical", "market"], index = tabs.indexOf(state.activeTab);
+      state.activeTab = tabs[event.key === "Home" ? 0 : event.key === "End" ? 2 : (index + (event.key === "ArrowRight" ? 1 : 2)) % 3];
+      renderDetailModal(); $(".detail-sheet").scrollTop = 0; $(`[data-detail-tab="${state.activeTab}"]`).focus(); return;
+    }
+    if ((event.key === "Enter" || event.key === " ") && event.target?.matches?.("[data-open-ticker]")) {
+      event.preventDefault(); event.target.click(); return;
+    }
     if (event.key === "Escape" && state.modalOpen) { state.modalOpen = false; render(); return; }
     if ((event.key === "Enter" || event.key === " ") && event.target?.matches?.("[data-decision-horizon]")) {
       event.preventDefault(); state.decisionHorizon = event.target.dataset.decisionHorizon; renderDetailModal();

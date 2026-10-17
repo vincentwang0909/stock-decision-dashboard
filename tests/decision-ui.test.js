@@ -54,6 +54,18 @@ for (let index = 0; index < closeLabels.length; index += 1) {
 }
 assert.ok(presentation.layoutPriceMap(closeLabels).trackHeight >= 140, "dense Price Landscape gains vertical label room");
 
+const hardRiskPlan = plan("hold", {priceLandscape:{currentPrice:100,opportunityRange:range(98,99),reduceRange:range(105,106),invalidation:97,hardInvalidation:96.8}});
+const hardRiskBefore = structuredClone(hardRiskPlan);
+const hardRiskMap = presentation.priceMapModel({decision:hardRiskPlan,currentPrice:100});
+assert.equal(hardRiskMap.points.find(point=>point.id==="hard_invalidation").value,96.8,"moving prices out of cards must retain the fixed hard boundary in the map");
+assert.equal(hardRiskMap.points.find(point=>point.id==="opportunity").labelKey,"lowerObservationRange");
+assert.equal(hardRiskMap.points.find(point=>point.id==="reduce").labelKey,"upperObservationRange");
+for (const a of hardRiskMap.labels) for (const b of hardRiskMap.labels) {
+  if (a !== b && Math.abs(a.anchor-b.anchor)<24) assert.notEqual(`${a.labelSide}-${a.labelLane}`,`${b.labelSide}-${b.labelLane}`,"nearby hard/ordinary references need independent readable label lanes");
+}
+assert.deepEqual(hardRiskPlan,hardRiskBefore,"price display cannot alter engine risk boundaries");
+assert.equal(presentation.priceMapModel({decision:plan("short_sell",{priceLandscape:{currentPrice:100,shortEntryRange:range(99,101),shortInvalidation:104,invalidation:96,hardInvalidation:95}})}).points.some(point=>point.id==="hard_invalidation"),false,"short display must keep its independent upper stop");
+
 const nearbyCurrent = presentation.layoutPriceMap([
   { id: "invalidation", position: 10 },
   { id: "opportunity", start: 32, end: 38 },

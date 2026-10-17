@@ -145,8 +145,8 @@
   }
 
   const labelAnchor = (point) => Number.isFinite(point.start) && Number.isFinite(point.end) ? (point.start + point.end) / 2 : point.position;
-  function layoutPriceMap(points = [], minimumGap = 16) {
-    const preferredSide = { opportunity: "top", current: "top", reduce: "bottom", invalidation: "bottom" };
+  function layoutPriceMap(points = [], minimumGap = 28) {
+    const preferredSide = { opportunity: "top", current: "top", reduce: "top", invalidation: "bottom", hard_invalidation: "bottom" };
     const lanes = { top: [], bottom: [] };
     const labels = [...points].map((point) => ({ ...point, anchor: labelAnchor(point) })).filter((point) => Number.isFinite(point.anchor)).sort((a, b) => a.anchor - b.anchor).map((point) => {
       const desired = preferredSide[point.id] || "top";
@@ -171,13 +171,13 @@
         const desiredBlocked = lanes[desired].length > 0;
         if (desiredBlocked && lanes[alternate].length < 2) {
           slot = { side: alternate, lane: lanes[alternate].length };
-        } else if (lanes[desired].length < 2) {
+        } else if (lanes[desired].length < 3) {
           slot = { side: desired, lane: lanes[desired].length };
-        } else if (lanes[alternate].length < 2) {
+        } else if (lanes[alternate].length < 3) {
           slot = { side: alternate, lane: lanes[alternate].length };
         }
       }
-      // There are at most four labels and four two-sided lanes. This fallback
+      // Five price references fit into bounded, two-sided label lanes. This fallback
       // only protects malformed callers that pass more points; it preserves a
       // deterministic, readable location instead of throwing during render.
       if (!slot) {
@@ -192,7 +192,7 @@
     // Lane two uses a full label-height offset, not the old 22px increment.
     // Only dense maps grow taller; ordinary four-point maps remain compact.
     const hasSecondLane = topLanes > 1 || bottomLanes > 1;
-    return { labels, topLanes, bottomLanes, trackHeight: hasSecondLane ? 220 : 140 };
+    return { labels, topLanes, bottomLanes, trackHeight: hasSecondLane ? 140 + 120 * (Math.max(topLanes, bottomLanes) - 1) : 140 };
   }
 
   function nearestRangeDistance(current, range) {
@@ -214,6 +214,7 @@
       if (validRange(landscape.opportunityRange)) points.push({id:"opportunity",low:finite(landscape.opportunityRange.low),high:finite(landscape.opportunityRange.high),labelKey:execution.opportunity,distance:nearestRangeDistance(current,landscape.opportunityRange)});
       if (validRange(landscape.reduceRange)) points.push({id:"reduce",low:finite(landscape.reduceRange.low),high:finite(landscape.reduceRange.high),labelKey:execution.reduce,distance:nearestRangeDistance(current,landscape.reduceRange)});
       if (finite(landscape.invalidation)>0) points.push({id:"invalidation",value:finite(landscape.invalidation),labelKey:execution.invalidation});
+      if (finite(landscape.hardInvalidation)>0) points.push({id:"hard_invalidation",value:finite(landscape.hardInvalidation),labelKey:"hardInvalidation"});
     }
     if (current != null) points.push({ id: "current", value: current, labelKey: "currentPrice", distance: null });
     const values = points.flatMap((point) => point.value != null ? [point.value] : [point.low, point.high]).filter(Number.isFinite);
