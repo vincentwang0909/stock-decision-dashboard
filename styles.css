@@ -173,7 +173,7 @@ body.modal-open {
 }
 
 .content {
-  max-width:1664px;
+  max-width:none;
   margin:auto;
   padding:32px;
 }
@@ -325,14 +325,14 @@ body.modal-open {
 
 .stock-list {
   display:grid;
-  grid-template-columns:repeat(3,minmax(0,1fr));
-  gap:18px;
+  grid-template-columns:repeat(auto-fill,minmax(228px,1fr));
+  gap:12px;
 }
 
 .stock-item {
   position:relative;
   min-width:0;
-  padding:23px;
+  padding:14px;
   border:1px solid var(--line);
   border-radius:var(--radius-lg);
   background:#fff;
@@ -343,6 +343,10 @@ body.modal-open {
 .stock-item:hover {
   border-color:#9bb3e9;
   box-shadow:0 5px 20px #17203307;
+}
+
+.stock-list > .empty-state {
+  grid-column:1/-1;
 }
 
 .stock-item-header {
@@ -360,24 +364,25 @@ body.modal-open {
   display:flex;
   align-items:baseline;
   flex-wrap:wrap;
-  gap:8px 12px;
+  gap:4px 8px;
+  padding-right:20px;
 }
 
 .stock-symbol {
-  font-size:27px;
+  font-size:24px;
   font-weight:750;
   letter-spacing:-.025em;
 }
 
 .stock-profile-pill {
   color:var(--muted);
-  font-size:12px;
+  font-size:11px;
 }
 
 .stock-company {
-  margin:5px 0 17px;
+  margin:3px 0 9px;
   color:#4f5b6d;
-  font-size:13px;
+  font-size:12px;
   overflow:hidden;
   white-space:nowrap;
   text-overflow:ellipsis;
@@ -387,25 +392,25 @@ body.modal-open {
   display:flex;
   flex-wrap:wrap;
   align-items:baseline;
-  gap:8px 14px;
+  gap:4px 8px;
 }
 
 .stock-price-row>strong {
-  font-size:26px;
+  font-size:22px;
   font-weight:700;
   letter-spacing:-.02em;
   font-variant-numeric:tabular-nums;
 }
 
 .stock-day-move {
-  font-size:12px;
+  font-size:10px;
   font-weight:600;
 }
 
 .stock-remove-btn {
   position:absolute;
-  top:17px;
-  right:15px;
+  top:10px;
+  right:8px;
   width:30px;
   height:30px;
   border:0;
@@ -421,7 +426,7 @@ body.modal-open {
 }
 
 .stock-item-body {
-  margin-top:22px;
+  margin-top:12px;
 }
 
 .stock-horizon-inline {
@@ -430,11 +435,11 @@ body.modal-open {
 
 .stock-horizon-row {
   display:grid;
-  grid-template-columns:48px minmax(80px,auto) 1fr;
+  grid-template-columns:36px minmax(0,1fr) max-content;
   align-items:center;
-  gap:10px;
+  gap:7px;
   border-top:1px solid var(--border-subtle);
-  padding:13px 0;
+  padding:9px 0;
   min-width:0;
 }
 
@@ -443,7 +448,7 @@ body.modal-open {
 }
 
 .stock-horizon-row>b {
-  font-size:13px;
+  font-size:12px;
   font-weight:500;
 }
 
@@ -451,10 +456,10 @@ body.modal-open {
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  min-height:31px;
-  padding:5px 9px;
+  min-height:28px;
+  padding:4px 6px;
   border-radius:6px;
-  font-size:13px;
+  font-size:12px;
   font-weight:650;
   text-align:center;
   line-height:1.35;
@@ -464,7 +469,7 @@ body.modal-open {
 
 .stock-confidence {
   justify-self:end;
-  font-size:11px;
+  font-size:10px;
   color:var(--muted);
   white-space:nowrap;
 }
@@ -867,12 +872,13 @@ body.modal-open {
 }
 
 .decision-price-map {
-  overflow:visible;
+  overflow-x:auto;
 }
 
 .price-map-track {
   position:relative;
-  height:var(--price-map-height,140px);
+  min-width:720px;
+  height:calc(var(--price-map-height,140px) + 120px);
   margin:12px 40px 24px;
 }
 
@@ -938,19 +944,19 @@ body.modal-open {
 
 .price-map-tick {
   position:absolute;
-  top:calc(50% + 6px);
+  top:calc(50% + 9px);
   transform:translateX(-50%);
   color:var(--muted-2);
-  font-size:9px;
+  font-size:11px;
   white-space:nowrap;
 }
 
 .price-map-label {
   position:absolute;
-  width:164px;
+  width:190px;
   max-width:27%;
   transform:translateX(-50%);
-  font-size:11px;
+  font-size:14px;
   text-align:center;
   line-height:1.5;
   color:#53627a;
@@ -963,13 +969,13 @@ body.modal-open {
 
 .price-map-label b {
   color:inherit;
-  font-size:12px;
+  font-size:16px;
   font-weight:650;
   font-variant-numeric:tabular-nums;
 }
 
 .price-map-label small {
-  font-size:10px;
+  font-size:12px;
   color:var(--muted);
 }
 
@@ -986,30 +992,30 @@ body.modal-open {
 }
 
 .price-map-label.top.lane-2 {
-  bottom:calc(50% + 80px);
+  bottom:calc(50% + 102px);
 }
 
 .price-map-label.top.lane-3 {
-  bottom:calc(50% + 138px);
+  bottom:calc(50% + 182px);
 }
 
 .price-map-label.bottom.lane-1 {
-  top:calc(50% + 30px);
+  top:calc(50% + 36px);
 }
 
 .price-map-label.bottom.lane-2 {
-  top:calc(50% + 88px);
+  top:calc(50% + 114px);
 }
 
 .price-map-label.bottom.lane-3 {
-  top:calc(50% + 146px);
+  top:calc(50% + 194px);
 }
 
 .price-map-key-row {
   display:flex;
   flex-wrap:wrap;
   gap:8px 18px;
-  font-size:10px;
+  font-size:12px;
   color:var(--muted);
 }
 
@@ -1875,22 +1881,19 @@ body.modal-open {
   padding-top:12px;
 }
 
-@media(min-width:1550px) {
-  .stock-item {
-    padding:26px;
-  }
-  .stock-horizon-row {
-    grid-template-columns:60px minmax(100px,auto) 1fr;
-  }
-  .stock-confidence {
-    font-size:12px;
-  }
+.decision-price-map > .detail-line-note {
+  font-size:13px;
+}
+
+.decision-price-map .detail-section-head h3 {
+  font-size:18px;
+}
+
+.decision-price-map .detail-section-head > span {
+  font-size:13px;
 }
 
 @media(max-width:1160px) {
-  .stock-list {
-    grid-template-columns:repeat(2,minmax(0,1fr));
-  }
   .topbar {
     align-items:flex-start;
   }
@@ -1981,7 +1984,7 @@ body.modal-open {
     padding:20px;
   }
   .stock-horizon-row {
-    grid-template-columns:48px minmax(85px,auto) 1fr;
+    grid-template-columns:48px minmax(0,1fr) max-content;
   }
   .stock-confidence {
     font-size:11px;
@@ -2073,7 +2076,7 @@ body.modal-open {
     overflow-x:auto;
   }
   .price-map-track {
-    min-width:530px;
+    min-width:720px;
     margin-left:25px;
     margin-right:45px;
   }
