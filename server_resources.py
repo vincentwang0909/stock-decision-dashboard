@@ -178,3 +178,45 @@ def memory_snapshot():
         # macOS ru_maxrss is a process high-water mark, not a current reading.
         pass
     return {'pid': os.getpid(), 'rss_bytes': rss, 'pss_bytes': pss, 'threads': threading.active_count(), 'cgroup': cgroup}
+
+
+class RunMemorySampler:
+    """Bounded per-run counters; cgroup peaks are sampled, not lifetime peaks."""
+    def __init__(self, interval=0.25):
+        self.interval = interval
+        self.stop = threading.Event()
+        self.before = memory_snapshot()
+        self.after = None
+        self.rss_peak = self.cgroup_peak = None
+        self.samples = 0
+        self._capture(self.before)
+        self.thread = threading.Thread(target=self._loop, name='eod-memory-sampler', daemon=True)
+
+    def _capture(self, sample):
+        self.samples += 1
+        for key, value in (('rss_peak', sample.get('rss_bytes')), ('cgroup_peak', sample.get('cgroup', {}).get('memory.current'))):
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                previous = getattr(self, key)
+                setattr(self, key, value if previous is None else max(previous, value))
+
+    def _loop(self):
+        while not self.stop.wait(self.interval):
+            self._capture(memory_snapshot())
+
+    def start(self):
+        self.thread.start()
+        return self
+
+    def finish(self):
+        self.stop.set()
+        self.thread.join(timeout=2)
+        self.after = memory_snapshot()
+        self._capture(self.after)
+        return {'worker_rss_before_bytes': self.before.get('rss_bytes'),
+                'worker_rss_after_bytes': self.after.get('rss_bytes'),
+                'worker_rss_peak_sampled_bytes': self.rss_peak,
+                'cgroup_before_bytes': self.before.get('cgroup', {}).get('memory.current'),
+                'cgroup_after_bytes': self.after.get('cgroup', {}).get('memory.current'),
+                'cgroup_peak_sampled_bytes': self.cgroup_peak,
+                'cgroup_limit_bytes': self.after.get('cgroup', {}).get('memory.max'),
+                'sample_count': self.samples, 'sample_interval_seconds': self.interval}

@@ -18,7 +18,7 @@ historical, not current configuration. Preserve its referenced reproduction mate
 - `main.js`: state/data integration and DOM only; never calculate an Action. `decision-presentation.js` and `ui-translations.js`: bilingual rendering only; never mutate engine inputs on language changes.
 - `technical-chart.js`: selected-detail rendering only, with lazy local Lightweight Charts 5.2.0 (`vendor/` license/notice). One chart instance; dispose charts, markers, observers and handlers on tab/stock/close. The canonical producer's optional chart adapter alone emits bounded completed-bar series (3000 Daily / 650 Weekly); no chart series/cache enters engine inputs or serialization. All Technical/Fibonacci/history panels share the selected frame. Current snapshot zones are a right-edge reference, hidden when panning away from the latest candle; never backfill historical Actions. Structure lines start at known/role-known time. Quote is a separate line, not a synthetic candle. Preserve text/data-table fallback and missing/stale labels.
 - `scripts/`: bounded read-only/offline verification. Temporary rows, provider payloads, screenshots and logs belong outside the repository. `docs/` holds specifications and compact dated evidence.
-- `历史记录/`: offline history infrastructure, **paused** (`EOD_HISTORY_ENABLED=false`). No live request reads the history database.
+- `历史记录/`: offline history infrastructure, default **paused** (`EOD_HISTORY_ENABLED=false`); operator activation follows deployed-code verification. No live request reads the history database.
 
 ## Decision contract
 
@@ -153,15 +153,37 @@ Force the shared Market refresh on the first manual/auto batch; later batches re
 
 ## Offline EOD history
 
-History remains paused, default and Render Blueprint false. Tests/audits use
-isolated temporary databases only. If later authorized, the Render server's
-16:30 America/New_York recorder performs full refresh → same JavaScript engine
+History defaults and Render Blueprint remain false until operator activation
+after deployment verification. Tests/audits use isolated temporary databases
+only. When enabled, the Render server's 23:00 America/New_York recorder performs full refresh → same JavaScript engine
 → two compact Daily/Weekly rows per ticker → single atomic SQLite transaction.
 Weekly rows preserve the last completed week's signal time even on weekdays.
 
+The first successful daily batch is immutable; retries cannot replace its rows
+or source/config context. Three attempts at 120-second intervals stay on the same
+ET date; no next-day reconstruction is presented as an actual prior-night record.
+Holidays and pre-23:00 manual runs skip. Only the current active watchlist is
+recorded, with both frame keys validated; watchlist changes during a run require
+retry. No local sync, automatic deletion, or automatic optimization is enabled.
+
+`technical_features_json.decision_explanation` archives actual final reason,
+bilingual presentation, states, gate context and bounded components; it must not
+reimplement decision eligibility. Own-frame SMC and FVG shadow evidence preserve
+known times and status, but daily snapshots are not a full intraday lifecycle log.
+`eod_runs.run_context_json` stores one config/source/input fingerprint and official
+macro/calendar snapshot per date. `resource_metrics_json` keeps bounded per-run
+worker/cgroup sampled peaks, exact Node process peak, snapshot size, DB growth
+(including SQLite sidecars) and filesystem space. Missing OS measurements stay
+null. Telemetry can finalize after commit; its failure cannot undo/report failure
+for an already committed Decision batch. `--status` is bounded read-only and
+never imports the server or starts a scheduler. Normal HTTP requests may expose
+only in-memory recorder health, never open the history database.
+
 Unique key market_date+ticker+horizon; no live history input, raw OHLCV arrays,
 complete series or unbounded cache. Heap-capped one-shot Node exits afterward.
-Current-day valid session is required; stale tickers are explicit unavailable.
+Current-day valid session is required; untrusted Quotes are explicit unavailable.
+A stale Daily outside the last completed week does not erase that Weekly snapshot
+when its own evidence and current Quote remain trusted; Daily is unavailable.
 Legacy Short/Mid/Long rows (including Avoid) are unchanged; schema migration
 allows new keys but copies all old row values verbatim. Existing width-shadow
 columns remain only to preserve old rows, not new production experiments.

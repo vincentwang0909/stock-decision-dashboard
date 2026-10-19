@@ -105,19 +105,19 @@ class EodHistoryDatabaseTests(unittest.TestCase):
     def test_old_schema_migration_preserves_history_verbatim(self):
         self.db.parent.mkdir(parents=True, exist_ok=True)
         schema=(ROOT/'历史记录'/'历史记录建表.sql').read_text().replace("'short', 'mid', 'long', 'daily', 'weekly'", "'short', 'mid', 'long'")
-        conn=sqlite3.connect(self.db);conn.executescript(schema);conn.close()
-        conn=sqlite3.connect(self.db);conn.execute("insert into decision_history(market_date,recorded_at_et,ticker,asset_type,horizon,data_status,action) values('2026-08-18','legacy','OLD','stock','short','available','avoid')");conn.commit();conn.close()
+        conn=sqlite3.connect(self.db);conn.executescript(schema);conn.execute('alter table decision_history add column width_shadow_json TEXT');conn.close()
+        conn=sqlite3.connect(self.db);conn.execute("insert into decision_history(market_date,recorded_at_et,ticker,asset_type,horizon,data_status,action,width_shadow_json) values('2026-08-18','legacy','OLD','stock','short','available','avoid','{\"legacy\":1}')");conn.commit();conn.close()
         conn=sqlite3.connect(self.db);before=conn.execute("select * from decision_history where horizon='short'").fetchall();conn.close()
         history_db.initialize();history_db.write_snapshot('2026-08-18','start','end',[record(horizon='daily'),record(horizon='weekly')])
         conn=sqlite3.connect(self.db);after=conn.execute("select * from decision_history where horizon='short'").fetchall();conn.close()
         self.assertEqual(before,after);self.assertEqual(len(self.rows()),3)
 
-    def test_same_date_ticker_horizon_upserts_without_duplicate(self):
+    def test_successful_snapshot_is_frozen_on_same_date_retry(self):
         history_db.write_snapshot("2026-08-18", "start", "end", [record(confidence=45)])
         history_db.write_snapshot("2026-08-18", "start2", "end2", [record(confidence=71)])
         rows = self.rows()
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0][7], 71.0)
+        self.assertEqual(rows[0][7], 45.0)
 
     def test_multiple_ticker_transaction_and_eod_run_success(self):
         rows = [record("NVDA", horizon) for horizon in ("daily", "weekly")] + [record("TQQQ", horizon, asset_type="ETF", primary_classification=None, lifecycle=None, company_traits=None, leveraged=True, etf_direction="long", underlying="Nasdaq-100", etf_modifiers={"riskSensitivity": 1.2}) for horizon in ("daily", "weekly")]
@@ -181,6 +181,37 @@ class EodHistoryDatabaseTests(unittest.TestCase):
         with patch.object(history_db, "RENDER_PERSISTENT_DISK", Path(self.temp.name) / "missing"):
             self.assertEqual(history_db.resolve_db_path().name, "历史记录.sqlite")
 
+    def test_run_context_and_resources_are_atomic_and_success_stays_unchanged(self):
+        history_db.write_snapshot('2026-08-18','start','end',[record()],run_context={'source_sha256':'original'},resource_metrics={'node_peak_rss_bytes':123})
+        history_db.mark_run_started('2026-08-18','a later attempt')
+        result=history_db.write_snapshot('2026-08-18','new','new',[record(action='sell')],run_context={'source_sha256':'new'})
+        self.assertTrue(result['already_recorded'])
+        run=history_db.recent_runs()[0]
+        self.assertEqual(run['source_sha256'],'original')
+        self.assertEqual(run['started_at_et'],'start')
+        self.assertEqual(run['resource_metrics']['node_peak_rss_bytes'],123)
+        self.assertEqual(self.rows()[0][6],'hold')
+
+    def test_additive_run_column_migration_and_readonly_status(self):
+        self.db.parent.mkdir(parents=True,exist_ok=True)
+        schema=(ROOT/'历史记录/历史记录建表.sql').read_text().replace('database_size_mb REAL,\n    run_context_json TEXT,\n    resource_metrics_json TEXT','database_size_mb REAL')
+        conn=sqlite3.connect(self.db);conn.executescript(schema);conn.execute("insert into eod_runs(market_date,started_at_et,status) values('2026-08-17','old','success')");conn.commit();conn.close()
+        history_db.initialize()
+        self.assertIsNone(history_db.recent_runs()[0]['resource_metrics'])
+        env=dict(os.environ,EOD_HISTORY_ENABLED='true',BACKGROUND_MARKET_REFRESH_ENABLED='true')
+        run=subprocess.run([sys.executable,str(ROOT/'历史记录/历史记录.py'),'--status'],capture_output=True,text=True,env=env,timeout=5)
+        self.assertEqual(run.returncode,0,run.stderr)
+        self.assertEqual(json.loads(run.stdout)[0]['market_date'],'2026-08-17')
+
+    def test_missing_status_does_not_create_a_database(self):
+        self.assertEqual(history_db.recent_runs(),[])
+        self.assertFalse(self.db.exists())
+
+    def test_missing_and_boolean_numbers_never_become_zero(self):
+        for value in (None,' ',False,True,float('nan'),float('inf')):
+            self.assertIsNone(history_db._number(value))
+        self.assertEqual(history_db._number(0),0)
+
 
 class EodHistorySchedulerTests(unittest.TestCase):
     def setUp(self):
@@ -196,12 +227,12 @@ class EodHistorySchedulerTests(unittest.TestCase):
             os.environ["DECISION_HISTORY_DB_PATH"] = self.previous
         self.temp.cleanup()
 
-    def test_timezone_and_dst_aware_430_schedule(self):
+    def test_timezone_and_dst_aware_2300_schedule(self):
         self.assertEqual(server.EOD_HISTORY_TIMEZONE.key, "America/New_York")
-        summer = server.next_eod_history_run(datetime(2026, 8, 18, 16, 29, tzinfo=ZoneInfo("America/New_York")))
-        winter = server.next_eod_history_run(datetime(2026, 1, 20, 16, 29, tzinfo=ZoneInfo("America/New_York")))
-        self.assertEqual(summer.strftime("%H:%M %z"), "16:30 -0400")
-        self.assertEqual(winter.strftime("%H:%M %z"), "16:30 -0500")
+        summer = server.next_eod_history_run(datetime(2026, 8, 18, 22, 59, tzinfo=ZoneInfo("America/New_York")))
+        winter = server.next_eod_history_run(datetime(2026, 1, 20, 22, 59, tzinfo=ZoneInfo("America/New_York")))
+        self.assertEqual(summer.strftime("%H:%M %z"), "23:00 -0400")
+        self.assertEqual(winter.strftime("%H:%M %z"), "23:00 -0500")
 
     def test_weekend_is_skipped_without_refresh(self):
         saturday = datetime(2026, 8, 22, 16, 30, tzinfo=ZoneInfo("America/New_York"))
@@ -212,16 +243,17 @@ class EodHistorySchedulerTests(unittest.TestCase):
 
     def test_no_current_trading_date_skips_without_node(self):
         previous_day_payload = {"success": True, "items": [{"ticker": "NVDA", "analysis": {"price": 1, "history": {"timestamps": ["2026-08-17"], "availability": "available"}}}]}
-        now = datetime(2026, 8, 18, 16, 30, tzinfo=ZoneInfo("America/New_York"))
+        now = datetime(2026, 8, 18, 23, 0, tzinfo=ZoneInfo("America/New_York"))
         with patch.object(server, "eod_history_watchlist_tickers", return_value=["NVDA"]), patch.object(server, "_eod_refresh_and_cache_snapshot", return_value=previous_day_payload), patch.object(server, "build_eod_decision_snapshot") as node:
             result = server.run_eod_history_once(now, reason="test")
-        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["status"], "failed")
         node.assert_not_called()
 
     def test_full_refresh_precedes_production_engine_snapshot_and_writes_rows(self):
-        now = datetime(2026, 8, 18, 16, 30, tzinfo=ZoneInfo("America/New_York"))
+        now = datetime(2026, 8, 18, 23, 0, tzinfo=ZoneInfo("America/New_York"))
         payload = {"success": True, "items": [{"ticker": "NVDA", "analysis": {"price": 180, "history": {"timestamps": ["2026-08-18"], "availability": "available"}}}]}
-        snapshot = {"records": [record("NVDA", horizon) for horizon in ("daily", "weekly")]}
+        snapshot = {"records": [record("NVDA", horizon) for horizon in ("daily", "weekly")],
+                    "run_context":{"source_sha256":"frozen-source"},"resource_metrics":{"node_peak_rss_bytes":1000}}
         events = []
         def refreshed(_):
             events.append("refresh")
@@ -238,9 +270,13 @@ class EodHistorySchedulerTests(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM decision_history").fetchone()[0], 2)
         finally:
             conn.close()
+        run=history_db.recent_runs()[0]
+        self.assertEqual(run['source_sha256'],'frozen-source')
+        self.assertEqual(run['resource_metrics']['node_peak_rss_bytes'],1000)
+        self.assertGreater(run['resource_metrics']['database_growth_bytes'],0)
 
     def test_engine_failure_marks_run_failed_without_success_rows(self):
-        now = datetime(2026, 8, 18, 16, 30, tzinfo=ZoneInfo("America/New_York"))
+        now = datetime(2026, 8, 18, 23, 0, tzinfo=ZoneInfo("America/New_York"))
         payload = {"success": True, "items": [{"ticker": "NVDA", "analysis": {"price": 180, "history": {"timestamps": ["2026-08-18"], "availability": "available"}}}]}
         with patch.object(server, "eod_history_watchlist_tickers", return_value=["NVDA"]), patch.object(server, "_eod_refresh_and_cache_snapshot", return_value=payload), patch.object(server, "write_eod_snapshot_input", return_value=(self.temp.name, "input", "output")), patch.object(server, "build_eod_decision_snapshot", side_effect=RuntimeError("engine failure")), patch.object(server.shutil, "rmtree"):
             result = server.run_eod_history_once(now, reason="test")
@@ -253,14 +289,65 @@ class EodHistorySchedulerTests(unittest.TestCase):
             conn.close()
 
     def test_catchup_requires_current_day_and_no_success(self):
-        before = datetime(2026, 8, 18, 16, 29, tzinfo=ZoneInfo("America/New_York"))
-        after = datetime(2026, 8, 18, 16, 31, tzinfo=ZoneInfo("America/New_York"))
+        before = datetime(2026, 8, 18, 22, 59, tzinfo=ZoneInfo("America/New_York"))
+        after = datetime(2026, 8, 18, 23, 1, tzinfo=ZoneInfo("America/New_York"))
         self.assertFalse(server.eod_history_should_catch_up(before))
         self.assertTrue(server.eod_history_should_catch_up(after))
 
     def test_server_does_not_use_history_export_on_normal_routes(self):
         source = (ROOT / "server.py").read_text(encoding="utf-8")
         self.assertNotIn("export_rows(", source)
+
+    def test_holiday_and_dst_weekend_schedule(self):
+        now=datetime(2026,11,26,22,0,tzinfo=ZoneInfo('America/New_York'))
+        self.assertEqual(server.next_eod_history_run(now).strftime('%Y-%m-%d %H:%M'),'2026-11-27 23:00')
+        self.assertFalse(server.eod_history_should_catch_up(now.replace(hour=23)))
+        after_friday=datetime(2026,10,30,23,1,tzinfo=ZoneInfo('America/New_York'))
+        self.assertEqual(server.next_eod_history_run(after_friday).strftime('%Y-%m-%d %H:%M %z'),'2026-11-02 23:00 -0500')
+
+    def test_already_successful_day_does_not_refresh_or_rewrite(self):
+        history_db.write_snapshot('2026-08-18','first','first',[record()])
+        with patch.object(server,'_eod_refresh_and_cache_snapshot') as refresh:
+            self.assertEqual(server.run_eod_history_once(datetime(2026,8,18,23,5,tzinfo=ZoneInfo('America/New_York')))['status'],'already_recorded')
+            refresh.assert_not_called()
+
+    def test_before_2300_never_fetches(self):
+        with patch.object(server,'_eod_refresh_and_cache_snapshot') as refresh:
+            result=server.run_eod_history_once(datetime(2026,8,18,22,59,tzinfo=ZoneInfo('America/New_York')))
+            self.assertEqual(result['reason'],'before_recording_time');refresh.assert_not_called()
+            self.assertFalse(server.EOD_HISTORY_STATE['running'])
+            self.assertEqual(server.EOD_HISTORY_STATE['last_status'],'skipped')
+
+    def test_retry_is_bounded_and_stops_when_date_changes(self):
+        day=datetime(2026,8,18,23,59,tzinfo=ZoneInfo('America/New_York'))
+        next_day=datetime(2026,8,19,0,1,tzinfo=ZoneInfo('America/New_York'))
+        with patch.object(server,'eod_history_now_et',side_effect=[day,day,next_day]),patch.object(server,'run_eod_history_once',return_value={'status':'failed'}) as run,patch.object(server.time,'sleep'):
+            self.assertEqual(server.run_eod_history_with_retries('test')['reason'],'date_changed');self.assertEqual(run.call_count,1)
+        with patch.object(server,'eod_history_now_et',return_value=day),patch.object(server,'run_eod_history_once',return_value={'status':'failed'}) as run,patch.object(server.time,'sleep'):
+            self.assertEqual(server.run_eod_history_with_retries('test')['status'],'failed');self.assertEqual(run.call_count,3)
+
+    def test_night_snapshot_never_reuses_afternoon_market(self):
+        with patch.object(server,'LAST_FULL_REFRESH_SUMMARY',{'completed':True,'completed_at':'2026-08-18T21:00:00Z','requested_tickers':['TEST'],'failed_count':0,'cache_fallback_count':0}),patch.object(server,'_refresh_market_cache_for_watchlist',return_value={'completed':True}) as refresh,patch.object(server,'get_market_context_cached_snapshot',return_value=({},{})):
+            server._eod_refresh_and_cache_snapshot(['TEST'])
+            refresh.assert_called_once_with(reason='eod_history')
+
+    def test_snapshot_key_mismatch_rolls_back(self):
+        payload={'success':True,'items':[{'ticker':'NVDA','analysis':{'history':{'timestamps':['2026-08-18']}}}]}
+        snapshot={'records':[record('NVDA','daily'),record('NVDA','daily')]}
+        with patch.object(server,'eod_history_watchlist_tickers',return_value=['NVDA']),patch.object(server,'_eod_refresh_and_cache_snapshot',return_value=payload),patch.object(server,'write_eod_snapshot_input',return_value=(self.temp.name,'input','output')),patch.object(server,'build_eod_decision_snapshot',return_value=snapshot),patch.object(server.shutil,'rmtree'):
+            result=server.run_eod_history_once(datetime(2026,8,18,23,0,tzinfo=ZoneInfo('America/New_York')))
+            self.assertEqual(result['status'],'failed');self.assertFalse(history_db.successful_run_exists('2026-08-18'))
+
+    def test_changed_watchlist_discards_batch_and_telemetry_failure_preserves_commit(self):
+        payload={'success':True,'items':[{'ticker':'NVDA','analysis':{'history':{'timestamps':['2026-08-18']}}}]}
+        snapshot={'records':[record('NVDA',h) for h in ('daily','weekly')]}
+        now=datetime(2026,8,18,23,0,tzinfo=ZoneInfo('America/New_York'))
+        with patch.object(server,'eod_history_watchlist_tickers',side_effect=[['NVDA'],['NEW']]),patch.object(server,'_eod_refresh_and_cache_snapshot',return_value=payload),patch.object(server,'write_eod_snapshot_input',return_value=(self.temp.name,'input','output')),patch.object(server,'build_eod_decision_snapshot',return_value=snapshot),patch.object(server.shutil,'rmtree'):
+            self.assertEqual(server.run_eod_history_once(now)['status'],'failed')
+            self.assertFalse(history_db.successful_run_exists('2026-08-18'))
+        with patch.object(server,'eod_history_watchlist_tickers',return_value=['NVDA']),patch.object(server,'_eod_refresh_and_cache_snapshot',return_value=payload),patch.object(server,'write_eod_snapshot_input',return_value=(self.temp.name,'input','output')),patch.object(server,'build_eod_decision_snapshot',return_value=snapshot),patch.object(server.shutil,'rmtree'),patch.object(history_db,'update_run_resources',side_effect=OSError('measurement unavailable')):
+            self.assertEqual(server.run_eod_history_once(now)['status'],'success')
+            self.assertTrue(history_db.successful_run_exists('2026-08-18'))
 
 
 if __name__ == "__main__":

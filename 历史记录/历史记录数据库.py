@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import math
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -46,6 +47,10 @@ def initialize(path: str | os.PathLike[str] | None = None) -> Path:
     conn = _connect(db_path)
     try:
         conn.executescript(schema)
+        run_columns = {row[1] for row in conn.execute("PRAGMA table_info(eod_runs)")}
+        for name in ("run_context_json", "resource_metrics_json"):
+            if name not in run_columns:
+                conn.execute(f"ALTER TABLE eod_runs ADD COLUMN {name} TEXT")
         columns = {row[1] for row in conn.execute("PRAGMA table_info(decision_history)").fetchall()}
         if "size_class" not in columns:
             # V2.1 profile context enhancement. Historical rows are never
@@ -58,8 +63,17 @@ def initialize(path: str | os.PathLike[str] | None = None) -> Path:
             conn.execute("BEGIN IMMEDIATE")
             create = schema[schema.index("CREATE TABLE IF NOT EXISTS decision_history"):schema.index("CREATE INDEX")].strip()
             conn.execute(create.replace("IF NOT EXISTS decision_history", "decision_history_v2"))
-            names = [row[1] for row in conn.execute("PRAGMA table_info(decision_history)")]
-            quoted = ",".join('"'+name+'"' for name in names)
+            legacy_columns = list(conn.execute("PRAGMA table_info(decision_history)"))
+            current_columns = {row[1] for row in conn.execute("PRAGMA table_info(decision_history_v2)")}
+            identifier = lambda name: '"' + name.replace('"', '""') + '"'
+            # Older offline width-shadow columns are immutable evidence too.
+            # Preserve extra values without making them new production inputs.
+            for column in legacy_columns:
+                if column[1] not in current_columns:
+                    kind = column[2].upper() if column[2].upper() in {"INTEGER", "REAL", "TEXT", "BLOB", "NUMERIC"} else "BLOB"
+                    conn.execute(f"ALTER TABLE decision_history_v2 ADD COLUMN {identifier(column[1])} {kind}")
+            names = [row[1] for row in legacy_columns]
+            quoted = ",".join(identifier(name) for name in names)
             conn.execute(f"INSERT INTO decision_history_v2 ({quoted}) SELECT {quoted} FROM decision_history")
             conn.execute("DROP TABLE decision_history")
             conn.execute("ALTER TABLE decision_history_v2 RENAME TO decision_history")
@@ -77,13 +91,13 @@ def _json(value: Any) -> str | None:
 
 
 def _number(value: Any) -> float | None:
-    if value is None or value == "":
+    if value is None or isinstance(value, bool) or isinstance(value, str) and not value.strip():
         return None
     try:
         number = float(value)
     except (TypeError, ValueError):
         return None
-    return number if number == number and number not in (float("inf"), float("-inf")) else None
+    return number if math.isfinite(number) else None
 
 
 def _database_storage_bytes(db_path: Path) -> int:
@@ -153,7 +167,7 @@ def mark_run_started(market_date: str, started_at_et: str, path: str | os.PathLi
             INSERT INTO eod_runs (market_date, started_at_et, status)
             VALUES (?, ?, 'running')
             ON CONFLICT(market_date) DO UPDATE SET
-              started_at_et=excluded.started_at_et,
+              started_at_et=CASE WHEN eod_runs.status='success' THEN eod_runs.started_at_et ELSE excluded.started_at_et END,
               status=CASE WHEN eod_runs.status='success' THEN 'success' ELSE 'running' END,
               completed_at_et=CASE WHEN eod_runs.status='success' THEN eod_runs.completed_at_et ELSE NULL END,
               error_summary=CASE WHEN eod_runs.status='success' THEN eod_runs.error_summary ELSE NULL END
@@ -206,8 +220,10 @@ def write_snapshot(
     completed_at_et: str,
     records: Iterable[dict[str, Any]],
     path: str | os.PathLike[str] | None = None,
+    *, run_context: dict | None = None,
+    resource_metrics: dict | None = None,
 ) -> dict[str, Any]:
-    """Atomically UPSERT every ticker/horizon row and mark this run successful."""
+    """Atomically commit a first successful batch; never replace a success."""
     initialize(path)
     db_path = resolve_db_path(path)
     prepared = list(records)
@@ -217,21 +233,27 @@ def write_snapshot(
     conn = _connect(db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute("SELECT * FROM eod_runs WHERE market_date=? AND status='success'", (market_date,)).fetchone()
+        if existing:
+            conn.rollback()
+            return {"already_recorded": True, **{key: existing[key] for key in ("ticker_count", "row_count", "unavailable_count", "database_size_mb")}}
         conn.executemany(_UPSERT_SQL, rows)
         conn.execute(
             """
             INSERT INTO eod_runs (
               market_date, started_at_et, completed_at_et, status,
-              ticker_count, row_count, unavailable_count, error_summary
-            ) VALUES (?, ?, ?, 'success', ?, ?, ?, NULL)
+              ticker_count, row_count, unavailable_count, error_summary, run_context_json, resource_metrics_json
+            ) VALUES (?, ?, ?, 'success', ?, ?, ?, NULL, ?, ?)
             ON CONFLICT(market_date) DO UPDATE SET
               started_at_et=excluded.started_at_et,
               completed_at_et=excluded.completed_at_et,
               status='success', ticker_count=excluded.ticker_count,
               row_count=excluded.row_count, unavailable_count=excluded.unavailable_count,
-              error_summary=NULL
+              error_summary=NULL,
+              run_context_json=excluded.run_context_json,
+              resource_metrics_json=excluded.resource_metrics_json
             """,
-            (market_date, started_at_et, completed_at_et, len(tickers), len(rows), unavailable_count),
+            (market_date, started_at_et, completed_at_et, len(tickers), len(rows), unavailable_count, _json(run_context), _json(resource_metrics)),
         )
         conn.commit()
     except Exception:
@@ -254,6 +276,16 @@ def write_snapshot(
     return {"ticker_count": len(tickers), "row_count": len(rows), "unavailable_count": unavailable_count, "database_size_mb": size_mb}
 
 
+def update_run_resources(market_date: str, metrics: dict, path=None) -> None:
+    """Only operational measurements may be finalized after the atomic commit."""
+    conn = _connect(path)
+    try:
+        conn.execute("UPDATE eod_runs SET resource_metrics_json=? WHERE market_date=?", (_json(metrics), market_date))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def successful_run_exists(market_date: str, path: str | os.PathLike[str] | None = None) -> bool:
     db_path = resolve_db_path(path)
     if not db_path.exists():
@@ -269,6 +301,31 @@ def successful_run_exists(market_date: str, path: str | os.PathLike[str] | None 
 def database_size_mb(path: str | os.PathLike[str] | None = None) -> float:
     db_path = resolve_db_path(path)
     return round(_database_storage_bytes(db_path) / (1024 * 1024), 3)
+
+
+def database_storage_bytes(path=None) -> int:
+    return _database_storage_bytes(resolve_db_path(path))
+
+
+def recent_runs(path=None, limit=10) -> list[dict]:
+    """Bounded, genuinely read-only CLI access; never used by HTTP routes."""
+    db_path = resolve_db_path(path)
+    if not db_path.exists():
+        return []
+    conn = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute("SELECT * FROM eod_runs ORDER BY market_date DESC LIMIT ?", (max(1, min(30, limit)),)).fetchall()
+        results = []
+        for row in rows:
+            value = dict(row)
+            context = json.loads(value.pop("run_context_json", None) or "null")
+            value["source_sha256"] = context.get("source_sha256") if context else None
+            value["resource_metrics"] = json.loads(value.pop("resource_metrics_json", None) or "null")
+            results.append(value)
+        return results
+    finally:
+        conn.close()
 
 
 def export_rows(

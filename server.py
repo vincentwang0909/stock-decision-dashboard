@@ -53,7 +53,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 from 历史记录 import 历史记录数据库 as eod_history_db
-from server_resources import BoundedTaskPool, BoundedTTLCache, ApplyToken, TaskBudgetExceeded, memory_snapshot
+from server_resources import BoundedTaskPool, BoundedTTLCache, ApplyToken, TaskBudgetExceeded, memory_snapshot, RunMemorySampler
 from market_data_validation import validate_frame, validate_us_daily_frame, completed_week_metadata, exchange_calendar, session as exchange_session, daily_history_freshness, weekly_history_freshness, SOURCE_VALIDATION_VERSION
 
 ENV_FILE = os.path.join(ROOT, ".env")
@@ -110,8 +110,10 @@ EOD_HISTORY_NODE_TIMEOUT_SECONDS = int(os.environ.get("EOD_HISTORY_NODE_TIMEOUT_
 EOD_HISTORY_NODE_MAX_OLD_SPACE_MB = max(64, min(192, int(os.environ.get("EOD_HISTORY_NODE_MAX_OLD_SPACE_MB", "128"))))
 EOD_HISTORY_NODE_MAX_SEMI_SPACE_MB = max(1, min(16, int(os.environ.get("EOD_HISTORY_NODE_MAX_SEMI_SPACE_MB", "4"))))
 EOD_HISTORY_TIMEZONE = ZoneInfo("America/New_York")
-EOD_HISTORY_HOUR = 16
-EOD_HISTORY_MINUTE = 30
+EOD_HISTORY_HOUR = 23
+EOD_HISTORY_MINUTE = 0
+EOD_HISTORY_RETRY_ATTEMPTS = 3
+EOD_HISTORY_RETRY_SECONDS = 120
 EOD_HISTORY_NODE_RUNNER = os.path.join(ROOT, "历史记录", "生成决策快照.js")
 COMPANY_PROFILE_CLASSIFIER_NODE_RUNNER = os.path.join(ROOT, "scripts", "classify-company-profiles.js")
 COMPANY_PROFILE_TIMEZONE = ZoneInfo("America/New_York")
@@ -5701,13 +5703,8 @@ def build_eod_decision_snapshot(input_path, output_path):
 def _eod_refresh_and_cache_snapshot(tickers):
     """Keep live refresh and the cache read in one server-side transaction lock."""
     with FULL_REFRESH_RUN_LOCK:
-        now = datetime.now(EOD_HISTORY_TIMEZONE)
-        previous = LAST_FULL_REFRESH_SUMMARY or {}
-        completed = parse_iso_datetime(previous.get("completed_at"))
-        after_close = now.replace(hour=16, minute=0, second=0, microsecond=0)
-        same_universe = set(previous.get("requested_tickers") or []) == set(tickers)
-        reuse = completed and completed.astimezone(EOD_HISTORY_TIMEZONE) >= after_close and same_universe and previous.get("failed_count", 0) == 0 and previous.get("cache_fallback_count", 0) == 0
-        summary = previous if reuse else _refresh_market_cache_for_watchlist(reason="eod_history")
+        # A 23:00 snapshot must not silently reuse an afternoon Market snapshot.
+        summary = _refresh_market_cache_for_watchlist(reason="eod_history")
         if not summary.get("completed"):
             return None
         # The preceding chunked force refresh updated every watchlist ticker.
@@ -5727,20 +5724,34 @@ def run_eod_history_once(now=None, reason="scheduled_eod"):
     market_date = current.date().isoformat()
     started_at_et = eod_history_timestamp(current)
     with EOD_HISTORY_RUN_LOCK:
+        if eod_history_db.successful_run_exists(market_date):
+            print(f"[EOD HISTORY] already recorded {market_date}; original snapshot retained")
+            return {"status": "already_recorded", "market_date": market_date}
         with BACKGROUND_REFRESH_LOCK:
             EOD_HISTORY_STATE.update({
                 "running": True, "last_started_at": started_at_et, "last_completed_at": None,
                 "last_status": "running", "last_error": None,
             })
         print(f"[EOD HISTORY] started {current.strftime('%Y-%m-%d %H:%M ET')} ({reason})")
-        eod_history_db.mark_run_started(market_date, started_at_et)
         temp_directory = None
+        snapshot = records = None
+        owns_run_metrics = True
+        outcome = "failed"
+        started = time.monotonic()
+        sampler = RunMemorySampler().start()
+        metrics = {"database_before_bytes": eod_history_db.database_storage_bytes()}
         try:
-            if current.weekday() >= 5:
+            eod_history_db.mark_run_started(market_date, started_at_et)
+            if current.weekday() >= 5 or exchange_session(current.date()) is None:
                 completed_at_et = eod_history_timestamp(datetime.now(EOD_HISTORY_TIMEZONE))
-                eod_history_db.mark_run_terminal(market_date, started_at_et, completed_at_et, "skipped", "no valid trading session: weekend")
+                eod_history_db.mark_run_terminal(market_date, started_at_et, completed_at_et, "skipped", "no valid trading session: exchange closed")
+                outcome = "skipped"
                 print("[EOD HISTORY] skipped: no valid trading session.")
                 return {"status": "skipped", "market_date": market_date, "reason": "weekend"}
+            if (current.hour, current.minute) < (EOD_HISTORY_HOUR, EOD_HISTORY_MINUTE):
+                eod_history_db.mark_run_terminal(market_date, started_at_et, started_at_et, "skipped", "before 23:00 ET")
+                outcome = "skipped"
+                return {"status": "skipped", "market_date": market_date, "reason": "before_recording_time"}
             tickers = eod_history_watchlist_tickers()
             if not tickers:
                 raise RuntimeError("EOD history has no watchlist tickers to record")
@@ -5749,11 +5760,10 @@ def run_eod_history_once(now=None, reason="scheduled_eod"):
                 raise RuntimeError("full live refresh did not produce a valid market snapshot")
             if not eod_history_valid_trading_session(payload, market_date):
                 completed_at_et = eod_history_timestamp(datetime.now(EOD_HISTORY_TIMEZONE))
-                eod_history_db.mark_run_terminal(market_date, started_at_et, completed_at_et, "skipped", "no valid trading session")
-                print("[EOD HISTORY] skipped: no valid trading session.")
-                return {"status": "skipped", "market_date": market_date, "reason": "no_valid_trading_session"}
+                raise RuntimeError("no current-day completed Daily data; retry without copying a prior session")
             print("[EOD HISTORY] full refresh complete")
-            temp_directory, input_path, output_path = write_eod_snapshot_input(payload, market_date, started_at_et)
+            captured_at = eod_history_timestamp(current if now is not None else datetime.now(EOD_HISTORY_TIMEZONE))
+            temp_directory, input_path, output_path = write_eod_snapshot_input(payload, market_date, captured_at)
             # The cache payload contains OHLCV only for this temporary handoff;
             # it is released before the child JS process creates compact rows.
             del payload
@@ -5763,8 +5773,24 @@ def run_eod_history_once(now=None, reason="scheduled_eod"):
             expected_rows = len(tickers) * 2
             if len(records) != expected_rows:
                 raise RuntimeError(f"EOD Decision snapshot returned {len(records)} rows; expected {expected_rows}")
+            keys = {(row.get("ticker"), row.get("horizon")) for row in records}
+            if keys != {(ticker, horizon) for ticker in tickers for horizon in ("daily", "weekly")}:
+                raise RuntimeError("EOD snapshot has duplicate or mismatched ticker/horizon keys")
+            if set(tickers) != set(eod_history_watchlist_tickers()):
+                raise RuntimeError("Watchlist changed during EOD; retry with the current active universe")
+            if now is None and eod_history_now_et().date() != current.date():
+                raise RuntimeError("EOD crossed midnight; never backfill yesterday with today's information")
+            metrics.update(snapshot.get("resource_metrics") or {})
+            metrics.update({"snapshot_bytes": os.path.getsize(output_path) if os.path.isfile(output_path) else None,
+                            "row_count": len(records), "partial_count": sum(row.get("data_status") == "partial" for row in records)})
             completed_at_et = eod_history_timestamp(datetime.now(EOD_HISTORY_TIMEZONE))
-            result = eod_history_db.write_snapshot(market_date, started_at_et, completed_at_et, records)
+            result = eod_history_db.write_snapshot(market_date, started_at_et, completed_at_et, records,
+                run_context=snapshot.get("run_context"), resource_metrics=metrics)
+            if result.get("already_recorded"):
+                owns_run_metrics = False
+                outcome = "already_recorded"
+                return {"status": "already_recorded", "market_date": market_date, **result}
+            outcome = "success"
             print(f"[EOD HISTORY] {result['ticker_count']} tickers / {result['row_count']} horizon rows")
             print(f"[EOD HISTORY] {result['unavailable_count']} unavailable")
             print("[EOD HISTORY] database commit success")
@@ -5785,8 +5811,25 @@ def run_eod_history_once(now=None, reason="scheduled_eod"):
                 })
             return {"status": "failed", "market_date": market_date, "error": str(exc)}
         finally:
+            with BACKGROUND_REFRESH_LOCK:
+                if EOD_HISTORY_STATE.get("running"):
+                    EOD_HISTORY_STATE.update(running=False, last_completed_at=eod_history_timestamp(datetime.now(EOD_HISTORY_TIMEZONE)), last_status=outcome)
             if temp_directory:
                 shutil.rmtree(temp_directory, ignore_errors=True)
+            snapshot = records = None
+            gc.collect()
+            try:
+                metrics.update(sampler.finish())
+                metrics["elapsed_seconds"] = round(time.monotonic() - started, 3)
+                metrics["database_after_bytes"] = eod_history_db.database_storage_bytes()
+                metrics["database_growth_bytes"] = metrics["database_after_bytes"] - metrics["database_before_bytes"]
+                disk = shutil.disk_usage(os.path.dirname(eod_history_db.resolve_db_path()))
+                metrics["disk"] = {"total_bytes": disk.total, "used_bytes": disk.used, "free_bytes": disk.free}
+                if owns_run_metrics:
+                    eod_history_db.update_run_resources(market_date, metrics)
+                print(json.dumps({"event": "eod_resources", "market_date": market_date, **metrics}, separators=(",", ":")), flush=True)
+            except Exception as exc:
+                print(f"[EOD HISTORY] resource measurements unavailable: {type(exc).__name__}")
 
 
 def next_eod_history_run(now=None):
@@ -5794,16 +5837,34 @@ def next_eod_history_run(now=None):
     candidate = current.replace(hour=EOD_HISTORY_HOUR, minute=EOD_HISTORY_MINUTE, second=0, microsecond=0)
     if candidate <= current:
         candidate += timedelta(days=1)
-    while candidate.weekday() >= 5:
+    while candidate.weekday() >= 5 or exchange_session(candidate.date()) is None:
         candidate += timedelta(days=1)
     return candidate
 
 
 def eod_history_should_catch_up(now=None):
     current = eod_history_now_et(now)
-    if current.weekday() >= 5 or (current.hour, current.minute) < (EOD_HISTORY_HOUR, EOD_HISTORY_MINUTE):
+    if current.weekday() >= 5 or (current.hour, current.minute) < (EOD_HISTORY_HOUR, EOD_HISTORY_MINUTE) or exchange_session(current.date()) is None:
         return False
     return not eod_history_db.successful_run_exists(current.date().isoformat())
+
+
+def run_eod_history_with_retries(reason):
+    """Bounded same-ET-date attempts; never reconstruct a missed prior night."""
+    market_date = eod_history_now_et().date()
+    for attempt in range(EOD_HISTORY_RETRY_ATTEMPTS):
+        if eod_history_now_et().date() != market_date:
+            return {"status": "skipped", "reason": "date_changed"}
+        try:
+            result = run_eod_history_once(reason=reason)
+        except Exception as exc:
+            result = {"status": "failed", "error": type(exc).__name__}
+            print(f"[EOD HISTORY] scheduler failure: {type(exc).__name__}")
+        if result.get("status") != "failed":
+            return result
+        if attempt + 1 < EOD_HISTORY_RETRY_ATTEMPTS:
+            time.sleep(EOD_HISTORY_RETRY_SECONDS)
+    return result
 
 
 def eod_history_scheduler_loop():
@@ -5813,14 +5874,14 @@ def eod_history_scheduler_loop():
     # validation inside run_eod_history_once prevents a future date from being
     # written with yesterday's bars.
     if eod_history_should_catch_up():
-        run_eod_history_once(reason="startup_eod_catchup")
+        run_eod_history_with_retries(reason="startup_eod_catchup")
     while True:
         next_run = next_eod_history_run()
         with BACKGROUND_REFRESH_LOCK:
             EOD_HISTORY_STATE["next_run_at"] = next_run.isoformat(timespec="seconds")
         delay = max(1, (next_run - datetime.now(EOD_HISTORY_TIMEZONE)).total_seconds())
         time.sleep(delay)
-        run_eod_history_once(reason="scheduled_eod")
+        run_eod_history_with_retries(reason="scheduled_eod")
 
 
 def start_eod_history_scheduler():
@@ -6463,6 +6524,7 @@ def api_health():
     market_context_cache_exists = read_module_cache("market_context", "snapshot") is not None
     with BACKGROUND_REFRESH_LOCK:
         background_refresh = dict(BACKGROUND_REFRESH_STATE)
+        history_state = dict(EOD_HISTORY_STATE)
     return jsonify({
         "success": True,
         "status": "ok",
@@ -6481,6 +6543,8 @@ def api_health():
         "feature_version": TECHNICAL_FEATURE_VERSION,
         "model_version": DECISION_MODEL_VERSION,
         "eod_history_enabled": EOD_HISTORY_ENABLED,
+        "eod_history": {"schema": "eod-history.v2", "time": "23:00", "timezone": EOD_HISTORY_TIMEZONE.key,
+                        "node_available": bool(shutil.which(eod_history_node_executable() or "")), "state": history_state},
         "service_version": "V2",
         "resource_metrics_enabled": RESOURCE_METRICS_ENABLED,
         **({"resources": resource_snapshot()} if RESOURCE_METRICS_ENABLED else {}),

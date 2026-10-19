@@ -7,12 +7,23 @@ import unittest
 from unittest.mock import patch
 from concurrent.futures import TimeoutError as FutureTimeoutError
 import pandas as pd
-from server_resources import BoundedTaskPool, BoundedTTLCache, ApplyToken, TaskBudgetExceeded
+from server_resources import BoundedTaskPool, BoundedTTLCache, ApplyToken, TaskBudgetExceeded, RunMemorySampler
 from market_data_validation import validate_frame, validate_us_daily_frame, completed_week_metadata, session
 from datetime import date, datetime, timezone
 
 
 class ResourcesAndDataTests(unittest.TestCase):
+    def test_eod_sampler_uses_run_current_memory_not_lifetime_peak(self):
+        first={'rss_bytes':10,'cgroup':{'memory.current':20,'memory.peak':999,'memory.max':512}}
+        last={'rss_bytes':12,'cgroup':{'memory.current':18,'memory.peak':999,'memory.max':512}}
+        with patch('server_resources.memory_snapshot',side_effect=[first,last]):
+            sampler=RunMemorySampler(interval=60).start()
+            result=sampler.finish()
+        self.assertEqual(result['cgroup_peak_sampled_bytes'],20)
+        self.assertEqual(result['worker_rss_peak_sampled_bytes'],12)
+        self.assertEqual(result['sample_count'],2)
+        self.assertFalse(sampler.thread.is_alive())
+
     def test_unified_model_health_and_real_api_serializer_use_v2_contract(self):
         import server
         node = server.eod_history_node_executable()

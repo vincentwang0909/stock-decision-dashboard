@@ -81,7 +81,7 @@ def recover():
 @app.route('/__audit/eod')
 def eod():
     date = json.loads((fixtures / (tickers[0] + '.json')).read_text())['history']['timestamps'][-1][:10]
-    now = datetime.fromisoformat(date).replace(hour=16, minute=30, tzinfo=ZoneInfo('America/New_York'))
+    now = datetime.fromisoformat(date).replace(hour=23, minute=0, tzinfo=ZoneInfo('America/New_York'))
     return server.run_eod_history_once(now=now, reason='isolated_memory_audit')
 '''
 

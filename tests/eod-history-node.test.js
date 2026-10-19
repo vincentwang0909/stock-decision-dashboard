@@ -16,6 +16,35 @@ try {
  assert.equal(s.technical_features.price_position.interval,"1d");assert.equal(w.technical_features.price_position.interval,"1w","Weekly history preserves its own completed-week historical structure");
  assert.equal(data.records.find(x=>x.ticker==="TQQQ"&&x.horizon==="weekly").technical_features.model_diagnostics.background_only,true);
  const manifest={...input,format:"ticker-files-v1",marketContext:context,items:input.payload.items.map((x,i)=>{const p=path.join(temp,`q${i}.json`);fs.writeFileSync(p,JSON.stringify(x.analysis));return{ticker:x.ticker,path:p};})};delete manifest.payload;
- assert.deepEqual(run(manifest),data,"bounded handoff and inline snapshots are identical");
+ const manifestResult=run(manifest);
+ const {resource_metrics: metricA,...inlineState}=data,{resource_metrics:metricB,...fileState}=manifestResult;
+ assert.deepEqual(fileState,inlineState,"bounded handoff and inline decisions/context are identical");
+ assert(metricA.node_peak_rss_bytes>0 && metricB.node_peak_rss_bytes>0);
+ assert.match(data.run_context.source_sha256,/^[a-f0-9]{64}$/);
+ assert.match(data.run_context.config_sha256,/^[a-f0-9]{64}$/);
+ assert.equal(data.run_context.config.version,"V2");
+ assert.equal(hasRaw(data.run_context),false);
+ for (const row of data.records) {
+   const why=row.technical_features.decision_explanation;
+   assert.equal(why.action,row.action);
+   assert(why.primary_reason.code && why.primary_reason.en && why.primary_reason.zh);
+   if(row.data_status!=="unavailable") {
+     assert.equal(why.states.direction.score,row.direction);
+     assert.equal(why.signal_as_of,row.technical_features.model_diagnostics.signal_as_of);
+     assert.equal(why.decision_trace.reasonCode,why.primary_reason.code);
+     assert.equal(row.technical_features.fvg.shadow_only,true);
+     assert.equal(row.technical_features.fvg.used_for_decision,false);
+     assert.equal(why.execution_plan.currentPrice,row.current_price);
+   }
+ }
+ const mondayHistory=structuredClone(history),lastDate=new Date(date+'T00:00:00Z');
+ while(lastDate.getUTCDay()!==1)lastDate.setUTCDate(lastDate.getUTCDate()+1);
+ if(lastDate.toISOString().slice(0,10)===date)lastDate.setUTCDate(lastDate.getUTCDate()+7);
+ const monday=lastDate.toISOString().slice(0,10),at=monday+'T23:00:00Z';
+ mondayHistory.as_of=at;mondayHistory.freshness={state:'stale',latest_date:date,expected_completed_date:monday};mondayHistory.weekly_freshness={state:'current'};
+ const late=run({marketDate:monday,recordedAtEt:at,payload:{items:[{ticker:'LATE_DAILY',analysis:{...stock,history:mondayHistory,updatedAt:at,last_quote_time:at}}],marketContext:context}});
+ assert.equal(late.records.find(r=>r.horizon==='daily').data_status,'unavailable');
+ assert.notEqual(late.records.find(r=>r.horizon==='weekly').data_status,'unavailable','missing Daily outside completed week cannot erase trusted Weekly snapshot');
+ assert(late.records.find(r=>r.horizon==='weekly').technical_features.model_diagnostics.signal_as_of);
  console.log("EOD: two compact rows per ticker, missing/stale explicit, profile context and bounded serializer parity passed.");
 }finally{fs.rmSync(temp,{recursive:true,force:true});}

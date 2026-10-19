@@ -7,6 +7,7 @@
 // canonical features and Confluence candidates.
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 
 const ROOT = path.resolve(__dirname, "..");
 require(path.join(ROOT, "decision-engine", "config.js"));
@@ -14,6 +15,7 @@ require(path.join(ROOT, "decision-engine", "company-profile-classifier.js"));
 const { buildTechnicalFeatures } = require(path.join(ROOT, "technical-features.js"));
 const { marketCore, featureInputs, quoteFromItem } = require(path.join(ROOT, "decision-engine", "feature-inputs.js"));
 const profiles = require(path.join(ROOT, "profile-definitions.js"));
+require(path.join(ROOT, "decision-presentation.js"));
 
 for (const file of [
   "technical-engine.js", "exhaustion-engine.js", "market-engine.js", "etf-profile.js", "company-profile.js",
@@ -22,11 +24,11 @@ for (const file of [
 
 const engine = globalThis.DecisionEngine;
 const HORIZONS = ["daily", "weekly"];
+const sha256 = value => crypto.createHash("sha256").update(value).digest("hex");
 const RAW_SERIES_KEYS = new Set([
   "completed", "bar_end_timestamps", "timestamps", "opens", "highs", "lows", "closes", "volumes", "bars", "series", "macd_series", "signal_series", "histogram_series",
 ]);
-const finite = (value) => value == null || value === "" ? null : Number.isFinite(Number(value)) ? Number(value) : null;
-const round = (value, digits = 6) => Number.isFinite(Number(value)) ? Number(Number(value).toFixed(digits)) : null;
+const finite = (value) => value == null || typeof value === "boolean" || typeof value === "string" && !value.trim() ? null : Number.isFinite(Number(value)) ? Number(value) : null;
 const rangeFields = (range) => ({ low: finite(range?.low), high: finite(range?.high) });
 
 function latestDailyDate(quote) {
@@ -34,12 +36,11 @@ function latestDailyDate(quote) {
   return values.length ? String(values.at(-1)).slice(0, 10) : null;
 }
 
-function availableQuote(quote, marketDate) {
+function availableQuote(quote) {
   return Number.isFinite(finite(quote?.price))
     && quote?.quote_status !== "unavailable"
     && quote?.history?.availability !== "unavailable"
-    && !quote?.stale && quote?.dataStaleness !== "stale"
-    && latestDailyDate(quote) === marketDate;
+    && !quote?.stale && quote?.dataStaleness !== "stale";
 }
 
 function featureFor(quote, market, recordedAtEt) {
@@ -88,6 +89,7 @@ function horizonFeature(features, horizon) {
     volume: features?.volume,
     price_position: set.price_position || (horizon === "daily" ? features?.price_position : null),
     fibonacci: fib,
+    fvg: set.fvg,
     missing_families: set.missing_families,
   });
 }
@@ -107,6 +109,53 @@ function compactMarket(market, decision) {
     market_modifiers: modifiers,
     material_change: decision?.debug?.materialChangeReasons || [],
   });
+}
+
+// Evidence only: this never evaluates a gate or creates another recommendation.
+function explanation(decision) {
+  const debug = decision.debug || {}, final = debug.finalDecision || {};
+  const code = final.reasonCode || "unavailable";
+  return compact({
+    schema: "decision-explanation.v1", action: decision.action, primary_reason: {
+      code, en: rootReason(code, "en"), zh: rootReason(code, "zh"),
+    },
+    supporting: decision.reasons?.supporting || [], limiting: decision.reasons?.limiting || [],
+    decision_trace: final, states: decision.states, signal_as_of: decision.signalAsOf,
+    quote_as_of: decision.quoteAsOf, background_only: Boolean(decision.backgroundOnly),
+    data_quality: debug.dataQuality, landscape_quality: debug.landscapeQuality,
+    execution_plan: decision.priceLandscape, structure_inputs: debug.priceLandscapeInputs,
+    components: { direction: debug.directionComponents, confirmation: debug.confirmationComponents,
+      risk: debug.riskComponents, exhaustion: debug.exhaustionComponents },
+    market_gates: debug.marketModifiers, effective_profile_modifiers: debug.effectiveProfileModifiers,
+    stability: debug.stability,
+  });
+}
+
+function rootReason(code, language) {
+  return globalThis.DecisionPresentation.translateReason({ code }, language);
+}
+
+function runContext(input) {
+  const names = ["technical-features.js", "market_data_validation.py", "server.py", "server_resources.py", "profile-definitions.js", "decision-presentation.js",
+    "历史记录/生成决策快照.js", "历史记录/历史记录数据库.py", "历史记录/历史记录建表.sql", "requirements.txt", ...fs.readdirSync(path.join(ROOT, "decision-engine")).filter(name => name.endsWith(".js")).sort().map(name => `decision-engine/${name}`)];
+  const hash = sha256;
+  const files = Object.fromEntries(names.map(name => [name, hash(fs.readFileSync(path.join(ROOT, name)))]));
+  const core = marketCore(input.marketContext || input.payload?.marketContext || input.payload?.market_context || {});
+  const calendar = core.event_calendar || {};
+  const events = Array.isArray(calendar.events) ? calendar.events : [];
+  return {
+    schema: "eod-history.v2", engine_version: engine.config.version, feature_schema: engine.config.indicators.version,
+    runtime: { node: process.version, v8: process.versions.v8 },
+    source_sha256: hash(JSON.stringify(files)), source_files: files,
+    config_sha256: hash(JSON.stringify(engine.config)), config: engine.config,
+    quote_payload_sha256: input.sourceHashes || {}, market_payload_sha256: hash(JSON.stringify(core)),
+    commit: /^[a-f0-9]{40}$/i.test(process.env.RENDER_GIT_COMMIT || "") ? process.env.RENDER_GIT_COMMIT : null,
+    recorded_at: input.recordedAtEt, market_as_of: core.as_of || core.updated_at || null,
+    macro_actuals: compact(core.macro_actuals || null),
+    event_calendar: { ...compact(Object.fromEntries(Object.entries(calendar).filter(([key]) => key !== "events"))),
+      events: events.slice(0, 128).map(event => compact(event)), event_count: events.length, truncated: events.length > 128 },
+    evidence_scope: "completed-frame retained structures and daily observations; not an intraday event archive",
+  };
 }
 
 function profileContext(classification, horizonProfile) {
@@ -152,7 +201,9 @@ function unavailableRecord({ marketDate, recordedAtEt, ticker, classification, h
     data_status: "unavailable", action: null, confidence: null, price_state: "INVALID_LANDSCAPE", current_price: null,
     opportunity_low: null, opportunity_high: null, reduce_low: null, reduce_high: null, invalidation: null,
     landscape_quality: null, direction: null, confirmation: null, risk: null, exhaustion: null, market_regime: null,
-    market_context: null, technical_features: { model_diagnostics: { model_version: engine.config.version, unavailable_reason: reason, latest_daily_date: latest, required_market_date: marketDate, provider_error: quote?.error || null } }, supporting_reasons: [], limiting_reasons: [{ code: reason }], material_change: [],
+    market_context: null, technical_features: { model_diagnostics: { model_version: engine.config.version, unavailable_reason: reason, latest_daily_date: latest, required_market_date: marketDate, provider_error: quote?.error || null },
+      decision_explanation: { schema: "decision-explanation.v1", action: null, unavailable_reason: reason,
+        primary_reason: { code: "waiting_required_data", en: rootReason("waiting_required_data", "en"), zh: rootReason("waiting_required_data", "zh") } } }, supporting_reasons: [], limiting_reasons: [{ code: reason }], material_change: [],
     ...profileContext(classification, classification),
   };
 }
@@ -187,7 +238,8 @@ function recordFor({ marketDate, recordedAtEt, ticker, quote, classification, fe
     exhaustion: finite(value.states?.exhaustion?.score),
     market_regime: value.market?.regime || value.debug?.marketRegime || null,
     market_context: compactMarket(market, value),
-    technical_features: { ...horizonFeature(features, horizon), current_observation: observation, model_diagnostics: { model_version: engine.config.version, path_version: value.debug?.pathVersion || engine.config.version, policy_family: value.debug?.policyFamily || null, feature_version: features.schema_version,
+    technical_features: { ...horizonFeature(features, horizon), current_observation: observation,
+      decision_explanation: explanation(value), model_diagnostics: { model_version: engine.config.version, path_version: value.debug?.pathVersion || engine.config.version, policy_family: value.debug?.policyFamily || null, feature_version: features.schema_version,
       indicator_policy: { version: engine.config.indicators.version, structure_levels_enabled: engine.config.indicators.integration.structureLevelsEnabled, structure_retention_gate: engine.config.indicators.integration.structureRetentionGate },
       execution_plan: compact(value.priceLandscape), background_only: Boolean(value.backgroundOnly), signal_as_of:value.signalAsOf,
       confidence: compact(value.debug?.confidenceComponents), quality: compact(value.debug?.dataQuality) } },
@@ -206,7 +258,12 @@ function* iterateRecords(input) {
   const market = input.marketContext || payload.marketContext || payload.market_context || {};
   const items = fileInput ? input.items : payload.quotes && Object.keys(payload.quotes).length ? Object.entries(payload.quotes).map(([ticker, quote]) => ({ ticker, analysis: quote })) : payload.items || [];
   const byTicker = new Map(items.map((item) => [String(item.ticker || "").toUpperCase(), item]));
-  const readQuote = (item) => fileInput ? JSON.parse(fs.readFileSync(item.path, "utf8")) : quoteFromItem(item);
+  input.sourceHashes = {};
+  const readQuote = (item) => {
+    const quote = fileInput ? JSON.parse(fs.readFileSync(item.path, "utf8")) : quoteFromItem(item);
+    input.sourceHashes[String(item.ticker).toUpperCase()] = sha256(JSON.stringify(quote));
+    return quote;
+  };
   // Keep features only for actual shared underlying symbols. Own features
   // are used for two horizons and then released; no duplicate normalization.
   const underlyingTickers = new Set(Object.values(profiles.etfs || {}).map((p) => p.underlyingTicker).filter(Boolean));
@@ -216,7 +273,7 @@ function* iterateRecords(input) {
     const item = byTicker.get(ticker);
     if (!item) return null;
     const quote = readQuote(item);
-    if (!availableQuote(quote, marketDate)) return null;
+    if (!availableQuote(quote) || latestDailyDate(quote) !== marketDate) return null;
     const result = { features: featureFor(quote, market, recordedAtEt), price: finite(quote.price) };
     featuresByUnderlying.set(ticker, result);
     return result;
@@ -226,13 +283,13 @@ function* iterateRecords(input) {
     if (!ticker) continue;
     const quote = readQuote(item);
     const classification = profiles.profileFor(ticker, quote.metadata || quote);
-    if (!availableQuote(quote, marketDate)) {
+    if (!availableQuote(quote)) {
       for (const horizon of HORIZONS) yield unavailableRecord({ marketDate, recordedAtEt, ticker, classification, horizon, quote });
       continue;
     }
     const cachedUnderlying = featuresByUnderlying.get(ticker);
     const ownFeatures = cachedUnderlying?.features || featureFor(quote, market, recordedAtEt);
-    if (underlyingTickers.has(ticker)) featuresByUnderlying.set(ticker, { features: ownFeatures, price: finite(quote.price) });
+    if (underlyingTickers.has(ticker) && latestDailyDate(quote) === marketDate) featuresByUnderlying.set(ticker, { features: ownFeatures, price: finite(quote.price) });
     let underlying = null;
     const underlyingTicker = classification?.underlyingTicker || null;
     if (classification?.isETF && underlyingTicker) {
@@ -244,7 +301,13 @@ function* iterateRecords(input) {
       underlyingTechnicalFeatures: underlying?.features || null,
       underlyingPrice: underlying?.price ?? null,
     });
-    for (const horizon of HORIZONS) yield recordFor({marketDate,recordedAtEt,ticker,quote,classification,features:ownFeatures,decision,horizon,market});
+    for (const horizon of HORIZONS) {
+      // A missing Monday outside the last completed week must not erase a
+      // valid Weekly decision. Untrusted Quote still blocks both above.
+      if (horizon === "daily" && latestDailyDate(quote) !== marketDate) {
+        yield unavailableRecord({marketDate,recordedAtEt,ticker,classification,horizon,quote});
+      } else yield recordFor({marketDate,recordedAtEt,ticker,quote,classification,features:ownFeatures,decision,horizon,market});
+    }
   }
 }
 
@@ -260,7 +323,7 @@ function main() {
       fs.writeSync(descriptor, (first ? "" : ",") + JSON.stringify(record));
       first = false;
     }
-    fs.writeSync(descriptor, "]}");
+    fs.writeSync(descriptor, `],"run_context":${JSON.stringify(runContext(input))},"resource_metrics":${JSON.stringify({ node_peak_rss_bytes: process.resourceUsage().maxRSS * 1024 })}}`);
   } finally { fs.closeSync(descriptor); }
 }
 

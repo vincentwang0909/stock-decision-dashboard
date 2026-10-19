@@ -51,5 +51,7 @@ CREATE TABLE IF NOT EXISTS eod_runs (
     row_count INTEGER NOT NULL DEFAULT 0,
     unavailable_count INTEGER NOT NULL DEFAULT 0,
     error_summary TEXT,
-    database_size_mb REAL
+    database_size_mb REAL,
+    run_context_json TEXT,
+    resource_metrics_json TEXT
 );

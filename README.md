@@ -81,9 +81,13 @@ Last Refresh在全部数据、两周期计算、界面渲染和浏览器paint完
 不增加常驻行情/推荐历史或大型图表库。Node一次性序列化预算为旧生代128MB、
 半空间4MB；它们不等于进程RSS/整个服务上限。
 
-**历史保持暂停**：`EOD_HISTORY_ENABLED=false`，本次不自动开启、不部署。
-未来启用后，服务16:30ET刷新并写每证券Daily/Weekly两行；旧Short/Mid/Long
-内容/模型版本保持原样。正式历史不被Dashboard读取。
+**历史默认暂停**：`EOD_HISTORY_ENABLED=false`；新版代码部署验收后再由用户在
+Render启用。启用后，每个交易日23:00 America/New_York由服务刷新并写每证券
+Daily/Weekly两行，不依赖本机或浏览器。首次成功批次固定，失败只在同日有界重试。
+记录包含中英主因、实际决策证据、SMC/FVG影子快照、参数/源码指纹、官方宏观
+上下文及磁盘增长/任务内存。旧Short/Mid/Long行原样保留；无本地同步、自动清理
+或参数自动优化。正常Dashboard请求不读历史。启用与只读检查见
+[历史说明](历史记录/README-历史记录.md)。
 
 ## 接口
 
