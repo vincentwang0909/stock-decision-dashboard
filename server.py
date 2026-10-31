@@ -5640,6 +5640,10 @@ def eod_history_node_executable():
 
 def write_eod_snapshot_input(payload, market_date, recorded_at_et):
     """Write one quote per file; Node holds at most one raw ticker at a time."""
+    # Raw quote caches predate persistent-profile decoration. Freeze the same
+    # compact DB profiles used by the Dashboard before streaming quotes, rather
+    # than letting the EOD classifier rebuild them nightly.
+    profiles = load_company_profiles(payload["tickers"]) if payload.get("format") == "disk-snapshot-v1" else {}
     temp_directory = tempfile.mkdtemp(prefix="eod-history-")
     input_path = os.path.join(temp_directory, "snapshot.json")
     output_path = os.path.join(temp_directory, "decision-snapshot.json")
@@ -5648,6 +5652,9 @@ def write_eod_snapshot_input(payload, market_date, recorded_at_et):
             for ticker in payload["tickers"]:
                 cached = read_market_cache(ticker)
                 quote = eod_quote_from_cache(ticker, cached)
+                if ticker in profiles and not _profile_is_etf(quote):
+                    quote = {**quote, "metadata": {**(quote.get("metadata") or {}),
+                                                   "classification": profiles[ticker]}}
                 yield {"ticker": ticker, "analysis": quote}
         items = disk_items()
     else:

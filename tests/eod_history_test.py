@@ -213,6 +213,107 @@ class EodHistoryDatabaseTests(unittest.TestCase):
         self.assertEqual(history_db._number(0),0)
 
 
+class EodSnapshotProfileTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="eod-profiles-")
+        self.addCleanup(self.temp.cleanup)
+        self.db_patch = patch.object(server, "WATCHLIST_DB_PATH", str(Path(self.temp.name) / "watchlist.db"))
+        self.db_patch.start()
+        self.addCleanup(self.db_patch.stop)
+        self.profiles = {
+            "STABLE": self.profile("Industrials", "CashCow"),
+            "SPARSE": self.profile("Consumer Discretionary", "HighGrowth"),
+            "FUND": self.profile("Banking", "CashCow"),
+            "DORMANT": self.profile("Banking", "CashCow"),
+        }
+        server._upsert_company_profiles(self.profiles)
+
+    @staticmethod
+    def profile(primary, business):
+        return {
+            "primaryClassification": primary, "businessTrait": business,
+            "riskTrait": "MacroSensitive", "lifecycle": "EstablishedLeader", "sizeClass": "MegaCap",
+            "companyTraits": [business, "MacroSensitive"], "profileStatus": "complete",
+            "profileSource": "automatic", "profileSchemaVersion": "2.1",
+            "lastProfileReview": "2026-03-31T03:30:00-04:00",
+        }
+
+    def handoff(self, quotes, market=None, date="2026-10-29", at="2026-10-29T23:00:00-04:00"):
+        with patch.object(server, "read_market_cache", side_effect=lambda ticker: quotes[ticker]), \
+             patch.object(server, "eod_quote_from_cache", side_effect=lambda ticker, cached: cached), \
+             patch.object(server, "log_resources"), \
+             patch.object(server, "load_company_profiles", wraps=server.load_company_profiles) as load:
+            directory, src, dest = server.write_eod_snapshot_input(
+                {"format": "disk-snapshot-v1", "tickers": list(quotes), "marketContext": market or {}}, date, at,
+            )
+            self.addCleanup(server.shutil.rmtree, directory)
+            load.assert_called_once_with(list(quotes))
+        manifest = json.loads(Path(src).read_text())
+        frozen = {item["ticker"]: json.loads(Path(item["path"]).read_text()) for item in manifest["items"]}
+        return src, dest, frozen
+
+    def test_disk_handoff_uses_persisted_profiles_without_mutating_raw_cache_or_expanding_universe(self):
+        quotes = {
+            "STABLE": {"price": 100, "metadata": {"quoteType": "EQUITY", "revenueGrowth": 0.3,
+                "classification": {"businessTrait": "HighGrowth"}}},
+            "SPARSE": {"price": 100, "metadata": {"quoteType": "EQUITY", "revenueGrowth": None}},
+            "FUND": {"price": 100, "metadata": {"quoteType": "ETF"}},
+        }
+        before = json.loads(json.dumps(quotes))
+        _, _, frozen = self.handoff(quotes)
+        self.assertEqual(set(frozen), set(quotes))
+        self.assertNotIn("DORMANT", frozen)
+        for ticker in ("STABLE", "SPARSE"):
+            stored = server.load_company_profiles([ticker])[ticker]
+            self.assertEqual(frozen[ticker]["metadata"]["classification"], stored)
+        self.assertEqual(frozen["STABLE"]["metadata"]["classification"]["businessTrait"], "CashCow")
+        self.assertEqual(frozen["SPARSE"]["metadata"]["classification"]["businessTrait"], "HighGrowth")
+        self.assertNotIn("classification", frozen["FUND"]["metadata"])
+        self.assertEqual(quotes, before, "profile decoration must not mutate the raw quote cache")
+
+    def test_persisted_profiles_reach_both_engine_horizons_and_match_dashboard_modifiers(self):
+        node = server.eod_history_node_executable()
+        if not node:
+            self.skipTest("Node.js unavailable")
+        fixture = json.loads(subprocess.check_output([
+            node, "-e", "const f=require('./tests/fixtures/decision-scenarios.js');"
+            "const history=f.rawHistory();const market=f.market();"
+            "market.market_context.benchmark_history={spy:history,qqq:history};"
+            "console.log(JSON.stringify({history,market}));",
+        ], cwd=ROOT, text=True, timeout=30))
+        history, market = fixture["history"], fixture["market"]
+        metadata = {
+            "STABLE": {"quoteType": "EQUITY", "industry": "Specialty Industrial Machinery",
+                       "marketCap": 200_000_000_000, "revenueGrowth": 0.3, "profitMargins": 0.2},
+            "SPARSE": {"quoteType": "EQUITY", "industry": "Auto Manufacturers",
+                       "marketCap": 800_000_000_000, "revenueGrowth": None, "profitMargins": 0.05},
+            "FUND": {"quoteType": "ETF"},
+        }
+        quotes = {ticker: {"price": history["closes"][-1], "history": history,
+                          "updatedAt": history["as_of"], "metadata": value} for ticker, value in metadata.items()}
+        src, dest, frozen = self.handoff(quotes, market, history["timestamps"][-1], history["as_of"])
+        actual = server.build_eod_decision_snapshot(src, dest)["records"]
+        # The Dashboard uses this same metadata/profile resolver and JS engine.
+        dashboard_input = Path(self.temp.name) / "dashboard.json"
+        dashboard_output = Path(self.temp.name) / "dashboard-output.json"
+        dashboard_input.write_text(json.dumps({"marketDate": history["timestamps"][-1],
+            "recordedAtEt": history["as_of"], "payload": {"quotes": {
+                ticker: {**quote, "metadata": {**quote["metadata"], "classification": server.load_company_profiles([ticker])[ticker]}}
+                if ticker != "FUND" else quote for ticker, quote in quotes.items()
+            }, "marketContext": market}}))
+        expected = server.build_eod_decision_snapshot(str(dashboard_input), str(dashboard_output))["records"]
+        self.assertEqual(actual, expected, "disk EOD and Dashboard-profile inputs must produce identical compact decisions")
+        self.assertEqual(len(actual), 6)
+        for row in actual:
+            self.assertIn(row["horizon"], ("daily", "weekly"))
+            if row["ticker"] == "FUND":
+                self.assertIsNone(row["business_trait"])
+            else:
+                stored = self.profiles[row["ticker"]]
+                self.assertEqual(row["business_trait"], stored["businessTrait"])
+                self.assertEqual(row["applied_profile_modifiers"]["last_profile_review"], stored["lastProfileReview"])
+
+
 class EodHistorySchedulerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="eod-server-")
