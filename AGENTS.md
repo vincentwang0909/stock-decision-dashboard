@@ -187,6 +187,9 @@ when its own evidence and current Quote remain trusted; Daily is unavailable.
 Legacy Short/Mid/Long rows (including Avoid) are unchanged; schema migration
 allows new keys but copies all old row values verbatim. Existing width-shadow
 columns remain only to preserve old rows, not new production experiments.
+Offline export defaults to one ZIP containing both tables and a manifest with
+date ranges, counts and SHA256 hashes. Stream one read-only SQLite transaction;
+never migrate/refresh the source or preload full history for bundle export.
 Storage/export/removal: [history README](历史记录/README-历史记录.md).
 
 ## Profiles

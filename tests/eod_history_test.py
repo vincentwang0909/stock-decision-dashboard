@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import io
+import importlib.util
+import zipfile
 import json
 import os
 import sqlite3
@@ -175,6 +179,78 @@ class EodHistoryDatabaseTests(unittest.TestCase):
             exported = list(csv.DictReader(handle))
         self.assertEqual(len(exported), 1)
         self.assertEqual(exported[0]["ticker"], "NVDA")
+
+    def test_default_bundle_preserves_both_tables_and_checksums_without_writing_db(self):
+        context = {"config": {"threshold": 1.5}, "macro_actuals": {"status": "unavailable"}}
+        history_db.write_snapshot("2026-08-18", "start", "end", [record()], run_context=context,
+                                  resource_metrics={"database_growth_bytes": 123})
+        history_db.write_snapshot("2026-08-19", "start", "end", [record(market_date="2026-08-19")])
+        with sqlite3.connect(self.db) as db:
+            db.execute("ALTER TABLE decision_history ADD COLUMN old_evidence TEXT")
+            db.execute("UPDATE decision_history SET old_evidence='保留旧数据'")
+        before = Path(self.db).read_bytes()
+        output = Path(self.temp.name) / "bundle.zip"
+        run = subprocess.run([sys.executable, str(ROOT / "历史记录" / "导出历史记录.py"),
+                              "--db", str(self.db), "--from", "2026-08-18", "--to", "2026-08-18",
+                              "--output", str(output)], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(Path(self.db).read_bytes(), before)
+        with zipfile.ZipFile(output) as archive:
+            self.assertIsNone(archive.testzip())
+            manifest = json.loads(archive.read("manifest.json"))
+            for name, info in manifest["files"].items():
+                self.assertEqual(info["sha256"], hashlib.sha256(archive.read(name)).hexdigest())
+                self.assertEqual(info["rows"], 1)
+            decisions = list(csv.DictReader(io.StringIO(archive.read("stock-history.csv").decode())))
+            runs = [json.loads(line) for line in archive.read("eod-runs.jsonl").decode().splitlines()]
+        self.assertEqual(decisions[0]["old_evidence"], "保留旧数据")
+        self.assertEqual(json.loads(runs[0]["run_context_json"]), context)
+        self.assertEqual(json.loads(runs[0]["resource_metrics_json"])["database_growth_bytes"], 123)
+
+    def test_bundle_missing_db_does_not_create_db_or_replace_previous_export(self):
+        missing = Path(self.temp.name) / "missing.sqlite"
+        output = Path(self.temp.name) / "bundle.zip"
+        output.write_bytes(b"previous export")
+        run = subprocess.run([sys.executable, str(ROOT / "历史记录" / "导出历史记录.py"),
+                              "--db", str(missing), "--output", str(output)], cwd=ROOT,
+                             capture_output=True, text=True)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertFalse(missing.exists())
+        self.assertEqual(output.read_bytes(), b"previous export")
+
+    def test_bundle_cannot_overwrite_source_database(self):
+        history_db.write_snapshot("2026-08-18", "start", "end", [record()])
+        run = subprocess.run([sys.executable, str(ROOT / "历史记录" / "导出历史记录.py"),
+                              "--db", str(self.db), "--output", str(self.db)], cwd=ROOT,
+                             capture_output=True, text=True)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertEqual(len(self.rows()), 1)
+
+    def test_bundle_uses_one_snapshot_even_if_new_batch_commits_during_export(self):
+        history_db.write_snapshot("2026-08-18", "start", "end", [record()])
+        sys.path.insert(0, str(ROOT / "历史记录"))
+        try:
+            spec = importlib.util.spec_from_file_location("history_export_test", ROOT / "历史记录" / "导出历史记录.py")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        finally:
+            sys.path.pop(0)
+        original_open = zipfile.ZipFile.open
+        committed = False
+
+        def open_and_commit(archive, name, mode="r", *args, **kwargs):
+            nonlocal committed
+            if name == "stock-history.csv" and mode == "w" and not committed:
+                committed = True
+                history_db.write_snapshot("2026-08-19", "start", "end", [record(market_date="2026-08-19")])
+            return original_open(archive, name, mode, *args, **kwargs)
+
+        with patch.object(zipfile.ZipFile, "open", open_and_commit):
+            manifest = module.export_bundle(self.db, Path(self.temp.name) / "consistent.zip")
+        self.assertTrue(committed)
+        self.assertEqual(len(self.rows()), 2)
+        self.assertEqual(manifest["files"]["stock-history.csv"]["rows"], 1)
+        self.assertEqual(manifest["files"]["eod-runs.jsonl"]["rows"], 1)
 
     def test_local_fallback_is_unicode_safe_when_no_render_disk_or_env(self):
         os.environ.pop("DECISION_HISTORY_DB_PATH", None)

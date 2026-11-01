@@ -346,7 +346,8 @@ def export_rows(
         clauses.append("market_date <= ?")
         values.append(date_to)
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-    conn = _connect(db_path)
+    conn = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
             "SELECT * FROM decision_history" + where + " ORDER BY market_date, ticker, horizon",

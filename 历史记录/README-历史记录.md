@@ -88,7 +88,12 @@ python3 历史记录/历史记录.py --status
 
 ## 导出供离线分析
 
-默认导出 CSV 到 `历史记录/导出/`：
+默认导出一个 ZIP 到 `历史记录/导出/stock-history.zip`：
+包含`stock-history.csv`（决策表）、`eod-runs.jsonl`（完整运行表）和
+`manifest.json`（导出时间、请求日期范围、实际日期/行数、字节数和SHA256）。
+两张表来自同一只读SQLite事务，逐行压缩写出，不把整份历史加载到内存；
+不导入server、不启动刷新、不迁移或改写历史。JSON列保留数据库中的JSON字符串，
+旧行/额外列原样保留；缺失context不事后补造。失败不替换已有导出包。
 
 ```bash
 python3 历史记录/导出历史记录.py
@@ -98,11 +103,14 @@ python3 历史记录/导出历史记录.py
 
 ```bash
 python3 历史记录/导出历史记录.py \
-  --from 2026-08-01 --to 2026-08-31 --format jsonl \
-  --output 历史记录/导出/2026-08.jsonl
+  --from 2026-10-19 --to 2026-10-30 \
+  --output /tmp/stock-history-2026-10-19_2026-10-30.zip
 ```
 
-支持 `csv`、`json`、`jsonl`。导出脚本是离线工具；Dashboard 本身永远不会读取整个历史库。
+下载这个ZIP即可，不必分别导出两张表。Render临时`/tmp`导出应及时下载，
+不会自动同步电脑、删除数据库记录或自动调整参数。
+显式`--format csv/json/jsonl`仍兼容原来只导出决策表的方式，也使用只读连接。
+导出脚本是离线工具；Dashboard 本身永远不会读取整个历史库。
 
 ## 如果以后不再需要此功能
 
