@@ -638,17 +638,9 @@ function macroReleaseLines(core, fomcComparison = null) {
   const comparison = (period, values, currentLabel) => `<div class="macro-comparison">${cell(currentLabel, month(period), values[0])}${cell(text("Previous month", "上月"), month(period, -1), values[1])}${cell(text("3-month mean", "近3个月均值"), windowLabel(period), values[2])}</div>`;
   const inflation = (label, data = {}) => {
     const annualTrusted = data.yoy_basis === "not_seasonally_adjusted" && data.yoy_period === data.period && data.yoy_base_period === month(data.period, -12);
-    const estimate = data.yoy_estimate;
-    const showEstimate = annualTrusted && data.yoy_unavailable_reason === "missing_year_ago_period" &&
-      !Number.isFinite(data.yoy_pct) && Number.isFinite(estimate?.pct) &&
-      estimate.period === data.period && estimate.base_period === data.yoy_base_period &&
-      estimate.method === "adjacent_month_geometric_mean";
-    const annual = showEstimate ? percent(estimate.pct) : annualTrusted ? percent(data.yoy_pct) : missing;
-    const annualLabel = showEstimate ? text("Year-over-year · estimated", "同比 · 估算") : text("Year-over-year", "同比");
-    const annualReason = showEstimate
-      ? text("Official YoY unavailable. The baseline uses the geometric mean of the September and November 2025 unadjusted indexes.", "官方同比暂不可用。估算基期采用 2025 年 9 月和 11 月非季调指数的几何平均值。")
-      : !annualTrusted ? text("Waiting for same-month unadjusted data", "等待同月非季调数据") : Number.isFinite(data.yoy_pct) ? text("Not seasonally adjusted", "非季调") : data.yoy_unavailable_reason === "missing_year_ago_period" ? text("Prior-year month missing", "缺少去年同月指数") : data.yoy_unavailable_reason === "invalid_index" ? text("Index data invalid", "指数数据无效") : text("Current month index missing", "缺少本月指数");
-    return `<section class="macro-indicator"><h4>${escapeHtml(label)}</h4>${comparison(data.period, [percent(data.mom_pct), percent(data.previous_mom_pct), percent(data.three_month_mean_pct)], text("This month · MoM", "本月环比"))}<div class="macro-annual"><span>${annualLabel} <small>${escapeHtml(`${month(data.period)} ↔ ${month(data.period, -12)}`)}</small></span><strong>${escapeHtml(annual)}</strong></div><p class="macro-context-note">${escapeHtml(annualReason)}</p></section>`;
+    const annual = annualTrusted ? percent(data.yoy_pct) : missing;
+    const annualReason = !annualTrusted ? text("Waiting for same-month unadjusted data", "等待同月非季调数据") : Number.isFinite(data.yoy_pct) ? text("Not seasonally adjusted", "非季调") : data.yoy_unavailable_reason === "missing_year_ago_period" ? text("Prior-year month missing", "缺少去年同月指数") : data.yoy_unavailable_reason === "invalid_index" ? text("Index data invalid", "指数数据无效") : text("Current month index missing", "缺少本月指数");
+    return `<section class="macro-indicator"><h4>${escapeHtml(label)}</h4>${comparison(data.period, [percent(data.mom_pct), percent(data.previous_mom_pct), percent(data.three_month_mean_pct)], text("This month · MoM", "本月环比"))}<div class="macro-annual"><span>${text("Year-over-year", "同比")} <small>${escapeHtml(`${month(data.period)} ↔ ${month(data.period, -12)}`)}</small></span><strong>${escapeHtml(annual)}</strong></div><p class="macro-context-note">${escapeHtml(annualReason)}</p></section>`;
   };
   const signedPoints = (v) => Number.isFinite(v) ? `${v > 0 ? "+" : ""}${v.toFixed(2)} ${text("percentage points", "个百分点")}` : missing;
   const revision = jobs.revision_available === true ? thousands(jobs.previous_month_revision_thousands) : missing;

@@ -116,7 +116,7 @@ class DataQualityTests(unittest.TestCase):
         self.assertEqual(server.parse_fred_macro_actuals(missing_current, now)["cpi"]["headline"]["yoy_unavailable_reason"],
                          "missing_current_period")
 
-    def test_october_estimates_require_both_unadjusted_neighbors_and_yield_to_official_yoy(self):
+    def test_october_missing_official_baseline_does_not_hide_official_monthly_values(self):
         payload = """observation_date,CPIAUCSL,CPILFESL,CPIAUCNS,CPILFENS,PAYEMS,UNRATE,CES0500000003,CIVPART
 2025-09-01,.,.,324.800,330.804,.,.,.,.
 2025-10-01,.,.,.,.,.,.,.,.
@@ -125,13 +125,14 @@ class DataQualityTests(unittest.TestCase):
 2026-10-01,337.476,339.900,337.511,339.921,159293,4.1,38.00,61.9
 """
         now = datetime(2026, 11, 22, tzinfo=timezone.utc)
-        cpi = server.parse_fred_macro_actuals(payload, now)["cpi"]
-        for series, expected in [("headline", 4.0221118), ("core", 2.8149267)]:
+        actual = server.parse_fred_macro_actuals(payload, now)
+        cpi = actual["cpi"]
+        for series in ("headline", "core"):
             self.assertIsNone(cpi[series]["yoy_pct"])
-            self.assertAlmostEqual(cpi[series]["yoy_estimate"]["pct"], expected)
-            self.assertEqual(cpi[series]["yoy_estimate"]["source_periods"], ["2025-09", "2025-11"])
-        without_neighbor = payload.replace("324.122,330.425", ".,.")
-        self.assertNotIn("yoy_estimate", server.parse_fred_macro_actuals(without_neighbor, now)["cpi"]["headline"])
+            self.assertNotIn("yoy_estimate", cpi[series])
+        self.assertAlmostEqual(cpi["headline"]["mom_pct"], .350284569)
+        self.assertAlmostEqual(cpi["core"]["mom_pct"], .296256079)
+        self.assertEqual(actual["employment"]["payroll_change_thousands"], 165)
         with_official = payload.replace("2025-10-01,.,.,.,.", "2025-10-01,.,.,325,331")
         data = server.parse_fred_macro_actuals(with_official, now)["cpi"]["headline"]
         self.assertAlmostEqual(data["yoy_pct"], (337.511 / 325 - 1) * 100)
@@ -145,7 +146,14 @@ class DataQualityTests(unittest.TestCase):
             def now(cls, tz=None):
                 return cls.current.astimezone(tz)
 
-        success = b"observation_date,CPIAUCSL,CPILFESL,CPIAUCNS,CPILFENS,PAYEMS,UNRATE,CES0500000003,CIVPART\n2026-10-01,337.476,339.900,337.511,339.921,159293,4.1,38,61.9\n"
+        # Simulate the multi-series export ignoring the requested date window.
+        rows = ["observation_date,CPIAUCSL,CPILFESL,CPIAUCNS,CPILFENS,PAYEMS,UNRATE,CES0500000003,CIVPART"]
+        rows.extend(f"{year}-{month:02d}-01,100,100,100,100,100000,4,30,61"
+                    for year in range(1913, 2026) for month in range(1, 13))
+        rows += ["2026-09-01,336.298,338.896,336.940,339.287,159128,4.2,37.86,61.8",
+                 "2026-10-01,337.476,339.900,337.511,339.921,159293,4.1,38,61.9"]
+        success = "\n".join(rows).encode()
+        self.assertGreater(len(success), 16 * 1024)
         responses = [io.BytesIO(success), OSError("FRED timeout")]
         with tempfile.TemporaryDirectory() as folder, patch.object(server, "MARKET_CACHE_DIR", folder), \
                 patch.object(server, "MACRO_OFFICIAL_CACHE", {}), patch.object(server, "datetime", Clock), \
@@ -159,6 +167,8 @@ class DataQualityTests(unittest.TestCase):
             request.assert_not_called()
             first = actuals_at("2026-10-31T13:05:00+00:00")
             self.assertEqual(first["status"], "available")
+            self.assertEqual(first["employment"]["payroll_change_thousands"], 165)
+            self.assertEqual(len(first["series"]["CES0000000001"]), 15)
             self.assertEqual(request.call_args.args[0].get_method(), "GET")
             self.assertTrue(request.call_args.args[0].full_url.startswith(server.FRED_ACTUALS_URL + "?"))
             server.MACRO_OFFICIAL_CACHE.clear()

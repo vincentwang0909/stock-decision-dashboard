@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import traceback
+from collections import deque
 from concurrent.futures import TimeoutError as FuturesTimeoutError, as_completed
 from functools import wraps
 from email.utils import parsedate_to_datetime
@@ -2140,7 +2141,10 @@ MACRO_OFFICIAL_CACHE = {}
 MACRO_ACTUALS_LOCK = threading.Lock()
 MACRO_ACTUALS_REFRESH_HOUR_ET = 9
 FRED_ACTUALS_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
-FRED_ACTUALS_MAX_BYTES = 16 * 1024
+# Multi-series graph exports can include the full monthly history even when a
+# start date is requested. Bound the response and keep only the latest rows.
+FRED_ACTUALS_MAX_BYTES = 256 * 1024
+FRED_ACTUALS_EXPORT_VERSION = 2
 # Keep canonical series IDs to compare new FRED observations with old vintages.
 FRED_MACRO_SERIES = {
     "CUSR0000SA0": "CPIAUCSL", "CUSR0000SA0L1E": "CPILFESL",
@@ -2213,6 +2217,7 @@ def _official_macro_cached(key, loader, ttl=None, *, daily_window=None):
 
         if (isinstance(failure, dict) and failure.get("source") == FRED_ACTUALS_URL
                 and failure.get("status") == "unavailable" and isinstance(failed_on, str)
+                and entry.get("export_version") == FRED_ACTUALS_EXPORT_VERSION
                 and (failed_on == day or before_window and failed_on < day)):
             return failed_result(failure)
         fetched_today = (cache_as_of is not None and cache_as_of >= daily_window.timestamp()
@@ -2223,7 +2228,8 @@ def _official_macro_cached(key, loader, ttl=None, *, daily_window=None):
         if value.get("status") == "available":
             save({"expires_at": (daily_window + timedelta(days=1)).timestamp(), "value": value})
             return value
-        save({"expires_at": entry.get("expires_at"), "value": cache_value, "failed_on": day, "failure": value})
+        save({"expires_at": entry.get("expires_at"), "value": cache_value, "failed_on": day,
+              "failure": value, "export_version": FRED_ACTUALS_EXPORT_VERSION})
         return failed_result(value)
 
     cached = cached if cache_value is not None else None
@@ -2385,20 +2391,21 @@ def parse_fred_macro_actuals(csv_text, now, previous=None):
     if (date_column not in ("observation_date", "DATE") or len(columns) != len(FRED_MACRO_SERIES)
             or set(columns) != set(FRED_MACRO_SERIES.values())):
         raise ValueError("Unexpected FRED macro series columns")
-    series = {name: [] for name in FRED_MACRO_SERIES}
+    series = {name: deque(maxlen=15) for name in FRED_MACRO_SERIES}
     last_date = ""
+    today = now.date().isoformat()
     for row in reader:
         date = row[date_column] or ""
         if None in row or not re.fullmatch(r"\d{4}-(?:0[1-9]|1[0-2])-01", date) or date <= last_date:
             raise ValueError("Invalid FRED macro observation row")
         last_date = date
-        if date > now.date().isoformat():
+        if date > today:
             continue
         for name, fred_id in FRED_MACRO_SERIES.items():
             value = _safe_float(row[fred_id])
             if value is not None:
                 series[name].append({"period": date[:7], "value": value})
-    return calculate_official_macro_actuals({name: rows[-15:] for name, rows in series.items()}, now, previous)
+    return calculate_official_macro_actuals({name: list(rows) for name, rows in series.items()}, now, previous)
 
 
 def calculate_official_macro_actuals(series, now, previous=None):
@@ -2433,18 +2440,7 @@ def calculate_official_macro_actuals(series, now, previous=None):
         # Missing intervening months cannot shift the denominator or erase it.
         yoy=_safe_float((current/base-1)*100) if current is not None and current>0 and base is not None and base>0 else None
         reason=None if yoy is not None else "missing_current_period" if current is None else "missing_year_ago_period" if base is None else "invalid_index"
-        result = {"period":period,"mom_pct":change(rows,percent=True),"previous_mom_pct":changes[-2] if len(changes)>1 and contiguous(rows,2) else None,"three_month_mean_pct":sum(changes[-3:])/3 if len(changes)>=3 and all(x is not None for x in changes[-3:]) else None,"yoy_pct":yoy,"yoy_period":period,"yoy_base_period":base_period,"yoy_basis":"not_seasonally_adjusted","yoy_unavailable_reason":reason}
-        # Use the BLS geometric-mean approximation only for the documented
-        # October 2025 collection gap. Keep the official YoY field absent.
-        if base_period == "2025-10" and reason == "missing_year_ago_period" and current > 0:
-            before, after = annual.get("2025-09"), annual.get("2025-11")
-            if before is not None and before > 0 and after is not None and after > 0:
-                estimate = _safe_float((current / (math.sqrt(before) * math.sqrt(after)) - 1) * 100)
-                if estimate is not None:
-                    result["yoy_estimate"] = {"pct": estimate, "period": period, "base_period": base_period,
-                                              "method": "adjacent_month_geometric_mean",
-                                              "source_periods": ["2025-09", "2025-11"]}
-        return result
+        return {"period":period,"mom_pct":change(rows,percent=True),"previous_mom_pct":changes[-2] if len(changes)>1 and contiguous(rows,2) else None,"three_month_mean_pct":sum(changes[-3:])/3 if len(changes)>=3 and all(x is not None for x in changes[-3:]) else None,"yoy_pct":yoy,"yoy_period":period,"yoy_base_period":base_period,"yoy_basis":"not_seasonally_adjusted","yoy_unavailable_reason":reason}
     payroll=values("CES0000000001");unemployment=values("LNS14000000");wages=values("CES0500000003");participation=values("LNS11300000")
     changes=[payroll[i]["value"]-payroll[i-1]["value"] if month_index(payroll[i]["period"])-month_index(payroll[i-1]["period"])==1 else None for i in range(1,len(payroll))]
     period=payroll[-1]["period"] if payroll else None
@@ -2461,19 +2457,22 @@ def calculate_official_macro_actuals(series, now, previous=None):
 
 def fetch_official_macro_actuals():
     def load(previous):
-        params = urlencode({"id": ",".join(FRED_MACRO_SERIES.values()), "cosd": f"{now.year - 2}-01-01"})
+        start_date = f"{now.year - 2}-01-01"
+        params = urlencode({"id": ",".join(FRED_MACRO_SERIES.values()),
+                            "cosd": ",".join([start_date] * len(FRED_MACRO_SERIES))})
         req = Request(f"{FRED_ACTUALS_URL}?{params}", headers={"Accept": "text/csv"})
         try:
             with urlopen(req, timeout=5) as response:
                 data = response.read(FRED_ACTUALS_MAX_BYTES + 1)
         except OSError:
             return {"status": "unavailable", "source": FRED_ACTUALS_URL, "reason": "request_failed"}
-        if len(data) <= FRED_ACTUALS_MAX_BYTES:
-            try:
-                return parse_fred_macro_actuals(data.decode("utf-8-sig"), now, previous)
-            except (ValueError, csv.Error):
-                pass
-        return {"status": "unavailable", "source": FRED_ACTUALS_URL, "reason": "invalid_export"}
+        if len(data) > FRED_ACTUALS_MAX_BYTES:
+            return {"status": "unavailable", "source": FRED_ACTUALS_URL, "reason": "export_too_large"}
+        try:
+            return parse_fred_macro_actuals(data.decode("utf-8-sig"), now, previous)
+        except (ValueError, csv.Error) as exc:
+            app.logger.warning("Invalid FRED macro export (%s bytes): %s", len(data), exc)
+            return {"status": "unavailable", "source": FRED_ACTUALS_URL, "reason": "invalid_export"}
 
     with MACRO_ACTUALS_LOCK:
         now = datetime.now(timezone.utc)

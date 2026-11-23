@@ -155,18 +155,16 @@ context.macroCore.macro_actuals.cpi.headline.yoy_base_period="2025-08";
 assert.doesNotMatch(vm.runInContext('macroReleaseLines(macroCore)',context),/8\.00%/,"wrong-month cached YoY cannot be displayed as verified");
 assert.doesNotMatch(vm.runInContext('macroReleaseLines({})',context),/undefined|NaN|0\.00%/);
 context.octoberMacro = {macro_actuals:{status:"available",source:"https://fred.stlouisfed.org/graph/fredgraph.csv",as_of:"2026-11-22T14:05:00Z",cpi:{
-  headline:{period:"2026-10",yoy_period:"2026-10",yoy_base_period:"2025-10",yoy_basis:"not_seasonally_adjusted",
+  headline:{period:"2026-10",mom_pct:.35028,yoy_period:"2026-10",yoy_base_period:"2025-10",yoy_basis:"not_seasonally_adjusted",
     yoy_pct:null,yoy_unavailable_reason:"missing_year_ago_period",yoy_estimate:{pct:4.022,period:"2026-10",base_period:"2025-10",method:"adjacent_month_geometric_mean"}},
-}}};
+  core:{period:"2026-10",mom_pct:.29626},
+},employment:{period:"2026-10",payroll_change_thousands:165}}};
 vm.runInContext('state.language="zh"',context);
-const estimatedMacro = vm.runInContext('macroReleaseLines(octoberMacro)',context);
-assert.match(estimatedMacro,/同比 · 估算.*4\.02%/);
-assert.match(estimatedMacro,/官方同比暂不可用。估算基期/);
-assert.match(estimatedMacro,/BLS 数据（经 FRED 获取）/);
-vm.runInContext('state.language="en"',context);
-assert.match(vm.runInContext('macroReleaseLines(octoberMacro)',context),/Year-over-year · estimated/);
-context.octoberMacro.macro_actuals.cpi.headline.yoy_pct=3.91;
-assert.doesNotMatch(vm.runInContext('macroReleaseLines(octoberMacro)',context),/4\.02%|Year-over-year · estimated/);
+const officialMacro = vm.runInContext('macroReleaseLines(octoberMacro)',context);
+assert.match(officialMacro,/CPI 环比.*0\.35%.*核心 CPI 环比.*0\.30%.*新增非农就业.*\+16\.5万人/);
+assert.match(officialMacro,/缺少去年同月指数/);
+assert.doesNotMatch(officialMacro,/4\.02%|估算/);
+assert.match(officialMacro,/BLS 数据（经 FRED 获取）/);
 
 context.fomcCompared={status:"available",current:{releasedAt:"2026-09-16T18:00:00Z",targetRange:{low:3.75,high:4}},previous:{releasedAt:"2026-07-29T18:00:00Z",targetRange:{low:3.5,high:3.75}},lowerChangePp:.25,upperChangePp:.25};
 vm.runInContext('state.language="zh"',context);
