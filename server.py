@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import csv
 import json
 import math
 import os
@@ -19,7 +20,7 @@ from email.utils import parsedate_to_datetime
 from html import unescape
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlencode
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
 
@@ -2136,6 +2137,17 @@ SECTOR_ETF_BENCHMARKS = {
 
 
 MACRO_OFFICIAL_CACHE = {}
+MACRO_ACTUALS_LOCK = threading.Lock()
+MACRO_ACTUALS_REFRESH_HOUR_ET = 9
+FRED_ACTUALS_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+FRED_ACTUALS_MAX_BYTES = 16 * 1024
+# Keep canonical series IDs to compare new FRED observations with old vintages.
+FRED_MACRO_SERIES = {
+    "CUSR0000SA0": "CPIAUCSL", "CUSR0000SA0L1E": "CPILFESL",
+    "CUUR0000SA0": "CPIAUCNS", "CUUR0000SA0L1E": "CPILFENS",
+    "CES0000000001": "PAYEMS", "LNS14000000": "UNRATE",
+    "CES0500000003": "CES0500000003", "LNS11300000": "CIVPART",
+}
 MACRO_CALENDAR_SOURCES = {
     "fomc": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
     "cpi": "https://fred.stlouisfed.org/releases/calendar?rid=10",
@@ -2143,7 +2155,7 @@ MACRO_CALENDAR_SOURCES = {
 }
 
 
-def _official_macro_cached(key, loader, ttl):
+def _official_macro_cached(key, loader, ttl=None, *, daily_window=None):
     now = time.time()
     def known_timestamp(value):
         try:
@@ -2168,10 +2180,57 @@ def _official_macro_cached(key, loader, ttl):
             and (key != "calendar" or isinstance(cache_value.get("events"), list))
             and (key != "calendar" or cache_value.get("schema_version") == 2)
             and (key != "actuals" or cache_value.get("schema_version") == 2)):
-        cached = None
-        MACRO_OFFICIAL_CACHE.pop(key, None)
+        cache_value = None
+        cache_as_of = None
+
+    def save(entry):
+        MACRO_OFFICIAL_CACHE[key] = entry
+        try:
+            os.makedirs(MARKET_CACHE_DIR, exist_ok=True)
+            fd, temporary = tempfile.mkstemp(prefix="macro-", dir=MARKET_CACHE_DIR)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    json.dump(entry, handle, ensure_ascii=False, allow_nan=False)
+                os.replace(temporary, cache_path)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+        except OSError:
+            app.logger.warning("Unable to persist official macro cache for %s", key)
+
+    if daily_window is not None:
+        entry = cached if isinstance(cached, dict) else {}
+        if entry:
+            MACRO_OFFICIAL_CACHE[key] = entry
+        day = daily_window.date().isoformat()
+        before_window = now < daily_window.timestamp()
+        failed_on, failure = entry.get("failed_on"), entry.get("failure")
+
+        def failed_result(value):
+            if cache_value is not None:
+                return {**cache_value, "status": "stale", "reason": value.get("reason", "incomplete_series")}
+            return value
+
+        if (isinstance(failure, dict) and failure.get("source") == FRED_ACTUALS_URL
+                and failure.get("status") == "unavailable" and isinstance(failed_on, str)
+                and (failed_on == day or before_window and failed_on < day)):
+            return failed_result(failure)
+        fetched_today = (cache_as_of is not None and cache_as_of >= daily_window.timestamp()
+                         and cache_value.get("source") == FRED_ACTUALS_URL)
+        if before_window or fetched_today:
+            return cache_value or {"status": "unavailable", "source": FRED_ACTUALS_URL}
+        value = loader(cache_value)
+        if value.get("status") == "available":
+            save({"expires_at": (daily_window + timedelta(days=1)).timestamp(), "value": value})
+            return value
+        save({"expires_at": entry.get("expires_at"), "value": cache_value, "failed_on": day, "failure": value})
+        return failed_result(value)
+
+    cached = cached if cache_value is not None else None
     if cached:
         MACRO_OFFICIAL_CACHE[key] = cached
+    else:
+        MACRO_OFFICIAL_CACHE.pop(key, None)
     release_since_cache = key == "calendar" and cached and any(
         isinstance(event, dict) and event.get("type") == "fomc"
         and known_timestamp(event.get("at")) is not None
@@ -2183,18 +2242,7 @@ def _official_macro_cached(key, loader, ttl):
     try:
         value = loader()
         if value.get("status") == "available":
-            entry = {"expires_at": now + ttl, "value": value}
-            MACRO_OFFICIAL_CACHE[key] = entry
-            os.makedirs(MARKET_CACHE_DIR, exist_ok=True)
-            fd, temporary = tempfile.mkstemp(prefix="macro-", dir=MARKET_CACHE_DIR)
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                    json.dump(entry, handle, ensure_ascii=False, allow_nan=False)
-                os.replace(temporary, cache_path)
-            finally:
-                if os.path.exists(temporary):
-                    os.unlink(temporary)
-            return value
+            save({"expires_at": now + ttl, "value": value})
         return value
     except Exception as exc:
         return {"status":"unavailable", "reason":str(exc)[:160], "source":key}
@@ -2331,19 +2379,32 @@ def fetch_official_event_calendar():
     return _official_macro_cached("calendar",load,86400)
 
 
-def parse_bls_actuals(payload, now, previous=None):
-    series = {}
-    if payload.get("status") != "REQUEST_SUCCEEDED":
-        return {"status":"unavailable","source":"BLS public API","reason":"provider_rejected"}
-    for item in payload.get("Results",{}).get("series",[]):
-        rows = []
-        for row in item.get("data",[]):
-            if not re.fullmatch(r"M(?:0[1-9]|1[0-2])",row.get("period","")):
-                continue
-            value = _safe_float(row.get("value"))
+def parse_fred_macro_actuals(csv_text, now, previous=None):
+    reader = csv.DictReader(csv_text.splitlines())
+    date_column, *columns = reader.fieldnames or [None]
+    if (date_column not in ("observation_date", "DATE") or len(columns) != len(FRED_MACRO_SERIES)
+            or set(columns) != set(FRED_MACRO_SERIES.values())):
+        raise ValueError("Unexpected FRED macro series columns")
+    series = {name: [] for name in FRED_MACRO_SERIES}
+    last_date = ""
+    for row in reader:
+        date = row[date_column] or ""
+        if None in row or not re.fullmatch(r"\d{4}-(?:0[1-9]|1[0-2])-01", date) or date <= last_date:
+            raise ValueError("Invalid FRED macro observation row")
+        last_date = date
+        if date > now.date().isoformat():
+            continue
+        for name, fred_id in FRED_MACRO_SERIES.items():
+            value = _safe_float(row[fred_id])
             if value is not None:
-                rows.append({"period":row["year"]+"-"+row["period"][1:],"value":value})
-        series[item["seriesID"]] = sorted(rows,key=lambda row:row["period"])[-15:]
+                series[name].append({"period": date[:7], "value": value})
+    return calculate_official_macro_actuals({name: rows[-15:] for name, rows in series.items()}, now, previous)
+
+
+def calculate_official_macro_actuals(series, now, previous=None):
+    if not any(series.values()):
+        return {"status": "unavailable", "source": FRED_ACTUALS_URL, "reason": "empty_series"}
+
     def values(name):
         return series.get(name) or []
     def month_index(period):
@@ -2372,7 +2433,18 @@ def parse_bls_actuals(payload, now, previous=None):
         # Missing intervening months cannot shift the denominator or erase it.
         yoy=_safe_float((current/base-1)*100) if current is not None and current>0 and base is not None and base>0 else None
         reason=None if yoy is not None else "missing_current_period" if current is None else "missing_year_ago_period" if base is None else "invalid_index"
-        return {"period":period,"mom_pct":change(rows,percent=True),"previous_mom_pct":changes[-2] if len(changes)>1 and contiguous(rows,2) else None,"three_month_mean_pct":sum(changes[-3:])/3 if len(changes)>=3 and all(x is not None for x in changes[-3:]) else None,"yoy_pct":yoy,"yoy_period":period,"yoy_base_period":base_period,"yoy_basis":"not_seasonally_adjusted","yoy_unavailable_reason":reason}
+        result = {"period":period,"mom_pct":change(rows,percent=True),"previous_mom_pct":changes[-2] if len(changes)>1 and contiguous(rows,2) else None,"three_month_mean_pct":sum(changes[-3:])/3 if len(changes)>=3 and all(x is not None for x in changes[-3:]) else None,"yoy_pct":yoy,"yoy_period":period,"yoy_base_period":base_period,"yoy_basis":"not_seasonally_adjusted","yoy_unavailable_reason":reason}
+        # Use the BLS geometric-mean approximation only for the documented
+        # October 2025 collection gap. Keep the official YoY field absent.
+        if base_period == "2025-10" and reason == "missing_year_ago_period" and current > 0:
+            before, after = annual.get("2025-09"), annual.get("2025-11")
+            if before is not None and before > 0 and after is not None and after > 0:
+                estimate = _safe_float((current / (math.sqrt(before) * math.sqrt(after)) - 1) * 100)
+                if estimate is not None:
+                    result["yoy_estimate"] = {"pct": estimate, "period": period, "base_period": base_period,
+                                              "method": "adjacent_month_geometric_mean",
+                                              "source_periods": ["2025-09", "2025-11"]}
+        return result
     payroll=values("CES0000000001");unemployment=values("LNS14000000");wages=values("CES0500000003");participation=values("LNS11300000")
     changes=[payroll[i]["value"]-payroll[i-1]["value"] if month_index(payroll[i]["period"])-month_index(payroll[i-1]["period"])==1 else None for i in range(1,len(payroll))]
     period=payroll[-1]["period"] if payroll else None
@@ -2382,25 +2454,38 @@ def parse_bls_actuals(payload, now, previous=None):
     old={row["period"]:row["value"] for row in old_rows}
     revised=payroll[-2] if len(payroll)>1 else None
     revision=revised["value"]-old[revised["period"]] if revised and revised["period"] in old else None
-    return {"schema_version":2,"status":"available" if aligned_jobs and aligned_cpi else "unavailable","source":"https://api.bls.gov/publicAPI/v2/timeseries/data/","as_of":now.isoformat(),"vintage":"latest_as_fetched; not a historical point-in-time vintage","series":series,
+    return {"schema_version":2,"status":"available" if aligned_jobs and aligned_cpi else "unavailable","source":FRED_ACTUALS_URL,"as_of":now.isoformat(),"vintage":"latest_as_fetched; not a historical point-in-time vintage","series":series,
       "cpi":{"headline":inflation("CUSR0000SA0","CUUR0000SA0"),"core":inflation("CUSR0000SA0L1E","CUUR0000SA0L1E"),"seasonally_adjusted":True},
       "employment":{"period":period,"payroll_change_thousands":change(payroll),"previous_payroll_change_thousands":changes[-2] if len(changes)>1 else None,"payroll_three_month_mean_thousands":sum(changes[-3:])/3 if len(changes)>=3 and all(x is not None for x in changes[-3:]) else None,"unemployment_rate_pct":unemployment[-1]["value"] if aligned_jobs else None,"unemployment_change_pp":change(unemployment) if aligned_jobs else None,"previous_month_revision_thousands":revision,"revision_available":revision is not None,"wage_mom_pct":change(wages,percent=True) if wages and wages[-1]["period"]==period else None,"participation_rate_pct":participation[-1]["value"] if participation and participation[-1]["period"]==period else None}}
 
 
 def fetch_official_macro_actuals():
-    now = datetime.now(timezone.utc)
-    def load():
-        names=["CUSR0000SA0","CUSR0000SA0L1E","CUUR0000SA0","CUUR0000SA0L1E","CES0000000001","LNS14000000","CES0500000003","LNS11300000"]
-        payload={"seriesid":names,"startyear":str(now.year-2),"endyear":str(now.year)}
-        req=Request("https://api.bls.gov/publicAPI/v2/timeseries/data/",data=json.dumps(payload).encode(),headers={"Content-Type":"application/json"},method="POST")
-        with urlopen(req,timeout=6) as response:
-            result=json.load(response)
-        return parse_bls_actuals(result,now,(MACRO_OFFICIAL_CACHE.get("actuals") or {}).get("value"))
-    return _official_macro_cached("actuals",load,1800)
+    def load(previous):
+        params = urlencode({"id": ",".join(FRED_MACRO_SERIES.values()), "cosd": f"{now.year - 2}-01-01"})
+        req = Request(f"{FRED_ACTUALS_URL}?{params}", headers={"Accept": "text/csv"})
+        try:
+            with urlopen(req, timeout=5) as response:
+                data = response.read(FRED_ACTUALS_MAX_BYTES + 1)
+        except OSError:
+            return {"status": "unavailable", "source": FRED_ACTUALS_URL, "reason": "request_failed"}
+        if len(data) <= FRED_ACTUALS_MAX_BYTES:
+            try:
+                return parse_fred_macro_actuals(data.decode("utf-8-sig"), now, previous)
+            except (ValueError, csv.Error):
+                pass
+        return {"status": "unavailable", "source": FRED_ACTUALS_URL, "reason": "invalid_export"}
+
+    with MACRO_ACTUALS_LOCK:
+        now = datetime.now(timezone.utc)
+        daily_window = now.astimezone(DASHBOARD_REFRESH_TIMEZONE).replace(
+            hour=MACRO_ACTUALS_REFRESH_HOUR_ET, minute=DASHBOARD_REFRESH_MINUTE, second=0, microsecond=0,
+        )
+        return _official_macro_cached("actuals", load, daily_window=daily_window)
 
 
 def fetch_market_context_core_sources():
     tasks = {
+        "macro_actuals": fetch_official_macro_actuals,
         "vix_points": lambda: (
             fetch_symbol_history_points("^VIX", period="3mo", interval="1d", limit=40)
             or fetch_fred_series_points("VIXCLS", limit=40)
@@ -2408,7 +2493,6 @@ def fetch_market_context_core_sources():
         "treasury_points": lambda: fetch_treasury_history_points(limit=40),
         "fear_greed_snapshot": fetch_fear_greed_snapshot,
         "event_calendar": fetch_official_event_calendar,
-        "macro_actuals": fetch_official_macro_actuals,
         "spy_trend": lambda: build_index_trend("SPY", "SPY"),
         "qqq_trend": lambda: build_index_trend("QQQ", "QQQ"),
     }

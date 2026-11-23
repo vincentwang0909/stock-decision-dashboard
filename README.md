@@ -35,7 +35,7 @@ python3 server.py
 - Confidence是证据一致性与稳定性，不是上涨概率。所有进入有真实结构位置和初始1.5R/2R门槛；费用、滑点与借券成本未核验。
 - 只用已完成Daily成交量。Weekly量由Daily合成；短周RVOL按实际交易日数归一化，OBV仍用真实总量。未完成日线量仅展示。
 - 默认请求最多十年Daily；上市时间较短的证券允许缺长背景，但必要Weekly结构/EMA50等不足会明确等待。SPY/QQQ共用完整基准历史。
-- 宏观接官方Fed/FRED日历及BLS实际发布。FOMC比较本次与上次实际目标利率；CPI/就业比较月度变化与连续背景。无FedWatch／市场预期字段，失业率升高或降息不自动当利好。
+- 宏观接官方Fed/FRED日历。CPI／就业实际值在每天美东时间09:05后的首次市场刷新从FRED获取一次，统计原始来源为BLS。2026年10月CPI同比可单独展示注明的估算，官方同比仍为空。FOMC比较本次与上次实际目标利率；CPI/就业比较月度变化与连续背景。无FedWatch／市场预期字段，失业率升高或降息不自动当利好。
 - SMC：已知结构BOS/CHoCH、扫回Sweep和同结构Premium/Discount。FVG先影子观察，不改变Action/Confidence/区间。
 - 股票四tag为元数据画像；Direction规则相同，tag只修饰确认、风险、衰竭、市场/事件和周线稳定性。不会改原始ATR。
 

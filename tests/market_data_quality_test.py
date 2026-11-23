@@ -1,4 +1,5 @@
 """Source trust and official macro parsing; no network or active storage."""
+import io
 import os
 for k in ('BACKGROUND_MARKET_REFRESH_ENABLED','EOD_HISTORY_ENABLED','COMPANY_PROFILE_REVIEW_ENABLED'):os.environ[k]='false'
 import unittest
@@ -51,58 +52,124 @@ class DataQualityTests(unittest.TestCase):
         doc=html.fromstring('<div class="panel"><h4>2026 FOMC Meetings</h4><div class="fomc-meeting"><div class="fomc-meeting__month">October</div><div class="fomc-meeting__date">27-28</div></div></div>')
         result=server.parse_fomc_calendar(doc,datetime(2026,10,12,tzinfo=timezone.utc))
         self.assertEqual(result[0]['at'],'2026-10-28T14:00:00-04:00')
-    def test_bls_actual_units_missing_values_and_revisions(self):
-        names=['CUSR0000SA0','CUSR0000SA0L1E','CES0000000001','LNS14000000']
-        values=[[100,100.2,100.5,100.8],[100,100.2,100.5,100.8],[150000,150100,150220,150350],[4,4,4.1,4.3]]
-        payload={'status':'REQUEST_SUCCEEDED','Results':{'series':[{'seriesID':n,'data':[{'year':'2026','period':f'M{i+1:02d}','value':str(v)} for i,v in enumerate(series)]} for n,series in zip(names,values)]}}
-        r=server.parse_bls_actuals(payload,datetime(2026,5,8,tzinfo=timezone.utc))
-        self.assertEqual(r['status'],'available');self.assertEqual(r['employment']['payroll_change_thousands'],130)
-        self.assertAlmostEqual(r['employment']['unemployment_change_pp'],.2);self.assertAlmostEqual(r['cpi']['headline']['mom_pct'],(100.8/100.5-1)*100)
-        self.assertIsNone(r['employment']['wage_mom_pct']);self.assertIsNone(r['employment']['previous_month_revision_thousands'])
-        old={'series':{'CES0000000001':[{'period':'2026-03','value':150200}]}}
-        self.assertEqual(server.parse_bls_actuals(payload,datetime.now(timezone.utc),old)['employment']['previous_month_revision_thousands'],20)
-        self.assertEqual(server.parse_bls_actuals({'status':'REQUEST_NOT_PROCESSED'},datetime.now(timezone.utc))['status'],'unavailable')
-    def test_bls_gaps_and_cross_series_periods_do_not_make_false_comparisons(self):
-        names=['CUSR0000SA0','CUSR0000SA0L1E','CES0000000001','LNS14000000']
-        payload={'status':'REQUEST_SUCCEEDED','Results':{'series':[{'seriesID':n,'data':[{'year':'2026','period':'M01','value':'100'},{'year':'2026','period':'M03','value':'101'}]} for n in names]}}
-        result=server.parse_bls_actuals(payload,datetime(2026,4,8,tzinfo=timezone.utc))
-        self.assertIsNone(result['cpi']['core']['mom_pct'])
-        self.assertIsNone(result['employment']['payroll_change_thousands'])
-        payload['Results']['series'][-1]['data'][-1]['period']='M02'
-        result=server.parse_bls_actuals(payload,datetime(2026,4,8,tzinfo=timezone.utc))
-        self.assertEqual(result['status'],'unavailable')
-        self.assertIsNone(result['employment']['unemployment_change_pp'])
+    def test_fred_actual_units_missing_values_and_revisions(self):
+        payload = """observation_date,CPIAUCSL,CPILFESL,CPIAUCNS,CPILFENS,PAYEMS,UNRATE,CES0500000003,CIVPART
+2026-01-01,100,100,.,.,150000,4,.,.
+2026-02-01,100.2,100.2,.,.,150100,4,.,.
+2026-03-01,100.5,100.5,.,.,150220,4.1,.,.
+2026-04-01,100.8,100.8,.,.,150350,4.3,.,.
+"""
+        now = datetime(2026, 5, 8, tzinfo=timezone.utc)
+        result = server.parse_fred_macro_actuals(payload, now)
+        jobs = result["employment"]
+        self.assertEqual(result["status"], "available")
+        self.assertEqual(jobs["payroll_change_thousands"], 130)
+        self.assertAlmostEqual(jobs["unemployment_change_pp"], .2)
+        self.assertAlmostEqual(result["cpi"]["headline"]["mom_pct"], (100.8 / 100.5 - 1) * 100)
+        self.assertIsNone(jobs["wage_mom_pct"])
+        self.assertIsNone(jobs["previous_month_revision_thousands"])
+        old = {"series": {"CES0000000001": [{"period": "2026-03", "value": 150200}]}}
+        revised = server.parse_fred_macro_actuals(payload, now, old)
+        self.assertEqual(revised["employment"]["previous_month_revision_thousands"], 20)
 
-    def test_bls_yoy_uses_exact_year_ago_month_despite_intervening_gap(self):
-        def series(name, observations):
-            return {'seriesID':name,'data':[{'year':p[:4],'period':'M'+p[5:],'value':str(v)} for p,v in observations]}
-        adjusted=[('2025-09',100),('2025-11',101),('2026-06',102),('2026-07',103),('2026-08',104),('2026-09',105)]
-        unadjusted=[('2025-08',80),('2025-09',100),('2025-11',101),('2026-08',106),('2026-09',108)]
-        payload={'status':'REQUEST_SUCCEEDED','Results':{'series':[series(name, observations) for name,observations in [('CUSR0000SA0',adjusted),('CUSR0000SA0L1E',adjusted),('CUUR0000SA0',unadjusted),('CUUR0000SA0L1E',unadjusted)]]}}
-        result=server.parse_bls_actuals(payload,datetime(2026,10,14,tzinfo=timezone.utc))
-        for data in result['cpi']['headline'],result['cpi']['core']:
-            self.assertEqual(data['period'],'2026-09')
-            self.assertEqual(data['yoy_base_period'],'2025-09')
-            self.assertEqual(data['yoy_basis'],'not_seasonally_adjusted')
-            self.assertAlmostEqual(data['yoy_pct'],8)
-            self.assertAlmostEqual(data['mom_pct'],(105/104-1)*100)
-            self.assertAlmostEqual(data['previous_mom_pct'],(104/103-1)*100)
-            self.assertAlmostEqual(data['three_month_mean_pct'],sum([(103/102-1)*100,(104/103-1)*100,(105/104-1)*100])/3)
-            self.assertIsNone(data['yoy_unavailable_reason'])
-        # Never substitute August or another row when September is absent.
-        for item in payload['Results']['series'][2:]:
-            item['data']=[r for r in item['data'] if not(r['year']=='2025' and r['period']=='M09')]
-        missing=server.parse_bls_actuals(payload,datetime(2026,10,14,tzinfo=timezone.utc))['cpi']['headline']
-        self.assertIsNone(missing['yoy_pct'])
-        self.assertEqual(missing['yoy_unavailable_reason'],'missing_year_ago_period')
-        self.assertEqual(missing['mom_pct'],result['cpi']['headline']['mom_pct'])
-        for item in payload['Results']['series'][2:]:
-            item['data'].append({'year':'2025','period':'M09','value':'0'})
-        invalid=server.parse_bls_actuals(payload,datetime(2026,10,14,tzinfo=timezone.utc))['cpi']['headline']
-        self.assertIsNone(invalid['yoy_pct']);self.assertEqual(invalid['yoy_unavailable_reason'],'invalid_index')
-        for item in payload['Results']['series'][2:]:
-            item['data']=[r for r in item['data'] if not(r['year']=='2026' and r['period']=='M09')]
-        self.assertEqual(server.parse_bls_actuals(payload,datetime(2026,10,14,tzinfo=timezone.utc))['cpi']['headline']['yoy_unavailable_reason'],'missing_current_period')
+    def test_fred_gaps_and_cross_series_periods_do_not_make_false_comparisons(self):
+        payload = """observation_date,CPIAUCSL,CPILFESL,CPIAUCNS,CPILFENS,PAYEMS,UNRATE,CES0500000003,CIVPART
+2026-01-01,100,100,.,.,150000,4,.,.
+2026-02-01,.,.,.,.,.,4.1,.,.
+2026-03-01,101,101,.,.,150200,.,.,.
+"""
+        result = server.parse_fred_macro_actuals(payload, datetime(2026, 4, 8, tzinfo=timezone.utc))
+        self.assertIsNone(result["cpi"]["core"]["mom_pct"])
+        self.assertIsNone(result["employment"]["payroll_change_thousands"])
+        self.assertEqual(result["status"], "unavailable")
+        self.assertIsNone(result["employment"]["unemployment_change_pp"])
+
+    def test_fred_yoy_uses_exact_year_ago_month_despite_intervening_gap(self):
+        payload = """observation_date,CPIAUCSL,CPILFESL,CPIAUCNS,CPILFENS,PAYEMS,UNRATE,CES0500000003,CIVPART
+2025-08-01,.,.,80,80,.,.,.,.
+2025-09-01,100,100,100,100,.,.,.,.
+2025-11-01,101,101,101,101,.,.,.,.
+2026-06-01,102,102,.,.,.,.,.,.
+2026-07-01,103,103,.,.,.,.,.,.
+2026-08-01,104,104,106,106,.,.,.,.
+2026-09-01,105,105,108,108,.,.,.,.
+"""
+        now = datetime(2026, 10, 14, tzinfo=timezone.utc)
+        result = server.parse_fred_macro_actuals(payload, now)
+        for data in result["cpi"]["headline"], result["cpi"]["core"]:
+            self.assertEqual(data["period"], "2026-09")
+            self.assertEqual(data["yoy_base_period"], "2025-09")
+            self.assertEqual(data["yoy_basis"], "not_seasonally_adjusted")
+            self.assertAlmostEqual(data["yoy_pct"], 8)
+            self.assertAlmostEqual(data["mom_pct"], (105 / 104 - 1) * 100)
+            self.assertAlmostEqual(data["previous_mom_pct"], (104 / 103 - 1) * 100)
+            self.assertAlmostEqual(data["three_month_mean_pct"], sum([(103/102-1)*100,(104/103-1)*100,(105/104-1)*100])/3)
+            self.assertIsNone(data["yoy_unavailable_reason"])
+        for base, reason in [(".", "missing_year_ago_period"), ("0", "invalid_index")]:
+            modified = payload.replace("2025-09-01,100,100,100,100", f"2025-09-01,100,100,{base},{base}")
+            data = server.parse_fred_macro_actuals(modified, now)["cpi"]["headline"]
+            self.assertIsNone(data["yoy_pct"])
+            self.assertNotIn("yoy_estimate", data)
+            self.assertEqual(data["yoy_unavailable_reason"], reason)
+            self.assertEqual(data["mom_pct"], result["cpi"]["headline"]["mom_pct"])
+        missing_current = payload.replace("2026-09-01,105,105,108,108", "2026-09-01,105,105,.,.")
+        self.assertEqual(server.parse_fred_macro_actuals(missing_current, now)["cpi"]["headline"]["yoy_unavailable_reason"],
+                         "missing_current_period")
+
+    def test_october_estimates_require_both_unadjusted_neighbors_and_yield_to_official_yoy(self):
+        payload = """observation_date,CPIAUCSL,CPILFESL,CPIAUCNS,CPILFENS,PAYEMS,UNRATE,CES0500000003,CIVPART
+2025-09-01,.,.,324.800,330.804,.,.,.,.
+2025-10-01,.,.,.,.,.,.,.,.
+2025-11-01,.,.,324.122,330.425,.,.,.,.
+2026-09-01,336.298,338.896,336.940,339.287,159128,4.2,37.86,61.8
+2026-10-01,337.476,339.900,337.511,339.921,159293,4.1,38.00,61.9
+"""
+        now = datetime(2026, 11, 22, tzinfo=timezone.utc)
+        cpi = server.parse_fred_macro_actuals(payload, now)["cpi"]
+        for series, expected in [("headline", 4.0221118), ("core", 2.8149267)]:
+            self.assertIsNone(cpi[series]["yoy_pct"])
+            self.assertAlmostEqual(cpi[series]["yoy_estimate"]["pct"], expected)
+            self.assertEqual(cpi[series]["yoy_estimate"]["source_periods"], ["2025-09", "2025-11"])
+        without_neighbor = payload.replace("324.122,330.425", ".,.")
+        self.assertNotIn("yoy_estimate", server.parse_fred_macro_actuals(without_neighbor, now)["cpi"]["headline"])
+        with_official = payload.replace("2025-10-01,.,.,.,.", "2025-10-01,.,.,325,331")
+        data = server.parse_fred_macro_actuals(with_official, now)["cpi"]["headline"]
+        self.assertAlmostEqual(data["yoy_pct"], (337.511 / 325 - 1) * 100)
+        self.assertNotIn("yoy_estimate", data)
+
+    def test_fred_queries_once_after_0905_et_and_preserves_verified_values_on_failure(self):
+        class Clock(datetime):
+            current = None
+
+            @classmethod
+            def now(cls, tz=None):
+                return cls.current.astimezone(tz)
+
+        success = b"observation_date,CPIAUCSL,CPILFESL,CPIAUCNS,CPILFENS,PAYEMS,UNRATE,CES0500000003,CIVPART\n2026-10-01,337.476,339.900,337.511,339.921,159293,4.1,38,61.9\n"
+        responses = [io.BytesIO(success), OSError("FRED timeout")]
+        with tempfile.TemporaryDirectory() as folder, patch.object(server, "MARKET_CACHE_DIR", folder), \
+                patch.object(server, "MACRO_OFFICIAL_CACHE", {}), patch.object(server, "datetime", Clock), \
+                patch.object(server.time, "time", side_effect=lambda: Clock.current.timestamp()), \
+                patch.object(server, "urlopen", side_effect=responses) as request:
+            def actuals_at(utc):
+                Clock.current = datetime.fromisoformat(utc)
+                return server.fetch_official_macro_actuals()
+
+            self.assertEqual(actuals_at("2026-10-31T13:04:59+00:00")["status"], "unavailable")
+            request.assert_not_called()
+            first = actuals_at("2026-10-31T13:05:00+00:00")
+            self.assertEqual(first["status"], "available")
+            self.assertEqual(request.call_args.args[0].get_method(), "GET")
+            self.assertTrue(request.call_args.args[0].full_url.startswith(server.FRED_ACTUALS_URL + "?"))
+            server.MACRO_OFFICIAL_CACHE.clear()
+            self.assertEqual(actuals_at("2026-11-01T14:04:59+00:00"), first)
+            request.assert_called_once()
+            stale = actuals_at("2026-11-01T14:05:00+00:00")
+            self.assertEqual(stale["status"], "stale")
+            self.assertEqual(stale["as_of"], first["as_of"])
+            server.MACRO_OFFICIAL_CACHE.clear()
+            self.assertEqual(actuals_at("2026-11-01T20:05:00+00:00"), stale)
+            self.assertEqual(request.call_count, 2)
 
     def test_legacy_macro_cache_is_refetched_for_exact_period_schema(self):
         now=datetime(2026,10,14,23,tzinfo=timezone.utc).timestamp()
