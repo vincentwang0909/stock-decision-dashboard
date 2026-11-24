@@ -75,6 +75,22 @@
     const n=owner.model.candles.length,count=preferences[owner.options.horizon].range || n;
     owner.chart.timeScale().setVisibleLogicalRange({from:Math.max(0,n-count),to:n+6});
   }
+  function structureMarkers(model, events, t) {
+    const closeTimes = model.barEnds.map(Date.parse);
+    const markers = new Map();
+    for (const event of events) {
+      if (event.confirmed !== true) continue;
+      const index = closeTimes.indexOf(Date.parse(event.timestamp));
+      if (index < 0) continue;
+      const kind = event.kind, up = event.sign > 0;
+      const text = /choch/.test(kind) ? "CHoCH" : /bos/.test(kind) ? "BOS" : /sweep/.test(kind) ? "Sweep"
+        : kind === "failed_break" ? t("Failed break","突破失败") : t("Retest","回踩");
+      markers.set(`${index}:${kind}`, {time:model.candles[index].time, position:up ? "belowBar" : "aboveBar",
+        shape:up ? "arrowUp" : "arrowDown", color:up ? "#24815e" : "#bf514b", text});
+    }
+    return [...markers.values()].sort((a,b) => a.time.localeCompare(b.time));
+  }
+
   function draw(owner) {
     const {host,options,model,lib}=owner,zh=options.language==="zh",t=(en,cn)=>zh?cn:en,pref=preferences[options.horizon];
     const q=selector=>host.querySelector(selector),canvas=q("[data-chart-canvas]"),overlays=q("[data-chart-overlays]");
@@ -118,8 +134,7 @@
     if(layers.structure){
       (structure.levels || []).filter(level=>level.active && level.role_confirmed).forEach(level=>horizontal(level.price,level.role_known_at || level.known_at,level.role==="support"?"#24815e88":"#bf514b88"));
       const smc=frame.trend?.smc || {},events=[...(structure.events || []),...(smc.sweeps || []),smc.last_bos,smc.last_choch].filter(Boolean);
-      const unique=new Map();events.forEach(event=>{const i=toIndex(event.timestamp);if(i<0)return;const kind=event.kind || "Sweep";unique.set(`${i}:${kind}`,{time:model.candles[i].time,position:event.sign>0?"belowBar":"aboveBar",shape:event.sign>0?"arrowUp":"arrowDown",color:event.sign>0?"#24815e":"#bf514b",text:/choch/.test(kind)?"CHoCH":/bos/.test(kind)?"BOS":/sweep/.test(kind)?"Sweep":kind==="failed_break"?t("Failed break","突破失败"):t("Retest","回踩")});});
-      owner.markers=lib.createSeriesMarkers(candles,[...unique.values()].sort((a,b)=>a.time.localeCompare(b.time)),{autoScale:false});
+      owner.markers=lib.createSeriesMarkers(candles,structureMarkers(model,events,t),{autoScale:false});
     }
     // Current snapshot overlays live only in a short right-hand strip. They
     // are not historical orders or reconstructed historical Action ranges.
@@ -169,4 +184,5 @@
     q("[data-chart-table]").innerHTML=`<table><thead><tr>${[t("Date","日期"),t("Open","开"),t("High","高"),t("Low","低"),t("Close","收"),t("Volume","量")].map(v=>`<th>${v}</th>`).join("")}</tr></thead><tbody>${model.candles.slice(-10).map((bar,i)=>`<tr><td>${bar.time}</td>${[bar.open,bar.high,bar.low,bar.close].map(v=>`<td>${number(v)}</td>`).join("")}<td>${volume(model.volume[model.candles.length-Math.min(10,model.candles.length)+i]?.value)}</td></tr>`).join("")}</tbody></table>`;
   }
   root.TechnicalChart={markup,mount,destroy,debugState:()=>({active:active?.chart?1:0,created,removed,bars:active?.model?.candles.length || 0,series:active?.series?.length || 0})};
+  if (typeof module === "object" && module.exports) module.exports = {structureMarkers};
 }(globalThis));

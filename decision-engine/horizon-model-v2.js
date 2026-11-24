@@ -87,7 +87,7 @@
       context: { risk, exhaustionScore: exhaustion.score, marketModifiers, profile: horizonProfile, },
     });
     const backgroundOnly = Boolean(horizonProfile.leveraged && horizon === "weekly");
-    const familyDecision = backgroundOnly ? { action:"hold",actionFamily:"background",priceState:rawLandscape.priceState,reasonCode:"leveraged_weekly_background",reasons:{supporting:[],limiting:[{code:"leveraged_weekly_background",text:"leveraged_weekly_background"}]},guardrails:[] } : engine.execution.decisionForPriceState({landscape:rawLandscape,technical,exhaustionScore:exhaustion.score,risk,marketModifiers,profile:horizonProfile});
+    const familyDecision = backgroundOnly ? { action:"hold",actionFamily:"background",priceState:rawLandscape.priceState,reasonCode:"leveraged_weekly_background",reasons:{supporting:[],limiting:[{code:"leveraged_weekly_background",text:"leveraged_weekly_background"}]},guardrails:[] } : engine.execution.decisionForPriceState({landscape:rawLandscape,price,technical,exhaustionScore:exhaustion.score,risk,marketModifiers,profile:horizonProfile});
     const actionBeforeStability=familyDecision.action;
     const materialChangeReasons=unique([...technical.materialSignals,...(marketModifiers.shock?["market_shock"]:[]),...(marketModifiers.entryPaused?["major_release_window"]:[])]);
     const stability=engine.stability.evaluate({ticker,horizon,candidateAction:familyDecision.action,actionFamily:familyDecision.actionFamily,materialChangeReasons,profile:horizonProfile,technical});

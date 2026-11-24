@@ -54,6 +54,7 @@ for (const horizon of ["daily", "weekly"]) {
   assert.match(result, /主周期斜率/);
   assert.match(result, /布林带＋RSI/);
   assert.match(result, /移动平均线/);
+  assert.match(result, /近期无已确认事件/);
   assert.doesNotMatch(result, /Primary slope|recovering bearish|rising|falling|Moving averages|Bandwidth|Signal line|Relative Strength/);
 }
 assert.match(vm.runInContext('technicalBlock(sampleRow, "daily")', context), /空头动量修复/);
@@ -101,6 +102,20 @@ assert.doesNotMatch(warmingPanel, /price-map-track/);
 vm.runInContext('state.language = "en";', context);
 assert.equal(vm.runInContext('decisionActionLabel({action: "buy", actionLabel: "买入"})', context), config.actionLabels.buy.en);
 const english = vm.runInContext('technicalBlock(sampleRow, "daily")', context);
+assert.match(english, /No recent confirmed sweep/);
+context.sweepRow = JSON.parse(original);
+const sweepTrend = context.sweepRow.technicalFeatures.horizons.daily.trend;
+sweepTrend.smc.sweeps = [{kind:"sweep_low",price:94}];
+assert.match(vm.runInContext('technicalBlock(sweepRow,"daily")', context), /94\.00/);
+assert.doesNotMatch(vm.runInContext('technicalBlock(sweepRow,"daily")', context), /No recent confirmed sweep|Insufficient structure data/);
+sweepTrend.smc = {availability:"unavailable"};
+assert.match(vm.runInContext('technicalBlock(sweepRow,"daily")', context), /Insufficient structure data/);
+vm.runInContext('state.language="zh"', context);
+assert.match(vm.runInContext('technicalBlock(sweepRow,"daily")', context), /结构数据不足/);
+sweepTrend.smc = {availability:"available",sweeps:[]};
+sweepTrend.support_resistance.levels = [];
+assert.match(vm.runInContext('technicalBlock(sweepRow,"daily")', context), /结构数据不足/);
+vm.runInContext('state.language="en"', context);
 assert.match(english, /Primary slope/); assert.match(english, /recovering bearish/);
 assert.equal(JSON.stringify(row), original, "localization never mutates canonical Technical or Profile data");
 console.log("Dashboard language: all profile slots, technical horizons, Fibonacci, unknown/missing states, English roundtrip and canonical-data preservation passed.");

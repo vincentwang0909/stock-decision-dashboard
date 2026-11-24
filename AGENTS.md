@@ -2,7 +2,7 @@
 
 ## Current architecture · 2026-10-12
 
-One production engine, internal release `V2`, feature schema `V2-daily-weekly`.
+One production engine, internal release `V2.1`, feature schema `V2-daily-weekly`.
 The Dashboard does not display the version. Independent `daily` and `weekly`
 replace Short/Mid/Long; there is no third horizon, 1H/4H source or legacy switch.
 Current specification and validation: [V2 Daily / Weekly](docs/daily-weekly-engine-proposal-2026-10-12.md).

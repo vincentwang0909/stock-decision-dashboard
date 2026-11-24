@@ -8,9 +8,21 @@ macroAnnual.market_context.macro_actuals.cpi.headline.yoy_pct=8;
 macroAnnual.market_context.macro_actuals.cpi.core.yoy_pct=5;
 assert.deepEqual(e.market.forHorizon(e.market.evaluate(macroBase),"daily",{},{}),e.market.forHorizon(e.market.evaluate(macroAnnual),"daily",{},{}));
 const decide=(features=featureSet(),price=99,classification={},context=market(),metadata={})=>e.decide({ticker:"TEST",price,classification,technicalFeatures:features,marketContext:context,metadata});
+{
+  const features = featureSet({daily:"bear", weekly:"bear", options:{daily:{atr:2,lowerBand:90}}});
+  const trend = features.horizons.daily.trend;
+  trend.smc.protected_high.price = 101.504;
+  Object.assign(trend.support_resistance.levels[0],{price:96.004,active:true});
+  Object.assign(features.fibonacci_structure.daily,{swing_low:96.004,retracement_levels:{},extension_levels:{}});
+  const actionAt = price => decide(features,price).horizons.daily.action;
+  assert.deepEqual([100,100.004,100.009,100.704].map(actionAt),["sell","short_sell","short_sell","sell"],
+    "the full Daily engine passes the raw quote through the R and location gates");
+  features.horizons.daily.volatility.bollinger.bollinger_1d.lower_band = 97;
+  assert.equal(actionAt(100.009),"sell","a nearer isolated Bollinger level cannot be bypassed for the swing");
+}
 let result=decide();
 assert.deepEqual(Object.keys(result.horizons),["daily","weekly"]);
-assert.equal(result.version,"V2");assert.equal(result.action,undefined);
+assert.equal(result.version,"V2.1");assert.equal(result.action,undefined);
 assert.equal(result.horizons.daily.action,"buy");
 assert.equal(decide(featureSet(),98.5).horizons.daily.action,"strong_buy");
 assert.equal(decide(featureSet(),98.5,{},market(),{daysToEarnings:1}).horizons.daily.action,"buy","known earnings proximity prevents Strong Buy without banning every ordinary entry");

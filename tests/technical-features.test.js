@@ -117,3 +117,24 @@ const missingChart=buildChartData({history:missingVolume,features:build(missingV
 assert(!Object.hasOwn(missingChart.volume[100],"value"),"missing volume is whitespace, never zero");
 assert(!Object.hasOwn(missingChart.volumeAverage[110],"value"),"invalid volume cannot enter a rolling average");
 console.log("Chart: completed own-frame bars, independent series endpoints, Weekly totals, volume gaps and no feature mutation passed.");
+
+const {structureMarkers} = require("../technical-chart.js");
+for (const horizon of ["daily","weekly"]) {
+  const chart = buildChartData({history:raw,features:f,horizon});
+  const model = {candles:chart.candles.slice(-3), barEnds:chart.barEnds.slice(-3)};
+  const [first,second,third] = model.barEnds;
+  const events = [
+    {kind:"bos_up", sign:1, timestamp:first},
+    {kind:"choch_down", sign:-1, timestamp:new Date(Date.parse(second)).toISOString()},
+    {kind:"sweep_low", sign:1, timestamp:third},
+    {kind:"bos_up", sign:1, timestamp:first},
+    {kind:"sweep_high", sign:-1, timestamp:chart.barEnds.at(-4)},
+    {kind:"choch_up", sign:1, timestamp:new Date(Date.parse(second)-1).toISOString()},
+    {kind:"bos_down", sign:-1, timestamp:new Date(Date.parse(third)+1).toISOString()},
+  ].map(event => ({...event, confirmed:true}));
+  events.push({kind:"sweep_high",sign:-1,timestamp:second,confirmed:false});
+  const markers = structureMarkers(model, events, en => en);
+  assert.deepEqual(markers.map(m => [m.time,m.text,m.shape]), [
+    [model.candles[0].time,"BOS","arrowUp"], [model.candles[1].time,"CHoCH","arrowDown"], [model.candles[2].time,"Sweep","arrowUp"],
+  ]);
+}

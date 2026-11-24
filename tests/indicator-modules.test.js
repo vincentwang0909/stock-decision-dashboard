@@ -21,6 +21,33 @@ assert(choch.events.some(x=>x.kind==="choch_down"));assert.equal(choch.smc.beari
 const sweepBars=clone(raw.slice(0,96));sweepBars.push({...bars[96],open:107,high:109,low:98,close:108});
 const sweep=t.supportResistanceFeature(sweepBars,"1d",[],null,at);
 assert(sweep.smc.sweeps.some(x=>x.kind==="sweep_low" && x.price===99 && x.confirmed));
+{
+  const source = rawHistory(540), daily = t.normalizeBars(source,{priceOnly:true});
+  const weekly = t.completedWeeklyBars(daily,{asOf:source.as_of,calendar:source.session_calendar});
+  for (const [interval, history, deadline] of [["1d",daily,2], ["1w",weekly,1]]) {
+    const base = history.slice(0,95).map((bar,i) => {
+      const mid = 107 + Math.sin(i/4)*.4;
+      return {...bar,open:mid,high:mid+1,low:i===70?99:mid-1,close:mid};
+    });
+    for (const side of ["low","high"]) {
+      function confirmed(tail) {
+        const sample = base.concat(tail.map(([low,close],i) => ({...history[95+i],open:100,high:101,low,close})));
+        const bars = side === "low" ? sample : sample.map(b => ({...b,open:200-b.open,high:200-b.low,low:200-b.high,close:200-b.close}));
+        const structure = t.supportResistanceFeature(bars,interval,[],null,bars.at(-1).end_timestamp);
+        return structure.smc.sweeps.filter(s => s.kind === "sweep_"+side && s.pivot_at === base[70].timestamp)
+          .map(s => [s.timestamp,s.reclaim_bars]);
+      }
+      const waiting = Array.from({length:deadline}, () => [99,99]);
+      const pending = [[98,99], ...waiting];
+      assert.deepEqual(confirmed([[98,100]]), [[history[95].end_timestamp,0]]);
+      assert.deepEqual(confirmed([[98,99], ...waiting.slice(1), [99,100]]), [[history[95+deadline].end_timestamp,deadline]]);
+      assert.deepEqual(confirmed([...pending, [99,100]]), [], "expired attempt cannot claim a later close");
+      assert.deepEqual(confirmed([...pending, [98,100]]), [[history[96+deadline].end_timestamp,0]], "new penetration can reclaim on the expiration bar");
+      assert.deepEqual(confirmed([...pending, [98,99], [99,100]]), [[history[97+deadline].end_timestamp,1]]);
+      assert.deepEqual(confirmed([[98,100],[96,97]]), [], "a later close beyond the original buffered boundary invalidates the sweep");
+    }
+  }
+}
 const earlier=t.supportResistanceFeature(raw,"1d",[],null,raw[95].end_timestamp);
 assert(!earlier.events.some(x=>x.reference_price===120 && x.kind==="bos_up"),"future completed flags cannot override as-of");
 // An old intact break needs a new completed repair to regain entry support.

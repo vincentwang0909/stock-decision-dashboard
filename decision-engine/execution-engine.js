@@ -206,23 +206,63 @@
     return {pair,initial,invalidation,target,opportunity,invalidationForRisk,targetForRisk,invalidationReference:risk?.reference || null,rejectionReason:opportunity?null:risk?"insufficient_reward_risk":"missing_reliable_invalidation"};
   }
 
+  function nearestShortTarget(technical, entryPrice) {
+    const levels = (technical.executionContext?.levels || []).filter(level => level.role === "support" && level.type !== "moving_average");
+    const supports = (technical.structureLevels || []).filter(level =>
+      (level.role_confirmed === false ? level.original_role : level.role) === "support");
+    // Select the first downside obstacle before testing its evidence or R.
+    // A warning at that price cannot be bypassed by moving the target further away.
+    const candidates = [...levels, ...supports].map(level => level.price).filter(price => Number.isFinite(price) && price > 0 && price <= entryPrice);
+    if (!candidates.length) return null;
+    const nearest = Math.max(...candidates);
+    const asOf = Date.parse(technical.signalAsOf);
+    const trustedLevel = levels.some(level => level.price === nearest && level.hardObstacle === true
+      && (!level.knownAt || Date.parse(level.knownAt) <= asOf)
+      && (!level.sourceTimeframe || level.sourceTimeframe === "1d"));
+    const trustedSupport = supports.some(level => level.price === nearest && knownReference(level, technical)
+      && (level.role_confirmed === true || level.role_confirmed === false && level.original_role === "support")
+      && Date.parse(level.role_known_at || level.known_at) <= asOf);
+    return trustedLevel || trustedSupport ? nearest : null;
+  }
+
   function shortPlan({technical,price,horizon,profile}) {
     const empty={shortEntryRange:null,shortInvalidation:null,shortTarget:null,shortRewardRisk:null};
     if ((technical.dataQuality?.score || 0)<engine.config.actionPolicy.minimumDataQuality || !Number.isFinite(price)) return empty;
     if (horizon!=="daily" || profile?.isETF || !technical.smc?.bearish_confirmed) return empty;
     const reference=technical.smc.bearish_retest || technical.smc.held_break;
-    if (!(reference?.reference_price>0) || !(reference.atr_at_event>0)) return empty;
-    const cfg=engine.config.indicators.structure,atr=reference.atr_at_event,center=reference.reference_price;
-    const protectedHigh=technical.smc.protected_high;
-    const upper=protectedHigh?.price>center && protectedHigh.atr_at_known>0?protectedHigh.price+engine.config.indicators.smc.ordinaryInvalidationAtr*protectedHigh.atr_at_known:center+(cfg.retestAtr+engine.config.indicators.smc.ordinaryInvalidationAtr)*atr;
-    const supports=[...(technical.executionContext?.levels || []).filter((item)=>item.role==="support" && item.type!=="moving_average"),...(technical.structureLevels || []).filter((item)=>item.role==="support")];
-    const target=supports.filter((item)=>item.price<center-cfg.retestAtr*atr).sort((a,b)=>b.price-a.price)[0]?.price;
-    if (!(target>0 && target<upper)) return empty;
-    const stop=roundPrice(upper),down=roundPrice(target);
-    const r=engine.config.execution.rewardRisk.short_sell,minimum=(down+r*stop)/(1+r);
-    const entry=range(Math.max(center-cfg.retestAtr*atr,Math.ceil(minimum*100)/100),Math.min(center+cfg.retestAtr*atr,stop-.01));
-    const rr=entry && price<stop && price>down?(price-down)/(stop-price):null;
-    return {...empty,shortEntryRange:entry,shortInvalidation:stop,shortTarget:down,shortRewardRisk:rr,shortReference:{price:roundPrice(center),knownAt:reference.reference_known_at,confirmedAt:reference.timestamp},shortPlanInvalid:price>=stop};
+    const center = reference?.reference_price, atr = reference?.atr_at_event;
+    const confirmedAt = Date.parse(reference?.timestamp);
+    if (!Number.isFinite(center) || center <= 0 || !Number.isFinite(atr) || atr <= 0
+      || !(Date.parse(reference.reference_known_at) <= confirmedAt && confirmedAt <= Date.parse(technical.signalAsOf))) return empty;
+    const width = engine.config.indicators.structure.retestAtr * atr;
+    // When the quote is in the upper half of the retest, a support between
+    // the quote and the center is also in the path of the short.
+    const target = nearestShortTarget(technical, Math.max(center, Math.min(price, center + width)));
+    if (!(target > 0 && target < center - width)) return empty;
+
+    const protectedHigh = technical.smc.protected_high, brokenLevel = technical.smc.active_break_reference;
+    const buffer = engine.config.indicators.smc.ordinaryInvalidationAtr;
+    let stop;
+    if (knownReference(protectedHigh, technical) && protectedHigh.price > center
+      && Date.parse(protectedHigh.role_known_at ?? protectedHigh.known_at) <= Date.parse(technical.signalAsOf)) {
+      stop = protectedHigh.price + buffer * protectedHigh.atr_at_known;
+    } else if (knownReference(brokenLevel, technical) && brokenLevel.id && brokenLevel.id === reference.level_id
+      && brokenLevel.price === center && brokenLevel.role === "reduce" && brokenLevel.role_confirmed === true
+      && Date.parse(brokenLevel.role_known_at) <= Date.parse(technical.signalAsOf)) {
+      stop = center + width + buffer * atr;
+    } else {
+      return empty;
+    }
+    const minimumR = engine.config.execution.rewardRisk.short_sell;
+    const minimumEntry = (target + minimumR * stop) / (1 + minimumR);
+    // Keep the executable interval and its inputs at source precision.
+    // Currency formatting belongs to the presentation layer.
+    const low = Math.max(center - width, minimumEntry);
+    const high = Math.min(center + width, stop - .01);
+    const entry = low > 0 && low < high ? {low, high} : null;
+    const rr = entry && price < stop && price > target ? (price - target) / (stop - price) : null;
+    return {shortEntryRange:entry, shortInvalidation:stop, shortTarget:target, shortRewardRisk:rr,
+      shortReference:{price:roundPrice(center), knownAt:reference.reference_known_at, confirmedAt:reference.timestamp}, shortPlanInvalid:price >= stop};
   }
 
   function priceStateFor({ price, horizon, atr, opportunityRange, reduceRange, neutralBuffer = null, invalidation = null, breakdown = false }) {
@@ -277,16 +317,16 @@
       debug:{priceLandscapeInputs:{structureModel:raw.structureModel,opportunity:selected.opportunity.inputs,reduce:selected.reduce.inputs,selectedSupport:compactCluster(selected.support),selectedReduce:compactCluster(selected.resistance),neutralBuffer:roundPrice(selected.buffer),originalOpportunity:initial,invalidationReference,rejectionReason,rewardRiskInputs:{invalidation:invalidationForRisk,target:targetForRisk},riskClipped:opportunity?.low!==initial.low || opportunity?.high!==initial.high,boundary,obstacles:{hard:(raw.hardObstacles || []).length,warning:(raw.warningLevels || []).length},candidateCounts:{opportunity:supportClusters.length,reduce:resistanceClusters.length,rejectedRiskPairs:plans.filter((plan)=>!plan.opportunity).length,missingRiskReferencePairs:plans.filter(plan=>plan.rejectionReason==="missing_reliable_invalidation").length}},guardrails:opportunity?[]:[rejectionReason]}};
   }
 
-  function decisionForPriceState({landscape,technical={},exhaustionScore=0,risk=0,marketModifiers={},profile={}}={}) {
+  function decisionForPriceState({landscape,price,technical={},exhaustionScore=0,risk=0,marketModifiers={},profile={}}={}) {
     const state=landscape?.priceState || "INVALID_LANDSCAPE",family=actionFamilyForState(state),plans=landscape?.priceLandscape || {},gates=engine.config.actionPolicy.gates;
     const direction=technical.directionScore || 0,confirmation=technical.confirmationScore || 0,smc=technical.smc || {},evidence=technical.entryEvidence || {},mods=profile.effectiveModifiers || {},pg=mods.actionGates || {};
     const reasons={supporting:[],limiting:[]},guardrails=[];
     const result=(action,code,extra={})=>({action,priceState:state,actionFamily:action==="short_sell"?"short_entry":action==="sell"?"defensive":family,eligibleActions:[action],reasonCode:code,reasons:{supporting:action==="buy" || action==="strong_buy" || action==="accumulate"?[...reasons.supporting,{code,text:code}]:reasons.supporting,limiting:[...reasons.limiting,...(action==="hold" || action==="trim" || action==="sell" || action==="short_sell"?[{code,text:code}]:[])]},guardrails,...extra});
     if ((technical.dataQuality?.score || 0)<engine.config.actionPolicy.minimumDataQuality) return result("hold","waiting_required_data",{actionFamily:"unavailable",missing:technical.dataQuality?.missingCore || []});
-    const inRange=(range)=>range && plans.currentPrice>=range.low && plans.currentPrice<=range.high;
+    const inRange=(range,quote=plans.currentPrice)=>range && quote>=range.low && quote<=range.high;
     if (plans.shortPlanInvalid) reasons.limiting.push({code:"short_plan_invalidated",text:"short_plan_invalidated"});
     const shortBlocked=marketModifiers.entryPaused || marketModifiers.calendarUnavailable || marketModifiers.marketUnavailable || marketModifiers.shock;
-    const shortQualified=!profile.isETF && technical.horizon==="daily" && smc.bearish_confirmed && direction<=gates.shortSell.direction && confirmation>=gates.shortSell.confirmation && !technical.dataQuality?.entryMissing?.length && risk<=gates.shortSell.riskMaximum && evidence.bearishMomentum && evidence.bearishConfirmation && !shortBlocked && inRange(plans.shortEntryRange) && !plans.shortPlanInvalid && plans.shortRewardRisk>=engine.config.execution.rewardRisk.short_sell;
+    const shortQualified=!profile.isETF && technical.horizon==="daily" && smc.bearish_confirmed && direction<=gates.shortSell.direction && confirmation>=gates.shortSell.confirmation && !technical.dataQuality?.entryMissing?.length && risk<=gates.shortSell.riskMaximum && evidence.bearishMomentum && evidence.bearishConfirmation && !shortBlocked && Number.isFinite(price) && inRange(plans.shortEntryRange,price) && !plans.shortPlanInvalid && plans.shortRewardRisk>=engine.config.execution.rewardRisk.short_sell;
     if (shortQualified) return result("short_sell","confirmed_short_entry",{alsoSupportsLongExit:true});
     if (confirmedBreakdown(technical,plans.currentPrice) || smc.bearish_confirmed && direction<=gates.sell.direction && confirmation>=gates.sell.confirmation) return result("sell","confirmed_long_exit");
     const reduce=["IN_REDUCE_ZONE","BEYOND_REDUCE_ZONE"].includes(state) || inRange(plans.reduceRange);

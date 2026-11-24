@@ -5,7 +5,7 @@
   const freeze = (value) => Object.freeze(value);
 
   engine.config = freeze({
-    version: "V2",
+    version: "V2.1",
     indicators: freeze({
       version: "V2-daily-weekly",
       volume: freeze({

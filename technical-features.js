@@ -986,6 +986,11 @@
         } else if (direction < 0 && protectedHigh && bar.close > protectedHigh.price+smcCfg.ordinaryInvalidationAtr*protectedHigh.atr_at_known) {
           lastChoch=event("choch_up",1,protectedHigh,bar,i,protectedHigh.atr_at_known); direction=0;
         }
+        // The reclaim deadline is inclusive. An expired attempt must release
+        // its level before this completed bar can start a new penetration.
+        for (let k = pending.length - 1; k >= 0; k--) {
+          if (i - pending[k].index > smcCfg.sweepReclaimBars[horizon]) pending.splice(k, 1);
+        }
         for (const level of known) {
           const sign=level.original_role === "reduce" ? 1 : -1;
           if (Math.abs(bar.close-level.price)<=cfg.retestAtr*scale) level.touches+=1;
@@ -1015,7 +1020,6 @@
         }
         for (let k=pending.length-1;k>=0;k-=1) {
           const candidate=pending[k], elapsed=i-candidate.index;
-          if (elapsed>smcCfg.sweepReclaimBars[horizon]) { pending.splice(k,1);continue; }
           if (candidate.sign*(bar.close-candidate.price)>0) {
             sweeps.push({ ...candidate,kind:candidate.sign>0?"sweep_low":"sweep_high",timestamp:bar.end_timestamp,bar_timestamp:bar.timestamp,age_bars:age(i),confirmed:true,reclaim_bars:elapsed,invalidated:false });
             if (sweeps.length>cfg.maxEvents) sweeps.shift(); pending.splice(k,1);

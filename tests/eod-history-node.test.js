@@ -10,7 +10,7 @@ try {
  const src=path.join(temp,"input.json"),dest=path.join(temp,"output.json"),runner=path.resolve(__dirname,"../历史记录/生成决策快照.js");
  const run=value=>{fs.writeFileSync(src,JSON.stringify(value));const r=spawnSync(process.execPath,["--max-old-space-size=128","--max-semi-space-size=4",runner,src,dest],{encoding:"utf8"});assert.equal(r.status,0,r.stderr);return JSON.parse(fs.readFileSync(dest));};
  const data=run(input);assert.equal(data.records.length,8);
- for(const row of data.records){assert(["daily","weekly"].includes(row.horizon));assert.equal(row.technical_features.model_diagnostics.model_version,"V2");assert.equal(hasRaw(row.technical_features),false);if(["EMPTY","STALE"].includes(row.ticker)){assert.equal(row.data_status,"unavailable");assert.equal(row.action,null);}}
+ for(const row of data.records){assert(["daily","weekly"].includes(row.horizon));assert.equal(row.technical_features.model_diagnostics.model_version,"V2.1");assert.equal(hasRaw(row.technical_features),false);if(["EMPTY","STALE"].includes(row.ticker)){assert.equal(row.data_status,"unavailable");assert.equal(row.action,null);}}
  const s=data.records.find(x=>x.ticker==="TEST"&&x.horizon==="daily");assert.equal(s.size_class,"MegaCap");assert.equal(s.business_trait,"HighGrowth");assert.equal(s.technical_features.model_diagnostics.confidence.profileConfidenceWeight,0);
  const w=data.records.find(x=>x.ticker==="TEST"&&x.horizon==="weekly");
  assert.equal(s.technical_features.price_position.interval,"1d");assert.equal(w.technical_features.price_position.interval,"1w","Weekly history preserves its own completed-week historical structure");
@@ -22,7 +22,7 @@ try {
  assert(metricA.node_peak_rss_bytes>0 && metricB.node_peak_rss_bytes>0);
  assert.match(data.run_context.source_sha256,/^[a-f0-9]{64}$/);
  assert.match(data.run_context.config_sha256,/^[a-f0-9]{64}$/);
- assert.equal(data.run_context.config.version,"V2");
+ assert.equal(data.run_context.config.version,"V2.1");
  assert.equal(hasRaw(data.run_context),false);
  for (const row of data.records) {
    const why=row.technical_features.decision_explanation;

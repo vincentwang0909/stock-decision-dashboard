@@ -4,7 +4,7 @@ const {loadEngine,clone}=require("./fixtures/decision-scenarios.js");const e=loa
 const {featureSet}=require("./fixtures/decision-scenarios.js");
 const technical=()=>({horizon:"daily",signalAsOf:"2026-10-13T20:00:00Z",directionScore:40,confirmationScore:70,trendPrice:100,atr:2,dataQuality:{score:100,entryMissing:[]},smc:{availability:"available",bullish_confirmed:true,support_repair_bars:1},entryEvidence:{improvingBars:2,weakeningBars:0,independentImprovement:true,bearishMomentum:false}});
 const landscape=()=>({priceState:"IN_OPPORTUNITY_ZONE",priceLandscape:{currentPrice:100,opportunityRange:{low:99,high:101},reduceRange:{low:110,high:112},invalidation:94,rewardRisk:1.7}});
-const apply=(t=technical(),p=landscape(),extra={})=>e.execution.decisionForPriceState({technical:t,landscape:p,risk:20,...extra});
+const apply=(t=technical(),p=landscape(),extra={})=>e.execution.decisionForPriceState({price:p.priceLandscape.currentPrice,technical:t,landscape:p,risk:20,...extra});
 assert.equal(apply().action,"buy");
 let t=technical();t.smc.bullish_confirmed=false;
 assert.equal(apply(t).action,"accumulate","early repair precedes a full reversal");
@@ -36,12 +36,66 @@ assert.equal(e.execution.confirmedBreakdown(t,93.4),true,"material hard boundary
 t.atr=20;assert.equal(e.execution.riskBoundary(t).hard,94,"ATR is frozen when the structural reference became known");
 t.trendPrice=95.4;assert.equal(e.execution.confirmedBreakdown(t,96),true);
 t.smc.protected_low.active=false;assert.equal(e.execution.confirmedBreakdown(t,96),false,"retired structure cannot permanently suppress a real repair");
-t=technical();t.smc={bearish_confirmed:true,held_break:{reference_price:100,atr_at_event:1,reference_known_at:"2026-10-01",timestamp:"2026-10-08"},protected_high:{price:101,atr_at_known:1}};t.executionContext={levels:[{price:94,role:"support",type:"confirmed_swing"}]};t.structureLevels=[];
+t=technical();t.smc={bearish_confirmed:true,held_break:{level_id:"broken-low",reference_price:100,atr_at_event:1,reference_known_at:"2026-10-01",timestamp:"2026-10-08"},protected_high:{price:101,atr_at_known:1,active:true,interval:"1d",known_at:"2026-10-01"}};t.executionContext={levels:[{price:94,role:"support",type:"swing",hardObstacle:true}]};t.structureLevels=[];
 const plan=e.execution.shortPlan({technical:t,price:100,horizon:"daily",profile:{}});
 assert(plan.shortEntryRange && plan.shortInvalidation>plan.shortEntryRange.high && plan.shortTarget<plan.shortEntryRange.low);
 assert(plan.shortRewardRisk>=2);
 assert.equal(e.execution.shortPlan({technical:t,price:102,horizon:"daily",profile:{}}).shortPlanInvalid,true);
 assert.equal(e.execution.shortPlan({technical:t,price:100,horizon:"weekly",profile:{}}).shortEntryRange,null);
+{
+  const bear = clone(t);
+  Object.assign(bear, {directionScore:-75, confirmationScore:85});
+  Object.assign(bear.entryEvidence, {bearishMomentum:true, bearishConfirmation:true});
+  const check = (price) => {
+    const landscape = e.execution.buildLandscape({price, horizon:"daily", technical:bear});
+    return {plan:landscape.priceLandscape, action:apply(bear, landscape, {price}).action};
+  };
+  const target = {price:96.004, role:"support", type:"swing", hardObstacle:true};
+  const high = {...bear.smc.protected_high, price:101.504, atr_at_known:2};
+  bear.smc.protected_high = high;
+  bear.smc.held_break.atr_at_event = 2;
+  bear.executionContext.levels = [target];
+  assert.equal(check(100).action,"sell");
+  assert(check(100).plan.shortRewardRisk < 2, "raw R is about 1.994 even though rounded prices yield 2");
+  assert.equal(check(100.009).action,"short_sell", "raw quote qualifies inside the clipped entry");
+  assert.equal(check(100.704).action,"sell", "rounding cannot pull a quote into the retest band");
+  assert.equal(check(102.003).plan.shortPlanInvalid,false);
+  assert.equal(check(102.004).plan.shortPlanInvalid,true);
+  bear.executionContext.levels = [{...target, price:96}, {...target, price:97, type:"bollinger", hardObstacle:false}];
+  assert.equal(check(100.01).plan.shortTarget,null, "cannot skip the nearer warning to use a distant swing");
+  assert.equal(check(100.01).action,"sell");
+  bear.executionContext.levels = [target, {...target,price:99.8}];
+  assert.equal(check(100.01).plan.shortEntryRange,null, "a nearby support inside the retest band leaves no plan");
+  bear.executionContext.levels = [target, {...target,price:100.3}];
+  assert.equal(check(100.4).action,"sell", "a support between the quote and the retest center also limits downside");
+  bear.executionContext.levels = [target, {...target,price:98.9}];
+  assert.equal(check(100.01).plan.shortTarget,98.9);
+  assert.equal(check(100.01).action,"sell", "too little R to the nearest credible target");
+  bear.executionContext.levels = [{...target,type:"bollinger",hardObstacle:false}];
+  const support = {...high, price:target.price, role:"support", role_confirmed:true};
+  bear.structureLevels = [support];
+  assert.equal(check(100.01).action,"short_sell", "the same price also has an active confirmed support");
+  for (const change of [{active:false},{interval:"1w"},{role_known_at:"2026-11-01"},{role_confirmed:null}]) {
+    bear.structureLevels = [{...support,...change}];
+    assert.equal(check(100.01).action,"sell");
+  }
+  bear.executionContext.levels = [target]; bear.structureLevels = [];
+  for (const change of [{active:false},{interval:"1w"},{known_at:"2026-11-01"},{role_known_at:"2026-11-01"},{atr_at_known:null}]) {
+    bear.smc.protected_high = {...high,...change};
+    assert.equal(check(100.01).plan.shortInvalidation,null);
+    assert.equal(check(100.01).action,"sell");
+  }
+  const broken = {...support,id:"broken-low",price:100,role:"reduce",role_known_at:"2026-10-08"};
+  bear.smc.active_break_reference = broken;
+  assert.equal(check(100.01).action,"short_sell", "an independently live failed-retest reference can anchor the stop");
+  for (const change of [{active:false},{id:"other"},{role_confirmed:false},{role_known_at:"2026-11-01"}]) {
+    bear.smc.active_break_reference = {...broken,...change};
+    assert.equal(check(100.01).action,"sell");
+  }
+  bear.smc.protected_high = {...high,price:101.5}; bear.executionContext.levels = [{...target,price:96}];
+  assert.equal(check(100).plan.shortRewardRisk,2);
+  assert.equal(check(100).action,"short_sell", "exactly 2R qualifies");
+}
 assert.equal(apply(technical(),landscape(),{profile:{leveraged:true},marketModifiers:{entryPaused:true}}).action,"hold");
 assert.equal(apply(technical(),landscape(),{marketModifiers:{entryPaused:true,confirmationAdd:5}}).action,"buy","ordinary stocks raise gates without banning all entries");
 // A stronger-looking but unusable pair must not suppress another legitimate

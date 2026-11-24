@@ -1,7 +1,7 @@
 # Stock Decision Dashboard
 
 共享股票清单，完整 Technical / Market 数据，以及独立 **Daily / Weekly** 决策。
-当前内部引擎版本是 `V2`；界面不显示版本号。原 Short/Mid/Long、1H/4H和旧模型
+当前内部引擎版本是 `V2.1`；界面不显示版本号。原 Short/Mid/Long、1H/4H和旧模型
 已移除。Company Profile 的 `2.1` 是独立画像格式，继续保留。
 
 [当前模型、参数和验收](docs/daily-weekly-engine-proposal-2026-10-12.md) ·
@@ -93,7 +93,7 @@ Daily/Weekly两行，不依赖本机或浏览器。首次成功批次固定，�
 
 - `GET /api/watchlist`，共享清单；原POST/DELETE路径保留。
 - `GET /api/market-data?format=compact`，同源规范行情；`force=true&full_refresh=true`强制刷新请求清单。
-- 既有 `/api/decision-v1` URL保留，序列化格式更新为 `decision.v2`，周期键`daily/weekly`，同一内部`V2`。用户确认无外部旧格式调用方。
+- 既有 `/api/decision-v1` URL保留，序列化格式更新为 `decision.v2`，周期键`daily/weekly`，同一内部`V2.1`。用户确认无外部旧格式调用方。
 - `/api/health`反映内部版本、资源和历史开关；版本不在Dashboard展示。
 
 ## 验证

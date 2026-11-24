@@ -9,7 +9,7 @@ try {
  const r=spawnSync(process.execPath,[path.resolve(__dirname,"../decision-api/emit-decision.js"),file,output],{encoding:"utf8"});assert.equal(r.status,0,r.stderr);
  const data=JSON.parse(fs.readFileSync(output));assert.deepEqual(data.errors,{});
  for(const [ticker,decision] of Object.entries(data.decisions)) {
-  assert.equal(decision.contractVersion,"decision.v2");assert.equal(decision.modelVersion,"V2");assert.equal(decision.action,undefined);assert.deepEqual(Object.keys(decision.horizons),["daily","weekly"]);
+  assert.equal(decision.contractVersion,"decision.v2");assert.equal(decision.modelVersion,"V2.1");assert.equal(decision.action,undefined);assert.deepEqual(Object.keys(decision.horizons),["daily","weekly"]);
   for(const d of Object.values(decision.horizons)) {
    assert(d.confidence>=0&&d.confidence<=100);assert.equal(d.costsIncluded,false);
    for(const band of [d.opportunityRange,d.reduceRange,d.shortEntryRange])if(band)assert(band.low>0&&band.low<band.high);

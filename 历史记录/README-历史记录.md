@@ -26,7 +26,7 @@ already_recorded，不刷新/覆盖已有成功行；失败事务全部回滚。
 
 ## 数据与兼容
 
-新记录使用内部`V2`、特征schema`V2-daily-weekly`和`daily/weekly`。
+新记录使用内部`V2.1`、特征schema`V2-daily-weekly`和`daily/weekly`。
 旧Short/Mid/Long（包括旧Avoid）每个字段原样保留；数据库约束迁移仅允许
 新周期键，复制旧行不改内容。旧Short宽度shadow列留作历史兼容，新行不再
 执行旧宽度模型。已有数据库不在本次验收中写入/迁移。
